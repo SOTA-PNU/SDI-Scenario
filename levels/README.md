@@ -74,7 +74,7 @@ bash levels/run_isaac.sh levels/level0/base_carter_run.py       # 레벨0 base (
 |---|---|---|
 | L0 | FAIL — 제어 코드 없음, 60 s 타임아웃, 스폰에서 정지 (final_d 1.93 m) | PASS — ttg 2.63 s, final_d 0.40 m, 충돌 0 |
 | L1 | FAIL — L0의 전진-only 코드가 뒤쪽 goal 반대 방향으로 직진, 팔레트 지대 관통 후 카드박스에 섀시 충돌 360건 (final_d 6.56 m, yaw_err 1.58) | PASS — ttg 11.85 s, final_d 0.27 m, yaw_err 0.015 rad, 충돌 0 |
-| L2 | (실측 후 기입) | (실측 후 기입) |
+| L2 | FAIL — L1 컨트롤러가 박스를 못 보고 정면 충돌 360건 (partner=`/World/debug_obstacle`) | PASS — ttg 15.25 s, final_d 0.27 m, yaw_err 0.068 rad, 충돌 0. 1차 gap-follow 시도는 코너 스침으로 실패 → bearing-팽창(VFH-lite)으로 재설계 (REPORT §3) |
 | L3 | (실측 후 기입) | (실측 후 기입) |
 
 ## 호스트 특이사항 (재현 시 알아야 할 것)

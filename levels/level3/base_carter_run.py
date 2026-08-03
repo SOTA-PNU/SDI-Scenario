@@ -62,12 +62,12 @@ BEARING_GATE = 0.5  # rad: rotate in place while badly misaligned
 K_ALIGN = 2.0      # P gain for the final in-place alignment
 ALIGN_W_MAX = 0.8  # rad/s limit during final alignment
 YAW_DONE = 0.08    # rad, well inside the 0.26 rad yaw tolerance
-# --- L2 additions: reactive avoidance on the planar ray scan ---
-THREAT_DIST = 1.4   # m: something this close in the front cone -> avoid
+# --- L2 additions: obstacle avoidance on the planar ray scan ---
+BLOCK_RANGE = 2.2   # m: a hit nearer than this blocks bearings around it
+SIDE_MARGIN = 0.55  # m: lateral clearance to keep from any hit point
+THREAT_DIST = 1.4   # m: front-cone hit closer than this -> creep speed
 FRONT_CONE = 0.6    # rad: half-angle of the "in my way" cone
-AVOID_V = 0.25      # m/s while steering around an obstacle
-CLEAR_DIST = 2.2    # m: a candidate direction must see at least this far
-SIDE_MARGIN = 0.45  # m: lateral clearance (robot half-width + margin)
+AVOID_V = 0.25      # m/s while maneuvering around an obstacle
 
 
 def _wrap(a):
@@ -78,14 +78,21 @@ def _wrap(a):
     return a
 
 
-def controller(t, pose, env):
-    """L1 point controller + reactive gap-follow avoidance (the L2 skill).
+def _clamp(v, lim):
+    return max(-lim, min(lim, v))
 
-    Every step, cast a planar ray fan.  If nothing sits within THREAT_DIST
-    of the front cone (or the goal is nearer than the threat), behave exactly
-    like the L1 controller.  Otherwise steer at reduced speed toward the
-    clear bearing closest to the goal bearing, where "clear" means the ray
-    and its neighbours spanning the robot's width all see >= CLEAR_DIST.
+
+def controller(t, pose, env):
+    """L1 point controller + bearing-inflation avoidance (the L2 skill).
+
+    Every step, cast a planar ray fan.  Each hit nearer than BLOCK_RANGE
+    blocks the bearings around it, inflated by the angle that SIDE_MARGIN of
+    lateral clearance subtends at the hit's range: near obstacles block wide
+    wedges, far ones narrow slivers.  While the goal direction is clear the
+    L1 controller runs unchanged; when it is blocked, steer toward the clear
+    bearing nearest the goal direction.  Passing an obstacle keeps its flank
+    inside a blocked wedge, which postpones the turn back toward the goal
+    until the robot is genuinely clear of it - no explicit state needed.
     """
     x, y, yaw = pose
     gx, gy, gyaw = GOAL
@@ -95,40 +102,35 @@ def controller(t, pose, env):
         # inside the goal disc: align to the commanded arrival yaw, finish
         yerr = _wrap(gyaw - yaw)
         if abs(yerr) > YAW_DONE:
-            return 0.0, max(-ALIGN_W_MAX, min(ALIGN_W_MAX, K_ALIGN * yerr)), False
+            return 0.0, _clamp(K_ALIGN * yerr, ALIGN_W_MAX), False
         return 0.0, 0.0, True
 
-    bearing = math.atan2(gy - y, gx - x)
-    err = _wrap(bearing - yaw)
+    err = _wrap(math.atan2(gy - y, gx - x) - yaw)
     scan = env.raycast_scan()
-    front = [dist for b, dist in scan if abs(b) <= FRONT_CONE]
+    # hits at or beyond the goal distance cannot be in the way
+    blocks = [(b - math.atan2(SIDE_MARGIN, r), b + math.atan2(SIDE_MARGIN, r))
+              for b, r in scan if r < min(BLOCK_RANGE, d)]
+
+    def blocked(rb):
+        return any(lo <= rb <= hi for lo, hi in blocks)
+
+    front = [r for b, r in scan if abs(b) <= FRONT_CONE]
     threat = min(front) if front else 99.0
 
-    if threat >= THREAT_DIST or threat > d:
-        # lane clear (or goal nearer than the obstacle): L1 behaviour
-        w = max(-W_MAX, min(W_MAX, K_HEADING * err))
+    if not blocked(err) and threat >= THREAT_DIST:
+        # goal direction clear: L1 behaviour unchanged
+        w = _clamp(K_HEADING * err, W_MAX)
         v = 0.0 if abs(err) > BEARING_GATE else min(CRUISE_V, 0.8 * d)
         return v, w, False
 
-    # avoidance: among sufficiently clear bearings, pick the one whose world
-    # direction is closest to the goal bearing; require the neighbour rays
-    # covering the robot's width at CLEAR_DIST to be clear too
-    half = math.atan2(SIDE_MARGIN, CLEAR_DIST)
-    best_b, best_score = None, None
-    for b, dist in scan:
-        if dist < CLEAR_DIST:
-            continue
-        nb = [dd for bb, dd in scan if abs(bb - b) <= half]
-        if not nb or min(nb) < CLEAR_DIST * 0.8:
-            continue
-        score = abs(_wrap((yaw + b) - bearing))
-        if best_score is None or score < best_score:
-            best_score, best_b = score, b
-    if best_b is None:
+    # goal direction blocked: steer to the clear bearing nearest it
+    cands = [b for b, r in scan if r >= BLOCK_RANGE and not blocked(b)]
+    if not cands:
         return 0.0, W_MAX * 0.6, False  # boxed in: rotate in place and rescan
-    w = max(-W_MAX, min(W_MAX, K_HEADING * best_b))
-    return AVOID_V, w, False
-
+    best = min(cands, key=lambda b: abs(_wrap(b - err)))
+    w = _clamp(K_HEADING * best, W_MAX)
+    v = AVOID_V if threat < THREAT_DIST or abs(best) > BEARING_GATE else 0.8 * CRUISE_V
+    return v, w, False
 
 # ========================= [END EDIT REGION] ===============================
 
