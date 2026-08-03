@@ -1,0 +1,82 @@
+# nova_carter_warehouse_level0.yaml — LEVEL 0: 직진 도달 (forward-only reach)
+#
+# 레벨 사다리(L0 -> L3)의 최하단. 요구 능력은 "전진 주행" 하나뿐이다.
+#   세계    : 빈 통로 (debug_obstacle 없음)
+#   경로    : 시작 pose 앞 lane을 따라가는 단일 직선 구간, 조향/후진/우회 불필요
+#   판정    : reached_goal 만 (자세 무관, 충돌 무관)
+#   실패모드: 미도달 / 타임아웃
+#
+# 기하 근거 (정본 nova_carter_warehouse_goal.yaml 의 실측 fill 승계):
+#   - AMCL 시작 pose = (-6.0, -1.0, yaw=pi). 정본 주행은 x=-6.0 lane을 따라
+#     y=-1.0 -> 5.0 으로 올라가며 cycle-5 run2/run6 + cycle-6 N=10 통과 실적.
+#   - 따라서 y=1.0 은 "이미 통과 실적이 있는 경로 위의 점" = 자유공간 보장. 주행거리 2.0 m.
+#   - 정본 전 구간(6.0 m) 8.4~10.5 s, goal_b(4.0 m) 5.37 s -> 2.0 m 는 ~3 s 수준.
+#     timeout_s 60 은 충분한 여유이면서 "무한 배회"는 잘라낸다.
+#
+# ⚠ 설계상 명시: 시작 yaw=pi(-x 방향)인데 목표는 +y 방향이므로 nav2는 출발 시 제자리 회전
+#   1회를 한다. L0의 "앞으로만"은 *주행 구간이 단일 직진이고 조향/후진/우회가 필요 없다*는
+#   뜻이며, 초기 정렬 회전은 채점하지 않는다(yaw 판정 비활성).
+#   시작 헤딩과 완전히 일치하는 목표(예: (-8.0, -1.0, yaw=pi))를 쓰려면 그 지점은 통과 실적이
+#   없으므로 자유공간 probe가 먼저 필요하다. (LEVELS.md "튜닝 절차" 참고)
+#
+# EXPECTED = pass, exit 0 (근거: 목표점이 통과 실적 경로 위 + 판정이 정본보다 느슨함)
+
+apiVersion: cv-infra/v1
+
+scenario:
+  scene: nova_carter_warehouse
+  robot: nova_carter
+  goal:
+    x: -6.0
+    y: 1.0                               # L0 delta: 시작점에서 lane 따라 2.0 m (정본 5.0 / goal_b 3.0)
+    yaw: 1.5708
+    frame: map
+  seed: 42                               # 결정성 고정 (REQ-EXEC-003, NFR-EXEC-001)
+  timeout_s: 60                          # L0 delta: 짧은 주행이므로 정본 120 -> 60
+
+sut:
+  image_ref: carter-sut:p2               # 정본과 동일 핀
+
+interface:
+  type: ros2
+  adapter_config:                        # 정본과 완전히 동일 (M1 canonical 키 + 실측값)
+    ros_distro: jazzy
+    rmw: rmw_fastrtps_cpp
+    use_sim_time: true
+    goal_interface:
+      kind: action
+      name: /navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    cmd_vel:
+      topic: /cmd_vel
+      type: geometry_msgs/msg/Twist
+    clock_topic: /clock
+    odom_topics:
+      - /odom
+      - /chassis/odom
+    sensors:
+      - topic: /front_3d_lidar/lidar_points
+        type: sensor_msgs/msg/PointCloud2
+        frame: front_3d_lidar
+      - topic: /front_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: front_2d_lidar
+      - topic: /back_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: back_2d_lidar
+    frames:
+      map: map
+      odom: odom
+      base_link: base_link
+    readiness:
+      is_active_service: /lifecycle_manager_navigation/is_active
+
+acceptance_criteria:                     # L0 = 도달만 본다
+  - oracle: reached_goal
+    params:
+      position_tolerance_m: 1.0          # goal_b와 같은 느슨한 값. 실측 GT 최근접오차 최대 0.709
+                                         #   (D-2 근거) 보다 크므로 AMCL+nav2 오차 스택에도 여유.
+      # yaw_tolerance_rad / goal_orientation_wxyz 를 의도적으로 두지 않는다
+      #   -> yaw 판정 비활성 = "도착 자세는 L0 채점 대상이 아님"
+  # no_collision 없음: L0는 빈 통로이며 충돌 회피 능력을 아직 요구하지 않는다.
+  #   (충돌 0 요구는 L1부터 누적)

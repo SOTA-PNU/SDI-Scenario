@@ -1,0 +1,104 @@
+# nova_carter_warehouse_level3.yaml — LEVEL 3: 시간 제약 하 회피 + 정밀 도달 (avoid, fast & precise)
+#
+# L2 대비 누적되는 요구:  (e) 우회를 하되 *제한 시간 안에* 끝낼 것        <-- L3 신규
+#                        (f) 장애물이 목표 직전에 있어 회피 직후 곧바로
+#                            자세 수렴까지 해야 함 (여유 구간 없음)      <-- L3 신규
+#   세계    : debug_obstacle 1개, 목표 근처(y=3.5)에 배치
+#   요구 능력: 인지 + 회피 + 복귀 + 정밀 정렬을 시간 예산 안에 (=효율적인 플래닝)
+#   판정    : reached_goal(위치+yaw) AND no_collision AND max_time_to_goal(45 s)
+#   실패모드: 충돌 / 미도달 / 자세 미정렬 / 도달은 했으나 너무 느림(신규 실패축)
+#
+# 시간 상한 45 s 근거:
+#   - 무장애물 정본 주행 time_to_goal 실측 8.4~10.5 s (p2c5 run2/run6/QA),
+#     N=10 결정성 산포 1.017 s (p2c6), goal_b 5.37 s (p3c2).
+#   - 기존 커스텀 oracle 예시는 무장애물 기준 30.0 s(≈3x)를 썼다. L3는 회피 기동 +
+#     재계획 + 재정렬 비용이 추가되므로 45.0 s(≈4.3x)로 늘려 잡되, mission timeout_s 120
+#     대비로는 2.7x 타이트하다 -> "기어가듯 늦게 도착"은 timeout 을 통과해도 여기서 걸린다.
+#   - 즉 L3에서만 "도달했지만 실패"가 가능해진다. 이게 L2와의 본질적 차이다.
+#
+# 장애물을 y=3.5 로 올린 이유:
+#   - L2(y=2.0)는 회피 후 목표까지 3.0 m 의 복귀 구간이 남아 자세를 여유롭게 수렴한다.
+#   - L3(y=3.5)는 목표(y=5.0)까지 1.5 m 뿐이라, 회피로 흐트러진 자세를 짧은 구간에서
+#     yaw tolerance 0.26 rad 안으로 되돌려야 한다. 위치·자세·시간이 동시에 걸리는 구간.
+#
+# 커스텀 oracle 의존:
+#   - `max_time_to_goal:MaxTimeToGoalOracle` 은 이 저장소에 이미 존재하는 플러그인
+#     (scenarios/max_time_to_goal.py). 이 YAML을 scenarios/ 안에 두면 추가 설치 없이 동작한다
+#     (플랫폼이 시나리오 디렉토리를 sys.path 에 올리고 러너에 ro-mount).
+#   - 이 oracle 은 병합된 criteria view 에서 position_tolerance_m 을 읽어 도달 정의를
+#     reached_goal 과 공유한다 -> 아래 0.75 가 그대로 쓰인다(도달 정의 이중화 없음).
+#
+# EXPECTED = pass, exit 0 (ASSUMPTION — 회피 성공 여부와 회피 포함 time_to_goal 모두 미실측.
+#   첫 probe 에서 실제 time_to_goal 을 재고 45.0 을 재조정할 것. 튜닝 순서는 LEVELS.md 참고)
+
+apiVersion: cv-infra/v1
+
+scenario:
+  scene: nova_carter_warehouse
+  robot: nova_carter
+  goal:
+    x: -6.0
+    y: 5.0
+    yaw: 1.5708
+    frame: map
+  seed: 42
+  timeout_s: 120                         # 미션 예산은 그대로. 실질 상한은 아래 45 s 가 잡는다.
+  debug_obstacle:                        # L3 delta: L2와 같은 크기, 목표 직전으로 이동
+    x: -6.2
+    y: 3.5                               # L2의 2.0 -> 3.5 (목표까지 1.5 m 만 남김)
+    height: 1.0
+    width: 0.8
+    depth: 0.6
+
+sut:
+  image_ref: carter-sut:p2
+
+interface:
+  type: ros2
+  adapter_config:                        # 정본과 완전히 동일
+    ros_distro: jazzy
+    rmw: rmw_fastrtps_cpp
+    use_sim_time: true
+    goal_interface:
+      kind: action
+      name: /navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    cmd_vel:
+      topic: /cmd_vel
+      type: geometry_msgs/msg/Twist
+    clock_topic: /clock
+    odom_topics:
+      - /odom
+      - /chassis/odom
+    sensors:
+      - topic: /front_3d_lidar/lidar_points
+        type: sensor_msgs/msg/PointCloud2
+        frame: front_3d_lidar
+      - topic: /front_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: front_2d_lidar
+      - topic: /back_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: back_2d_lidar
+    frames:
+      map: map
+      odom: odom
+      base_link: base_link
+    readiness:
+      is_active_service: /lifecycle_manager_navigation/is_active
+
+acceptance_criteria:
+  - oracle: reached_goal
+    params:
+      position_tolerance_m: 0.75         # 0.5 이하는 AMCL 스택상 flaky -> 조이지 말 것
+      yaw_tolerance_rad: 0.26
+      goal_orientation_wxyz: [0.7071068, 0.0, 0.0, 0.7071068]
+  - oracle: no_collision
+    params:
+      chassis_path: /World/Nova_Carter_ROS/chassis_link
+      collision_excluded_paths:
+        - /World/Nova_Carter_ROS
+        - /World/warehouse_with_forklifts/GroundPlane
+  - oracle: "max_time_to_goal:MaxTimeToGoalOracle"   # L3 신규 축: 도달 속도
+    params:
+      max_time_to_goal_s: 45.0

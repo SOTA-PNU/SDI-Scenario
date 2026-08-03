@@ -1,0 +1,90 @@
+# nova_carter_warehouse_level1.yaml — LEVEL 1: 전 구간 주행 + 도착 자세 정렬 (navigate & align)
+#
+# L0 대비 누적되는 요구:  (a) 주행 거리 2.0 m -> 6.0 m (정본 전 구간)
+#                        (b) 도착 자세(yaw) 정렬을 채점  <-- L1 신규
+#                        (c) 충돌 0 요구                <-- L1 신규
+#   세계    : 빈 통로 (debug_obstacle 없음)
+#   요구 능력: 전진 + 회전 제어 + 목표 자세 수렴 (아직 회피는 불필요)
+#   판정    : reached_goal(위치 + yaw) AND no_collision
+#   실패모드: 미도달 / 자세 미정렬 / 주행 중 접촉 / 타임아웃
+#
+# 값 근거:
+#   - goal / seed / timeout_s = 정본과 동일(통과 실적: cycle-5 run2/run6, cycle-6 N=10).
+#   - position_tolerance_m 0.75 = 정본 실측값. 0.5 로 조이면 AMCL+nav2 xy-tol 스택이
+#     간헐 초과한다(run5 FAIL >0.5, run6 0.414, run7 0.245) -> 0.5 이하는 flaky 이므로 금지.
+#   - yaw_tolerance_rad 0.26 (~15 deg) = 정본에 이미 적힌 oracle-canonical 값.
+#
+# ⚠ 확인 필요 1건: 정본 주석에 따르면 yaw 판정은 `goal_orientation_wxyz` 가 설정되어야
+#   활성화된다(scenario.goal.yaw 만으로는 비활성). 아래 params 의 goal_orientation_wxyz 는
+#   yaw=1.5708 을 쿼터니언 (w,x,y,z)=(0.7071,0,0,0.7071) 로 변환한 값이다.
+#   criteria params 는 미지 키를 loud-reject 하지 않고 조용히 무시하므로(draft
+#   `goal_tolerance_m` 사례), 만약 이 키 이름이 틀리면 L1은 "위치만 판정"으로 조용히
+#   퇴화한다. 첫 실행 시 result.json 의 reached_goal detail 에 yaw 항목이 실제로 잡히는지
+#   반드시 확인할 것. (미지원이면 LEVELS.md 의 대안 = 커스텀 oracle 로 yaw 판정)
+#
+# EXPECTED = pass, exit 0 (ASSUMPTION — 위치/충돌은 통과 실적이 있으나 yaw 정렬 정확도는
+#   미실측. 첫 런에서 yaw 로 FAIL 하면 tolerance 를 0.35~0.5 로 올려 재측정)
+
+apiVersion: cv-infra/v1
+
+scenario:
+  scene: nova_carter_warehouse
+  robot: nova_carter
+  goal:                                  # 정본과 동일 (통과 실적 있는 lane 끝점)
+    x: -6.0
+    y: 5.0
+    yaw: 1.5708
+    frame: map
+  seed: 42
+  timeout_s: 120
+
+sut:
+  image_ref: carter-sut:p2
+
+interface:
+  type: ros2
+  adapter_config:                        # 정본과 완전히 동일
+    ros_distro: jazzy
+    rmw: rmw_fastrtps_cpp
+    use_sim_time: true
+    goal_interface:
+      kind: action
+      name: /navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    cmd_vel:
+      topic: /cmd_vel
+      type: geometry_msgs/msg/Twist
+    clock_topic: /clock
+    odom_topics:
+      - /odom
+      - /chassis/odom
+    sensors:
+      - topic: /front_3d_lidar/lidar_points
+        type: sensor_msgs/msg/PointCloud2
+        frame: front_3d_lidar
+      - topic: /front_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: front_2d_lidar
+      - topic: /back_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: back_2d_lidar
+    frames:
+      map: map
+      odom: odom
+      base_link: base_link
+    readiness:
+      is_active_service: /lifecycle_manager_navigation/is_active
+
+acceptance_criteria:
+  - oracle: reached_goal
+    params:
+      position_tolerance_m: 0.75         # 정본 실측값 (0.5 이하는 flaky — 위 근거 참고)
+      yaw_tolerance_rad: 0.26            # ~15 deg
+      goal_orientation_wxyz: [0.7071068, 0.0, 0.0, 0.7071068]   # L1 신규: yaw 판정 활성화
+                                         #   yaw=1.5708 -> (cos(y/2), 0, 0, sin(y/2))
+  - oracle: no_collision                 # L1 신규: 접촉 0 요구
+    params:
+      chassis_path: /World/Nova_Carter_ROS/chassis_link
+      collision_excluded_paths:
+        - /World/Nova_Carter_ROS         # 자기 몸체 서브트리(바퀴/캐스터)
+        - /World/warehouse_with_forklifts/GroundPlane   # 바닥면
