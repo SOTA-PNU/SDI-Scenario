@@ -54,10 +54,10 @@ OBSTACLE = {"x": -6.2, "y": 3.5, "height": 1.0, "width": 0.8, "depth": 0.6}
 # [EDIT REGION] mission controller - modify ONLY this block
 # ===========================================================================
 
-CRUISE_V = 0.5     # m/s cruise speed toward the goal
+CRUISE_V = 1.0     # m/s cruise: raised so the mission fits the time budget
 STOP_DIST = 0.30   # m, well inside the 0.75 m position tolerance
 K_HEADING = 1.8    # P gain: bearing error -> yaw rate
-W_MAX = 1.2        # rad/s yaw rate limit
+W_MAX = 1.5        # rad/s yaw rate limit: snappier turns save seconds
 BEARING_GATE = 0.5  # rad: rotate in place while badly misaligned
 K_ALIGN = 2.0      # P gain for the final in-place alignment
 ALIGN_W_MAX = 0.8  # rad/s limit during final alignment
@@ -67,7 +67,7 @@ BLOCK_RANGE = 2.2   # m: a hit nearer than this blocks bearings around it
 SIDE_MARGIN = 0.55  # m: lateral clearance to keep from any hit point
 THREAT_DIST = 1.4   # m: front-cone hit closer than this -> creep speed
 FRONT_CONE = 0.6    # rad: half-angle of the "in my way" cone
-AVOID_V = 0.25      # m/s while maneuvering around an obstacle
+AVOID_V = 0.5       # m/s while maneuvering: budget-conscious but careful
 
 
 def _wrap(a):

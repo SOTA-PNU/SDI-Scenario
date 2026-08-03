@@ -5,16 +5,19 @@
 #                            자세 수렴까지 해야 함 (여유 구간 없음)      <-- L3 신규
 #   세계    : debug_obstacle 1개, 목표 근처(y=3.5)에 배치
 #   요구 능력: 인지 + 회피 + 복귀 + 정밀 정렬을 시간 예산 안에 (=효율적인 플래닝)
-#   판정    : reached_goal(위치+yaw) AND no_collision AND max_time_to_goal(45 s)
+#   판정    : reached_goal(위치+yaw) AND no_collision AND max_time_to_goal(12 s)
 #   실패모드: 충돌 / 미도달 / 자세 미정렬 / 도달은 했으나 너무 느림(신규 실패축)
 #
-# 시간 상한 45 s 근거:
-#   - 무장애물 정본 주행 time_to_goal 실측 8.4~10.5 s (p2c5 run2/run6/QA),
-#     N=10 결정성 산포 1.017 s (p2c6), goal_b 5.37 s (p3c2).
-#   - 기존 커스텀 oracle 예시는 무장애물 기준 30.0 s(≈3x)를 썼다. L3는 회피 기동 +
-#     재계획 + 재정렬 비용이 추가되므로 45.0 s(≈4.3x)로 늘려 잡되, mission timeout_s 120
-#     대비로는 2.7x 타이트하다 -> "기어가듯 늦게 도착"은 timeout 을 통과해도 여기서 걸린다.
-#   - 즉 L3에서만 "도달했지만 실패"가 가능해진다. 이게 L2와의 본질적 차이다.
+# 시간 상한 12 s 근거 (2026-08-03 실측 재조정 — 초판 45 s):
+#   - 초판 45 s 는 nav2 스택 가정의 미실측 추정치였고, levels/ 스탠드얼론 실측(결정적,
+#     seed 42)에서 L2 회피 컨트롤러(=L3 base)가 15.433 s 로 여유 통과 -> 시간축이 안 물림.
+#   - 실측: L3 base(안전-저속, CRUISE 0.5) ttg 15.433 s / 속도 튜닝 정답(CRUISE 1.0,
+#     W_MAX 1.5, AVOID 0.5) ttg 8.3 s. 12.0 = 두 실측의 중간(마진 -3.4 s / +3.7 s).
+#   - 무장애물 L1 실측(11.85 s)보다도 타이트 -> 우회가 있는 L3 에서 12 s 는
+#     시간 예산을 의식한 코드만 달성한다. "도달했지만 늦어서 실패"가 실제로 발생하는
+#     유일한 레벨 — 이게 L2와의 본질적 차이다.
+#   - ⚠ cv-infra + nav2 SUT 로 돌릴 경우엔 미실측이다(무장애물 8.4~10.5 s + 회피 비용
+#     -> 12 s 는 빡빡할 수 있음). 그 용도로는 먼저 실측 후 이 값을 재조정할 것.
 #
 # 장애물을 y=3.5 로 올린 이유:
 #   - L2(y=2.0)는 회피 후 목표까지 3.0 m 의 복귀 구간이 남아 자세를 여유롭게 수렴한다.
@@ -28,8 +31,8 @@
 #   - 이 oracle 은 병합된 criteria view 에서 position_tolerance_m 을 읽어 도달 정의를
 #     reached_goal 과 공유한다 -> 아래 0.75 가 그대로 쓰인다(도달 정의 이중화 없음).
 #
-# EXPECTED = pass, exit 0 (ASSUMPTION — 회피 성공 여부와 회피 포함 time_to_goal 모두 미실측.
-#   첫 probe 에서 실제 time_to_goal 을 재고 45.0 을 재조정할 것. 튜닝 순서는 LEVELS.md 참고)
+# EXPECTED (levels/ 스탠드얼론 실측 기준): base 코드는 fail(도달·무접촉이어도 15.4 s > 12 s),
+#   levels/level3/solution 은 pass(8.3 s). 상세는 levels/level3/REPORT.md.
 
 apiVersion: cv-infra/v1
 
@@ -42,7 +45,7 @@ scenario:
     yaw: 1.5708
     frame: map
   seed: 42
-  timeout_s: 120                         # 미션 예산은 그대로. 실질 상한은 아래 45 s 가 잡는다.
+  timeout_s: 120                         # 미션 예산은 그대로. 실질 상한은 아래 12 s 가 잡는다.
   debug_obstacle:                        # L3 delta: L2와 같은 크기, 목표 직전으로 이동
     x: -6.2
     y: 3.5                               # L2의 2.0 -> 3.5 (목표까지 1.5 m 만 남김)
@@ -101,4 +104,4 @@ acceptance_criteria:
         - /World/warehouse_with_forklifts/GroundPlane
   - oracle: "max_time_to_goal:MaxTimeToGoalOracle"   # L3 신규 축: 도달 속도
     params:
-      max_time_to_goal_s: 45.0
+      max_time_to_goal_s: 12.0           # 초판 45.0 -> 실측 기반 12.0 (위 근거 블록)
