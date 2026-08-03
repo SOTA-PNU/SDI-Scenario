@@ -8,7 +8,7 @@
 
 | 레벨 | 이름 | 세계 | 새로 요구하는 능력 | 판정 (acceptance_criteria) |
 |---|---|---|---|---|
-| **L0** | 직진 도달 | 빈 통로, 2.0 m | 전진 주행 | `reached_goal` (pos 1.0, yaw 미판정) |
+| **L0** | 직진 도달 | 빈 통로, 전방 2.0 m | 전진 주행 (회전 불필요) | `reached_goal` (pos 1.0, yaw 미판정) |
 | **L1** | 주행 + 자세 정렬 | 빈 통로, 6.0 m | 회전 제어 · 목표 자세 수렴 · 무접촉 | + yaw 0.26 활성, pos 0.75, `no_collision` |
 | **L2** | 장애물 회피 | 인지 가능한 박스(1.0 m) 경로 중반 | 인지 → 우회 → 복귀 | L1과 동일 판정 (난이도는 세계가 올림) |
 | **L3** | 시간 제약 회피 + 정밀 도달 | 같은 박스를 목표 직전(y=3.5)으로 | 효율적 플래닝 (짧은 복귀 구간 + 시간 예산) | + `max_time_to_goal` 45 s |
@@ -18,13 +18,15 @@
 ## 레벨별 성공/실패 정의
 
 ### L0 — `nova_carter_warehouse_level0.yaml`
-- **성공**: 60 s 안에 (-6.0, 1.0) 의 1.0 m 반경 안에 들어옴.
+- **성공**: 60 s 안에 (-8.0, -1.0) 의 1.0 m 반경 안에 들어옴.
 - **실패**: 미도달 / 타임아웃. (충돌·자세는 채점하지 않음 — 의도적)
-- **경로 안전성**: 목표점이 정본 통과 실적 주행선(x=-6.0, y=-1.0→5.0) 위라 자유공간 보장.
-- **명시적 단서**: 시작 pose 가 yaw=pi(-x 향)이라 nav2 는 출발 시 제자리 회전 1회를 한다.
-  L0의 "앞으로만"은 *주행 구간이 단일 직진이고 조향/우회가 불필요*하다는 뜻이며 초기 정렬
-  회전은 채점 대상이 아니다. 시작 헤딩과 완전히 일치하는 목표(예: `(-8.0, -1.0, yaw=pi)`)를
-  원하면 그 지점은 통과 실적이 없으므로 **자유공간 probe 먼저**.
+- **경로 안전성**: goal 은 스폰 헤딩(-x) **정면 2.0 m**. 2026-08-03 워크스테이션 실측
+  (`levels/common/probe_scene.py`, PhysX overlap): 전방 2.0 m 까지 FREE, 2.5 m 부터
+  팔레트(SM_PaletteA_358/359)가 통로를 막음 → tolerance 1.0 이면 안전 여유 충분.
+- **초판(a07c868)과의 차이**: goal (-6.0, 1.0, yaw=1.5708) → (-8.0, -1.0, yaw=pi).
+  초판은 전방 자유공간이 미확인이라 "+y lane 위의 통과 실적 점"으로 절충하고 출발 시
+  제자리 회전 1회를 허용했다. probe 로 전방 자유공간이 확정되어 레벨 원 정의
+  ("**앞으로만** 가서 **바로 앞** 목표 도달, 회전 불필요")를 문자 그대로 복원했다.
 
 ### L1 — `nova_carter_warehouse_level1.yaml`
 - **성공**: 120 s 안에 (-6.0, 5.0) 0.75 m 안 + yaw 오차 ≤ 0.26 rad + 접촉 0.
@@ -51,6 +53,10 @@
 ## 튜닝 절차 (probe 순서)
 
 레벨을 올릴 때마다 **한 번에 한 개 값만** 바꾸고 재측정한다.
+
+> 참고: 아래 2번(yaw 판정 활성화 caveat)은 **cv-infra 러너로 돌릴 때**의 주의사항이다.
+> `levels/` 의 스탠드얼론 하네스는 yaw 체크를 `yaw_tolerance_rad` 만으로 직접 구현하므로
+> 해당 caveat 이 적용되지 않는다 (L1/L3 실측에서 yaw 판정 활성 확인됨).
 
 1. **L0 → 통과 확인.** 실패하면 시나리오가 아니라 브링업 문제다(먼저 정본 재현부터).
 2. **L1 의 yaw 판정이 실제로 켜지는지 확인.** ⚠ 정본 주석상 yaw 체크는
@@ -91,8 +97,17 @@ scenarios/nova_carter_warehouse_level2.yaml   # L2 장애물 회피
 scenarios/nova_carter_warehouse_level3.yaml   # L3 시간 제약 회피 + 정밀 도달
 scenarios/max_time_to_goal.py                 # (기존) L3 가 참조하는 커스텀 oracle
 scenarios/nova_carter_warehouse_obstacle_fail.yaml  # (기존) L2 의 negative control
+levels/                                       # 각 레벨의 base/정답 코드 + 실측 리포트
 ```
 
 모든 파일은 정본의 `interface.adapter_config` 실측 fill 을 **그대로** 승계한다(토픽/타입/프레임/
 readiness 무변경). 레벨 간 차이는 `scenario.goal` · `scenario.debug_obstacle` · `timeout_s` ·
 `acceptance_criteria` 에만 있다.
+
+## 실측 구현 (levels/)
+
+이 YAML들은 2026-08-03 워크스테이션(Isaac Sim 4.5, A100)에서 **cv_infra 없이 직접 실행·검증**
+되었다. `levels/levelN/` 마다 base 코드(레벨 시작점)와 solution 코드(목표 성공 정답)가 있고,
+둘은 `[EDIT REGION]` 블록 외에는 문자 단위로 동일하다 — base→solution diff 가 곧 그 레벨의
+정답 키다(NPU 로컬 LLM 벤치마크 픽스처). 실행 결과·과정·시나리오 YAML 변경 내역은
+`levels/levelN/REPORT.md` 와 `levels/README.md` 에 있다.
