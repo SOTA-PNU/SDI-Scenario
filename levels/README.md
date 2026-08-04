@@ -16,6 +16,9 @@ levels/
     carter_env.py               # 공통 하네스: 부팅·장애물 주입·GT pose·충돌 리포트·판정·JSON
     probe_scene.py              # 정찰 프로브 (스폰 pose/자유공간/rclpy/충돌 API 검증)
     check_edit_region.py        # base==solution (수정영역 외) 불변식 체커
+    check_ladder.py             # 사다리 규칙 체커: levelN/base == levelN-1/solution (수정영역)
+    check_yaml_sync.py          # scenarios/*.yaml 본문 == runner givens 동기화 체커
+    plot_traj.py                # base vs solution 궤적 PNG 렌더러
   level{0..3}/
     base_carter_run.py          # 레벨 시작점 (실행하면 FAIL — 그 레벨의 능력이 없음)
     solution_carter_run.py      # 정답 코드 (실행하면 PASS)
@@ -31,6 +34,7 @@ levels/
    하네스(부팅·판정·센서 API)는 고정 — LLM 이 판정을 조작할 수 없다.
 3. **레벨 N 의 base == 레벨 N-1 의 solution** (수정영역 기준). 사다리의 "능력 누적"이
    코드로도 성립한다: 이전 레벨을 풀던 코드가 다음 레벨에서 왜 실패하는지가 base 실측이다.
+   `python3 levels/common/check_ladder.py` 로 기계 검증.
 4. 판정(verdict)의 진실은 `results/*_result.json` 의 `verdict` 필드다.
    (Kit 종료 핸들러가 프로세스 exit code 를 0 으로 덮는 경우가 있어 exit code 는 신뢰 불가)
 
