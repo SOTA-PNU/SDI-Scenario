@@ -6,7 +6,11 @@ This checker enforces that the reference answer (solution_carter_run.py)
 honours the same rule, so base->solution diffs are exactly the answer key.
 
 Usage:  python check_edit_region.py levels/level0 [levels/level1 ...]
-Exit 0 iff every given level folder satisfies the invariant.
+        python check_edit_region.py levels/level1/my_carter_run.py [...]
+
+A folder argument checks its base vs solution; a .py argument checks that
+file against base_carter_run.py in the same folder (use this to validate
+your own attempt before running it).  Exit 0 iff every argument passes.
 """
 
 import sys
@@ -31,19 +35,26 @@ def split(path):
     return "".join(lines[: b - 1]), "".join(lines[e + 1 :])
 
 
+def check_pair(base, cand, label):
+    b_head, b_tail = split(base)
+    c_head, c_tail = split(cand)
+    head_ok, tail_ok = b_head == c_head, b_tail == c_tail
+    status = "OK" if (head_ok and tail_ok) else "MISMATCH"
+    print(f"{label}: outside-edit-region identical: {status}"
+          f"{'' if head_ok else ' (header differs)'}"
+          f"{'' if tail_ok else ' (tail differs)'}")
+    return head_ok and tail_ok
+
+
 def main():
     ok = True
-    for folder in sys.argv[1:]:
-        base = Path(folder) / "base_carter_run.py"
-        sol = Path(folder) / "solution_carter_run.py"
-        b_head, b_tail = split(base)
-        s_head, s_tail = split(sol)
-        head_ok, tail_ok = b_head == s_head, b_tail == s_tail
-        status = "OK" if (head_ok and tail_ok) else "MISMATCH"
-        print(f"{folder}: outside-edit-region identical: {status}"
-              f"{'' if head_ok else ' (header differs)'}"
-              f"{'' if tail_ok else ' (tail differs)'}")
-        ok &= head_ok and tail_ok
+    for arg in sys.argv[1:]:
+        p = Path(arg)
+        if p.suffix == ".py":
+            ok &= check_pair(p.parent / "base_carter_run.py", p, arg)
+        else:
+            ok &= check_pair(p / "base_carter_run.py",
+                             p / "solution_carter_run.py", arg)
     sys.exit(0 if ok else 1)
 
 
