@@ -38,14 +38,11 @@ levels/
 본문과 `base_carter_run.py` 전문을 그대로 입력하고, 출력된 `[EDIT REGION]` 블록을
 base 사본에 끼워 실행·채점합니다. 프롬프트는 답 코드를 담지 않되 **접근법 수준의 지침**까지
 담습니다: 목적이 "정답과 인접한 코드로의 수렴 가능성" 측정이므로, 능력이 있는 모델이라면
-레퍼런스와 같은 계열의 해법에 도달할 수 있어야 합니다.
+**레퍼런스와 같은 계열의 해법**에 도달할 수 있어야 합니다.
 
-`prompted_carter_run.py` 는 그 프롬프트만 보고 작성한 **기준 구현**입니다 (기존
-`solution_carter_run.py` 와 별개 파일 — solution 은 손대지 않음). 상수·명명이 solution 과
-다르지만 같은 계열의 해법입니다 — 이게 "인접(adjacent)"의 기준선입니다. 규칙 위반 여부는
-`python3 levels/common/check_edit_region.py levels/levelN/prompted_carter_run.py` 로 검증.
+`prompted_carter_run.py` 는 그 프롬프트만 보고 작성한 **기준 구현**입니다.
 
-**prompted 실측 (2026-08-04, 동일 조건 seed 42):**
+**prompted 실측**
 
 | 레벨 | verdict | time_to_goal | final_d | yaw_err | 충돌 | solution 대비 |
 |---|---|---|---|---|---|---|
@@ -88,7 +85,7 @@ bash levels/run_isaac.sh levels/level0/base_carter_run.py       # 레벨0 base (
 
 ## 실측 결과 요약
 
-2026-08-03, Isaac Sim 4.5.0, A100 80GB (GPU0), seed 42, dt=1/60. 상세는 각 REPORT.md.
+Isaac Sim 4.5.0, A100 80GB (GPU0), seed 42, dt=1/60. 상세는 각 REPORT.md.
 
 | 레벨 | base 결과 (왜 실패) | solution 결과 |
 |---|---|---|
@@ -97,13 +94,6 @@ bash levels/run_isaac.sh levels/level0/base_carter_run.py       # 레벨0 base (
 | L2 | FAIL — L1 컨트롤러가 박스를 못 보고 정면 충돌 360건 (partner=`/World/debug_obstacle`) | PASS — ttg 15.25 s, final_d 0.27 m, yaw_err 0.068 rad, 충돌 0. 1차 gap-follow 시도는 코너 스침으로 실패 → bearing-팽창(VFH-lite)으로 재설계 (REPORT §3) |
 | L3 | FAIL — 회피·도달·정렬 전부 성공하고도 **ttg 15.433 s > bound 12 s** (유일하게 시간축만 실패 — 효율 결함) | PASS — ttg 8.283 s (여유 3.7 s), final_d 0.28 m, 충돌 0. 정답 키 = 속도 상수 3개 (CRUISE 1.0 / W_MAX 1.5 / AVOID 0.5) |
 
-## 호스트 특이사항 (재현 시 알아야 할 것)
-
-- **GPU1 부팅 크래시**: 이 호스트의 GPU1(CUDA_VISIBLE_DEVICES=1)로는 SimulationApp 부팅이
-  URDF importer 확장 시작 중 segfault 로 죽습니다(단독 실행 포함 재현 2회, GPU0 는 정상).
-  모든 실측은 GPU0. 병렬 실행 불가.
-- 스텝 속도 ~17 fps (A100 은 RT 코어 없음 — `nova_carter_sim/README.md` 참고). sim 60 s ≈ wall 3.5 분.
-- 프로브 실측: 스폰 = 월드 `(-6.0, -1.0, yaw=π)` == 맵 좌표 (두 프레임 일치),
-  전방(-x) 자유공간 2.0 m (2.5 m 부터 팔레트), +y lane 은 goal 까지 FREE.
+## 특이사항 (재현 시 알아야 할 것)
 - `/cmd_vel` 제어는 브리지 내장 rclpy 를 **같은 프로세스**에서 import 해 수행
-  (`carter_env.py` — RoboStack 을 섞으면 ABI 가 깨집니다, `isaac_python.sh` 주석 참고).
+  (`carter_env.py` 참고).
