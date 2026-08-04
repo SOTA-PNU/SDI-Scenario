@@ -218,6 +218,10 @@ class Harness:
             else None
         )
         self._rec_every = int(os.environ.get("CARTER_RECORD_EVERY", "2"))
+        # live-view mode: CARTER_RECORD_EXT=jpg + CARTER_RECORD_ROTATE=10 writes
+        # a rotating jpeg ring (pair with levels/common/mjpeg_server.py)
+        self._rec_ext = os.environ.get("CARTER_RECORD_EXT", "png")
+        self._rec_rotate = int(os.environ.get("CARTER_RECORD_ROTATE", "0"))
         self._rec_idx = 0
         if self._rec_dir:
             os.makedirs(self._rec_dir, exist_ok=True)
@@ -263,9 +267,10 @@ class Harness:
 
     def _maybe_capture(self):
         if self._rec_dir and self.frames % self._rec_every == 0:
+            idx = self._rec_idx % self._rec_rotate if self._rec_rotate else self._rec_idx
             self._rec_cap(
                 self._rec_vp,
-                os.path.join(self._rec_dir, f"{self._rec_idx:05d}.png"),
+                os.path.join(self._rec_dir, f"{idx:05d}.{self._rec_ext}"),
             )
             self._rec_idx += 1
 

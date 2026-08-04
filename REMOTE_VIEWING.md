@@ -1,11 +1,12 @@
 # REMOTE_VIEWING — 내 컴퓨터에서 시뮬레이터 화면 보기
 
-이 서버(A100)는 headless라 모니터가 없다. SSH로 쓰는 원격 사용자가 화면을 보는 방법은 두 가지다.
+이 서버(A100)는 headless라 모니터가 없다. SSH로 쓰는 원격 사용자가 화면을 보는 방법은 세 가지다.
 
 | 방법 | 조건 | 결론 |
 |---|---|---|
-| **A. 녹화 → MP4 받기** | 없음 (항상 됨) | **권장** — 아래 §1 |
-| **B. WebRTC 라이브 스트리밍** | 노트북에서 서버로 TCP 49100 **+ UDP 47998** 직접 도달 | 내부망/포트포워딩 전용 — §2 |
+| **A. 녹화 → MP4 받기** | 없음 (항상 됨) | 최고 화질 — 아래 §1 |
+| **B. WebRTC 라이브 (네이티브 클라이언트)** | **서버 GPU에 NVENC 필요** | ⛔ **이 서버(A100) 불가** — §2 |
+| **C. MJPEG 브라우저 라이브** | 브라우저 + TCP 1포트 | **라이브는 이걸로** (실측 동작) — §3 |
 
 ## 1. 녹화해서 보기 (권장)
 
@@ -69,7 +70,13 @@ scp -P 10022 jun@164.125.19.138:/tmp/cv-infra-carter-levels/levels/level2/result
 (`results/*_result.json`/CSV)를 녹화 런이 덮어썼다면 `git checkout -- <파일>`로 복원할 것.
 프레임 폴더(`frames_*/`, GB 단위)와 mp4는 `.gitignore`로 커밋에서 제외되어 있다.
 
-## 2. WebRTC 라이브 스트리밍 (조건부)
+## 2. WebRTC 라이브 스트리밍 (⛔ 이 서버에서는 불가 — NVENC 없음)
+
+> **실측 결론 (2026-08-04)**: A100은 NVENC(하드웨어 비디오 인코더)가 **0개**인 컴퓨트 전용
+> 카드다. NVIDIA 스트리밍 스택(NVST)은 NVENC 필수라서, 시그널링(TCP 49100)과 UDP 47998이
+> **모두 뚫린 상태를 확인한 뒤에도** 세션이 생성 즉시 `NVST_CCE_DISCONNECTED`로 죽는다
+> (클라이언트 1.0.6/1.1.5 동일). 방화벽·클라이언트 문제가 아니다. 라이브는 §3 MJPEG를 쓸 것.
+> 아래 내용은 **NVENC가 있는 호스트**(예: RTX 계열 미러 서버)에서 이 레포를 쓸 때만 유효하다.
 
 하네스에 opt-in 훅이 있다:
 
@@ -109,8 +116,46 @@ sudo ufw allow 47998:48012/udp
 같은 내부망에서의 접속 예: 클라이언트에 `10.254.182.72` 입력 → 연결.
 (방화벽 확인: 서버에서 `ss -tln | grep 49100` 으로 리스너 확인 가능.)
 
-## 3. 요약
+## 3. MJPEG 브라우저 라이브 (이 서버에서 실측 동작)
 
-- 외부(SSH만 가능)에서는 **§1 녹화**가 사실상 유일한 방법이고, 품질도 충분하다
-  (1280×720 캡처, 30 fps 실시간 재생).
-- 내부망에 앉을 수 있으면 §2 라이브가 된다 — 하네스는 준비돼 있다.
+NVENC 없이 CPU만으로 동작한다: 하네스가 뷰포트를 JPEG 링버퍼로 `/dev/shm`에 캡처하고,
+경량 HTTP 서버(`levels/common/mjpeg_server.py`, stdlib만 사용)가 이를
+multipart MJPEG로 스트리밍한다. 노트북에서는 **브라우저로 열기만 하면 된다** (앱 설치 불필요).
+TCP 한 포트만 쓰므로 SSH 터널로도 동작한다 (WebRTC와 달리 UDP가 없음).
+
+**(1) 씬 구경만 (미션 없이, 기본 3시간):**
+
+```bash
+# 터미널 1 — 시뮬레이터 + 캡처
+bash levels/run_isaac.sh levels/common/live_mjpeg_sim.py
+# 터미널 2 — HTTP 서버 (포트는 ufw에 열려 있는 것 사용)
+python3 levels/common/mjpeg_server.py 49100
+```
+
+**(2) 실제 미션 런을 라이브로:**
+
+```bash
+# 터미널 1 — 회전 JPEG 캡처를 켜고 미션 실행 (60초 대기 후 주행 시작)
+CARTER_RECORD=1 CARTER_RECORD_DIR=/dev/shm/carter_live \
+CARTER_RECORD_EXT=jpg CARTER_RECORD_ROTATE=10 CARTER_LIVE_WAIT=60 \
+  bash levels/run_isaac.sh levels/level2/solution_carter_run.py
+# 터미널 2
+python3 levels/common/mjpeg_server.py 49100
+```
+
+**노트북**: 브라우저에서 `http://<서버IP>:49100` 열기. 프레임 레이트는 ~8 fps
+(sim 자체가 ~17 fps라 체감상 충분). 렌더 스펙클 노이즈는 라이브에서는 그대로 보인다
+(시간축 디노이즈는 녹화 후처리에서만 가능). Wi-Fi에서 버벅이면
+`CARTER_RECORD_EVERY=4`로 전송량을 절반으로.
+
+⚠ 미션 라이브 런도 **시각화 전용**이다 — 캡처 오버헤드가 타이밍을 1프레임쯤 밀므로,
+문서화된 결과를 덮었으면 `git checkout -- levels/levelN/results/...`로 복원.
+
+## 4. 요약
+
+- **최고 화질**은 §1 녹화 (시간축 디노이즈는 후처리에서만 가능).
+- **라이브**는 §3 MJPEG 브라우저 뷰 — 이 서버에서 실제 동작하는 유일한 라이브다.
+  TCP 단일 포트라 내부망 직결(`http://10.254.182.72:49100`)은 물론 **SSH 터널로 외부에서도
+  된다**: `ssh -p 10022 -L 49100:localhost:49100 jun@164.125.19.138` 후 브라우저에서
+  `http://localhost:49100`.
+- §2 네이티브 WebRTC는 NVENC 있는 호스트에서만 유효 (이 A100에서는 불가 — 실측 확정).
