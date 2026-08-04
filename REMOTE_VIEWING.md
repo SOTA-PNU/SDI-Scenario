@@ -38,9 +38,13 @@ CARTER_RECORD=1 CARTER_RECORD_SIZE=1920x1080 \
   bash levels/run_isaac.sh levels/level2/solution_carter_run.py
 cd levels/level2/results
 ~/.local/bin/ffmpeg -framerate 30 -i frames_solution/%05d.png \
-  -vf "hqdn3d=3:2:4:3,scale=1280:-2" -c:v libx264 -pix_fmt yuv420p \
+  -vf "tmix=frames=5,hqdn3d=4:3:8:6,scale=1280:-2" -c:v libx264 -pix_fmt yuv420p \
   -crf 19 -preset slow l2_solution_hq.mp4
 ```
+
+`tmix=frames=5`(5프레임 시간축 평균)가 핵심이다: 카메라가 고정이라 정지 영역의 스펙클이
+프레임 평균으로 거의 사라진다 (움직이는 로봇에는 자연스러운 모션블러가 생기는 정도).
+A/B 실측: atadenoise 단독보다 tmix+hqdn3d 조합이 확연히 깨끗했다.
 
 MP4 인코딩 (ffmpeg 정적 바이너리가 `~/.local/bin/ffmpeg`에 있음):
 
