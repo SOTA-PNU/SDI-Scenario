@@ -359,8 +359,19 @@ class Harness:
         if wait_s > 0:
             print(f"[env] holding {wait_s:.0f}s (wall) for viewers to connect", flush=True)
             hold0 = time.time()
+            k = 0
             while time.time() - hold0 < wait_s:
                 self.sim.step(render=True)
+                k += 1
+                # live (rotating) mode: keep the viewer fed during the hold
+                if self._rec_dir and self._rec_rotate and k % self._rec_every == 0:
+                    self._rec_cap(
+                        self._rec_vp,
+                        os.path.join(
+                            self._rec_dir,
+                            f"{(k // self._rec_every) % self._rec_rotate:05d}.{self._rec_ext}",
+                        ),
+                    )
 
         self._wall0 = time.time()
         self._t0 = self.sim.current_time
