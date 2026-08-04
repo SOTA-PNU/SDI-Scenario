@@ -25,7 +25,7 @@ def controller(t, pose, env):
     return 0.0, 0.0, False
 ```
 
-제어 코드가 없다. 로봇은 ROS 그래프에 살아 있지만 `/cmd_vel` 이 0 → 60 s 내내 스폰에 정지.
+제어 코드가 없습니다. 로봇은 ROS 그래프에 살아 있지만 `/cmd_vel` 이 0 → 60 s 내내 스폰에 정지.
 
 **실측 (base): `verdict: fail`**
 
@@ -96,7 +96,7 @@ final_d 가 소수 4자리까지 일치 — **결정성 확인**.)
 | `scenarios/LEVELS.md` | L0 섹션 재작성 (goal/근거/초판 차이), levels/ 참조 추가 | 위와 동일 + 실측 구현 링크 |
 | `levels/level0/` (신규) | base/solution/REPORT/results | 이 리포트 |
 
-판정 파라미터(`position_tolerance_m: 1.0`, yaw 비활성, timeout 60)는 초판 그대로다.
+판정 파라미터(`position_tolerance_m: 1.0`, yaw 비활성, timeout 60)는 초판 그대로입니다.
 
 ## 6. 재현
 

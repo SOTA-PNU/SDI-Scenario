@@ -1,7 +1,7 @@
 # 레벨 별 사다리 방식 시나리오 구현
 
 > LLM 에게 `base_carter_run.py`와 PROMPT.md를 주고 베이스 코드의 `[EDIT REGION]` 블록만 수정해 레벨을 통과시키게
-> 한다. 여기 있는 `prompted_carter_run.py` 가 Claude 가 만든 **정답(레퍼런스) 코드**이다.
+> 합니다. 여기 있는 `prompted_carter_run.py` 가 Claude 가 만든 **정답(레퍼런스) 코드**입니다.
 
 ## 구조
 
@@ -26,23 +26,23 @@ levels/
 
 ## 벤치마크 규칙
 
-1. **base 와 prompted 는 `[EDIT REGION]` 블록 외에 문자 단위로 동일**하다.
+1. **base 와 prompted 는 `[EDIT REGION]` 블록 외에 문자 단위로 동일**합니다.
 2. 수정 대상은 `controller(t, pose, env) -> (v, w, done)` 와 그 보조 상수/함수 뿐.
 3. **레벨 N 의 base == 레벨 N-1 의 solution**. 사다리의 "능력 누적"이
-   코드로도 성립한다: 이전 레벨을 풀던 코드가 다음 레벨에서 왜 실패하고 어떻게 성공하도록 하는지에 대한 실측.
-4. 판정(verdict)의 진실은 `results/*_result.json` 의 `verdict` 필드다.
+   코드로도 성립합니다: 이전 레벨을 풀던 코드가 다음 레벨에서 왜 실패하고 어떻게 성공하도록 하는지에 대한 실측.
+4. 판정(verdict)의 진실은 `results/*_result.json` 의 `verdict` 필드입니다.
 
 ## 고정 프롬프트 프로토콜 (로컬 LLM 평가용)
 
-각 레벨의 `PROMPT.md` 에는 **고정 프롬프트**가 있다 — 로컬 LLM 을 평가할 때 이 프롬프트
+각 레벨의 `PROMPT.md` 에는 **고정 프롬프트**가 있습니다 — 로컬 LLM 을 평가할 때 이 프롬프트
 본문과 `base_carter_run.py` 전문을 그대로 입력하고, 출력된 `[EDIT REGION]` 블록을
-base 사본에 끼워 실행·채점한다. 프롬프트는 답 코드를 담지 않되 **접근법 수준의 지침**까지
-담는다: 목적이 "정답과 인접한 코드로의 수렴 가능성" 측정이므로, 능력이 있는 모델이라면
-레퍼런스와 같은 계열의 해법에 도달할 수 있어야 한다.
+base 사본에 끼워 실행·채점합니다. 프롬프트는 답 코드를 담지 않되 **접근법 수준의 지침**까지
+담습니다: 목적이 "정답과 인접한 코드로의 수렴 가능성" 측정이므로, 능력이 있는 모델이라면
+레퍼런스와 같은 계열의 해법에 도달할 수 있어야 합니다.
 
-`prompted_carter_run.py` 는 그 프롬프트만 보고 작성한 **기준 구현**이다 (기존
+`prompted_carter_run.py` 는 그 프롬프트만 보고 작성한 **기준 구현**입니다 (기존
 `solution_carter_run.py` 와 별개 파일 — solution 은 손대지 않음). 상수·명명이 solution 과
-다르지만 같은 계열의 해법이다 — 이게 "인접(adjacent)"의 기준선이다. 규칙 위반 여부는
+다르지만 같은 계열의 해법입니다 — 이게 "인접(adjacent)"의 기준선입니다. 규칙 위반 여부는
 `python3 levels/common/check_edit_region.py levels/levelN/prompted_carter_run.py` 로 검증.
 
 **prompted 실측 (2026-08-04, 동일 조건 seed 42):**
@@ -56,7 +56,7 @@ base 사본에 끼워 실행·채점한다. 프롬프트는 답 코드를 담지
 
 ## 컨트롤러 API (LLM 프롬프트에 포함될 계약)
 
-`controller(t, pose, env)` 는 sim 1/60 s 마다 호출된다:
+`controller(t, pose, env)` 는 sim 1/60 s 마다 호출됩니다:
 
 | 인자/반환 | 의미 |
 |---|---|
@@ -65,7 +65,7 @@ base 사본에 끼워 실행·채점한다. 프롬프트는 답 코드를 담지
 | `env.raycast_scan(n_beams=61, fov_deg=180, z=0.35, max_range=6.0)` | 현재 헤딩 기준 평면 레이 팬 → `[(상대 bearing rad, 거리 m), ...]`, 거리==max_range 는 무히트 |
 | 반환 `(v, w, done)` | `/cmd_vel` 의 linear.x [m/s], angular.z [rad/s], 미션 종료 선언 |
 
-`done=True` 를 반환하면 하네스가 로봇을 정지시키고(1 s settle) 최종 pose 로 판정한다.
+`done=True` 를 반환하면 하네스가 로봇을 정지시키고(1 s settle) 최종 pose 로 판정합니다.
 
 ## 판정 의미론 (cv-infra oracle 의 스탠드얼론 구현)
 
@@ -100,10 +100,10 @@ bash levels/run_isaac.sh levels/level0/base_carter_run.py       # 레벨0 base (
 ## 호스트 특이사항 (재현 시 알아야 할 것)
 
 - **GPU1 부팅 크래시**: 이 호스트의 GPU1(CUDA_VISIBLE_DEVICES=1)로는 SimulationApp 부팅이
-  URDF importer 확장 시작 중 segfault 로 죽는다(단독 실행 포함 재현 2회, GPU0 는 정상).
+  URDF importer 확장 시작 중 segfault 로 죽습니다(단독 실행 포함 재현 2회, GPU0 는 정상).
   모든 실측은 GPU0. 병렬 실행 불가.
 - 스텝 속도 ~17 fps (A100 은 RT 코어 없음 — `nova_carter_sim/README.md` 참고). sim 60 s ≈ wall 3.5 분.
 - 프로브 실측: 스폰 = 월드 `(-6.0, -1.0, yaw=π)` == 맵 좌표 (두 프레임 일치),
   전방(-x) 자유공간 2.0 m (2.5 m 부터 팔레트), +y lane 은 goal 까지 FREE.
 - `/cmd_vel` 제어는 브리지 내장 rclpy 를 **같은 프로세스**에서 import 해 수행
-  (`carter_env.py` — RoboStack 을 섞으면 ABI 가 깨진다, `isaac_python.sh` 주석 참고).
+  (`carter_env.py` — RoboStack 을 섞으면 ABI 가 깨집니다, `isaac_python.sh` 주석 참고).

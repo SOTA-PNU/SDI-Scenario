@@ -2,34 +2,34 @@
 
 ## 사용 방법 (채점자용)
 
-아래 **프롬프트 본문**과 `base_carter_run.py` **전문**을 그대로 모델에 입력한다.
+아래 **프롬프트 본문**과 `base_carter_run.py` **전문**을 그대로 모델에 입력합니다.
 모델 출력의 `[EDIT REGION]` 블록을 받아 `<이름>_carter_run.py`(base 사본에 블록만 교체)로
 저장하고 `bash levels/run_isaac.sh levels/level0/<이름>_carter_run.py` 로 실행,
-`results/<이름>_result.json` 의 `verdict` 로 채점한다.
+`results/<이름>_result.json` 의 `verdict` 로 채점합니다.
 
 이 저장소의 기준 구현: [`prompted_carter_run.py`](prompted_carter_run.py) —
 아래 프롬프트만 보고 작성했고 PASS 실측됨 (`results/prompted_result.json`).
 
 ## 프롬프트 본문 (여기부터 모델 입력, base_carter_run.py 전문을 뒤에 붙인다)
 
-당신은 모바일 로봇 제어 코드를 작성하는 엔지니어다. 아래에 Isaac Sim에서 Nova Carter
-로봇을 구동하는 파이썬 러너 파일 `base_carter_run.py` 전문이 주어진다. 이 파일의
-`[EDIT REGION]` ~ `[END EDIT REGION]` 블록**만** 수정해서 미션을 통과시켜라.
+당신은 모바일 로봇 제어 코드를 작성하는 엔지니어입니다. 아래에 Isaac Sim에서 Nova Carter
+로봇을 구동하는 파이썬 러너 파일 `base_carter_run.py` 전문이 주어집니다. 이 파일의
+`[EDIT REGION]` ~ `[END EDIT REGION]` 블록**만** 수정해서 미션을 통과시키십시오.
 
 규칙:
-1. `[EDIT REGION]` 블록 밖은 한 글자도 바꾸지 마라 (상단 givens, 하단 하네스 포함).
-2. `controller(t, pose, env) -> (v, w, done)` 계약을 지켜라. 매 스텝(1/60 s) 호출되며
+1. `[EDIT REGION]` 블록 밖은 한 글자도 바꾸지 마십시오 (상단 givens, 하단 하네스 포함).
+2. `controller(t, pose, env) -> (v, w, done)` 계약을 지키십시오. 매 스텝(1/60 s) 호출되며
    `pose`는 (x, y, yaw) 실측 월드 좌표, `v`는 전진 속도 [m/s], `w`는 yaw 각속도 [rad/s],
-   `done=True`면 미션 종료 후 채점된다.
-3. import 추가 금지 — 이미 import 된 `math` 만 사용하라.
-4. 난수·벽시계에 의존하지 말고 `pose` 기반으로 결정론적으로 제어하라.
-5. 최종 출력은 수정된 `[EDIT REGION]` 블록 전체(마커 주석 포함)만 제시하라.
+   `done=True`면 미션 종료 후 채점됩니다.
+3. import 추가 금지 — 이미 import 된 `math` 만 사용하십시오.
+4. 난수·벽시계에 의존하지 말고 `pose` 기반으로 결정론적으로 제어하십시오.
+5. 최종 출력은 수정된 `[EDIT REGION]` 블록 전체(마커 주석 포함)만 제시하십시오.
 
-미션(레벨 0): 로봇은 (-6.0, -1.0)에서 yaw=π(-x 방향)를 바라보고 스폰된다. 목표
-(-8.0, -1.0)은 스폰 헤딩 **정면 2.0 m** 앞의 빈 통로에 있다. **전진만으로**(v ≥ 0,
-w는 항상 0) 목표에 도달해 정지하라.
+미션(레벨 0): 로봇은 (-6.0, -1.0)에서 yaw=π(-x 방향)를 바라보고 스폰됩니다. 목표
+(-8.0, -1.0)은 스폰 헤딩 **정면 2.0 m** 앞의 빈 통로에 있습니다. **전진만으로**(v ≥ 0,
+w는 항상 0) 목표에 도달해 정지하십시오.
 
 성공 조건: 최종 위치가 목표에서 1.0 m 이내 (yaw는 채점 안 함), 제한 시간 60 s.
 
 접근 지침: 목표까지 남은 거리를 `pose`로 계산해, 허용 반경 안쪽에 충분히 들어왔을 때
-정지하고 `done=True`를 반환하라. 그 전까지는 일정한 전진 속도로 직진하면 된다.
+정지하고 `done=True`를 반환하십시오. 그 전까지는 일정한 전진 속도로 직진하면 됩니다.

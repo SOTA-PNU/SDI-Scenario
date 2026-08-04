@@ -1,17 +1,17 @@
 # QUICKSTART — 직접 돌려보고, 직접 풀어보기
 
 레벨 사다리(L0→L3)를 손으로 재현하고, LLM 대신 직접 `[EDIT REGION]`을 고쳐 레벨을
-통과시켜 보는 가이드. 모든 명령은 **레포 루트**에서 실행한다.
+통과시켜 보는 가이드. 모든 명령은 **레포 루트**에서 실행합니다.
 
 ## 0. 전제
 
 - Isaac Sim 4.5 micromamba 환경이 `~/carter_ws` 에 있는 호스트 (이 A100 서버 기준.
   다른 위치면 `export CARTER_WS=<경로>`).
-- 서버에는 클론이 이미 있다: `/home/jun/carter-scenario-levels`. 없으면:
+- 서버에는 클론이 이미 있습니다: `/home/jun/carter-scenario-levels`. 없으면:
   `git clone https://github.com/SOTA-PNU/SDI-Scenario.git`
 - **GPU0만 사용** (이 호스트의 GPU1은 Isaac 부팅 crash — `run_isaac.sh` 기본값이 GPU0).
   **동시에 한 런만** 실행.
-- ⚠ **판정의 정본은 `results/*_result.json` 의 `verdict`** — exit code 가 아니다
+- ⚠ **판정의 정본은 `results/*_result.json` 의 `verdict`** — exit code 가 아닙니다
   (Kit 종료 핸들러가 exit code 를 0 으로 덮는 경우가 있음).
 
 ## 1. FAIL/PASS 재현 (레벨 0부터)
@@ -33,7 +33,7 @@ bash levels/run_isaac.sh levels/level0/solution_carter_run.py   # ~1.5분 → PA
 ```
 
 결과 원본: `levels/level0/results/{base,solution}_result.json` (+ 궤적 CSV).
-같은 방식으로 level1~3 을 돌리면 각 REPORT.md 의 표와 같은 숫자가 나온다
+같은 방식으로 level1~3 을 돌리면 각 REPORT.md 의 표와 같은 숫자가 나옵니다
 (seed 42 고정 — 소수 3~4자리까지 재현됨).
 
 ## 2. 직접 풀어보기 (LLM 역할 체험)
@@ -59,8 +59,8 @@ bash levels/run_isaac.sh levels/level1/my_carter_run.py
 python3 -c "import json; print(json.load(open('levels/level1/results/my_result.json'))['verdict'])"
 ```
 
-막히면 그 레벨의 `REPORT.md` 에 정답 키(base→solution diff)와 실패 원인 분석이 있다.
-스포일러 없이 힌트만 원하면 각 레벨 YAML 상단 주석(미션 정의)까지만 볼 것.
+막히면 그 레벨의 `REPORT.md` 에 정답 키(base→solution diff)와 실패 원인 분석이 있습니다.
+스포일러 없이 힌트만 원하면 각 레벨 YAML 상단 주석(미션 정의)까지만 보십시오.
 
 ## 3. 검증 스크립트 3종 (GPU 불필요, 수 초)
 
@@ -80,8 +80,8 @@ MAMBA_ROOT_PREFIX=$HOME/carter_ws/mamba $HOME/carter_ws/tools/bin/micromamba run
 
 ## 5. 화면으로 보기 (녹화 / 라이브)
 
-서버는 headless다. **라이브**는 `bash live.sh level2` 한 줄로 미션을 돌리고 노트북
-브라우저에서 `http://<서버IP>:49100` 을 열면 된다 (`bash live.sh` = 씬 구경만,
+서버는 headless입니다. **라이브**는 `bash live.sh level2` 한 줄로 미션을 돌리고 노트북
+브라우저에서 `http://<서버IP>:49100` 을 열면 됩니다 (`bash live.sh` = 씬 구경만,
 `stop` = 종료). **최고 화질**은 `CARTER_RECORD=1` 녹화 → MP4 인코딩 → scp.
 상세·수동 버전·왜 NVIDIA 스트리밍 클라이언트가 안 되는지는
 **[`REMOTE_VIEWING.md`](REMOTE_VIEWING.md)** 참고.

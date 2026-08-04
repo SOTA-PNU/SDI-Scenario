@@ -18,7 +18,7 @@
 ## 2. base 코드와 실행 결과 — 왜 실패하는가
 
 base 의 `[EDIT REGION]` == **레벨 0 의 solution** (사다리 규칙: L(n) base = L(n-1) solution).
-전진만 할 줄 아는 로봇에게 "뒤쪽" 목표를 준 상황이다.
+전진만 할 줄 아는 로봇에게 "뒤쪽" 목표를 준 상황입니다.
 
 **실측 (base): `verdict: fail` — 두 oracle 모두 실패**
 
@@ -32,7 +32,7 @@ base 의 `[EDIT REGION]` == **레벨 0 의 solution** (사다리 규칙: L(n) ba
 
 전개: 전방 2.0 m 자유공간을 지나 2.5 m 의 팔레트 지대를 (바퀴 높이로) 밀고 들어가다
 x≈-8.7 에서 카드박스 더미에 섀시가 정면 접촉, 그대로 정지. **이 런이 충돌 oracle 의
-양성 대조이기도 하다** — 섀시 contact report 가 실제 충돌에서 발화함을 확인.
+양성 대조이기도 합니다** — 섀시 contact report 가 실제 충돌에서 발화함을 확인.
 
 ## 3. 수정 내용 (base → solution, 정답 키)
 
@@ -101,7 +101,7 @@ x≈-8.7 에서 카드박스 더미에 섀시가 정면 접촉, 그대로 정지
 
 핵심 아이디어 — L1 이 요구하는 두 능력을 정확히 추가:
 1. **조향**: goal 방위(bearing)와 현재 yaw 의 오차에 P 제어(`K_HEADING`)로 회전 명령.
-   오차가 크면(`BEARING_GATE` 초과) 제자리 회전만 — 출발 시 π→π/2 정렬이 여기서 일어난다.
+   오차가 크면(`BEARING_GATE` 초과) 제자리 회전만 — 출발 시 π→π/2 정렬이 여기서 일어납니다.
 2. **도착 자세**: goal 디스크(`STOP_DIST`) 진입 후 제자리 회전으로 goal yaw 에 수렴
    (`YAW_DONE` = 0.08 rad, 판정 tol 0.26 의 1/3 지점에서 종료 선언).
 
@@ -128,7 +128,7 @@ yaw 0.015/0.26, 무접촉 0건) 모두 큰 여유로 통과.
 | 파일 | 변경 | 사유 |
 |---|---|---|
 | `scenarios/nova_carter_warehouse_level1.yaml` | **값 변경 없음** (goal/tolerance/timeout 초판 그대로) | 초판 값이 실측으로 검증됨 |
-| — 참고 | 초판 주석의 `goal_orientation_wxyz` caveat 은 **cv-infra 러너 전용**이다. `levels/` 하네스는 yaw 판정을 `yaw_tolerance_rad` 로 직접 구현 → L1 실측에서 yaw 판정 활성 확인 (base 의 yaw_err 1.578 rad 이 실패 사유에 포함됨) | LEVELS.md 튜닝절차에 노트 추가 |
+| — 참고 | 초판 주석의 `goal_orientation_wxyz` caveat 은 **cv-infra 러너 전용**입니다. `levels/` 하네스는 yaw 판정을 `yaw_tolerance_rad` 로 직접 구현 → L1 실측에서 yaw 판정 활성 확인 (base 의 yaw_err 1.578 rad 이 실패 사유에 포함됨) | LEVELS.md 튜닝절차에 노트 추가 |
 | `levels/level1/` (신규) | base/solution/REPORT/results | 이 리포트 |
 
 ## 6. 재현
