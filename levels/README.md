@@ -22,8 +22,10 @@ levels/
   level{0..3}/
     base_carter_run.py          # 레벨 시작점 (실행하면 FAIL — 그 레벨의 능력이 없음)
     solution_carter_run.py      # 정답 코드 (실행하면 PASS)
+    PROMPT.md                   # 고정 프롬프트 (로컬 LLM 벤치마크 입력 — 아래 프로토콜)
+    prompted_carter_run.py      # 위 프롬프트만 보고 작성한 기준 구현 (PASS 실측)
     REPORT.md                   # 과정·결과·diff·시나리오 YAML 변경 내역
-    results/                    # {base,solution}_result.json + trajectory.csv (실측 원본)
+    results/                    # {base,solution,prompted}_result.json + trajectory.csv
 ```
 
 ## 벤치마크 규칙 (파일 구조가 강제하는 것)
@@ -37,6 +39,28 @@ levels/
    `python3 levels/common/check_ladder.py` 로 기계 검증.
 4. 판정(verdict)의 진실은 `results/*_result.json` 의 `verdict` 필드다.
    (Kit 종료 핸들러가 프로세스 exit code 를 0 으로 덮는 경우가 있어 exit code 는 신뢰 불가)
+
+## 고정 프롬프트 프로토콜 (로컬 LLM 평가용)
+
+각 레벨의 `PROMPT.md` 에는 **고정 프롬프트**가 있다 — 로컬 LLM 을 평가할 때 이 프롬프트
+본문과 `base_carter_run.py` 전문을 그대로 입력하고, 출력된 `[EDIT REGION]` 블록을
+base 사본에 끼워 실행·채점한다. 프롬프트는 답 코드를 담지 않되 **접근법 수준의 지침**까지
+담는다: 목적이 "정답과 인접한 코드로의 수렴 가능성" 측정이므로, 능력이 있는 모델이라면
+레퍼런스와 같은 계열의 해법에 도달할 수 있어야 한다.
+
+`prompted_carter_run.py` 는 그 프롬프트만 보고 작성한 **기준 구현**이다 (기존
+`solution_carter_run.py` 와 별개 파일 — solution 은 손대지 않음). 상수·명명이 solution 과
+다르지만 같은 계열의 해법이다 — 이게 "인접(adjacent)"의 기준선이다. 규칙 위반 여부는
+`python3 levels/common/check_edit_region.py levels/levelN/prompted_carter_run.py` 로 검증.
+
+**prompted 실측 (2026-08-04, 동일 조건 seed 42):**
+
+| 레벨 | verdict | time_to_goal | final_d | yaw_err | 충돌 | solution 대비 |
+|---|---|---|---|---|---|---|
+| L0 | **PASS** | 2.15 s | 0.43 m | — | 0 | 상수만 다름 (0.5 m/s vs 0.4) |
+| L1 | **PASS** | 10.3 s | 0.33 m | 0.014 rad | 0 | 게인·게이트 다름, 같은 3단계 구조 |
+| L2 | **PASS** | 15.07 s | 0.28 m | 0.087 rad | 0 | 같은 bearing-팽창 계열, 상수·구현 상이 |
+| L3 | **PASS** | 8.28 s (≤12) | 0.28 m | 0.071 rad | 0 | 정답 키와 동일한 속도 3상수 도출 |
 
 ## 컨트롤러 API (LLM 프롬프트에 포함될 계약)
 
