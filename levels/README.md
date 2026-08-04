@@ -1,11 +1,7 @@
-# levels/ — 레벨 사다리 실측 구현 (LLM 벤치마크 정답 코드)
+# 레벨 별 사다리 방식 시나리오 구현
 
-`scenarios/nova_carter_warehouse_level{0..3}.yaml` 을 **cv_infra 없이** Isaac Sim 4.5 에서
-직접 성공시킨 코드와 그 실측 기록. 목적은 **NPU 로컬 LLM 벤치마크 픽스처**다:
-
-> LLM 에게 `base_carter_run.py` 를 주고 `[EDIT REGION]` 블록만 수정해 레벨을 통과시키게
-> 한다. 여기 있는 `solution_carter_run.py` 가 Claude 가 만든 **정답(레퍼런스) 코드**이고,
-> base→solution diff 가 곧 그 레벨의 정답 키다.
+> LLM 에게 `base_carter_run.py`와 PROMPT.md를 주고 베이스 코드의 `[EDIT REGION]` 블록만 수정해 레벨을 통과시키게
+> 한다. 여기 있는 `prompted_carter_run.py` 가 Claude 가 만든 **정답(레퍼런스) 코드**이다.
 
 ## 구조
 
@@ -28,17 +24,13 @@ levels/
     results/                    # {base,solution,prompted}_result.json + trajectory.csv
 ```
 
-## 벤치마크 규칙 (파일 구조가 강제하는 것)
+## 벤치마크 규칙
 
-1. **base 와 solution 은 `[EDIT REGION]` 블록 외에 문자 단위로 동일**하다.
-   `python levels/common/check_edit_region.py levels/level0 ... levels/level3` 으로 기계 검증.
-2. 수정 대상은 `controller(t, pose, env) -> (v, w, done)` 와 그 보조 상수/함수뿐이다.
-   하네스(부팅·판정·센서 API)는 고정 — LLM 이 판정을 조작할 수 없다.
-3. **레벨 N 의 base == 레벨 N-1 의 solution** (수정영역 기준). 사다리의 "능력 누적"이
-   코드로도 성립한다: 이전 레벨을 풀던 코드가 다음 레벨에서 왜 실패하는지가 base 실측이다.
-   `python3 levels/common/check_ladder.py` 로 기계 검증.
+1. **base 와 prompted 는 `[EDIT REGION]` 블록 외에 문자 단위로 동일**하다.
+2. 수정 대상은 `controller(t, pose, env) -> (v, w, done)` 와 그 보조 상수/함수 뿐.
+3. **레벨 N 의 base == 레벨 N-1 의 solution**. 사다리의 "능력 누적"이
+   코드로도 성립한다: 이전 레벨을 풀던 코드가 다음 레벨에서 왜 실패하고 어떻게 성공하도록 하는지에 대한 실측.
 4. 판정(verdict)의 진실은 `results/*_result.json` 의 `verdict` 필드다.
-   (Kit 종료 핸들러가 프로세스 exit code 를 0 으로 덮는 경우가 있어 exit code 는 신뢰 불가)
 
 ## 고정 프롬프트 프로토콜 (로컬 LLM 평가용)
 
