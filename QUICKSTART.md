@@ -80,8 +80,10 @@ MAMBA_ROOT_PREFIX=$HOME/carter_ws/mamba $HOME/carter_ws/tools/bin/micromamba run
 
 ## 5. 화면으로 보기 (녹화 / 라이브)
 
-서버는 headless다. 런을 영상으로 보려면 `CARTER_RECORD=1` 녹화 → MP4 인코딩 →
-scp 로 받는 방법(항상 됨)과 WebRTC 라이브(내부망 전용)가 있다 —
+서버는 headless다. **라이브**는 `bash live.sh level2` 한 줄로 미션을 돌리고 노트북
+브라우저에서 `http://<서버IP>:49100` 을 열면 된다 (`bash live.sh` = 씬 구경만,
+`stop` = 종료). **최고 화질**은 `CARTER_RECORD=1` 녹화 → MP4 인코딩 → scp.
+상세·수동 버전·왜 NVIDIA 스트리밍 클라이언트가 안 되는지는
 **[`REMOTE_VIEWING.md`](REMOTE_VIEWING.md)** 참고.
 
 ## 6. 함정 모음

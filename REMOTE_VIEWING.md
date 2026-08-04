@@ -123,6 +123,17 @@ NVENC 없이 CPU만으로 동작한다: 하네스가 뷰포트를 JPEG 링버퍼
 multipart MJPEG로 스트리밍한다. 노트북에서는 **브라우저로 열기만 하면 된다** (앱 설치 불필요).
 TCP 한 포트만 쓰므로 SSH 터널로도 동작한다 (WebRTC와 달리 UDP가 없음).
 
+**간편 실행 (`live.sh` — 권장):**
+
+```bash
+bash live.sh              # 빈 창고 씬만 스트리밍 (3시간)
+bash live.sh level2       # level2 solution 미션을 라이브로
+bash live.sh level1 base  # level1 base 미션을 라이브로
+bash live.sh stop         # 전부 종료
+```
+
+서버 기동·환경변수·종료 후 벤치 결과 원복까지 알아서 처리한다. 아래는 수동 버전이다.
+
 **(1) 씬 구경만 (미션 없이, 기본 3시간):**
 
 ```bash
