@@ -8,7 +8,11 @@ Nova Carter **난이도 레벨 사다리 시나리오 모음**. [`yongjunshin/cv
 > 실행·검증**됐다. `levels/levelN/` 에 base 코드(FAIL 실측)·solution 코드(PASS 실측)·과정 리포트·
 > 결과 원본(JSON/CSV/궤적 PNG)이 있다 — cv_infra 없이 스탠드얼론 하네스로 돌렸고, 목적은 **NPU
 > 로컬 LLM 벤치마크 픽스처**다. **직접 돌려보려면 → [`QUICKSTART.md`](QUICKSTART.md)**.
-> **L2 solution 회피 주행 영상(18초 실시간) → [`levels/level2/results/l2_solution_1280.mp4`](levels/level2/results/l2_solution_1280.mp4)**.
+> **solution 주행 영상(실시간, GitHub에서 바로 재생)**:
+> [L0 직진](levels/level0/results/l0_solution_1280.mp4) ·
+> [L1 회전+정렬](levels/level1/results/l1_solution_1280.mp4) ·
+> [L2 장애물 회피](levels/level2/results/l2_solution_1280.mp4) ·
+> [L3 시간제약 회피](levels/level3/results/l3_solution_1280.mp4).
 > L3의 `max_time_to_goal_s` 는 실측 기반으로 45→12 s 재조정됐다(`levels/level3/REPORT.md`).
 
 ## 저장소 레이아웃
