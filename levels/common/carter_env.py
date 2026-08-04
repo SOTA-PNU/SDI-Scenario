@@ -117,6 +117,16 @@ class Harness:
 
         from isaacsim.core.utils.extensions import enable_extension
 
+        # optional WebRTC livestream (env-var opt-in, CARTER_LIVESTREAM=1).
+        # Viewer: NVIDIA "Isaac Sim WebRTC Streaming Client" pointed at this
+        # host - needs TCP 49100 + UDP 47998 reachable from the viewer machine.
+        if os.environ.get("CARTER_LIVESTREAM"):
+            self.app.set_setting("/app/window/drawMouse", True)
+            self.app.set_setting("/app/livestream/allowResize", True)
+            enable_extension("omni.kit.livestream.webrtc")
+            self.app.update()
+            print("[env] WebRTC livestream enabled (TCP 49100 / UDP 47998)", flush=True)
+
         enable_extension("isaacsim.ros2.bridge")
         self.app.update()
 
@@ -195,6 +205,37 @@ class Harness:
         for _ in range(20):
             self.sim.step(render=True)
 
+        # optional viewport frame recording (env-var opt-in, CARTER_RECORD=1;
+        # off by default and has no effect on physics/verdicts)
+        self._rec_dir = os.environ.get("CARTER_RECORD_DIR") or (
+            os.path.join(self.out_dir, f"frames_{self.variant}")
+            if os.environ.get("CARTER_RECORD")
+            else None
+        )
+        self._rec_every = int(os.environ.get("CARTER_RECORD_EVERY", "2"))
+        self._rec_idx = 0
+        if self._rec_dir:
+            os.makedirs(self._rec_dir, exist_ok=True)
+            from isaacsim.core.utils.viewports import set_camera_view
+
+            eye = [float(v) for v in os.environ.get(
+                "CARTER_RECORD_EYE", "-1.0,-2.5,7.5").split(",")]
+            tgt = [float(v) for v in os.environ.get(
+                "CARTER_RECORD_TARGET", "-6.0,2.0,0.3").split(",")]
+            set_camera_view(eye=eye, target=tgt)
+            from omni.kit.viewport.utility import (
+                capture_viewport_to_file,
+                get_active_viewport,
+            )
+
+            self._rec_vp = get_active_viewport()
+            self._rec_cap = capture_viewport_to_file
+            print(
+                f"[env] recording viewport to {self._rec_dir} "
+                f"(every {self._rec_every} frames)",
+                flush=True,
+            )
+
         # GT pose reader (physics state, not USD)
         from isaacsim.core.prims import SingleRigidPrim
 
@@ -214,6 +255,14 @@ class Harness:
         self._physx_query = None  # lazy, for the raycast scan
         print("[env] boot complete (bridge + rclpy + contact report live)", flush=True)
         return self
+
+    def _maybe_capture(self):
+        if self._rec_dir and self.frames % self._rec_every == 0:
+            self._rec_cap(
+                self._rec_vp,
+                os.path.join(self._rec_dir, f"{self._rec_idx:05d}.png"),
+            )
+            self._rec_idx += 1
 
     def _spawn_obstacle(self):
         """cv-infra debug_obstacle semantics: a static box, world state."""
@@ -341,6 +390,7 @@ class Harness:
             self._rclpy.spin_once(self.node, timeout_sec=0.0)
             self.sim.step(render=True)
             self.frames += 1
+            self._maybe_capture()
             if self.frames % 200 == 0:
                 wall = time.time() - self._wall0
                 print(
@@ -357,6 +407,7 @@ class Harness:
             self._rclpy.spin_once(self.node, timeout_sec=0.0)
             self.sim.step(render=True)
             self.frames += 1
+            self._maybe_capture()
 
         return self._evaluate(reached_t, min_dist)
 

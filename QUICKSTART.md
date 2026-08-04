@@ -78,7 +78,13 @@ MAMBA_ROOT_PREFIX=$HOME/carter_ws/mamba $HOME/carter_ws/tools/bin/micromamba run
 # -> levels/level2/results/trajectory.png (base vs solution, goal 디스크/장애물 포함)
 ```
 
-## 5. 함정 모음
+## 5. 화면으로 보기 (녹화 / 라이브)
+
+서버는 headless다. 런을 영상으로 보려면 `CARTER_RECORD=1` 녹화 → MP4 인코딩 →
+scp 로 받는 방법(항상 됨)과 WebRTC 라이브(내부망 전용)가 있다 —
+**[`REMOTE_VIEWING.md`](REMOTE_VIEWING.md)** 참고.
+
+## 6. 함정 모음
 
 | 증상 | 원인/대처 |
 |---|---|

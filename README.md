@@ -16,6 +16,7 @@ Nova Carter **난이도 레벨 사다리 시나리오 모음**. [`yongjunshin/cv
 - `scenarios/LEVELS.md` — 사다리 설계 근거 · 레벨별 성공/실패 정의 · **probe 튜닝 절차** · 스키마 한계.
 - `levels/` — 레벨별 base/solution 코드 · 실측 리포트 · 하네스 · 체커 3종 ([levels/README.md](levels/README.md)).
 - `QUICKSTART.md` — 직접 실행·풀이 가이드.
+- `REMOTE_VIEWING.md` — 원격(SSH) 사용자용 화면 시청 가이드 (녹화→MP4 / WebRTC 라이브).
 
 ## 레벨 사다리
 
