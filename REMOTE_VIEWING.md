@@ -27,6 +27,20 @@ CARTER_RECORD=1 bash levels/run_isaac.sh levels/level2/solution_carter_run.py
 | `CARTER_RECORD_EVERY` | `2` | N 프레임마다 1장 캡처 (물리 60 fps → 30 fps 영상) |
 | `CARTER_RECORD_EYE` | `-1.0,-2.5,7.5` | 카메라 위치 (x,y,z) — 기본값은 주행선 전체가 보이는 부감 |
 | `CARTER_RECORD_TARGET` | `-6.0,2.0,0.3` | 카메라가 바라보는 점 |
+| `CARTER_RECORD_SIZE` | `1280x720` | 렌더 해상도. **고화질은 `1920x1080` 권장** — 아래 참고 |
+
+**고화질 레시피**: A100은 RT 코어가 없고 DLSS-RR 디노이저도 미지원이라 렌더에 스펙클
+노이즈가 낀다. `CARTER_RECORD_SIZE=1920x1080` 으로 크게 렌더한 뒤 ffmpeg에서 1280으로
+**다운스케일(슈퍼샘플링)** 하면 노이즈가 평균화돼 원본 자체가 깨끗해지고 압축 효율도 좋아진다:
+
+```bash
+CARTER_RECORD=1 CARTER_RECORD_SIZE=1920x1080 \
+  bash levels/run_isaac.sh levels/level2/solution_carter_run.py
+cd levels/level2/results
+~/.local/bin/ffmpeg -framerate 30 -i frames_solution/%05d.png \
+  -vf "hqdn3d=3:2:4:3,scale=1280:-2" -c:v libx264 -pix_fmt yuv420p \
+  -crf 19 -preset slow l2_solution_hq.mp4
+```
 
 MP4 인코딩 (ffmpeg 정적 바이너리가 `~/.local/bin/ffmpeg`에 있음):
 
@@ -56,8 +70,11 @@ scp -P 10022 jun@164.125.19.138:/tmp/cv-infra-carter-levels/levels/level2/result
 하네스에 opt-in 훅이 있다:
 
 ```bash
-CARTER_LIVESTREAM=1 bash levels/run_isaac.sh levels/level2/solution_carter_run.py
+CARTER_LIVESTREAM=1 CARTER_LIVE_WAIT=60 bash levels/run_isaac.sh levels/level2/solution_carter_run.py
 ```
+
+`CARTER_LIVE_WAIT=60`: 부팅 완료 후 미션 시작 전에 60초(벽시계) 동안 로봇이 대기한다 —
+이 사이에 클라이언트로 접속하면 주행 시작부터 볼 수 있다 (판정에는 영향 없음).
 
 부팅 로그에 `[env] WebRTC livestream enabled` 가 뜨고 서버가 **TCP 49100**(시그널링)으로
 리스닝한다. 시청은 NVIDIA **"Isaac Sim WebRTC Streaming Client"** (Windows/Linux/macOS,

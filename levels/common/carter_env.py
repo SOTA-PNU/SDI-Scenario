@@ -103,11 +103,16 @@ class Harness:
         from isaacsim import SimulationApp
 
         # host quirk: Kit misreads driver 535.309 as 535.53 -> disable check
+        # CARTER_RECORD_SIZE (e.g. 1920x1080): render larger, downscale in
+        # ffmpeg -> supersampling averages out the RT-core-less speckle noise
+        w, h = 1280, 720
+        if os.environ.get("CARTER_RECORD_SIZE"):
+            w, h = (int(v) for v in os.environ["CARTER_RECORD_SIZE"].lower().split("x"))
         self.app = SimulationApp(
             {
                 "headless": True,
-                "width": 1280,
-                "height": 720,
+                "width": w,
+                "height": h,
                 "active_gpu": 0,
                 "physics_gpu": 0,
                 "multi_gpu": False,
@@ -343,6 +348,15 @@ class Harness:
         "reach within timeout" obligation in a run we truncate; the truncation
         is recorded in the result as aborted_after_collision=true.
         """
+        # CARTER_LIVE_WAIT=<sec>: hold (robot idle, stream rendering) before
+        # the mission starts so a livestream viewer has time to connect
+        wait_s = float(os.environ.get("CARTER_LIVE_WAIT", "0") or 0.0)
+        if wait_s > 0:
+            print(f"[env] holding {wait_s:.0f}s (wall) for viewers to connect", flush=True)
+            hold0 = time.time()
+            while time.time() - hold0 < wait_s:
+                self.sim.step(render=True)
+
         self._wall0 = time.time()
         self._t0 = self.sim.current_time
         cmd = self._Twist()
