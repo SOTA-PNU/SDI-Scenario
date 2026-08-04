@@ -7,7 +7,7 @@
 
 - Isaac Sim 4.5 micromamba 환경이 `~/carter_ws` 에 있는 호스트 (이 A100 서버 기준.
   다른 위치면 `export CARTER_WS=<경로>`).
-- 서버에는 클론이 이미 있다: `/tmp/cv-infra-carter-levels`. 없으면:
+- 서버에는 클론이 이미 있다: `/home/jun/carter-scenario-levels`. 없으면:
   `git clone https://github.com/SOTA-PNU/SDI-Scenario.git`
 - **GPU0만 사용** (이 호스트의 GPU1은 Isaac 부팅 crash — `run_isaac.sh` 기본값이 GPU0).
   **동시에 한 런만** 실행.
@@ -17,7 +17,7 @@
 ## 1. FAIL/PASS 재현 (레벨 0부터)
 
 ```bash
-cd /tmp/cv-infra-carter-levels
+cd /home/jun/carter-scenario-levels
 export ROS_DOMAIN_ID=17     # 다른 ROS 프로세스와 격리용 (아무 값)
 
 bash levels/run_isaac.sh levels/level0/base_carter_run.py       # ~1.5분 → FAIL

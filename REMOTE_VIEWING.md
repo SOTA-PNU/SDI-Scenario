@@ -14,7 +14,7 @@
 런 중 뷰포트가 PNG로 저장된다 (러너 코드 수정 불필요):
 
 ```bash
-cd /tmp/cv-infra-carter-levels
+cd /home/jun/carter-scenario-levels
 CARTER_RECORD=1 bash levels/run_isaac.sh levels/level2/solution_carter_run.py
 # -> levels/level2/results/frames_solution/00000.png ...
 ```
@@ -62,7 +62,7 @@ cd levels/level2/results
 내 컴퓨터로 가져오기 (노트북 터미널에서):
 
 ```bash
-scp -P 10022 jun@164.125.19.138:/tmp/cv-infra-carter-levels/levels/level2/results/l2_solution.mp4 .
+scp -P 10022 jun@164.125.19.138:/home/jun/carter-scenario-levels/levels/level2/results/l2_solution.mp4 .
 ```
 
 ⚠ **녹화 런은 시각화 전용이다.** 캡처 오버헤드로 타이밍이 1프레임쯤 밀린다
