@@ -84,6 +84,19 @@ CARTER_LIVESTREAM=1 CARTER_LIVE_WAIT=60 bash levels/run_isaac.sh levels/level2/s
 리스닝한다. 시청은 NVIDIA **"Isaac Sim WebRTC Streaming Client"** (Windows/Linux/macOS,
 NVIDIA 사이트에서 배포)에 서버 IP를 넣고 접속.
 
+**서버 방화벽 (이 호스트에서 실측 확인된 함정):** 이 서버는 ufw가 기본 **DROP** 정책으로
+켜져 있어, 스트림이 떠 있어도 클라이언트에는 아무것도 안 뜬다. 1회만 열어주면 된다:
+
+```bash
+sudo ufw allow 49100/tcp
+sudo ufw allow 47998:48012/udp
+```
+
+**클라이언트 버전:** Isaac Sim 4.5에는 WebRTC Streaming Client **1.0.6**
+(`download.isaacsim.omniverse.nvidia.com/isaacsim-webrtc-streaming-client-1.0.6-windows-x64.exe`
+등)이 문서 지정 버전이다. 최신 1.1.5는 Isaac 5.x용이라 4.5 서버와 시그널링이 안 맞을 수 있다 —
+안 붙으면 1.0.6으로 시도.
+
 **네트워크 제약 — 이게 핵심이다:**
 
 - 필요 포트: **TCP 49100** (시그널링) + **UDP 47998** (미디어).
