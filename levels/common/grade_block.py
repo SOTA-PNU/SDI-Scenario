@@ -11,9 +11,9 @@
   → check_edit_region 검사 → run_isaac.sh 실행
   → results/<모델이름>_result.json 의 verdict/메트릭 출력 (PASS=exit 0).
 
-주의: 모델에게는 PROMPT.md 전문과 base 전문만 입력하고, 출력 블록을
-이 스크립트로 채점하십시오. 모델에게 파일 생성·실행까지 시키면 절차 실패가 능력
-측정을 오염시킵니다.
+주의: 파일을 만들 수 없는 채팅형 모델용 경로입니다. 에이전트형 모델은 PROMPT.md
+지시대로 <모델이름>_carter_run.py 를 직접 만들므로 이 스크립트 없이 run_isaac.sh 로
+바로 실측하면 됩니다.
 """
 import json
 import os

@@ -35,26 +35,31 @@ levels/
 ## 고정 프롬프트 프로토콜 (로컬 LLM 평가용)
 
 각 레벨의 `PROMPT.md` **전문이 곧 모델 입력**입니다 (채점 안내 없이 프롬프트만 들어
-있습니다). 뒤에 `base_carter_run.py` 전문을 붙여 입력하고, 출력된 `[EDIT REGION]`
-블록을 받아 채점합니다. `prompted_carter_run.py` 는 그 프롬프트만 보고 작성한
-**기준 구현**입니다.
+있습니다). 프롬프트는 모델에게 `base_carter_run.py` 를 복사한 새 파일
+`<모델 본인 이름>_carter_run.py` 를 만들어 그 파일의 `[EDIT REGION]` 블록만 수정하라고
+지시합니다 — base 는 손대지 않으므로 비교 기준이 보존됩니다. `prompted_carter_run.py` 는
+그 프롬프트만 보고 작성한 **기준 구현**입니다.
 
-모델에게는 **PROMPT.md+base 입력 → 블록 출력**만 시키십시오. 파일 생성·실행·채점까지
-시키면 절차 실패가 능력 측정을 오염시키고, 저장소를 열어 주는 에이전트식 입력은 같은
-폴더의 정답 파일(solution/prompted)을 읽어 블라인드가 깨집니다. 에이전트형 CLI 에
-붙여넣을 때는 입력 맨 앞에 "파일을 만들거나 실행하지 말고, 수정된 블록만 출력해줘."
-한 줄을 덧붙입니다.
+에이전트형 CLI 사용 예 — "levels/level0/PROMPT.md 를 읽고 그대로 수행해줘." 모델이
+파일을 만들면 (프롬프트가 실행·채점은 금지합니다) 검증은 채점자가 별도로 합니다:
 
 ```bash
-# 1) 모델 입력 생성 (저장소 루트에서, N = 레벨)
-{ cat levels/levelN/PROMPT.md; echo; echo '--- base_carter_run.py 전문 ---'; \
-  cat levels/levelN/base_carter_run.py; } > input.txt
+# 모델이 만든 파일 검증 (저장소 루트에서)
+python3 levels/common/check_edit_region.py levels/levelN/<모델이름>_carter_run.py  # 블록 밖 == base 확인
+bash levels/run_isaac.sh levels/levelN/<모델이름>_carter_run.py                    # Isaac 실측
+# 판정: levels/levelN/results/<모델이름>_result.json 의 verdict
+```
 
-# 2) 모델 출력 블록을 block.txt 로 저장해 채점
+블라인드 주의: 에이전트에게 저장소를 열어 주면 같은 폴더의 정답 파일
+(solution/prompted)을 읽을 수 있습니다. 엄격한 평가라면 해당 파일을 치우거나 참고
+금지를 입력에 덧붙이십시오.
+
+파일을 만들 수 없는 채팅형 모델은 PROMPT.md 전문 + base 전문을 붙여넣어 블록만 받고
+채점기로 이식·실측합니다 (마커·코드펜스가 섞여 있어도 정리해 이식):
+
+```bash
 python3 levels/common/grade_block.py <레벨 0-3> <모델이름> <블록파일|->
 # 예: python3 levels/common/grade_block.py 0 llama-3.1-8b block.txt
-# 이식 → 규칙검사 → Isaac 실측 → results/<모델이름>_result.json 채점 (PASS=exit 0)
-# 블록에 마커 줄·코드펜스가 섞여 있어도 알아서 정리해 이식합니다.
 ```
 
 첫 로컬 LLM 실측 (2026-08-07): **llama-3.1-8b — L0 PASS** (ttg 1.3 s, final_d 0.71 m,
