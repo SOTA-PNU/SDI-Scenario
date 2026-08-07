@@ -40,6 +40,20 @@ base 사본에 끼워 실행·채점합니다.
 
 `prompted_carter_run.py` 는 그 프롬프트만 보고 작성한 **기준 구현**입니다.
 
+로컬 LLM 평가 시 모델에게는 **본문+base 입력 → 블록 출력**만 시키십시오 (파일 생성·
+실행·채점까지 시키면 절차 실패가 능력 측정을 오염시킵니다). 출력 블록의 채점은 한
+명령으로 자동화되어 있습니다:
+
+```bash
+python3 levels/common/grade_block.py <레벨 0-3> <모델이름> <블록파일|->
+# 예: python3 levels/common/grade_block.py 0 llama-3.1-8b block.txt
+# 이식 → 규칙검사 → Isaac 실측 → results/<모델이름>_result.json 채점 (PASS=exit 0)
+```
+
+첫 로컬 LLM 실측 (2026-08-07): **llama-3.1-8b — L0 PASS** (ttg 1.3 s, final_d 0.71 m,
+충돌 0). 정지 판단을 목표 반경 1.0 m 경계에서 내려 기준 구현(final_d 0.39 m)보다
+여유가 얇습니다. 코드는 `level0/llama-3.1-8b_carter_run.py`.
+
 **prompted 실측 (2026-08-05, 개정판 프롬프트로 재도출·재실측, seed 42)**
 
 | 레벨 | verdict | time_to_goal | final_d | yaw_err | 충돌 | solution 대비 |
@@ -100,3 +114,6 @@ Isaac Sim 4.5.0, A100 80GB (GPU0), seed 42, dt=1/60. 상세는 각 REPORT.md.
 ## 특이사항 (재현 시 알아야 할 것)
 - `/cmd_vel` 제어는 브리지 내장 rclpy 를 **같은 프로세스**에서 import 해 수행
   (`carter_env.py` 참고).
+- variant(파일명 유래)가 ROS 2 노드 이름에 들어가므로 하네스가 `[^A-Za-z0-9_]` 를 `_` 로
+  치환합니다 — 점·하이픈이 든 모델 이름(`llama-3.1-8b` 등)도 그대로 파일명으로 쓸 수 있고,
+  결과 JSON 의 variant 는 원래 이름을 유지합니다.

@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import sys
 import time
 
@@ -258,7 +259,9 @@ class Harness:
         rclpy.init()
         self._rclpy = rclpy
         self._Twist = Twist
-        self.node = rclpy.create_node(f"level_{self.level}_{self.variant}")
+        # ROS 2 node names allow only [A-Za-z0-9_] — variant may carry '.'/'-' (model names)
+        node_name = re.sub(r"[^0-9A-Za-z_]", "_", f"level_{self.level}_{self.variant}")
+        self.node = rclpy.create_node(node_name)
         self._pub = self.node.create_publisher(Twist, "/cmd_vel", 10)
 
         self._physx_query = None  # lazy, for the raycast scan
