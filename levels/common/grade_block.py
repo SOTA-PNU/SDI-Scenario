@@ -51,7 +51,7 @@ def main():
     lines = raw.strip("\n").split("\n")
     # 마커/배너 줄 제거 후 본문만 추출 (마커가 없으면 전체가 본문)
     body = [l for l in lines if "[EDIT REGION]" not in l and "[END EDIT REGION]" not in l
-            and not re.match(r"^#\s*=+\s*$", l)]
+            and not re.match(r"^#\s*=+\s*$", l) and not l.strip().startswith("```")]
     while body and not body[0].strip():
         body.pop(0)
     while body and not body[-1].strip():
@@ -79,11 +79,14 @@ def main():
     if not _wait_gpu_free():
         print("ERROR: GPU 가 계속 사용 중입니다 — 라이브 씬(bash live.sh stop) 등을 정리하십시오")
         return 2
+    res_path = os.path.join(lvl_dir, "results", f"{name}_result.json")
+    if os.path.exists(res_path):
+        os.remove(res_path)  # 이전 결과가 남아 있으면 크래시 시 그걸 읽어 오채점한다
     print(f"[grade] Isaac Sim 실행 중 (수 분 소요)...")
     subprocess.run(["bash", os.path.join(root, "levels", "run_isaac.sh"),
                     os.path.relpath(run_py, root)], cwd=root)
 
-    r = json.load(open(os.path.join(lvl_dir, "results", f"{name}_result.json"), encoding="utf-8"))
+    r = json.load(open(res_path, encoding="utf-8"))
     m = r.get("metrics", {})
     print(f"[grade] {name} L{level}: {r['verdict']} | ttg {m.get('time_to_goal_s')} s"
           f" | final_d {m.get('final_dist_m')} m | col {m.get('collision_count')}"
