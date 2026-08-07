@@ -5,16 +5,20 @@
 아래 **프롬프트 본문**과 `base_carter_run.py` **전문**을 그대로 모델에 입력합니다.
 모델 출력의 `[EDIT REGION]` 블록을 받아 `<이름>_carter_run.py`(base 사본에 블록만 교체)로
 저장하고 `bash levels/run_isaac.sh levels/level1/<이름>_carter_run.py` 로 실행,
-`results/<이름>_result.json` 의 `verdict` 로 채점합니다.
+`levels/level1/results/<이름>_result.json` 의 `verdict` 로 채점합니다.
 
 이 저장소의 기준 구현: [`prompted_carter_run.py`](prompted_carter_run.py) —
 아래 프롬프트만 보고 작성했고 PASS 실측됨 (`results/prompted_result.json`).
 
-## 프롬프트 본문 (여기부터 모델 입력, base_carter_run.py 전문을 뒤에 붙인다)
+## 프롬프트 본문 (여기부터 모델 입력, base_carter_run.py 전문을 뒤에 붙입니다)
 
 당신은 모바일 로봇 제어 코드를 작성하는 엔지니어입니다. 아래에 Isaac Sim에서 Nova Carter
 로봇을 구동하는 파이썬 러너 파일 `base_carter_run.py` 전문이 주어집니다. 이 파일의
 `[EDIT REGION]` ~ `[END EDIT REGION]` 블록**만** 수정해서 미션을 통과시키십시오.
+
+이 파일의 `[EDIT REGION]`에는 **정면 직진만 하는 이전 미션의 코드**가 들어 있습니다 —
+이번 미션에는 부족하므로 전면 재작성 대상입니다. 기존 코드의 주석에 남은 수치(허용
+반경 등)는 이전 미션 기준이니, 본 프롬프트의 수치를 따르십시오.
 
 규칙:
 1. `[EDIT REGION]` 블록 밖은 한 글자도 바꾸지 마십시오 (상단 givens, 하단 하네스 포함).
