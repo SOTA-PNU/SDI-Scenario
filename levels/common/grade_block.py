@@ -11,7 +11,7 @@
   → check_edit_region 검사 → run_isaac.sh 실행
   → results/<모델이름>_result.json 의 verdict/메트릭 출력 (PASS=exit 0).
 
-주의: 모델에게는 PROMPT.md 의 "프롬프트 본문"과 base 전문만 입력하고, 출력 블록을
+주의: 모델에게는 PROMPT.md 전문과 base 전문만 입력하고, 출력 블록을
 이 스크립트로 채점하십시오. 모델에게 파일 생성·실행까지 시키면 절차 실패가 능력
 측정을 오염시킵니다.
 """
