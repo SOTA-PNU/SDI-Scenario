@@ -47,17 +47,27 @@ POS_TOL = 1.0
 # ===========================================================================
 
 
-FORWARD_V = 0.5  # m/s constant forward speed (L0 rule: w stays 0)
-ARRIVE_D = 0.5   # m: stop comfortably inside the 1.0 m tolerance disc
-
-
 def controller(t, pose, env):
-    """Drive straight ahead and stop once inside the goal disc."""
+    """Forward-only reach: drive straight (w = 0) toward the goal 2.0 m
+    dead ahead of the spawn heading, then stop inside the tolerance.
+
+    Deterministic and pose-based: the remaining distance to GOAL is
+    recomputed every step from the ground-truth pose.  We declare done
+    at 0.4 m - well inside the 1.0 m pass radius - so any coasting
+    after the stop command still leaves us within tolerance.
+    """
     x, y, _yaw = pose
-    remaining = math.hypot(GOAL[0] - x, GOAL[1] - y)
-    if remaining <= ARRIVE_D:
+    dist = math.hypot(GOAL[0] - x, GOAL[1] - y)
+
+    STOP_DIST = 0.4   # [m] finish threshold (pass radius is 1.0 m)
+    CRUISE_V = 0.5    # [m/s] constant forward cruise speed
+
+    if dist <= STOP_DIST:
         return 0.0, 0.0, True
-    return FORWARD_V, 0.0, False
+
+    # Taper speed on final approach so the stop is crisp; never reverse.
+    v = min(CRUISE_V, max(0.1, dist - STOP_DIST))
+    return v, 0.0, False
 
 
 # ========================= [END EDIT REGION] ===============================

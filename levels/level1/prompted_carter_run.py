@@ -47,42 +47,50 @@ YAW_TOL = 0.26
 # [EDIT REGION] mission controller - modify ONLY this block
 # ===========================================================================
 
-V_CRUISE = 0.6     # m/s cruise toward the goal
-D_STOP = 0.35      # m: end the drive phase well inside the 0.75 m disc
-K_TURN = 2.0       # P gain: bearing error -> yaw rate
-W_LIMIT = 1.0      # rad/s yaw-rate cap
-TURN_ONLY = 0.45   # rad: bearing error above this -> rotate in place
-K_FINAL = 1.5      # P gain for arrival-yaw alignment
-W_FINAL = 0.7      # rad/s cap during the final alignment
-YAW_OK = 0.1       # rad: finish threshold, inside the 0.26 rad tolerance
+CRUISE_V = 0.5        # m/s cruise speed toward the goal
+K_ANG = 2.0           # P gain on heading error [1/s]
+K_LIN = 0.8           # slowdown gain: v <= K_LIN * distance near the goal
+W_MAX = 1.0           # rad/s cap on commanded yaw rate
+TURN_GATE = 0.30      # rad: rotate in place while |heading error| exceeds this
+GOAL_RADIUS = 0.35    # m: switch to final alignment (well inside 0.75 m tol)
+FINAL_YAW_TOL = 0.08  # rad: finish threshold (well inside 0.26 rad tol)
 
 
-def _wrap_pi(a):
-    while a > math.pi:
-        a -= 2.0 * math.pi
-    while a < -math.pi:
-        a += 2.0 * math.pi
-    return a
+def _wrap(a):
+    """Wrap an angle to [-pi, pi]."""
+    return math.atan2(math.sin(a), math.cos(a))
 
 
 def controller(t, pose, env):
-    """Three phases: rotate toward the goal, drive with P-steering on the
-    bearing error, then align to the commanded arrival yaw and finish."""
+    """Three-phase point controller: turn to goal, drive, align arrival yaw.
+
+    Phase 1: while the heading error to the goal bearing is large, rotate in
+             place (v = 0) under capped P control.
+    Phase 2: once roughly aligned, cruise toward the goal, keep correcting the
+             bearing, and slow down proportionally to the remaining distance.
+    Phase 3: inside the goal disc, rotate in place to the arrival yaw
+             GOAL[2] and return done=True when within tolerance.
+    """
     x, y, yaw = pose
-    gx, gy, gyaw = GOAL
-    dist = math.hypot(gx - x, gy - y)
+    dx = GOAL[0] - x
+    dy = GOAL[1] - y
+    d = math.hypot(dx, dy)
 
-    if dist > D_STOP:
-        err = _wrap_pi(math.atan2(gy - y, gx - x) - yaw)
-        w = max(-W_LIMIT, min(W_LIMIT, K_TURN * err))
-        if abs(err) > TURN_ONLY:
-            return 0.0, w, False  # rotate in place until roughly aligned
-        return min(V_CRUISE, 0.7 * dist), w, False  # drive, slow near goal
+    if d > GOAL_RADIUS:
+        # Phases 1-2: steer toward the goal point.
+        err = _wrap(math.atan2(dy, dx) - yaw)
+        w = max(-W_MAX, min(W_MAX, K_ANG * err))
+        if abs(err) > TURN_GATE:
+            return 0.0, w, False       # rotate in place until roughly aligned
+        v = min(CRUISE_V, K_LIN * d)   # cruise, decelerating near the goal
+        return v, w, False
 
-    yerr = _wrap_pi(gyaw - yaw)
-    if abs(yerr) > YAW_OK:
-        return 0.0, max(-W_FINAL, min(W_FINAL, K_FINAL * yerr)), False
-    return 0.0, 0.0, True
+    # Phase 3: align to the arrival yaw, then stop and finish.
+    err = _wrap(GOAL[2] - yaw)
+    if abs(err) <= FINAL_YAW_TOL:
+        return 0.0, 0.0, True          # arrived and aligned - done
+    w = max(-W_MAX, min(W_MAX, K_ANG * err))
+    return 0.0, w, False
 
 
 # ========================= [END EDIT REGION] ===============================
