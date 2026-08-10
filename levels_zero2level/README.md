@@ -1,16 +1,18 @@
 # zero2level — 통일 base + 미니멀 프롬프트 벤치마크
 
 `levels/` 의 사다리 방식(레벨 N 의 base = 레벨 N-1 의 solution)과 달리, 여기서는
-**네 레벨 모두 level0 와 같은 빈 `[EDIT REGION]`(제어 코드 없음)에서 출발**합니다.
-프롬프트도 목적 달성에 필요한 요청사항만 담고, 접근 지침·구현 힌트는 넣지 않았습니다.
+**네 레벨의 `base_carter_run.py` 가 바이트 단위로 동일한 한 파일**입니다 (md5 일치).
+레벨은 폴더 이름(level0~3)에서 읽고, 목표·톨러런스·장애물 같은 givens 는 파일 안의
+MISSIONS 테이블에서 뽑습니다. `[EDIT REGION]` 은 빈 컨트롤러(제어 코드 없음)로 시작하고,
+프롬프트는 목적 달성에 필요한 요청사항만 담아 접근 지침·구현 힌트를 넣지 않았습니다.
 
 ## 구조
 
 ```
 levels_zero2level/
   level{0..3}/
-    base_carter_run.py      # 미션 정의(목표·톨러런스·장애물·하네스 설정)는 레벨별 유지,
-                            # [EDIT REGION] 은 전부 level0 의 빈 컨트롤러로 통일
+    base_carter_run.py      # 4개 레벨 모두 동일한 파일 — 폴더 이름으로 레벨 판별,
+                            # givens 는 MISSIONS 테이블, [EDIT REGION] 은 빈 컨트롤러
     PROMPT.md               # 전문 = 모델 입력 (필요 요청사항만, 힌트 없음)
     prompted_carter_run.py  # 프롬프트만 보고 작성한 기준 구현 (블라인드 도출, PASS 실측)
     results/                # prompted_result.json 등
@@ -35,7 +37,7 @@ bash levels/run_isaac.sh levels_zero2level/levelN/<모델이름>_carter_run.py
 
 | 레벨 | verdict | time_to_goal | final_d | yaw_err | 충돌 | 도출된 접근 |
 |---|---|---|---|---|---|---|
-| L0 | **PASS** | 1.48 s | 0.13 m | — | 0 | 거리 비례 감속 전진, 정지 반경 0.15 m |
+| L0 | **PASS** | 1.50 s | 0.13 m | — | 0 | 거리 비례 감속 전진, 정지 반경 0.15 m |
 | L1 | **PASS** | 8.37 s | 0.24 m | 0.010 rad | 0 | 3단계 P 제어 (회전→주행→정렬) |
 | L2 | **PASS** | 10.08 s | 0.20 m | 0.038 rad | 0 | 스캔으로 박스 모서리를 월드 좌표 추정 → 넓은 쪽 우회 웨이포인트 4개 생성 |
 | L3 | **PASS** | 8.10 s (≤12) | 0.12 m | 0.009 rad | 0 | 프롬프트의 박스 좌표 기반 고정 웨이포인트 우회 + 속도 스케줄 |
