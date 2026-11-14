@@ -1,0 +1,116 @@
+"""Read-only consistency/provenance checks for the prepared B523 experiment."""
+import ast
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import b523_build_base as BB
+import b523_build_prompt as BP
+import b523_gate_isaac as G
+import b523_reference_sim as R
+
+A=Path(__file__).resolve().parents[1]
+
+
+def read(name):
+    return json.loads((A/'results/analysis'/name).read_text())
+
+
+def main():
+    checks=[]
+    def check(name,passed,detail=None):
+        checks.append({'name':name,'pass':bool(passed),'detail':detail})
+    base=R.BASE.read_text(); reference=R.REFERENCE.read_text(); prompt=BP.OUT.read_text()
+    base_sha=R.digest(R.BASE); ref_sha=R.digest(R.REFERENCE)
+    check('base builder reproduces exact selected source',BB.build(BB.SRC.read_text())==base)
+    check('prompt builder reproduces exact selected prompt',BP.build(BP.SRC.read_text(),base)==prompt)
+    check('base/ref pins agree across gate and prompt',base_sha==G.BASE_SHA256 and ref_sha==G.REFERENCE_SHA256 and base_sha[:16]==BP.BASE_SHA16)
+    check('unchanged calibrated CPU engine',R.digest(R.SIM.__file__)==R.ENGINE_SHA)
+    for p in list((A/'analysis').glob('b523*.py'))+[R.BASE]:
+        compile(p.read_text(),str(p),'exec')
+    check('all new Python sources compile',True)
+    for name in ('run_b523_gpu_steps.sh','run_b523_sequential.sh'):
+        result=subprocess.run(['bash','-n',str(A/name)],capture_output=True,text=True)
+        check('bash syntax '+name,result.returncode==0,result.stderr or None)
+    old=read('b523_protected_before.json')
+    changes=[name for name,digest in old.items() if R.digest(A/name)!=digest]
+    check('all protected original files except REPORT unchanged',changes==['REPORT.md'],changes)
+    archives=list((A/'results').glob('archive_REPORT_before_b523_prep_*.md'))
+    archive=next((p for p in archives if R.digest(p)==old['REPORT.md']),None)
+    check('REPORT exact original backed up before append',archive is not None,str(archive))
+    report=(A/'REPORT.md').read_text()
+    addition=report[len(archive.read_text()):] if archive else ''
+    check('REPORT previous contents preserved exactly',archive is not None and report.startswith(archive.read_text()))
+    check('REPORT has task22 section without middle dot','### 실험 49 준비 (B-5-23)' in addition and '\u00b7' not in addition)
+    check('REPORT states three user decisions',all(s in addition for s in ('4/4','하네스','경로 계획기')))
+    check('REPORT discloses direct-GOAL collision',all(s in addition for s in ('8.866667','start_zone','충돌','거리 0')))
+    check('REPORT discloses CPU scope and pending actual stability',all(s in addition for s in ('60/60','v1','아직','실제')))
+    hb=read('b523_harness_before.json')
+    check('all five actual harness files unchanged',len(hb)==5 and all(R.digest(p)==d for p,d in hb.items()))
+    documents={name:read(name) for name in ('b523_selftest.json','b523_check_offline.json',
+        'b523_reference_check.json','b523_gate_selftest.json','b523_runner_check.json')}
+    for name,d in documents.items():
+        check('completed verification '+name,d['passed']==d['total'] and d['total']>0,{'passed':d['passed'],'total':d['total']})
+        if 'base_sha256' in d:check('selected base matches '+name,d['base_sha256']==base_sha)
+        if 'reference_sha256' in d:check('reference matches '+name,d['reference_sha256']==ref_sha)
+    st=documents['b523_selftest.json']
+    actual_input=prompt+'\n\n---\n\n`base_carter_run.py`:\n\n```python\n'+base+'```\n'
+    check('model input hash/length match actual harness evidence',hashlib.sha256(actual_input.encode()).hexdigest()[:16]==st['prompt_sha16'] and len(actual_input)==st['prompt_chars'])
+    check('filled reference excluded from model input',reference not in actual_input and st['reference_in_model_input'] is False)
+    normal=read('b523_reference_sim.json'); rows=normal['results']
+    expected=['v1']+[f'seed{s}_a{i:02}' for s in (1,2) for i in range(30)]
+    check('all 61 requested CPU cases present once',[r['label'] for r in rows]==expected)
+    check('all actual CPU base/ref identities match',normal['base_sha256']==base_sha and normal['reference_sha256']==ref_sha
+          and all(r['base_sha256']==base_sha and r['reference_sha256']==ref_sha for r in rows))
+    check('all CPU invocations have deterministic sensor seeds',all(r['sensor_noise_seed']==515+i for i,r in enumerate(rows)))
+    check('actual loop audits and unchanged returns complete',normal['complete'] and normal['audit_pass'] and normal['runtime_errors']==0
+          and normal['hook_error_ticks']==0 and all(r['audit']['pass'] and r['audit']['controller_stub_calls']==0 for r in rows))
+    check('CPU reference reported outcomes agree',normal['random_total']==60 and normal['random_passed']==60
+          and normal['v1_pass'] and all(r['mission']['verdict']=='pass' for r in rows))
+    for name in ('b523_reference_sim','b523_bad_functions'):
+        inv=read(name+'/invocation.json'); snapshot=A/'results/analysis'/name/'reference_snapshot.py'
+        check('completed frozen invocation '+name,inv['complete'] and inv['base_sha256']==base_sha
+              and inv['reference_sha256']==ref_sha and R.digest(snapshot)==ref_sha)
+    bad=read('b523_bad_functions.json'); review=read('b523_bad_function_review.json')
+    check('bad functions current source and complete audit',bad['complete'] and bad['base_sha256']==base_sha
+          and bad['reference_sha256']==ref_sha and bad['audit_pass'] and bad['runtime_errors']==0)
+    check('bad-function physical safety is not reported as success',review['all_bad_functions_safe'] is False
+          and review['contact_free_cases']==4 and review['total_cases']==5 and review['mission_passed']==0
+          and R.digest(A/review['source_result'])==review['source_result_sha256'])
+    for row in bad['results']:
+        v=row['variant']; a=row['audit']
+        if v.endswith('_exception'):
+            hook=v.removesuffix('_exception')
+            check('injected exception genuinely occurs in '+hook,a['error_examples'] and all(
+                e['error']['hook']==hook and e['error']['message']=='injected '+hook+' failure' for e in a['error_examples'])
+                and a['error_nominal_nonzero']==0)
+    probe=G.make_runner(base,reference)
+    base_tree=ast.parse(base); probe_tree=ast.parse(probe); ref_tree=ast.parse(reference)
+    def funcs(tree):return {n.name:ast.dump(n) for n in tree.body if isinstance(n,ast.FunctionDef)}
+    bf,pf,rf=funcs(base_tree),funcs(probe_tree),funcs(ref_tree)
+    check('gate uses unchanged reference hooks',all(pf[n]==rf[n] for n in R.NAMES))
+    check('gate uses unchanged actual dispatcher and base loop',all(pf[n]==bf[n] for n in ('_robot_only','_base_control_loop')))
+    steps=(A/'run_b523_gpu_steps.sh').read_text(); sequential=(A/'run_b523_sequential.sh').read_text()
+    check('launcher pins final base and reference',base_sha in steps and ref_sha in steps)
+    check('launcher awaits B522 before models or agent checks','run_b522_gpu_steps.sh' in steps and 'sleep 30' in steps
+          and steps.index('run_b522_gpu_steps.sh')<steps.index('agent_count=')<steps.index('models_wait start'))
+    check('final output path and tag are B523','D=results/turns/prompt_b5_23' in steps
+          and 'D=results/turns/prompt_b5_23' in sequential and 'TAG=gpu_gpt_oss_120b_pB523' in sequential
+          and 'prompt_b5_22' not in steps+sequential)
+    check('submission grading governs second pair',all(s in sequential for s in
+          ('for s in 0 1 2 3','first_pair_pass','data["turns"]','r.get("verdict") == "pass"','grade=$grade turn=$turn')))
+    check('host execution not performed in prep',not (A/'results/turns/prompt_b5_23').exists()
+          and not (A/'results/analysis/b523_gate_isaac/launch.json').exists())
+    result={'pass':all(c['pass'] for c in checks),'passed':sum(c['pass'] for c in checks),'total':len(checks),
+        'base_sha256':base_sha,'reference_sha256':ref_sha,'prompt_sha16':st['prompt_sha16'],'prompt_chars':st['prompt_chars'],
+        'protected_original_count':len(old),'protected_unchanged_count':len(old)-len(changes),
+        'report_backup':str(archive),'checks':checks,
+        'readiness':'READY_FOR_GPU means artifacts and required measurements complete; direct-GOAL bad-function safety failed; actual a0-a3 stability not measured.'}
+    R.save(A/'results/analysis/b523_final_validation.json',result)
+    print(f"FINAL_VALIDATION={result['passed']}/{result['total']}")
+    for c in checks:
+        if not c['pass']:print('FAIL',c['name'],c['detail'])
+    return 0 if result['pass'] else 1
+
+
+if __name__=='__main__':raise SystemExit(main())

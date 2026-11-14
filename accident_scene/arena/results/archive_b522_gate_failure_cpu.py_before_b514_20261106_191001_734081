@@ -1,0 +1,120 @@
+"""Execute saved B521/B522 gate controller functions in the fixed CPU engine.
+
+Only log-open globals are replaced by in-memory sinks. This does not substitute
+B522's four-function prompt reference for the actual simple-gate controller.
+"""
+import ast
+from concurrent.futures import ProcessPoolExecutor
+import gzip
+import hashlib
+import json
+import math
+from pathlib import Path
+import time
+
+import numpy as np
+import b515_chooser_sim as SIM
+from b514_build_base import archive_before_write
+from b519_shield_sim import mission_score
+
+ARENA=Path(__file__).resolve().parents[1]
+OUT=ARENA/'results/analysis/b522_gate_failure_cpu.json'
+ART=ARENA/'results/analysis/b522_gate_failure_cpu'
+BASE=ARENA/'base_carter_run_ros_map_lidartime_objects_check_v8.py'
+ENGINE_SHA='8d0308dbf55c288297ade1c92bcd4c71570b888562cf58b03e94e3518e9a8358'
+
+
+def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def save(path,data):
+    path.parent.mkdir(parents=True,exist_ok=True);archive_before_write(path)
+    path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+
+
+def run_saved(number):
+    source=ARENA/f'results/analysis/b{number}_gate_isaac/b{number}_gate_probe_carter_run.py'
+    text=source.read_text();parsed=ast.parse(text)
+    names=('_probe_plan','_probe_follow','_gate_follow','controller')
+    functions=[n for n in parsed.body if isinstance(n,ast.FunctionDef) and n.name in names]
+    assert set(n.name for n in functions)==set(names)
+    initial=next(ast.literal_eval(n.value) for n in parsed.body if isinstance(n,ast.Assign)
+                 and any(isinstance(t,ast.Name) and t.id=='_PROBE' for t in n.targets))
+    original_load,original_gate=SIM.load_base,SIM.gate_command
+    audit={'controller_calls':0,'choose_calls':0,'command_changes':0,'pure_chooser_ms':[],'last':None}
+    held=[]
+    class Sink:
+        def __init__(self):self.count=0;self.last=None
+        def write(self,value):self.count+=1;self.last=json.loads(value)
+    obs,timings=Sink(),Sink()
+    def load(base_path):
+        ns=original_load(base_path)
+        exec(compile(ast.Module(body=functions,type_ignores=[]),str(source),'exec'),ns)
+        ns.update(_PROBE=initial.copy(),_PROBE_F=obs,_GATE_TIMES=timings,_probe_json=json,_probe_time=time)
+        original=ns['choose_command']
+        def choose(v,w,target,*args,**kwargs):
+            before=time.perf_counter_ns();value=original(v,w,target,*args,**kwargs)
+            audit['pure_chooser_ms'].append((time.perf_counter_ns()-before)/1e6)
+            audit['choose_calls']+=1;audit['last']=(v,w,target,value)
+            return value
+        ns['choose_command']=choose;held.append(ns);return ns
+    def controller(ns,pose):
+        before=audit['choose_calls'];audit['controller_calls']+=1
+        value=ns['controller'](ns['_BASE_POSES'][-1][0],pose,{})
+        assert audit['choose_calls']==before+1,'actual gate did not choose exactly once'
+        v,w,target,chosen=audit['last']
+        if value[:2]!=chosen[:2]:audit['command_changes']+=1;raise AssertionError('return changed')
+        return *value,chosen[2],(v,w),target
+    trace=ART/f'b{number}_v1.jsonl'
+    try:
+        SIM.load_base,SIM.gate_command=load,controller
+        result=SIM.run(source,t_max=200.,seed=515,trace_path=trace)
+    finally:SIM.load_base,SIM.gate_command=original_load,original_gate
+    ns=held[0];result['mission']=mission_score(result,ns['MISSION'])
+    result['controller_tick_median_ms']=result.pop('median_choose_ms')
+    result['median_choose_ms']=float(np.median(audit.pop('pure_chooser_ms')))
+    audit.pop('last');audit['exactly_once']=audit['controller_calls']==audit['choose_calls']
+    commands=hashlib.sha256()
+    with trace.open() as f:
+        for line in f:
+            row=json.loads(line);commands.update(json.dumps({k:row[k] for k in ('t','pose','nominal','target_xy','command','objects')},sort_keys=True).encode())
+    gz=trace.with_suffix('.jsonl.gz');archive_before_write(gz)
+    with trace.open('rb') as f,gzip.open(gz,'wb') as g:
+        for block in iter(lambda:f.read(1<<20),b''):g.write(block)
+    trace.unlink()
+    result.update(label=f'b{number}_saved_gate_v1',source=str(source),source_sha256=sha(source),
+        controller_kind='actual saved simple gate, not prompt/reference controller',
+        function_ast_sha256=hashlib.sha256(ast.dump(ast.Module(body=functions,type_ignores=[])).encode()).hexdigest(),
+        actual_path=ns['_PROBE']['path'],path_check=ns['_PROBE']['path_check'],
+        audit=audit,actual_controller_log_rows=obs.count,actual_controller_timing_rows=timings.count,
+        sensor_noise_seed=515,trace=str(gz),command_pose_sensor_sha256=commands.hexdigest())
+    save(ART/f'b{number}_v1_result.json',result)
+    return result
+
+
+def main():
+    assert sha(SIM.__file__)==ENGINE_SHA
+    base_before=sha(BASE);started=time.perf_counter();ART.mkdir(parents=True,exist_ok=True)
+    with ProcessPoolExecutor(max_workers=2) as pool:rows=list(pool.map(run_saved,(521,522)))
+    source1=Path(rows[0]['source']).read_text();source2=Path(rows[1]['source']).read_text()
+    normalize=lambda s:s.replace('B521_TIMINGS_OUT','TIMINGS_OUT').replace('B522_TIMINGS_OUT','TIMINGS_OUT')
+    report={'verdict':'complete' if all(r['verdict']!='error' and r['audit']['exactly_once'] for r in rows) else 'fail',
+        'base_sha256':base_before,'base_unchanged':sha(BASE)==base_before,'engine_sha256':ENGINE_SHA,
+        'engine_unchanged':sha(SIM.__file__)==ENGINE_SHA,'snapshot_functions_identical':rows[0]['function_ast_sha256']==rows[1]['function_ast_sha256'],
+        'only_source_difference_is_timing_log_environment_key':normalize(source1)==normalize(source2),
+        'same_seed_command_pose_observation_hash_equal':rows[0]['command_pose_sensor_sha256']==rows[1]['command_pose_sensor_sha256'],
+        'cpu_collision_reproduced':any(r['hit'] for r in rows),
+        'configuration':{'t_max':200.,'scenario':'v1','sensor_seed':515,'physics_dt':1/60,
+            'linear_accel_m_s2':2.,'angular_accel_rad_s2':2.68,'sensor_dt_s':.1,'sensor_age_parameter_s':.1,
+            'sensor_phase_frame':5,'range_noise_std_m':.01,'contact_shape':SIM.BODY_UNION},
+        'limitations':['Saved controller source is exact, but CPU sensor generation and physics are approximate.',
+            'CPU does not replay recorded Isaac scans or contact dynamics; same code can have different outcomes.',
+            'This experiment uses the saved simple gate, not the B522 prompt four-function reference.'],
+        'wall_s':time.perf_counter()-started,'results':rows}
+    save(OUT,report)
+    for r in rows:print(r['label'],r['verdict'],r['t'],r['hit'],r['median_choose_ms'],flush=True)
+    print('same_hash',report['same_seed_command_pose_observation_hash_equal'],flush=True)
+    return report
+
+
+if __name__=='__main__':raise SystemExit(0 if main()['verdict']=='complete' else 1)

@@ -1,0 +1,333 @@
+"""B523 v11 target arc guards and inherited v10 base-loop contracts."""
+import ast
+import copy
+import hashlib
+import json
+import math
+from pathlib import Path
+import time
+from types import SimpleNamespace
+
+import numpy as np
+import b523_build_base_v11 as B
+from b514_build_base import archive_before_write
+from b515_check_offline import load_ns, object_fixture, safe_json, seed
+
+ARENA=Path(__file__).resolve().parents[1]
+BASE=B.OUT
+OUT=ARENA/'results/analysis/b523_v11_check_offline.json'
+
+
+def scope(base=BASE):
+    ns=load_ns(base)
+    ns['START'],ns['GOAL']=ns['MISSION']['start_xy_yaw'],ns['MISSION']['goal_xy_yaw']
+    ns['WALLS']=(-10.,10.,-10.,10.)
+    ns['_MAP_RECTS'][:]=[np.array([[50.,51.,50.,51.]])]
+    ns['START'],ns['GOAL']=(0.,0.,0.),(5.,0.,0.)
+    logs=[];ns['builtins']=SimpleNamespace(print=lambda *a,**k:logs.append(' '.join(map(str,a))))
+    ns['_BASE_DBG_STATE']={'t':0.}
+    seed(ns,[],pose=ns['START'],now=0.)
+    return ns,logs
+
+
+def controlled():
+    ns,logs=scope()
+    st={'events':[],'plan_calls':[],'choose_calls':[],'choice':(0.,0.),'chosen':'follow','map_hit':None}
+    def plan(start,goal,clearance):
+        st['events'].append('plan_path');st['plan_calls'].append((start,goal,clearance))
+        return [start,goal]
+    def target(path,pose):
+        st['events'].append('lookahead_target');return (1.,0.)
+    def follow(pose,target):
+        st['events'].append('follow_cmd');return (.3,.1)
+    def choose(v,w,target):
+        st['events'].append('choose_command');st['choose_calls'].append((v,w,target))
+        return *st['choice'],{'chosen':st['chosen'],'candidates':{'follow':{'t_hit_map':st['map_hit']}}}
+    ns.update(plan_path=plan,lookahead_target=target,follow_cmd=follow,choose_command=choose)
+    return ns,st,logs
+
+
+def target_contract_checks(record):
+    ns,logs=scope();path=((0.,0.),(5.,0.))
+    cases=[]
+    for requested,pose,reason in (
+        ((.3,0.),(0.,0.,0.),None),((2.,0.),(0.,0.,0.),None),
+        ((.3-1e-6,0.),(0.,0.,0.),'too_near'),((2.+1e-6,0.),(0.,0.,0.),'too_far'),
+        ((1.,0.),(2.,0.,0.),'behind'),((2.,1.),(0.,0.,0.),None),
+        ((2.,1.+1e-6),(0.,0.,0.),'off_path'),((5.,0.),(3.5,0.,0.),None)):
+        target,detail=ns['_base_loop_guard_target'](path,pose,requested,0.)
+        cases.append({'requested':requested,'pose':pose,'reason':detail['target_reject_reason'],
+                      'pass':detail['target_reject_reason']==reason,'target':target})
+    record('arc_and_path_distance_inclusive_boundaries_and_last_goal',all(c['pass'] for c in cases),cases=cases)
+
+    # Geometrically close endpoints can be far apart along a folded path.
+    folded=((0.,0.),(0.,3.),(.1,3.),(.1,0.))
+    target,detail=ns['_base_loop_guard_target'](folded,(0.,0.,0.),(.1,0.),1.)
+    record('arc_distance_not_euclidean_shortcut_on_folded_path',detail['target_reject_reason']=='too_far'
+           and abs(detail['target_ahead_m']-6.1)<1e-12 and target==(0.,2.),detail=detail)
+
+    corner=((0.,0.),(1.,0.),(1.,4.))
+    target,detail=ns['_base_loop_guard_target'](corner,(.2,0.,0.),(1.,4.),2.)
+    record('fallback_caps_at_current_segment_corner',target==(1.,0.)
+           and abs(detail['target_corrected_ahead_m']-.8)<1e-12,target=target,detail=detail)
+    target,detail=ns['_base_loop_guard_target'](corner,(.9,0.,0.),(1.,4.),3.)
+    record('fallback_short_remaining_segment_advances_exact_minimum_arc',math.dist(target,(1.,.2))<1e-12
+           and abs(detail['target_corrected_ahead_m']-.3)<1e-12,target=target,detail=detail)
+    short=((0.,0.),(.1,0.),(.1,.1),(.2,.1),(.2,4.))
+    target,detail=ns['_base_loop_guard_target'](short,(0.,0.,0.),(.2,4.),4.)
+    record('fallback_crosses_multiple_short_segments_without_violating_minimum',math.dist(target,(.2,.1))<1e-12
+           and abs(detail['target_corrected_ahead_m']-.3)<1e-12,target=target,detail=detail)
+    duplicate=((0.,0.),(0.,0.),(2.,0.),(2.,0.),(5.,0.))
+    target,detail=ns['_base_loop_guard_target'](duplicate,(0.,0.,0.),(5.,0.),5.)
+    record('duplicate_waypoints_do_not_change_arc_length',target==(2.,0.) and detail['target_ahead_m']==5.)
+
+    # At exactly overlapping geometry, remembered route progress chooses the branch.
+    crossing=((-2.,-2.),(2.,2.),(-2.,2.),(2.,-2.))
+    first=ns['_base_loop_projection'](crossing,(0.,0.))
+    later_s=math.sqrt(32.)+4.+math.sqrt(8.)
+    later=ns['_base_loop_projection'](crossing,(0.,0.),later_s-.1)
+    requested=ns['_base_loop_projection'](crossing,(0.,0.),first['s'])
+    record('self_intersection_ties_keep_previous_branch_and_first_uses_earliest',first['index']==0
+           and later['index']==2 and requested['index']==0 and abs(later['s']-later_s)<1e-12,
+           first=first,later=later,target_projection=requested)
+    repeated=((0.,0.),(2.,0.),(2.,2.),(0.,2.),(0.,0.),(2.,0.))
+    ns['_BASE_LOOP_ST']['path_progress_s']=1.
+    target,detail=ns['_base_loop_guard_target'](repeated,(1.,0.,0.),(1.5,0.),6.)
+    record('self_overlap_target_uses_robot_branch_not_far_future_duplicate',detail['robot_path_s']==1.
+           and detail['target_path_s']==1.5 and not detail['target_corrected'],detail=detail)
+
+    ns,s,_=controlled();ns['_BASE_LOOP_ST'].update(path=path,clearance_m=.5,replan_pending=False)
+    ns['lookahead_target']=lambda path,pose:(5.,0.)
+    ns['_base_control_loop'](0.,(4.9,.6,0.),None)
+    detail=ns['_BASE_LOOP_ST']['last']
+    record('less_than_minimum_remaining_outside_goal_requests_checked_zero',detail['target_reject_reason']=='no_forward_range'
+           and detail['phase']=='waiting_for_forward_target' and s['choose_calls'][0][:2]==(0.,0.)
+           and 'follow_cmd' not in s['events'] and len(s['choose_calls'])==1,detail=detail)
+    ns,s,_=controlled();ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    ns['_BASE_LOOP_ST'].update(replan_pending=True,path_progress_s=999.)
+    ns['lookahead_target']=lambda path,pose:(pose[0]+1.,pose[1])
+    ns['_base_control_loop'](1.,(.5,0.,0.),None)
+    record('accepted_new_path_resets_projection_history',ns['_BASE_LOOP_ST']['last']['robot_path_s']==0.
+           and ns['_BASE_LOOP_ST']['path_progress_s']==0.)
+
+    ns,logs=scope()
+    for t in (0.,1.,9.999,10.,19.999,20.):
+        ns['_base_loop_guard_target'](path,(0.,0.,0.),(5.,0.),t)
+    ns['_base_loop_guard_target'](path,(0.,0.,0.),(1.,2.),20.)
+    record('same_reason_debug_every_ten_seconds_and_other_reason_independent',len(logs)==4
+           and sum('reason=too_far' in line for line in logs)==3 and 'reason=off_path' in logs[-1],lines=logs)
+    ns,s,logs=controlled();ns['lookahead_target']=lambda path,pose:ns['GOAL'][:2]
+    for t in (100.,101.,0.):ns['_base_control_loop'](t,(0.,0.,0.),None)
+    record('time_rewind_resets_target_debug_and_projection_history',len(logs)==2
+           and len(s['plan_calls'])==2 and ns['_BASE_LOOP_ST']['last']['robot_path_s']==0.,lines=logs)
+
+
+def run():
+    checks={};examples={}
+    def record(name,passed,**details):checks[name]={'pass':bool(passed),**details}
+    source,prior=BASE.read_text(),B.SRC.read_text()
+    record('builder_reproduces_v11_from_fixed_v10',B.build(prior)==source,
+           v10_sha256=hashlib.sha256(prior.encode()).hexdigest())
+    old_tree,new_tree=ast.parse(prior),ast.parse(source)
+    old_funcs={n.name:n for n in old_tree.body if isinstance(n,ast.FunctionDef)}
+    new_funcs={n.name:n for n in new_tree.body if isinstance(n,ast.FunctionDef)}
+    changed={'_base_loop_forward_target','_base_control_loop'}
+    unchanged=all(ast.dump(n)==ast.dump(new_funcs[name]) for name,n in old_funcs.items() if name not in changed)
+    record('all_previous_helpers_tracker_chooser_hooks_dispatcher_ast_unchanged',unchanged)
+    new_names=set(new_funcs)-set(old_funcs)
+    allowed=new_names|changed
+    def clean(tree):
+        result=[]
+        for n in tree.body:
+            if isinstance(n,ast.Expr) and isinstance(n.value,ast.Constant) and isinstance(n.value.value,str):continue
+            if isinstance(n,ast.FunctionDef) and n.name in allowed:continue
+            if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id in ('_BASE_LOOP_ST','_BASE_LOOP_CFG') for t in n.targets):continue
+            result.append(n)
+        return ast.dump(ast.Module(body=result,type_ignores=[]))
+    record('only_target_helpers_config_state_loop_and_doc_changed',clean(old_tree)==clean(new_tree),new_helpers=sorted(new_names))
+    normalized=source.replace(B.NEW_TARGET,B.OLD_TARGET)
+    normalized=normalized.replace('block_since=None, fault_key=None, last=None, path_progress_s=None, target_note_t={})','block_since=None, fault_key=None, last=None)')
+    normalized=normalized.replace('"target_corrected": False, "target_reject_reason": None, "target_ahead_m": None,\n              "robot_path_s": None, "target_path_s": None, "error": None}', '"target_corrected": False, "error": None}')
+    normalized=normalized.replace('\n                        state["path_progress_s"] = None','')
+    normalized_loop=next(n for n in ast.parse(normalized).body if isinstance(n,ast.FunctionDef) and n.name=='_base_control_loop')
+    record('base_loop_changed_only_target_guard_and_its_state_diagnostics',ast.dump(normalized_loop)==ast.dump(old_funcs['_base_control_loop']))
+    loop=new_funcs['_base_control_loop']
+    choose_calls=[n for n in ast.walk(loop) if isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='choose_command']
+    record('base_loop_has_one_common_chooser_callsite',len(choose_calls)==1)
+    no_search=all(not (isinstance(n,ast.Attribute) and n.attr in ('heappush','heappop')) for name in allowed for n in ast.walk(new_funcs[name]))
+    record('target_guard_has_no_grid_or_heap_search',no_search)
+
+    ns,s,logs=controlled();s['choice']=(.2,-.1)
+    returned=ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    record('normal_order_exactly_once_and_return_preserved',s['events']==['plan_path','lookahead_target','follow_cmd','choose_command']
+           and returned==(.2,-.1,False),events=s['events'],last=ns['_BASE_LOOP_ST']['last'])
+    for target_clearance in (.5,.45,.4,.35):
+        ns,s,_=controlled();ns['_MAP_RECTS'][:]=[np.array([[2.,3.,target_clearance,1.4]])]
+        ns['_base_control_loop'](0.,(0.,0.,0.),None)
+        attempts=[c[2] for c in s['plan_calls']]
+        expected=list(ns['_BASE_LOOP_CFG']['clearances_m']);expected=expected[:expected.index(target_clearance)+1]
+        record(f'centre_clearance_{target_clearance:g}_uses_matching_check_path_margin',attempts==expected
+               and ns['_BASE_LOOP_ST']['clearance_m']==target_clearance and len(s['choose_calls'])==1,
+               attempts=attempts,margin_m=target_clearance-.25)
+
+    ns,s,_=controlled();attempts=[]
+    ns['plan_path']=lambda start,goal,c:(attempts.append(c) or [])
+    returns=[ns['_base_control_loop'](t,(0.,0.,0.),None) for t in (0.,.1,1.,10.,100.)]
+    record('empty_initial_paths_try_four_once_then_wait_without_periodic_retry',attempts==[.5,.45,.4,.35]
+           and len(s['choose_calls'])==5 and all(c[:2]==(0.,0.) for c in s['choose_calls'])
+           and ns['_BASE_LOOP_ST']['path'] is None and not ns['_BASE_LOOP_ST']['replan_pending'],attempts=attempts,returns=returns)
+    for bad_end in ('start','goal'):
+        ns,s,_=controlled();seen=[]
+        def wrong(start,goal,c):
+            seen.append(c);return [(start[0]+.01,start[1]),goal] if bad_end=='start' else [start,(goal[0]-.01,goal[1])]
+        ns['plan_path']=wrong;ns['_base_control_loop'](0.,(0.,0.,0.),None)
+        record('rejects_wrong_actual_'+bad_end+'_endpoint',len(seen)==4 and ns['_BASE_LOOP_ST']['path'] is None
+               and s['choose_calls'][0][:2]==(0.,0.))
+    ns,s,_=controlled();ns['_base_control_loop'](0.,(0.,0.,0.),None);old=ns['_BASE_LOOP_ST']['path']
+    ns['_BASE_LOOP_ST']['replan_pending']=True;attempts=[]
+    ns['plan_path']=lambda start,goal,c:(attempts.append(c) or None)
+    ns['_base_control_loop'](1.,(.2,0.,0.),None)
+    record('failed_replanning_preserves_old_path_and_follows_it',ns['_BASE_LOOP_ST']['path']==old
+           and attempts==[.5,.45,.4,.35] and s['choose_calls'][-1][:2]==(.3,.1)
+           and ns['_BASE_LOOP_ST']['last']['phase']=='old_path_after_plan_failure')
+
+    ns,s,logs=controlled();ns['lookahead_target']=lambda path,pose:(999.,999.)
+    ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    record('target_over_one_metre_from_path_uses_forward_projection',ns['_BASE_LOOP_ST']['last']['target_corrected']
+           and s['choose_calls'][-1][2]==(2.,0.),last=ns['_BASE_LOOP_ST']['last'])
+    ns,s,_=controlled();ns['lookahead_target']=lambda path,pose:(2.,1.)
+    ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    record('target_exact_one_metre_from_path_is_not_corrected',not ns['_BASE_LOOP_ST']['last']['target_corrected']
+           and s['choose_calls'][-1][2]==(2.,1.))
+    ns,s,_=controlled();ns['lookahead_target']=lambda path,pose:ns['GOAL'][:2]
+    ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    record('premature_goal_endpoint_is_corrected_by_arc_distance',ns['_BASE_LOOP_ST']['last']['target_corrected']
+           and ns['_BASE_LOOP_ST']['last']['target_path_distance_m']==0. and s['choose_calls'][-1][2]==(2.,0.)
+           and ns['_BASE_LOOP_ST']['last']['target_reject_reason']=='too_far')
+    ns,s,_=controlled();ns['follow_cmd']=lambda pose,target:(999.,-999.)
+    ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    clipped=s['choose_calls'][-1][:2]
+    ns['follow_cmd']=lambda pose,target:(-99.,999.)
+    ns['_base_control_loop'](1.,(0.,0.,0.),None)
+    record('finite_nominal_commands_are_clipped_to_limits',clipped==(.3,-.4) and s['choose_calls'][-1][:2]==(0.,.4))
+
+    fault_cases=[]
+    for hook in ('plan_path','lookahead_target','follow_cmd'):
+        for kind in ('raise','nan','missing','wrong_shape'):
+            ns,s,logs=controlled();s['choice']=(1.,.4)
+            if kind=='raise':
+                def bad(*args):raise RuntimeError('model fault')
+            elif kind=='nan':bad=lambda *args:([(0.,0.),(float('nan'),0.)] if hook=='plan_path' else (float('nan'),0.))
+            elif kind=='wrong_shape':bad=lambda *args:4.
+            else:bad=None
+            ns[hook]=bad
+            value=ns['_base_control_loop'](0.,(0.,0.,0.),None)
+            fault_cases.append({'hook':hook,'kind':kind,'pass':len(s['choose_calls'])==1
+                and s['choose_calls'][0][:2]==(0.,0.) and value==(1.,.4,False)
+                and len([line for line in logs if line.startswith('DBG base_loop')])==1
+                and ns['_BASE_LOOP_ST']['last']['error']['hook']==hook})
+    record('all_hook_exception_nonfinite_missing_and_shape_faults_checked_once',all(q['pass'] for q in fault_cases),cases=fault_cases)
+    ns,s,logs=controlled()
+    def broken(*args):raise RuntimeError('same repeated error')
+    ns['lookahead_target']=broken
+    for t in (0.,1/60,2/60):ns['_base_control_loop'](t,(0.,0.,0.),None)
+    record('each_fault_tick_emits_one_debug_line',len(logs)==3 and len(s['choose_calls'])==3,lines=logs)
+    ns,s,logs=controlled();ns['_base_control_loop'](0.,(0.,0.,0.),None);old=ns['_BASE_LOOP_ST']['path']
+    ns['_BASE_LOOP_ST']['replan_pending']=True;ns['plan_path']=broken
+    ns['_base_control_loop'](1.,(.1,0.,0.),None);fault_command=s['choose_calls'][-1][:2]
+    ns['_base_control_loop'](2.,(.2,0.,0.),None)
+    record('replan_exception_stops_one_tick_then_reuses_existing_path_without_retry',fault_command==(0.,0.)
+           and s['choose_calls'][-1][:2]==(.3,.1) and ns['_BASE_LOOP_ST']['path']==old and len(logs)==1)
+
+    ns,s,_=controlled();s['chosen']='stop';s['map_hit']=.4
+    for t in (0.,5.,10.):ns['_base_control_loop'](t,(0.,0.,0.),None)
+    equal_boundary=not ns['_BASE_LOOP_ST']['replan_pending']
+    ns['_base_control_loop'](10.+1/60,(.1,0.,0.),None)
+    queued=ns['_BASE_LOOP_ST']['replan_pending'] and len(s['plan_calls'])==1
+    ns['_base_control_loop'](10.+2/60,(.2,0.,0.),None)
+    record('map_stop_strict_ten_seconds_defers_replan_to_next_tick',equal_boundary and queued
+           and len(s['plan_calls'])==2 and s['plan_calls'][-1][0]==(.2,0.) and s['plan_calls'][-1][2]==.5,
+           plan_calls=s['plan_calls'])
+    resets=[]
+    for mode in ('choice','nonzero','map_clear'):
+        ns,s,_=controlled();s['chosen']='stop';s['map_hit']=.3
+        ns['_base_control_loop'](0.,(0.,0.,0.),None)
+        if mode=='choice':s['chosen']='follow'
+        elif mode=='nonzero':s['choice']=(.1,0.)
+        else:s['map_hit']=None
+        ns['_base_control_loop'](9.,(0.,0.,0.),None)
+        resets.append(ns['_BASE_LOOP_ST']['block_since'] is None and not ns['_BASE_LOOP_ST']['replan_pending'])
+    record('all_three_map_stop_conditions_are_required',all(resets))
+    ns,s,_=controlled();ns['_base_control_loop'](100.,(0.,0.,0.),None)
+    ns['_base_control_loop'](0.,(.5,0.,0.),None)
+    record('time_rewind_resets_path_and_plans_from_new_current_pose',len(s['plan_calls'])==2
+           and s['plan_calls'][-1][0]==(.5,0.) and ns['_BASE_LOOP_ST']['path'][0]==(.5,0.))
+
+    ns,s,_=controlled();ns['GOAL']=(0.,0.,0.)
+    result=ns['_base_control_loop'](0.,(.5,0.,.15),None)
+    record('goal_boundary_checked_stop_skips_model_hooks',result==(0.,0.,True) and s['events']==['choose_command'])
+    ns,s,_=controlled();ns['GOAL']=(0.,0.,0.);s['choice']=(0.,-.4)
+    result=ns['_base_control_loop'](0.,(.49,0.,.3),None)
+    record('goal_alignment_checked_once_not_done',result==(0.,-.4,False) and s['choose_calls'][0][:2]==(0.,-.4) and not s['plan_calls'])
+    ns,s,_=controlled();ns['GOAL']=(0.,0.,0.);s['choice']=(1.,.4)
+    result=ns['_base_control_loop'](0.,(.1,0.,0.),None)
+    record('goal_checked_escape_is_preserved_and_not_done',result==(1.,.4,False))
+    ns,s,_=controlled();ns['GOAL']=(0.,0.,0.)
+    ns['_base_control_loop'](0.,(.51,0.,0.),None)
+    record('outside_goal_boundary_resumes_model_path_approach',bool(s['plan_calls']))
+    ns,s,_=controlled()
+    def mutating(path,pose):path.clear();return (3.,0.)
+    ns['lookahead_target']=mutating
+    ns['_base_control_loop'](0.,(0.,0.,0.),None)
+    record('hook_path_mutation_does_not_destroy_cached_path',ns['_BASE_LOOP_ST']['path']==((0.,0.),(5.,0.)))
+
+    ns,s,_=controlled();s['choice']=(.2,-.1);tracker=[]
+    ns['_base_track_step']=lambda t:tracker.append(t)
+    def false_controller(*args):raise AssertionError('EDIT controller should not run')
+    ns['controller']=false_controller
+    exec(compile(ast.Module(body=[new_funcs['_robot_only']],type_ignores=[]),str(BASE),'exec'),ns)
+    result=ns['_robot_only'](0.,(0.,0.,0.),object())
+    record('actual_robot_only_ignores_changed_edit_controller',result==(.2,-.1,False)
+           and tracker==[0.] and s['events']==['plan_path','lookahead_target','follow_cmd','choose_command'])
+
+    # Existing checker/chooser implementations are AST-identical. Also compare
+    # actual runtime outputs over varied finite sensor inputs and command families.
+    old,new=load_ns(B.SRC),load_ns(BASE);rng=np.random.default_rng(523);same=True
+    for i in range(100):
+        objects=[object_fixture(float(rng.uniform(-8.,-3.)),float(rng.uniform(-10.,-5.)),
+                    float(rng.uniform(-.8,.8)),float(rng.uniform(-.8,.8)),ident=j) for j in range(i%6)]
+        for obj in objects:obj['seen_t']=20.-float(rng.uniform(0.,3.));obj['vel_ok']=bool(rng.integers(2))
+        pose=(-8.+float(rng.random()),-10.+float(rng.random()),float(rng.uniform(-math.pi,math.pi)))
+        seed(old,objects,pose=pose,now=20.);seed(new,objects,pose=pose,now=20.)
+        v,w=float(rng.uniform(-.3,1.)),float(rng.uniform(-.4,.4))
+        same &= old['check_motion'](v,w)==new['check_motion'](v,w)
+        vf=0. if i%2 else .3
+        same &= old['choose_command'](vf,w,(-3.,-4.))==new['choose_command'](vf,w,(-3.,-4.))
+    record('actual_v10_motion_and_chooser_parity',same,cases=100)
+
+    target_contract_checks(record)
+    ns=load_ns(BASE);objects=[object_fixture(-6.+i*.25,-10.+i*.15,-.1+i*.02,.05,ident=i) for i in range(10)]
+    seed(ns,objects,pose=(-8.,-10.,0.),now=10.)
+    performance={}
+    for name,vf,n in (('following',.3,7),('alignment',0.,9)):
+        for _ in range(40):ns['choose_command'](vf,.2,(-5.,-7.))
+        timings=[]
+        for _ in range(300):
+            now=time.perf_counter_ns();ns['choose_command'](vf,.2,(-5.,-7.));timings.append((time.perf_counter_ns()-now)/1e6)
+        performance[name]={'median_ms':float(np.median(timings)),'p95_ms':float(np.percentile(timings,95)),
+                           'calls':300,'objects':10,'points_per_object':20,'candidates':n,'target_ms':3.}
+        record('performance_'+name,performance[name]['median_ms']<=3.,**performance[name])
+    output={'verdict':'pass' if all(c['pass'] for c in checks.values()) else 'fail',
+            'passed':sum(c['pass'] for c in checks.values()),'total':len(checks),'checks':checks,
+            'base_file':str(BASE),'base_sha16':hashlib.sha256(BASE.read_bytes()).hexdigest()[:16],
+            'base_sha256':hashlib.sha256(BASE.read_bytes()).hexdigest(),'performance':performance,
+            'limits':['Path projection continuity resolves geometric ties only; it is not global route tracking or a safety proof.',
+                'This suite verifies the specified contract, not universal safety of incorrect model hooks.',
+                'Calls to chooser from inside model hooks are prohibited by the prompt contract; malicious rebinding of base globals is not a sandboxed threat model.']}
+    archive_before_write(OUT);OUT.write_text(json.dumps(safe_json(output),ensure_ascii=False,indent=2,allow_nan=False)+'\n')
+    print('B523_V11_OFFLINE',output['verdict'],output['passed'],output['total'],output['base_sha16'],performance)
+    print('FAILED',[n for n,c in checks.items() if not c['pass']])
+    return output
+
+
+if __name__=='__main__':raise SystemExit(0 if run()['verdict']=='pass' else 1)

@@ -1,0 +1,31 @@
+<section id="summary" data-transition="fade" style="background:#F7F6F2;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">한눈에</p>
+<h2 style="font-size:60px;font-weight:600;line-height:1.15">숙고 조건에서 한 번 통과했지만, Claude의 방식은 아니었다</h2>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:24px">
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;color:#6B7280">T0 기준</p>
+<p style="font-size:72px;font-weight:600;line-height:1.1">0/5</p>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">기존 NPU 기록. 40회차 동안 통과 0, 높이와 스캔 평면을 잇는 응답 0.</p>
+</div>
+<div style="background:#FBFBF9;border:2px solid #C4501F;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;color:#C4501F">T3 숙고</p>
+<p style="font-size:72px;font-weight:600;line-height:1.1;color:#C4501F">1/5</p>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">추론 13배. 통과 1건은 8회차, 충돌 피드백 뒤 표 기반 지도로.</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;color:#6B7280">T2 숙고 + 도구</p>
+<p style="font-size:72px;font-weight:600;line-height:1.1">0/3</p>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">도구는 24회차 중 5회차에서 8번. 시뮬레이터는 만들지 않음.</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;color:#6B7280">T2P 절차 지시</p>
+<p style="font-size:72px;font-weight:600;line-height:1.1">0/3</p>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">Claude의 절차를 11단계 지시로. 도구는 50배로 늘었지만 시험 묶음 0, 시뮬레이터는 높이 없는 2D.</p>
+</div>
+</div>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">표본이 작아 조건 사이의 통과율 차이는 주장하지 않는다. 통과 수는 'k회 중 n회'로만 쓴다.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 2 / 27 · 집계: analysis/transfer_summary.py</p>
+<aside>결과부터 말씀드리면, 기존 NPU 기준선은 다섯 실행 모두 실패였습니다. 추론 강도를 높인 T3에서 다섯 중 하나가 마지막 8회차에 통과했지만, 낮은 상자가 스캔에 안 잡힌다는 이유를 한 번도 말하지 않았고, 충돌 피드백을 따라 표 기반 지도에 도달한 경우였습니다. 도구를 준 T2는 도구를 거의 쓰지 않았습니다. 그래서 Claude가 스스로 한 절차를 지시로 준 T2P도 돌렸는데, 도구 사용은 50배로 늘었지만 시험 묶음은 만들어지지 않았고 세 번 모두 통과하지 못했습니다.</aside>
+</section>

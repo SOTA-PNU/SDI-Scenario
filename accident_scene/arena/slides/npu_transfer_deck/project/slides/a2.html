@@ -1,0 +1,20 @@
+<section id="a2" data-transition="fade" style="background:#EEF1F5;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:28px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">부록 A2 · Claude가 스스로 한 일 → T2P 지시 · 자작 시뮬레이터 (3단계)</p>
+<h2 style="font-size:52px;font-weight:600;line-height:1.15">시뮬레이터의 틀은 옮기고, 높이 모델은 뺐다</h2>
+</div>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:24px;color:#14213D">
+<tr style="background:#14213D"><th style="width:44%;color:#F4F2EC;text-align:left">Claude가 한 것 (mock_sim.py)</th><th style="width:42%;color:#F4F2EC;text-align:left">T2P 지시</th><th style="width:14%;color:#F4F2EC;text-align:left">옮긴 방식</th></tr>
+<tr><td>머리에 '채점 시뮬레이터 아님', 입력 값과 지어낸 값 구분</td><td>3①: 같은 구분을 적을 것</td><td>그대로</td></tr>
+<tr style="background:#E3E8EF"><td>조립 파일에서 채점 환경 부분만 걸러 실행</td><td>3②: 컨트롤러를 따로 베끼지 말 것</td><td>그대로</td></tr>
+<tr><td>60 Hz 운동학, 반응 지연 τ, 호출 → 적분 → 충돌 순서</td><td>3③: 같은 순서, 지연은 매개변수</td><td>그대로</td></tr>
+<tr style="background:#E3E8EF"><td>센서: 문서와 같은 이름 · 인자 · 기본값 · 반환</td><td>3④: 인터페이스를 문서 그대로</td><td>그대로</td></tr>
+<tr><td><b>센서가 높이 z를 지나는 물체만 맞힘</b></td><td>지시하지 않음 — 정답 구조</td><td><b style="color:#C4501F">제외</b></td></tr>
+<tr style="background:#E3E8EF"><td>지게차 · 선반 · 기둥 · 팔레트를 지어내 여러 배치로</td><td>3⑥: 존재만 말한 구조물을 여러 배치로 지어냄</td><td>일반화</td></tr>
+<tr><td>스위치: 부호 반대 · 도 단위 · 원점 · 차체 · 지연 · 속도 · 회전 무시 · 벽</td><td>3⑦: 모르는 요소마다 스위치, 방어 코드마다 발동 시험</td><td>일반화</td></tr>
+<tr style="background:#E3E8EF"><td>차체 다각형 겹침으로 접촉 판정, 최소 여유 · 경로 기록</td><td>3⑧: 보수적 겹침 판정, 첫 접촉 뒤에도 계속</td><td>그대로</td></tr>
+<tr><td>PNG 궤적 그림을 직접 그려 12장 확인</td><td>3⑬: 텍스트 그림 (gpt-oss는 그림을 못 봄)</td><td>바꿈</td></tr>
+</table>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 부록 A2 / A6 · 낮은 부품 높이(팔레트 0.14 m 등), 자기 반사 · 시야 옵션도 제외</p>
+<aside>시뮬레이터는 틀을 거의 그대로 옮겼습니다. 출처를 구분해 적는 것, 운동 모델과 판정 순서, 문서와 같은 센서 인터페이스, 모르는 요소를 스위치로 두는 것까지입니다. 하지만 Claude 시뮬레이터의 핵심이던, 레이가 정해진 높이를 지나는 물체만 맞히는 모델은 그 자체가 정답이라 지시하지 않았습니다. 낮은 팔레트의 높이 같은 값도 뺐습니다.</aside>
+</section>

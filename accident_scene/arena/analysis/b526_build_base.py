@@ -1,0 +1,85 @@
+"""B526 v14: map-first emergency ranking, checked target chords, map tools only."""
+import hashlib
+from pathlib import Path
+from b514_build_base import archive_before_write
+from b526_map_tools import MAP_TOOLS
+ARENA=Path(__file__).resolve().parents[1]
+SRC=ARENA/'base_carter_run_ros_map_lidartime_objects_check_v13.py'
+OUT=ARENA/'base_carter_run_ros_map_lidartime_objects_check_v14.py'
+SOURCE_SHA256='a4d0ad5ffcbb5eceb5d70ae981caf9f640f2a0d4b532882f93ad566466d26fe0'
+
+def build(source):
+    assert hashlib.sha256(source.encode()).hexdigest()==SOURCE_SHA256,'v13 source changed'
+    old='''    chosen = min(pool, key=lambda n: (-candidates[n]["robust_min_gap_obj"],
+                                     -hit_time(candidates[n]["t_hit_obj"]),
+                                     -candidates[n]["min_gap_map"],
+                                     -hit_time(candidates[n]["t_hit_map"]), n))
+    return chosen, "map_clearance_object_gap" if clear_map else ("map_filtered_object_gap" if filtered else "emergency_object_gap")'''
+    new='''    if clear_map:
+        chosen = min(pool, key=lambda n: (-candidates[n]["robust_min_gap_obj"],
+                                         -hit_time(candidates[n]["t_hit_obj"]),
+                                         -candidates[n]["min_gap_map"],
+                                         -hit_time(candidates[n]["t_hit_map"]), n))
+        return chosen, "map_clearance_object_gap"
+    # Every candidate already violates the map buffer. Preserve the largest
+    # predicted minimum map gap first; a remote object's gap cannot justify
+    # choosing a candidate that makes this known static risk worse. Existing
+    # positive-map filtering remains. Object gap/TTC and map TTC break ties.
+    chosen = min(pool, key=lambda n: (-candidates[n]["min_gap_map"],
+                                     -candidates[n]["robust_min_gap_obj"],
+                                     -hit_time(candidates[n]["t_hit_obj"]),
+                                     -hit_time(candidates[n]["t_hit_map"]), n))
+    return chosen, "map_filtered_map_gap" if filtered else "emergency_map_gap"'''
+    assert old in source;source=source.replace(old,new,1)
+    source=source.replace('reason == "map_filtered_object_gap"','reason == "map_filtered_map_gap"',1)
+    source=source.replace('# ---- base 제어 루프: EDIT REGION 의 세 함수만 사용 ----',MAP_TOOLS+'# ---- base 제어 루프: EDIT REGION 의 세 함수만 사용 ----',1)
+    source=source.replace('action = "checked_zero" if reason == "no_forward_range" else "forward_target"',
+                          'action = "checked_zero" if reason in ("no_forward_range", "unsafe_fallback") else "forward_target"',1)
+    old='''              "too_far" if ahead > cfg["target_max_ahead_m"] + 1e-12 else None)
+    detail ='''
+    new='''              "too_far" if ahead > cfg["target_max_ahead_m"] + 1e-12 else None)
+    clearance = state["clearance_m"] if state["clearance_m"] is not None else cfg["clearances_m"][0]
+    connector_clear = segment_free(pose[:2], requested, clearance)
+    if reason is None and not connector_clear:
+        reason = "unsafe_connector"
+    detail ='''
+    assert old in source;source=source.replace(old,new,1)
+    source=source.replace('''              "target_corrected_ahead_m": None, "target_fallback_unavailable": False}''','''              "target_corrected_ahead_m": None, "target_fallback_unavailable": False,
+              "target_connector_clear": connector_clear, "target_connector_clearance_m": clearance,
+              "target_fallback_connector_clear": None, "target_connector_blocked": False}''',1)
+    old='''    else:
+        # The chosen arc is known even at a self-intersection: do not reproject it.
+        same_segment = (1.0-robot["fraction"]) * robot["length"]'''
+    new='''    elif not segment_free(pose[:2], target, clearance):
+        detail.update(target_reject_reason="unsafe_fallback", requested_reject_reason=reason,
+                      target_fallback_unavailable=True, target_fallback_connector_clear=False, target_connector_blocked=True)
+        target = None
+    else:
+        detail["target_fallback_connector_clear"] = True
+        # The chosen arc is known even at a self-intersection: do not reproject it.
+        same_segment = (1.0-robot["fraction"]) * robot["length"]'''
+    assert old in source;source=source.replace(old,new,1)
+    old='    blocked = (info["chosen"] == "stop" and v == 0.0 and w == 0.0\n               and info["candidates"]["follow"]["t_hit_map"] is not None)'
+    new='    blocked = (v == 0.0 and w == 0.0 and\n               ((info["chosen"] == "stop" and info["candidates"]["follow"]["t_hit_map"] is not None)\n                or detail.get("target_connector_blocked", False)))'
+    assert old in source;source=source.replace(old,new,1)
+    # Documentation is additive; preserved public motion geometry and horizons.
+    at=source.index('"""')+3
+    doc='''\nB526 v14 additions: occupancy_grid / cell_of / xy_of / segment_free expose
+sampled static geometry; all path search remains in the three model hooks.
+Even an in-range path target must have a segment_free connector from the actual
+pose at the adopted centre clearance. Otherwise the existing forward path point
+is checked; if that connector also fails, checked zero is requested. Reasons
+unsafe_connector/unsafe_fallback use the existing per-reason 10 s DBG limit.
+If the fallback connector is blocked and the chooser actually returns zero,
+continuous blockage >10 s schedules replanning by the model on the next tick.
+When no candidate meets the map buffer, emergency ranking maximizes min_gap_map
+before object gap, object TTC, map TTC and deterministic name. The positive-map
+filter is retained; safe and map-clear candidate branches are unchanged. This
+is sampled geometry and candidate selection, not a physical safety guarantee.\n'''
+    source=source[:at]+doc+source[at:]
+    return source
+
+if __name__=='__main__':
+    source=build(SRC.read_text());compile(source,str(OUT),'exec')
+    archive_before_write(OUT);OUT.write_text(source)
+    print(OUT.name,hashlib.sha256(source.encode()).hexdigest())

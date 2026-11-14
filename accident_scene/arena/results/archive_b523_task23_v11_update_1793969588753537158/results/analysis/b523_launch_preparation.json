@@ -1,0 +1,82 @@
+{
+  "task": 22,
+  "experiment": 49,
+  "execution": "CPU gate selftest and isolated copied-shell local mocks only; no actual host process query, HTTP, GPU, Isaac, or model loop launch.",
+  "source_sha256": {
+    "run_b523_gpu_steps.sh": "46f801935b9e55f72d96cb66d0c69c4db422d3757a8049f6d9fe87f1e81cb321",
+    "run_b523_sequential.sh": "2c9465a92f06c8607034eb437c9a70a8919581a8ecf0ee67d9be8048d04b1e50",
+    "analysis/b523_gate_isaac.py": "25b44ae6a2037a4c2e7596177ab9e601508ea4121f42ce23569cf07c9b108db7",
+    "analysis/b523_runner_check.py": "c2b078815aa61b252172ee31bb2a6b21ccd322b9e0ea19217e21089c2ade8a3e",
+    "base_carter_run_ros_map_lidartime_objects_check_v10.py": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+    "analysis/b523_reference.py": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+    "PROMPT_B5_23.md": "8f9b202505cf850e0c762cadda2e5076f3f05fc39965aed4b616711a3574f090"
+  },
+  "base_file": "base_carter_run_ros_map_lidartime_objects_check_v10.py",
+  "reference_file": "analysis/b523_reference.py",
+  "gate_control": "Exact reference three hooks plus actual v10 _robot_only -> _base_control_loop -> choose_command. Audit wraps actual dispatcher and preserves returned tuple; there is no simple-follower controller override.",
+  "gate_ast_validation": {
+    "_robot_only_and_base_loop_preserved": true,
+    "three_reference_hooks_and_compatibility_stub_preserved": true,
+    "timeout_s": 200,
+    "one_chooser_call_per_tick_checked": true
+  },
+  "gate_criteria": {
+    "collision_count": 0,
+    "execution_errors": 0,
+    "median_choose_ms_max": 3,
+    "sim_seconds": 200,
+    "goal_required": false,
+    "premature_run_pass_requires_legitimate_goal": true
+  },
+  "gpu_stage_order": [
+    "wait run_b522_gpu_steps.sh count=0 at 30s intervals",
+    "active agent check",
+    "vLLM models wait at most1800s",
+    "base and reference full SHA256 check",
+    "one locked gate with fresh UUID",
+    "PASS+exit0+matching UUID/base/reference metadata",
+    "a0,a1 then a2,a3 iff both submitted-code grades PASS"
+  ],
+  "output_contract": {
+    "directory": "results/turns/prompt_b5_23",
+    "tag": "gpu_gpt_oss_120b_pB523",
+    "prompt_file": "PROMPT_B5_23.md"
+  },
+  "prior_B522_operational_sources_unchanged": {
+    "run_b522_gpu_steps.sh": true,
+    "run_b522_sequential.sh": true,
+    "analysis/b522_gate_isaac.py": true,
+    "analysis/b522_runner_check.py": true
+  },
+  "prior_B522_source_sha256": {
+    "run_b522_gpu_steps.sh": "17d2dc7486a43b1320d2d4fc5b3d1404f2c5b05d31d8bddca82b5fc3ab5e17f1",
+    "run_b522_sequential.sh": "f1960afb69171bb2f35e042304bf52160ab173b9f8bc4966e753f2bb45ee6118",
+    "analysis/b522_gate_isaac.py": "088a092c42c471558f20406720759e5ba234ce26a1dafdc1794feadcc4cb7b2c",
+    "analysis/b522_runner_check.py": "19da0116324b41bf7959d7fa947f7a20378afb7f8daeed5b49751e21163e22dd"
+  },
+  "new_actual_runtime_artifacts_absent": {
+    "results/analysis/b523_gate_isaac": true,
+    "results/turns/prompt_b5_23": true,
+    "b523_gate_probe_carter_run.py": true
+  },
+  "B522_a1_artifacts_accessed": false,
+  "validation": {
+    "gate": {
+      "passed": 26,
+      "total": 26,
+      "artifact": "results/analysis/b523_gate_selftest.json",
+      "sha256": "544c1e8fb0092929b17851d79ee98de82fe5b3d7c2ab5f229d5602da780b23ec"
+    },
+    "runner": {
+      "passed": 152,
+      "total": 152,
+      "artifact": "results/analysis/b523_runner_check.json",
+      "sha256": "16013925bdf6565b9c2f254abb94cbd6d45d2625680bf4d0c3d2183b4efbeb06"
+    }
+  },
+  "independent_review": {
+    "operational_sources": "prompt_selftest read-only review found no material defects",
+    "prompt": "runner read-only review found no contract conflict; GOAL endpoint limitation remains explicit"
+  },
+  "launch_cmd": "cd /home/jun/SDI-Scenario/accident_scene/arena && nohup bash run_b523_gpu_steps.sh > /tmp/b523_gpu_steps_$(date +%Y%m%d_%H%M%S_%N).log 2>&1 < /dev/null &"
+}

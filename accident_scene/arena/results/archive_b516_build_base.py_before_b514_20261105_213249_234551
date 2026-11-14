@@ -1,0 +1,118 @@
+"""B-5-16 v5: preserve map separation and forward escapes during alignment.
+
+Builds only from the preserved v4. Tracking, geometry and uncertainty are unchanged.
+No object identity, trajectory, phase, lane or privileged observation is introduced.
+"""
+import ast
+import hashlib
+from pathlib import Path
+
+from b514_build_base import archive_before_write
+
+ARENA = Path(__file__).resolve().parents[1]
+SRC = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v4.py"
+OUT = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v5.py"
+
+CANDIDATES = '''def _base_command_candidates(v_follow, w_follow, target_xy=None):
+    """追従が回転のみでも、検査する前進候補を残します。"""
+    candidates = [("follow", v_follow, w_follow), ("slow", 0.5 * v_follow, w_follow), ("stop", 0.0, 0.0)]
+    if v_follow > 0.0:
+        cfg = _BASE_MOTION_UNCERTAINTY
+        candidates.append(("fast", min(max(cfg["fast_scale"] * v_follow, cfg["fast_min"]), 1.0), w_follow))
+    candidates.extend((("turn_l", 0.0, 0.4), ("turn_r", 0.0, -0.4), ("back", -0.2, 0.0)))
+    if v_follow == 0.0:
+        curve_w = w_follow
+        if target_xy is not None:
+            _, x, y, yaw = _BASE_POSES[-1]
+            error = math.atan2(target_xy[1] - y, target_xy[0] - x) - yaw
+            error = math.atan2(math.sin(error), math.cos(error))
+            curve_w = max(-0.4, min(0.4, 1.5 * error))
+        candidates.extend((("forward_slow", 0.15, 0.0), ("forward_fast", 1.0, 0.0), ("toward", 0.3, curve_w)))
+    return candidates
+'''
+
+RANK = '''def _base_choose_rank(candidates, target_xy):
+    """지도와 관측 물체의 간격을 독립된 순위 기준으로 비교합니다."""
+    def distance(name):
+        p = candidates[name]["end_pose"]
+        return math.hypot(p[0] - target_xy[0], p[1] - target_xy[1])
+    def hit_time(value):
+        return math.inf if value is None else value
+    # An unobstructed requested alignment or goal stop must not initiate travel.
+    if candidates["follow"]["v"] == 0.0 and candidates["follow"]["t_hit"] is None:
+        return "follow", "follow_safe"
+    if _BASE_MOTION_UNCERTAINTY["fast_preference"] and "fast" in candidates and candidates["fast"]["t_hit"] is None:
+        other = [n for n in ("follow", "slow") if candidates[n]["t_hit"] is None]
+        current = _BASE_POSES[-1]
+        reference = min((distance(n) for n in other), default=math.hypot(current[1] - target_xy[0], current[2] - target_xy[1]))
+        if distance("fast") + 1e-9 < reference:
+            return "fast", "fast_progress"
+    for name in ("follow", "slow", "stop"):
+        if candidates[name]["t_hit"] is None:
+            return name, name + "_safe"
+    safe = [name for name, item in candidates.items() if item["t_hit"] is None]
+    if safe:
+        return min(safe, key=lambda n: (distance(n), -candidates[n]["robust_min_gap_obj"], -candidates[n]["min_gap_map"], n)), "safe_progress"
+    positive_map = [name for name, item in candidates.items() if item["min_gap_map"] > 0.0]
+    pool = positive_map or list(candidates)
+    filtered = len(pool) < len(candidates)
+    chosen = min(pool, key=lambda n: (-candidates[n]["robust_min_gap_obj"],
+                                     -hit_time(candidates[n]["t_hit_obj"]),
+                                     -candidates[n]["min_gap_map"],
+                                     -hit_time(candidates[n]["t_hit_map"]), n))
+    return chosen, "map_filtered_object_gap" if filtered else "emergency_object_gap"
+'''
+
+CHOOSE = '''def choose_command(v_follow, w_follow, target_xy, horizon_s=3.0):
+    """지도 침범 후보를 거르고 물체/지도 간격을 분리 비교한 (v,w,info)를 돌려줍니다."""
+    v_follow, w_follow, horizon_s = map(float, (v_follow, w_follow, horizon_s))
+    target_xy = tuple(float(p) for p in target_xy)
+    if len(target_xy) != 2 or not all(math.isfinite(q) for q in (*target_xy, v_follow, w_follow, horizon_s)):
+        raise ValueError("choose_command requires finite commands and a target (x,y)")
+    if horizon_s < 0.0:
+        raise ValueError("choose_command requires horizon_s >= 0")
+    candidates = {}
+    for name, v, w in _base_command_candidates(v_follow, w_follow, target_xy):
+        result = check_motion(v, w, horizon_s)
+        candidates[name] = {"v": v, "w": w, "t_hit": result["t_hit"],
+                            "min_gap_obj": result["min_gap_obj"], "min_gap_map": result["min_gap_map"],
+                            "end_pose": result["end_pose"], "raw_t_hit": result["raw_t_hit"],
+                            "raw_t_hit_obj": result["raw_t_hit_obj"], "t_hit_obj": result["t_hit_obj"],
+                            "t_hit_map": result["t_hit_map"], "robust_min_gap_obj": result["robust_min_gap_obj"],
+                            "future_min_gap_obj": result["future_min_gap_obj"], "robust_end_gap_obj": result["robust_end_gap_obj"]}
+    chosen, reason = _base_choose_rank(candidates, target_xy)
+    pick = candidates[chosen]
+    filtered = reason == "map_filtered_object_gap"
+    info = {"chosen": chosen, "reason": reason, "candidates": candidates, "min_gap_obj": pick["min_gap_obj"],
+            "robust_min_gap_obj": pick["robust_min_gap_obj"], "min_gap_map": pick["min_gap_map"],
+            "map_filtered": filtered,
+            "excluded_map_names": sorted(n for n, c in candidates.items() if c["min_gap_map"] <= 0.0) if filtered else []}
+    global _BASE_CHOOSE_DBG_WINDOW
+    t = _BASE_POSES[-1][0]
+    window = int(t // 0.5)
+    if window != _BASE_CHOOSE_DBG_WINDOW:
+        _BASE_CHOOSE_DBG_WINDOW = window
+        fh, sh = candidates["follow"]["t_hit"], candidates["stop"]["t_hit"]
+        fhs, shs = ("-" if fh is None else f"{fh:.1f}"), ("-" if sh is None else f"{sh:.1f}")
+        builtins.print(f"DBG choose t={t:.2f} pick={chosen} why={reason} f={fhs} s={shs} obj_min={pick['min_gap_obj']:.2f} rob={pick['robust_min_gap_obj']:.2f} map={pick['min_gap_map']:.2f}")
+    return pick["v"], pick["w"], info
+'''
+
+
+def build(source):
+    replacements = {"_base_command_candidates": CANDIDATES, "_base_choose_rank": RANK, "choose_command": CHOOSE}
+    nodes = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+    lines = source.splitlines(keepends=True)
+    for name in sorted(replacements, key=lambda key: nodes[key].lineno, reverse=True):
+        node = nodes[name]
+        lines[node.lineno - 1:node.end_lineno] = [replacements[name].rstrip() + "\n"]
+    out = "".join(lines)
+    compile(out, "<B-5-16 base v5>", "exec")
+    return out
+
+
+if __name__ == "__main__":
+    source = build(SRC.read_text())
+    archive_before_write(OUT)
+    OUT.write_text(source)
+    print(f"{OUT.name} sha16={hashlib.sha256(source.encode()).hexdigest()[:16]} chars={len(source)}")

@@ -1,0 +1,25 @@
+<section id="transfer" data-transition="fade" style="background:#14213D;color:#F4F2EC;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#F07A4A">NPU 이식 · 설계</p>
+<h2 style="font-size:64px;font-weight:600;line-height:1.15;color:#F4F2EC">Claude의 절차를 NPU 모델에 한 겹씩 옮긴다</h2>
+</div>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:26px;color:#F4F2EC">
+<tr style="background:#2A3B63"><th style="width:20%;color:#F4F2EC;text-align:left">조건</th><th style="width:36%;color:#F4F2EC;text-align:left">gpt-oss-120b (NPU)에 주는 것</th><th style="width:30%;color:#F4F2EC;text-align:left">옮기는 Claude 절차</th><th style="width:14%;color:#F4F2EC;text-align:left">표본</th></tr>
+<tr><td>T0 기준</td><td>기존 NPU 실험 그대로</td><td>—</td><td>5 (0통과)</td></tr>
+<tr style="background:#1E2E52"><td><b style="color:#F07A4A">T3 숙고</b></td><td>+ 추론 강도 high (요청 필드)</td><td>코드 전 13분 사고</td><td>5</td></tr>
+<tr><td><b style="color:#F07A4A">T2 숙고 + 자기 검증</b></td><td>T3 + 격리된 Python 실행 도구</td><td>자작 시뮬레이터로 스스로 시험</td><td>3</td></tr>
+<tr style="background:#1E2E52"><td>T1 하네스 교체</td><td>Claude Code + 변환 프록시 + gpt-oss</td><td>방법 전체</td><td>보류</td></tr>
+</table>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">
+<div style="background:#1E2E52;border-radius:16px;padding:28px 32px;display:flex;flex-direction:column;gap:8px">
+<h3 style="font-size:32px;font-weight:600;color:#F4F2EC">무엇을 가르나</h3>
+<p style="font-size:26px;line-height:1.45;color:#B9C3D3">T3 대 T0 = 오래 생각하면 통과하나 · T2 대 T3 = 스스로 시험할 수단까지 주면 통과하나. 입력 · Isaac 판정 · 피드백 · 상한 8회차는 모두 같다.</p>
+</div>
+<div style="background:#1E2E52;border-radius:16px;padding:28px 32px;display:flex;flex-direction:column;gap:8px">
+<h3 style="font-size:32px;font-weight:600;color:#F4F2EC">옮기는 것은 절차, 내용이 아니다</h3>
+<p style="font-size:26px;line-height:1.45;color:#B9C3D3">높이 · 스캔 평면 · 상자 번호 · "검출되지 않는다"는 어디에도 넣지 않는다. T1은 NPU 속도(약 10 tok/s)로 회차당 수 시간이 예상되어 보류.</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#8E9AB0">Claude 동일 조건 실험 · 25 / 29 · 사전 기록: REPORT.md 실험 8</p>
+<aside>다음 실험의 설계입니다. 기존 NPU 실험을 기준으로 두고, Claude의 절차를 한 겹씩 더합니다. T3은 생각을 오래 하게만 하고, T2는 거기에 직접 코드를 실행해 볼 수 있는 도구를 더합니다. 그래서 T3와 T0를 비교하면 숙고의 효과, T2와 T3를 비교하면 자기 검증 도구의 효과를 볼 수 있습니다. Claude Code 하네스를 통째로 쓰는 T1은 지금 NPU 속도로는 너무 오래 걸려 보류했습니다.</aside>
+</section>

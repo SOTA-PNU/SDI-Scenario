@@ -1,0 +1,26 @@
+<section id="npuprobe" data-transition="fade" style="background:#F7F6F2;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">NPU 사전 점검</p>
+<h2 style="font-size:64px;font-weight:600;line-height:1.15">옮길 수 있는지부터 확인했다 — 요청 11건</h2>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">
+<div style="background:#EDEBE4;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:34px;font-weight:600;color:#1F5FAE">도구 호출 — 지원</h3>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">gpt-oss가 Python 코드를 담은 tool_calls를 내고, 실행 결과를 돌려주면 그걸로 답을 마쳤다. 예: (2^61 − 1) mod 97 = 43. → T2를 표준 방식으로 구현.</p>
+</div>
+<div style="background:#EDEBE4;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:34px;font-weight:600;color:#1F5FAE">추론 강도 — 요청 필드가 효과</h3>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">reasoning_effort=high: 추론 토큰 282 · 456 · 444 → <b style="color:#14213D">1,163 · 774 · 1,034</b> (약 2.5배). low는 241. 시스템 메시지 "Reasoning: high"는 효과 없음(381 · 547).</p>
+</div>
+<div style="background:#EDEBE4;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:34px;font-weight:600">한계</h3>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">최대 문맥 131,072 토큰. 디코드는 단일 요청 약 10 tok/s, 8개 동시 실행 중에는 요청당 약 6 tok/s — 이전 측정(약 30 tok/s)보다 느리다.</p>
+</div>
+<div style="background:#EDEBE4;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:34px;font-weight:600;color:#C4501F">기존 기록 정정</h3>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">"furiosa-llm은 reasoning_effort를 무시한다"(소스 조사)는 실측으로 뒤집혔다. REPORT.md에 정정 기록을 남겼다.</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">Claude 동일 조건 실험 · 26 / 29 · 원자료: npu_probe/log.jsonl</p>
+<aside>이식 실험 전에 NPU에서 두 가지가 실제로 되는지 확인했습니다. 첫째, gpt-oss가 도구 호출 형식을 지원해서 Python 실행 도구를 붙일 수 있습니다. 둘째, 추론 강도를 올리는 것은 요청 필드로 해야 효과가 있었고, 추론이 약 2.5배로 늘었습니다. 이전 문서에서 이 필드가 무시된다고 적었던 것은 틀렸기 때문에 정정했습니다. 다만 NPU가 지금 느려서 시간이 오래 걸립니다.</aside>
+</section>

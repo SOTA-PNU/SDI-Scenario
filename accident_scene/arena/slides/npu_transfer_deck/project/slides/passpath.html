@@ -1,0 +1,19 @@
+<section id="passpath" data-transition="fade" style="background:#F7F6F2;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:28px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">결과 · 통과 1건의 경로 (T3 a4)</p>
+<h2 style="font-size:56px;font-weight:600;line-height:1.15">충돌 피드백을 따라가다 8회차에 도착했다</h2>
+</div>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:24px;color:#14213D">
+<tr style="background:#14213D"><th style="width:9%;color:#F4F2EC;text-align:left">회차</th><th style="width:27%;color:#F4F2EC;text-align:left">판정</th><th style="width:64%;color:#F4F2EC;text-align:left">코드가 한 일</th></tr>
+<tr><td>1–2</td><td>시간 초과 (23.60 · 29.37 m)</td><td>스캔만 보는 반응형 회피, 표 사용 없음</td></tr>
+<tr style="background:#EFEDE6"><td>3</td><td>box_00 충돌</td><td>반응형 회피</td></tr>
+<tr><td><b>4</b></td><td>지게차 충돌 (24.20 m)</td><td><b>상자 표 14개로 격자 A* 처음 사용</b> (0.5 m 격자, 여유 0.8 m)</td></tr>
+<tr style="background:#EFEDE6"><td>5</td><td>시간 초과 (29.31 m)</td><td>"표의 상자만 보고 지게차를 무시했다"며 A*를 버리고 반응형으로</td></tr>
+<tr><td>6</td><td>box_04 충돌 (15.01 m)</td><td>반응형 회피 — 스캔에 안 잡히는 낮은 상자에 막힘</td></tr>
+<tr style="background:#EFEDE6"><td><b>7</b></td><td>시간 초과 (6.83 m)</td><td>"box 04에 부딪혔다"를 근거로 <b>표 기반 A* 복귀</b> (0.3 m 격자, 여유 0.6 m). 경유점 앞 감속 때문에 평균 0.23 m/s</td></tr>
+<tr><td><b style="color:#C4501F">8</b></td><td><b style="color:#C4501F">통과 · 0.45 m · 33.7 s</b></td><td>감속을 없애고 최고 속도 1.2 m/s → 평균 1.03 m/s</td></tr>
+</table>
+<p style="font-size:26px;line-height:1.45;color:#3B4556"><b style="color:#14213D">명세 독해</b> — 7회차 L1(스캔 높이만 언급), 8회차 L0. 낮은 상자가 스캔에 안 잡힌다는 이유는 한 번도 말하지 않았다. 지도가 낮은 상자를 피한 것은 '표의 상자를 모두 피한다'는 전략의 부산물이다.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 17 / 27 · npu_gpt_oss_120b_t3_a4*_carter_run.py · 각 회차 raw.json 추론</p>
+<aside>유일한 통과가 어떻게 나왔는지 회차별로 보겠습니다. 4회차에 이미 상자 표로 지도를 만들어 A스타로 경로를 짰지만, 지게차에 부딪히자 5회차에 그 방식을 버렸습니다. 6회차에 낮은 상자 box 04에 부딪히자, 7회차에 그 충돌을 근거로 다시 표 기반 지도로 돌아왔고 처음으로 낮은 상자 구역을 지났습니다. 다만 경유점마다 속도를 줄여서 시간이 모자랐고, 8회차에 감속을 없애 통과했습니다. 끝까지 낮은 상자가 왜 안 보이는지는 말하지 않았습니다.</aside>
+</section>

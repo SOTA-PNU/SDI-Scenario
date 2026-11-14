@@ -1,0 +1,49 @@
+{
+  "task": 20,
+  "experiment_preparation": 48,
+  "base_decision": "Keep original v8; final source selection confirmed by root.",
+  "execution": "Preparation only: CPU gate selftest and copied-shell local mocks. No host process query, HTTP, GPU, or Isaac launch. B521 a1 artifacts not accessed.",
+  "normalized_full_gate_AST_matches_B521": true,
+  "source_sha256": {
+    "run_b522_gpu_steps.sh": "7a04852b57e3f03006bc6583efc19facf1c4e569cb0d73fb38bd3691a53a772b",
+    "run_b522_sequential.sh": "2bc59eb4f51c1ba8054ab1c07dfde570e8822e0c7c328a653910959cf7b40725",
+    "analysis/b522_gate_isaac.py": "c6acf8e3035a8ba3b008c8cf704de17da199abe84d694b1f339982100c974608",
+    "analysis/b522_runner_check.py": "e243570dcea868329568d240122e016c947298746e165cd61725943f1b72a7af",
+    "base_carter_run_ros_map_lidartime_objects_check_v8.py": "d92eed48917989427e226befd9db5c213e5ba2a3d3a8c1110304a0d525716fb6"
+  },
+  "B521_source_sha256_unchanged": {
+    "run_b521_gpu_steps.sh": "5ae9958032da1ce2095803612f8ea826b016d71b2dd51aa754968ea2499102ea",
+    "run_b521_sequential.sh": "6977d51d8ad46971f59df097a6e8d7108e2e9fe65d36f9a08c1a3f1d787a11d9",
+    "analysis/b521_gate_isaac.py": "40118a3f91be9808727e8e5c363cde9d26f6d844c43d7a1c6b79545a18ae03a2",
+    "analysis/b521_runner_check.py": "abb5e3ba48a4add8a2e3c10cfbbb722ebee73df463625ffc545a6d7e0ef583d8"
+  },
+  "runtime_outputs_absent_at_check": {
+    "results/turns/prompt_b5_22": true,
+    "results/analysis/b522_gate_isaac": true
+  },
+  "output_contract": {
+    "directory": "results/turns/prompt_b5_22",
+    "tag": "gpu_gpt_oss_120b_pB522",
+    "prompt_file": "PROMPT_B5_22.md",
+    "independent_literal_check": true,
+    "previous_output_lock_and_log_preservation_mocked": true
+  },
+  "predecessor": {
+    "script": "run_b521_gpu_steps.sh",
+    "host_only_poll": "ps -eo args | grep -c '[r]un_b521_gpu_steps.sh'",
+    "interval_seconds": 30
+  },
+  "launch_cmd": "cd /home/jun/SDI-Scenario/accident_scene/arena && nohup bash run_b522_gpu_steps.sh > /tmp/b522_gpu_steps_$(date +%Y%m%d_%H%M%S_%N).log 2>&1 < /dev/null &",
+  "gate_selftest": {
+    "passed": 21,
+    "total": 21,
+    "artifact": "results/analysis/b522_gate_selftest.json",
+    "sha256": "bb28ad3e64500edbcefd3eecc388ef32caeb3d9887eae6e7ff6c808293df9db7"
+  },
+  "runner_mocks": {
+    "passed": 80,
+    "total": 80,
+    "artifact": "results/analysis/b522_runner_check.json",
+    "sha256": "dab3397243dbece35447f9fbadfd2c56e98fe5d52e0b1afbd50ff24479ca9c79"
+  }
+}

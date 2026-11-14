@@ -1,0 +1,112 @@
+{
+  "verdict": "pass",
+  "passed": 8,
+  "total": 8,
+  "method": "Actual imported agent_loop.main with the existing B5 flags; sentinel replaces Run before its constructor. URL/process entry points are tripwires; no copied guard condition is evaluated.",
+  "agent_loop_file": "/home/jun/SDI-Scenario/accident_scene/arena/agent_loop.py",
+  "agent_loop_sha256": "f6ab9cd0d094ba9b4a36a945509de62eabb63ea03e4b00daf028c8aed1e3d2cb",
+  "actual_guard_line": 1475,
+  "actual_guard_end_line": 1476,
+  "actual_guard_source": "if TEST_MOVERS and (\"장면에 없는 물체\" in ptxt or \"최종 채점은 같은 장면\" not in ptxt):\n        raise SystemExit(f\"--b-test-movers 인데 프롬프트 {a.prompt_file} 가 시험 장면을 채점 장면과 다르게 설명합니다.\")",
+  "actual_main_sha256": "b1afe865069f735c79fb8d984ff5e3a0c5ef03666f506d4b64949aa8299ad128",
+  "before_prompt_file": "/home/jun/SDI-Scenario/accident_scene/arena/results/archive_b523_task24_guard_20261106_230153_1793973713995962329/PROMPT_B5_23.md",
+  "before_prompt_sha256": "f8e926fbe9a2ae68af5766be895f6a0bc649d9da6277bcd2522788178c621c30",
+  "fixed_prompt_sha256": "89074b58c9815828f3bcfbdd8b6a494fd9dcb92ad136082cab7ebb5f2258e73b",
+  "b519_prompt_sha256": "b25dbb6a6db121fa558022c15d3342bbb84eb1313d9555a8e8785df8634166d9",
+  "restored_sentence": "시험 주행(`run_isaac_sim`)과 최종 채점은 같은 장면에서 돕니다.",
+  "cases": {
+    "b523_fixed": {
+      "accepted": true,
+      "system_exit": null,
+      "run_output_created": false,
+      "sentinel_calls": 1,
+      "external_calls": [],
+      "run_constructor_called": false,
+      "model_calls": 0,
+      "selected_base": "/home/jun/SDI-Scenario/accident_scene/arena/base_carter_run_ros_map_lidartime_objects_check_v11.py",
+      "prompt_sha256": "89074b58c9815828f3bcfbdd8b6a494fd9dcb92ad136082cab7ebb5f2258e73b"
+    },
+    "b519_control": {
+      "accepted": true,
+      "system_exit": null,
+      "run_output_created": false,
+      "sentinel_calls": 1,
+      "external_calls": [],
+      "run_constructor_called": false,
+      "model_calls": 0,
+      "selected_base": "/home/jun/SDI-Scenario/accident_scene/arena/base_carter_run_ros_map_lidartime_objects_check_v11.py",
+      "prompt_sha256": "b25dbb6a6db121fa558022c15d3342bbb84eb1313d9555a8e8785df8634166d9"
+    },
+    "b523_actual_before": {
+      "accepted": false,
+      "system_exit": "--b-test-movers 인데 프롬프트 <fixture prompt> 가 시험 장면을 채점 장면과 다르게 설명합니다.",
+      "run_output_created": false,
+      "sentinel_calls": 0,
+      "external_calls": [],
+      "run_constructor_called": false,
+      "model_calls": 0,
+      "selected_base": "/home/jun/SDI-Scenario/accident_scene/arena/base_carter_run_ros_map_lidartime_objects_check_v11.py",
+      "prompt_sha256": "f8e926fbe9a2ae68af5766be895f6a0bc649d9da6277bcd2522788178c621c30"
+    },
+    "missing_required_phrase": {
+      "accepted": false,
+      "system_exit": "--b-test-movers 인데 프롬프트 <fixture prompt> 가 시험 장면을 채점 장면과 다르게 설명합니다.",
+      "run_output_created": false,
+      "sentinel_calls": 0,
+      "external_calls": [],
+      "run_constructor_called": false,
+      "model_calls": 0,
+      "selected_base": "/home/jun/SDI-Scenario/accident_scene/arena/base_carter_run_ros_map_lidartime_objects_check_v11.py",
+      "prompt_sha256": "30107c4f7a7cdbe883b5fda76710c0fc83e9dc60b7bb95383b1d95e7eb074873"
+    },
+    "forbidden_phrase_added": {
+      "accepted": false,
+      "system_exit": "--b-test-movers 인데 프롬프트 <fixture prompt> 가 시험 장면을 채점 장면과 다르게 설명합니다.",
+      "run_output_created": false,
+      "sentinel_calls": 0,
+      "external_calls": [],
+      "run_constructor_called": false,
+      "model_calls": 0,
+      "selected_base": "/home/jun/SDI-Scenario/accident_scene/arena/base_carter_run_ros_map_lidartime_objects_check_v11.py",
+      "prompt_sha256": "80eebc90bbbcc6903f4ec82122c7697ba9d62b5f169c098a2bb9f115172802e7"
+    }
+  },
+  "checks": [
+    {
+      "name": "archived failing B523 reproduced and only required sentence restored",
+      "pass": true
+    },
+    {
+      "name": "actual main preflight: b523_fixed",
+      "pass": true
+    },
+    {
+      "name": "actual main preflight: b519_control",
+      "pass": true
+    },
+    {
+      "name": "actual main preflight: b523_actual_before",
+      "pass": true
+    },
+    {
+      "name": "actual main preflight: missing_required_phrase",
+      "pass": true
+    },
+    {
+      "name": "actual main preflight: forbidden_phrase_added",
+      "pass": true
+    },
+    {
+      "name": "all actual-main cases stop before run creation with zero external calls",
+      "pass": true
+    },
+    {
+      "name": "actual agent_loop source unchanged through preflight tests",
+      "pass": true
+    }
+  ],
+  "limitations": [
+    "Stops before Run construction: proves preflight acceptance, not model invocation, Isaac behavior or mission success.",
+    "Scene descriptions are accepted by exact substring checks in the unchanged harness, not semantic equivalence."
+  ]
+}

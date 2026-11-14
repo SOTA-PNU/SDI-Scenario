@@ -1,0 +1,161 @@
+"""B-5-18 CPU acceptance with the actual v7 base and new Isaac gate helper.
+
+The calibrated B-5-15 physics/sensors are unchanged. Only the gate adapter uses
+the B-5-18 path inspection and 0.5 m / 0.15 rad goal finish. Gate and base sources
+are frozen per invocation; individual results survive interruption. No GPU/HTTP.
+"""
+import argparse
+import ast
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import hashlib
+import json
+from pathlib import Path
+import time
+
+import b515_chooser_sim as SIM
+import b518_gate_isaac as GATE
+from b514_build_base import archive_before_write
+
+ARENA = Path(__file__).resolve().parents[1]
+BASE = ARENA / 'base_carter_run_ros_map_lidartime_objects_check_v7.py'
+SIM_SHA256 = '8d0308dbf55c288297ade1c92bcd4c71570b888562cf58b03e94e3518e9a8358'
+
+
+def sha(source):
+    return hashlib.sha256(source).hexdigest()
+
+
+def save(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    archive_before_write(path)
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+
+
+def gate_functions(source):
+    names = ('_probe_plan', '_probe_follow', '_gate_follow')
+    found = {n.name: n for n in ast.parse(source).body
+             if isinstance(n, ast.FunctionDef) and n.name in names}
+    assert set(found) == set(names), 'missing actual B518 gate helper'
+    frozen = {n.name: n for n in ast.parse(SIM.FROZEN_GATE.read_text()).body
+              if isinstance(n, ast.FunctionDef) and n.name in names[:2]}
+    assert all(ast.dump(found[n]) == ast.dump(frozen[n]) for n in names[:2]), 'planner/follower changed'
+    return [found[n] for n in names]
+
+
+def work(job):
+    label, base, region_path, movers, seed, cutoff, trace = job
+    region = Path(region_path).read_text()
+    functions = gate_functions(region)
+    original_load, original_command = SIM.load_base, SIM.gate_command
+    path_result = {}
+
+    def load_actual_base(base_file):
+        ns = original_load(base_file)
+        # Execute only pure functions, never the gate's log-opening top level.
+        exec(compile(ast.Module(body=functions, type_ignores=[]), region_path, 'exec'), ns)
+        checked = ns['check_path'](ns['_PROBE']['path'])
+        assert checked['first_bad_segment'] is None, checked
+        path_result.update(checked)
+        return ns
+
+    def actual_gate_command(ns, pose):
+        v, w, target, aligned = ns['_gate_follow'](pose)
+        cv, cw, info = ns['choose_command'](v, w, target)
+        return cv, cw, aligned and cv == 0.0 and cw == 0.0, info, (v, w), target
+
+    try:
+        SIM.load_base, SIM.gate_command = load_actual_base, actual_gate_command
+        result = SIM.run(base, movers, t_max=cutoff, seed=seed, trace_path=trace)
+    finally:
+        SIM.load_base, SIM.gate_command = original_load, original_command
+    result.update(label=label, sensor_noise_seed=seed, path_check=path_result,
+                  gate_region_sha16=sha(region.encode())[:16])
+    return result
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--base', type=Path, default=BASE)
+    ap.add_argument('--phases', default='standard61')
+    ap.add_argument('--workers', type=int, default=12)
+    ap.add_argument('--out', type=Path, default=ARENA / 'results/analysis/b518_chooser_sim.json')
+    ap.add_argument('--artifacts', type=Path, default=ARENA / 'results/analysis/b518_chooser_sim')
+    ap.add_argument('--t-max', type=float, default=200.0)
+    ap.add_argument('--no-traces', action='store_true')
+    args = ap.parse_args()
+    assert sha(Path(SIM.__file__).read_bytes()) == SIM_SHA256, 'calibrated simulator changed'
+    gate_functions(GATE.REGION)
+    started = time.perf_counter()
+    source = args.base.read_bytes()
+    base_sha = sha(source)[:16]
+    region_sha = sha(GATE.REGION.encode())[:16]
+    args.artifacts.mkdir(parents=True, exist_ok=True)
+    snapshot = args.artifacts / 'base_snapshot.py'
+    region_path = args.artifacts / 'gate_region.py'
+    archive_before_write(snapshot)
+    snapshot.write_bytes(source)
+    archive_before_write(region_path)
+    region_path.write_text(GATE.REGION)
+    phases = SIM.phase_sets(args.phases)
+    jobs = [(label, str(snapshot), str(region_path), movers, 515 + i, args.t_max,
+             str(args.artifacts / 'traces' / (label + '.jsonl')) if not args.no_traces else None)
+            for i, (label, movers) in enumerate(phases)]
+    invocation = {
+        'base_file': str(args.base), 'base_sha16': base_sha, 'phases': args.phases,
+        'planned_runs': len(jobs), 'sensor_seed_rule': '515 + standard61 index; v1 first',
+        'calibrated_simulator_sha256': SIM_SHA256, 'gate_region_sha16': region_sha,
+        'gate_region_snapshot': str(region_path), 't_max': args.t_max, 'complete': False}
+    save(args.artifacts / 'invocation.json', invocation)
+    by_label = {}
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        for future in as_completed([pool.submit(work, job) for job in jobs]):
+            row = future.result()
+            by_label[row['label']] = row
+            save(args.artifacts / 'runs' / (row['label'] + '.json'), row)
+            print(row['label'], row['verdict'], f"t={row['t']:.3f}", row.get('hit'), flush=True)
+    rows = [by_label[label] for label, _ in phases]
+    random = [r for r in rows if r['label'] != 'v1']
+    v1 = next((r for r in rows if r['label'] == 'v1'), None)
+    count = sum(r['verdict'] == 'pass' for r in random)
+    v1_pass = v1['verdict'] == 'pass' if v1 else None
+    current_matches = sha(args.base.read_bytes())[:16] == base_sha
+    exact = all(r['base_sha16'] == base_sha for r in rows) and current_matches
+    region_matches = sha(region_path.read_bytes())[:16] == region_sha
+    region_matches &= all(r['gate_region_sha16'] == region_sha for r in rows)
+    # Re-read the source module in a fresh namespace to detect concurrent changes.
+    import importlib
+    region_matches &= sha(importlib.reload(GATE).REGION.encode())[:16] == region_sha
+    acceptance = len(random) == 60 and count >= 57 and v1_pass and exact and region_matches
+    errors = [r for r in rows if r['verdict'] == 'error']
+    complete = len(rows) == len(jobs) and exact and region_matches and not errors
+    report = {
+        'verdict': 'pass' if acceptance else ('diagnostic_complete' if args.phases != 'standard61' and complete else 'fail'),
+        'base_file': str(args.base), 'base_sha16': base_sha, 'base_snapshot': str(snapshot),
+        'phases': args.phases, 'random_passed': count, 'random_total': len(random), 'v1_pass': v1_pass,
+        'target': {'random_min_pass': 57, 'random_total': 60, 'phase_seeds': [1, 2], 'per_seed': 30, 'v1_required': True},
+        'configuration': {'physics_dt': 1 / 60, 'accel_v': 2.0, 'accel_w': 2.68,
+            'sensor_dt': .1, 'sensor_age_s': .1, 'sensor_phase_frame': 5, 'range_noise_std_m': .01,
+            'sensor_noise_seeds': '515+i', 'velocity_model': 'actual base .8s centroid regression',
+            'contact_shape': SIM.BODY_UNION, 't_max': args.t_max,
+            'follower_source': str(Path(GATE.__file__)), 'reference_dir': str(SIM.REFERENCE),
+            'goal_finish_distance_m': .5, 'goal_finish_yaw_rad': .15,
+            'done_requires_zero_returned_command': True, 'path_check': rows[0]['path_check']},
+        'gate_region_sha16': region_sha, 'gate_region_snapshot': str(region_path),
+        'exact_gate_region_match': region_matches, 'calibrated_simulator_sha256': SIM_SHA256,
+        'complete': complete, 'exact_base_match': exact, 'wall_s': time.perf_counter() - started,
+        'timeouts': sum(r['verdict'] == 'timeout' for r in rows), 'runtime_errors': len(errors),
+        'failure_cases': [{k: r.get(k) for k in ('label', 'verdict', 't', 'hit', 'trace', 'error')}
+                          for r in rows if r['verdict'] != 'pass'],
+        'limitations': ['Unchanged calibrated CPU approximation; no contact dynamics or wheel slip.',
+                       'Static lidar false positives and height-dependent occlusion are not simulated.',
+                       'CPU acceptance is not an Isaac verdict.'],
+        'results': rows}
+    save(args.out, report)
+    invocation.update(complete=complete, verdict=report['verdict'], result_file=str(args.out))
+    save(args.artifacts / 'invocation.json', invocation)
+    print(f"SIM_RESULT={count}/{len(random)} v1={v1_pass} base={base_sha} verdict={report['verdict']}", flush=True)
+    return 0 if complete and (args.phases != 'standard61' or acceptance) else 1
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

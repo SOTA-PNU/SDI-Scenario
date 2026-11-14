@@ -1,0 +1,235 @@
+"""Run the filled B522 scaffold as actual controller with unchanged v8/CPU engine.
+
+The reference is an analysis artifact, never part of model input. No mover truth
+is installed in its namespace: the frozen engine alone uses it for scans/contact.
+"""
+import argparse
+import ast
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import gzip
+import hashlib
+import json
+import math
+from pathlib import Path
+import time
+
+import numpy as np
+import b515_chooser_sim as SIM
+from b514_build_base import archive_before_write
+from b519_shield_sim import mission_score
+from b522_build_prompt import SCAFFOLD
+
+ARENA = Path(__file__).resolve().parents[1]
+BASE = ARENA / 'base_carter_run_ros_map_lidartime_objects_check_v8.py'
+REFERENCE = ARENA / 'analysis/b522_reference.py'
+ENGINE_SHA = '8d0308dbf55c288297ade1c92bcd4c71570b888562cf58b03e94e3518e9a8358'
+BASE_SHA = 'd92eed48917989427e226befd9db5c213e5ba2a3d3a8c1110304a0d525716fb6'
+NAMES = ['plan_path', 'lookahead_target', 'follow_cmd', 'controller']
+
+
+def digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def save(path, obj):
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    archive_before_write(path)
+    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + '\n')
+
+
+def structure(source):
+    a, b = ast.parse(SCAFFOLD), ast.parse(source)
+    fa = [n for n in a.body if isinstance(n, ast.FunctionDef)]
+    fb = [n for n in b.body if isinstance(n, ast.FunctionDef)]
+    same = [n.name for n in fb] == NAMES and len(fa) == len(fb)
+    same &= all(ast.dump(x.args) == ast.dump(y.args) and x.decorator_list == y.decorator_list
+                for x,y in zip(fa,fb))
+    aa = [ast.dump(n) for n in a.body if not isinstance(n, ast.FunctionDef)]
+    bb = [ast.dump(n) for n in b.body if not isinstance(n, ast.FunctionDef)]
+    same &= aa == bb
+    controller = fb[-1]
+    calls = [n for n in ast.walk(controller) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+    chooser = [n for n in calls if n.func.id == 'choose_command']
+    ordered = [n.func.id for n in sorted(calls, key=lambda n: (n.lineno,n.col_offset)) if n.func.id in NAMES[:3] + ['choose_command']]
+    class OmitAllowedBodies(ast.NodeTransformer):
+        def visit_FunctionDef(self,node):
+            if node.name in ('_search_path','lookahead_target','follow_cmd'):
+                node.body=[ast.Pass()]
+                return node
+            return self.generic_visit(node)
+    strict_shell = (ast.dump(OmitAllowedBodies().visit(ast.parse(SCAFFOLD)))
+                    == ast.dump(OmitAllowedBodies().visit(ast.parse(source))))
+    all_calls=[n.func.id for n in ast.walk(ast.parse(source))
+               if isinstance(n,ast.Call) and isinstance(n.func,ast.Name)]
+    no_sensor_override='observed_objects' not in all_calls
+    one_global_choose=all_calls.count('choose_command')==1
+    return {'pass': bool(same and strict_shell and no_sensor_override and one_global_choose
+                          and len(chooser) == 1 and ordered == NAMES[:3]+['choose_command']),
+            'body_only_scaffold_fill': bool(same and strict_shell),
+            'fixed_shell_preserved': strict_shell, 'no_direct_sensor_override': no_sensor_override,
+            'exact_one_global_chooser_callsite': one_global_choose, 'top_functions': [n.name for n in fb],
+            'controller_callsite_order': ordered, 'chooser_callsites': len(chooser)}
+
+
+def load_reference(base=BASE, reference=REFERENCE):
+    ns = SIM.load_base(base)
+    source = Path(reference).read_text()
+    assert structure(source)['pass']
+    exec(compile(source, str(reference), 'exec'), ns)
+    return ns
+
+
+def work(job):
+    label, base, reference, movers, seed, t_max, trace = job
+    reference_sha = digest(reference)
+    original_load, original_gate = SIM.load_base, SIM.gate_command
+    audit = {'ticks': 0, 'choose_calls': 0, 'call_order_errors': 0, 'returned_command_changes': 0,
+             'goal_finish_errors': 0, 'plan_events': [], 'function_calls': dict.fromkeys(NAMES, 0),
+             'pure_chooser_ms': [], 'current_events': [], 'last_choose': None}
+    ns_holder = []
+
+    def actual_load(base_path):
+        ns = original_load(base_path)
+        exec(compile(Path(reference).read_text(), str(reference), 'exec'), ns)
+        ns_holder.append(ns)
+        # Only call-record wrappers surround the unchanged functions; the actual
+        # filled controller resolves the wrapped names in this same namespace.
+        for name in NAMES[:3]:
+            original = ns[name]
+            def observed(*args, _name=name, _original=original, **kwargs):
+                audit['current_events'].append(_name)
+                audit['function_calls'][_name] += 1
+                requested = ns['_PLAN_CLEARANCE']
+                value = _original(*args, **kwargs)
+                if _name == 'plan_path':
+                    audit['plan_events'].append({'t': ns['_BASE_POSES'][-1][0],
+                        'current_pose': list(ns['_PLAN_POSE']), 'requested_center_clearance': requested,
+                        'accepted_center_clearance': ns['_PLAN_CLEARANCE'], 'path': value,
+                        'check_path': None if value is None else ns['check_path'](value)})
+                return value
+            ns[name] = observed
+        original_choose = ns['choose_command']
+        def choose(*args, **kwargs):
+            audit['current_events'].append('choose_command')
+            audit['choose_calls'] += 1
+            before = time.perf_counter_ns()
+            value = original_choose(*args, **kwargs)
+            audit['pure_chooser_ms'].append((time.perf_counter_ns()-before)/1e6)
+            audit['last_choose'] = {'args': args, 'kwargs': kwargs, 'value': value}
+            return value
+        ns['choose_command'] = choose
+        return ns
+
+    def actual_controller(ns, pose):
+        t = ns['_BASE_POSES'][-1][0]
+        audit['ticks'] += 1
+        audit['function_calls']['controller'] += 1
+        audit['current_events'] = []
+        audit['last_choose'] = None
+        cv, cw, done = ns['controller'](t, pose, {})
+        events = audit['current_events']
+        if events.count('choose_command') != 1 or events[-1] != 'choose_command':
+            audit['call_order_errors'] += 1
+            raise AssertionError(('not exactly one final choose', events))
+        if 'follow_cmd' in events and (events.index('lookahead_target') > events.index('follow_cmd')):
+            audit['call_order_errors'] += 1
+            raise AssertionError(('follow before target', events))
+        if 'plan_path' in events and 'lookahead_target' in events and events.index('plan_path') > events.index('lookahead_target'):
+            audit['call_order_errors'] += 1
+            raise AssertionError(('target before plan', events))
+        recorded = audit['last_choose']
+        if (cv, cw) != recorded['value'][:2]:
+            audit['returned_command_changes'] += 1
+            raise AssertionError('controller changed chooser output')
+        if done:
+            g = ns['GOAL']; e = abs(math.atan2(math.sin(g[2]-pose[2]), math.cos(g[2]-pose[2])))
+            if not (math.dist(pose[:2],g[:2]) <= .5 and e <= .15 and cv == 0. and cw == 0.):
+                audit['goal_finish_errors'] += 1
+                raise AssertionError('invalid goal completion')
+        return cv, cw, done, recorded['value'][2], recorded['args'][:2], recorded['args'][2]
+
+    try:
+        SIM.load_base, SIM.gate_command = actual_load, actual_controller
+        row = SIM.run(base, movers, t_max=t_max, seed=seed, trace_path=trace)
+    finally:
+        SIM.load_base, SIM.gate_command = original_load, original_gate
+    row['engine_verdict'] = row['verdict']
+    row['mission'] = mission_score(row, ns_holder[0]['MISSION'])
+    if row['verdict'] == 'pass' and row['mission']['verdict'] != 'pass':
+        row['verdict'] = 'mission_failure'
+    timings = audit.pop('pure_chooser_ms')
+    audit.pop('current_events'); audit.pop('last_choose')
+    audit['exact_one_choose_per_tick'] = audit['choose_calls'] == audit['ticks'] and not audit['call_order_errors']
+    row['controller_tick_median_ms'] = row.pop('median_choose_ms')
+    row['median_choose_ms'] = float(np.median(timings)) if timings else None
+    row.update(label=label, sensor_noise_seed=seed, reference_sha256=reference_sha, audit=audit)
+    if trace and Path(trace).exists():
+        p=Path(trace); gz=p.with_suffix(p.suffix+'.gz'); archive_before_write(gz)
+        with p.open('rb') as src, gzip.open(gz,'wb') as dst:
+            for chunk in iter(lambda:src.read(1<<20), b''): dst.write(chunk)
+        row['trace_sha256']=digest(p); p.unlink(); row['trace']=str(gz)
+    return row
+
+
+def main():
+    ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('--phases',default='standard61')
+    ap.add_argument('--workers',type=int,default=4)
+    ap.add_argument('--t-max',type=float,default=200.)
+    ap.add_argument('--out',type=Path,default=ARENA/'results/analysis/b522_reference_sim.json')
+    ap.add_argument('--artifacts',type=Path,default=ARENA/'results/analysis/b522_reference_sim')
+    args=ap.parse_args()
+    assert digest(BASE)==BASE_SHA and digest(SIM.__file__)==ENGINE_SHA
+    source=REFERENCE.read_text(); contract=structure(source); assert contract['pass']
+    reference_sha=digest(REFERENCE); started=time.perf_counter()
+    args.artifacts.mkdir(parents=True,exist_ok=True)
+    frozen=args.artifacts/'reference_snapshot.py'; archive_before_write(frozen); frozen.write_text(source)
+    phases= [('empty',[])] if args.phases=='empty' else SIM.phase_sets(args.phases)
+    jobs=[(label,str(BASE),str(frozen),movers,515+i,args.t_max,
+           str(args.artifacts/'traces'/(label+'.jsonl'))) for i,(label,movers) in enumerate(phases)]
+    invocation={'base_sha256':BASE_SHA,'reference_sha256':reference_sha,'engine_sha256':ENGINE_SHA,
+                'phases':args.phases,'runs':len(jobs),'t_max':args.t_max,'sensor_seed_rule':'515 + phase index',
+                'scaffold_structure':contract,'complete':False}
+    save(args.artifacts/'invocation.json',invocation)
+    by_label={}
+    with ProcessPoolExecutor(max_workers=args.workers) as pool:
+        for future in as_completed([pool.submit(work,job) for job in jobs]):
+            row=future.result();by_label[row['label']]=row
+            save(args.artifacts/'runs'/(row['label']+'.json'),row)
+            print(row['label'],row['verdict'],f"t={row['t']:.3f}",row['hit'],flush=True)
+    rows=[by_label[label] for label,_ in phases]
+    random=[r for r in rows if r['label'].startswith('seed')]
+    v1=next((r for r in rows if r['label']=='v1'),None)
+    exact=digest(BASE)==BASE_SHA and digest(SIM.__file__)==ENGINE_SHA and digest(REFERENCE)==reference_sha
+    exact &= all(r['reference_sha256']==reference_sha and r['base_sha16']==BASE_SHA[:16] for r in rows)
+    errors=[r for r in rows if r['engine_verdict']=='error']
+    audit_ok=all(r['audit']['exact_one_choose_per_tick'] and not r['audit']['returned_command_changes']
+                 and not r['audit']['goal_finish_errors'] for r in rows)
+    complete=len(rows)==len(jobs) and exact and audit_ok and not errors
+    report={'verdict':'complete' if complete else 'fail','complete':complete,'base_sha16':BASE_SHA[:16],
+        'base_sha256':BASE_SHA,'reference_file':str(REFERENCE),'reference_sha256':reference_sha,
+        'reference_snapshot':str(frozen),'calibrated_engine_sha256':ENGINE_SHA,
+        'phases':args.phases,'random_passed':sum(r['mission']['verdict']=='pass' for r in random),
+        'random_total':len(random),'v1_pass':None if v1 is None else v1['mission']['verdict']=='pass',
+        'runtime_errors':len(errors),'wall_s':time.perf_counter()-started,'exact_source_matches':exact,
+        'scaffold_structure':contract,'audit_pass':audit_ok,
+        'threshold':'No numeric pass threshold in task20; completion and observed outcomes are separate.',
+        'configuration':{'physics_dt':1/60,'accel_v':2.0,'accel_w':2.68,'sensor_dt':.1,
+            'sensor_age_s':.1,'sensor_phase_frame':5,'range_noise_std_m':.01,'sensor_seed_rule':'515 + phase index',
+            'phase_seeds':[1,2],'per_seed':30,'contact_shape':SIM.BODY_UNION,'t_max':args.t_max,
+            'goal_finish_distance_m':.5,'goal_finish_yaw_rad':.15,'lookahead_m':3.0,
+            'lookahead_corner_switch_m':.35,'grid_resolution_m':.5,'initial_center_clearance_m':1.0},
+        'limitations':['CPU approximation, no physical settle, wheel slip or contact dynamics.',
+            'Static lidar false positives/height-dependent occlusion are not simulated.',
+            'This reference is analysis-only and is not sent to the model.',
+            'Map path/target checks do not prove safety of every chooser escape or unobserved object.'],
+        'failure_cases':[{k:r.get(k) for k in ('label','verdict','t','hit','trace','error','final_goal_distance')}
+                         for r in rows if r['mission']['verdict']!='pass'], 'results':rows}
+    save(args.out,report)
+    invocation.update(complete=complete,result_file=str(args.out));save(args.artifacts/'invocation.json',invocation)
+    print(f"REF_SIM={report['random_passed']}/{len(random)} v1={report['v1_pass']} complete={complete}",flush=True)
+    return 0 if complete else 1
+
+
+if __name__=='__main__':
+    raise SystemExit(main())

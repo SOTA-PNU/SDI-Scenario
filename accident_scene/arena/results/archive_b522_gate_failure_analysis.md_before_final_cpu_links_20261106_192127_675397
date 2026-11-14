@@ -1,0 +1,72 @@
+# B-5-22 관문 실패: 같은 제어기, 다른 관측과 주행 상태
+
+B521 PASS 관문과 B522 FAIL 관문의 **실제 실행 snapshot은 타이밍 로그 환경변수 한 줄 외에 동일**하다. 새 B522 고정 scaffold controller는 두 관문에서 사용되지 않았다.
+B521은 목표 도달62.167초, 종료65.533초, 접촉0건이었다. B522는16.917초 `/World/arena_mover_01`과 처음 접촉했고42건을 기록한 뒤22.917초에 끝났다.
+두 실행의 base는 v8 SHA16 `d92eed4891798942`이고 실행 오류는0개, chooser 중앙 시간은 각각1.170/1.129ms였다. B522 FAIL은 성능 초과나 Python 오류가 아니다.
+원자료와 추출 코드: [snapshot·선택·관측 근거](b522_gate_failure_evidence.json), [재현 추출기](../../analysis/b522_gate_failure_evidence.py), [B521 결과](b521_gate_isaac/b521_gate_probe_result.json), [B522 결과](b522_gate_isaac/b522_gate_probe_result.json).
+
+## 실행 코드·경로·속도 비교
+
+| 항목 | 실제 B521 / B522 관문 |
+|---|---|
+| snapshot SHA16 | `bf7f2782c05eced2` / `a3c8c4acbb8a60d1` |
+| 유일한 텍스트 차이 | `_GATE_TIMES`의 환경키 `B521_TIMINGS_OUT` → `B522_TIMINGS_OUT` |
+| 함수 AST | base 함수와 `_probe_plan`, `_probe_follow`, `_gate_follow`, `controller` 모두 동일 |
+| 경로 | 격자0.5m, 중심 여유1m의 A* 및 직선 단순화; 실제 저장 planner를 호출하면 양쪽 모두 같은7점 |
+| 추종 | 경유점0.35m 통과 시 인덱스 전진; nominal v 최대0.3m/s, w 최대0.4rad/s |
+| 최종 명령 | 같은 v8 chooser를 한 번 호출하고 반환값 그대로 사용; fast 후보는1m/s |
+| 목표 마무리 | 거리0.5m 안에서 정렬, yaw0.15rad 안에서 검사된 정지; 반환0일 때 완료 |
+| 새 scaffold와 관계 | 네 함수·유한 재시도·재계획을 가진 B522 참고 구현이 아니라 기존 단순 관문 |
+
+저장 소스 [869행](b522_gate_isaac/b522_gate_probe_carter_run.py#L869)의 planner, [915행](b522_gate_isaac/b522_gate_probe_carter_run.py#L915)의 추종식, [942행](b522_gate_isaac/b522_gate_probe_carter_run.py#L942)의 controller로 확인했다. 환경키를 치환하면 전체 파일도 바이트 단위로 같다.
+접촉 전 구간에서 양쪽 target은 모두 경로상의 `(-4.05,1.6)`이며 nominal은 v=0.3, 거의0인 w다. 차이는 경로나 nominal 속도 설정이 아니라 관측·위험 예측·선택·실제 pose에서 발생했다.
+
+## 접촉 전 5초의 실제 choose 줄
+
+범위는11.917–16.917초다. 아래는 B522 stdout [476행](b522_gate_isaac/stdout.log#L476)부터의 자동 DBG 10줄이다. `-`는 해당 예측 충돌 시각 없음, `obj_min/rob`는 선택 후보의 미래 구간 최소값이다.
+```text
+DBG choose t=12.00 pick=follow why=follow_safe f=- s=- obj_min=2.62 rob=1.98 map=1.44
+DBG choose t=12.50 pick=follow why=follow_safe f=- s=- obj_min=2.89 rob=1.97 map=1.51
+DBG choose t=13.00 pick=follow why=follow_safe f=- s=- obj_min=2.75 rob=1.85 map=1.46
+DBG choose t=13.50 pick=follow why=follow_safe f=- s=- obj_min=2.23 rob=1.62 map=1.24
+DBG choose t=14.00 pick=fast why=fast_progress f=- s=- obj_min=1.26 rob=0.65 map=1.20
+DBG choose t=14.50 pick=fast why=fast_progress f=- s=- obj_min=1.66 rob=0.55 map=1.20
+DBG choose t=15.00 pick=fast why=fast_progress f=- s=- obj_min=1.43 rob=0.28 map=1.20
+DBG choose t=15.50 pick=fast why=fast_progress f=- s=- obj_min=8.36 rob=7.94 map=1.23
+DBG choose t=16.00 pick=fast why=fast_progress f=- s=- obj_min=inf rob=inf map=1.28
+DBG choose t=16.50 pick=fast why=map_clearance_object_gap f=0.0 s=0.0 obj_min=-0.24 rob=-0.82 map=1.32
+```
+같은 시각 B521의 선택은12.0 follow,12.5–15.0 fast,15.5 slow,16.0/16.5 back이었다([원문](b521_gate_isaac/stdout.log#L476)). 두 실행의 당시 pose가 다르므로 통제된 반사실 비교는 아니다.
+
+## 0.1초 관측이 설명하는 분기
+
+- B522의 가까운 id2 track은 마지막13.916667초 관측에서1점, 속도추정(+0.184,+0.503)m/s였다. 이후 seen_t가 갱신되지 않았고15.1초 기록에서 제거됐다. v8의 보존 한도는 스캔 기준 시각(t−0.1초)에서1초다.
+- 그동안 front/back의 `scan_points_t`는 계속 갱신됐다. 따라서 전체 센서 갱신이 멈췄다고 볼 수 없다. 다만 원시 scan과 지도 제거 전 점은 저장되지 않아 가림·필터·센서 위상 가운데 소실의 원인을 하나로 확정할 수 없다.
+- 15.8–16.0초는 `objects=[]`이며 fast1m/s를 선택했다.16.0초 B522 pose는(-4.455,-2.166), B521은(-4.475,-2.429)이고 이미 back을 선택하고 있었다.
+- 16.1초 새 id3가5점·`vel_ok=False`로 나타나 B522는16.1–16.4초 stop을 선택했다. 실제 pose는 감속 중 계속 전진했다.
+- 16.5초 id3는 `vel_ok=True`, 추정속도(+0.380,-0.758)m/s가 됐다. 모든7후보의 robust 객체 TTC가0, 지도 TTC는 모두None이었다. fast의 robust 최소간격-0.817m가 back/stop의-1.085m보다 커 긴급 순위에서 fast를 다시 선택했다. 안전하다고 판정한 fast가 아니다.
+- 16.5–16.8초 fast로 다시 전진하고16.9초 back으로 바뀌었지만16.917초 실제 접촉이 기록됐다.16.5초의 음수 미래 최소간격은 그 시각의 현재 접촉을 뜻하지 않는다.
+- B521은 같은 근방의 id2를 여러 점으로 계속 갱신했다.15.3 follow→15.5 slow→15.6 stop→15.7 back으로 전환해 물체와의 간격을 남겼다.
+
+따라서 확인된 실패 경로는 **관측 정보 약화·소실 중 전진, 늦은 재획득과 속도 추정 변화, 모든 후보 위험 상태의 고속 재가속**이다. 최초 관측 소실의 정확한 센서 원인은 미확정이다. 지도가 막혀서 멈췄다거나 B522 scaffold가 새로 잘못된 명령을 냈다는 설명은 저장 코드·로그와 맞지 않는다.
+
+## 같은 저장 관문 코드의 CPU 재현
+
+[CPU 결과](b522_gate_failure_cpu.json)는 저장된 네 관문 함수를 그대로 실행하고 파일 로그 sink만 메모리로 바꿨다. base와 기존 CPU 엔진은 변경하지 않았다.
+v1, 센서 seed515, 제한200초에서 두 snapshot 모두64.983333초 PASS였고 명령·pose·관측 해시도 동일했다. **Isaac의16.917초 접촉은 재현되지 않았다.**
+CPU는 센서0.1초 주기·지연, 위상5프레임, 거리잡음0.01m, 선형가속도2m/s²·각가속도2.68rad/s²와2D 접촉형상으로 근사한다. 저장 Isaac scan·필터 전 점·접촉 물리를 재생하지 않으므로 실제 track 소실과 재획득을 그대로 보장하지 않는다.
+14–16초21표본에서 사후 M2 대응 관측은 B521 21/21·중앙13점, B522 11/21·중앙1점, CPU 21/21·중앙17점이었다([대응 방법과 수치](b522_gate_failure_memory.json)). CPU에서 실제의 빈약한 점 묶음과 부분 소실이 재현되지 않았다는 직접적인 차이다.
+이64.983333초는 기존 단순 관문 재현이다. 별도로 검증했던 B522 네 함수 참고 구현의 v1 65.683333초·무작위57/60과 혼동하면 안 된다.
+
+## 채택한 단일 수정과 검증 한계
+
+관문 source 차이에 의한 회귀나 고정 scaffold 결함은 확인되지 않았다. 경로 기준·고정 controller·planner 틀·참고 구현 본문은 유지했다.
+새 [base v9](../../base_carter_run_ros_map_lidartime_objects_check_v9.py)는 `_BASE_OBJ_CFG.keep`만1.0→3.0초로 늘리고 해당 설명 두 곳을 맞췄다. SHA16은 `45b6b77cd2fa8cf0`이다. 기존 v8 파일은 그대로 보존했다.
+3초는 기본 객체 예측 구간과 같은 길이이며, 판정 시계는 `t_scan=t−0.1`이므로 현재 `age_s`는 약3.1초까지 남을 수 있다. 순위·속도·기하·불확실성 식은 변경하지 않았다.
+[저장 상태 조건부 재평가](b522_gate_failure_memory.json)에서 keep1의 명령 재현은 모두 일치했고, keep3은 B522의15.2–16.0초9표본에서 fast1.0→follow0.3m/s로 바꿨다. B521 선택은 바뀌지 않았고 B522의16.5초 긴급 fast도 그대로였다.
+이 시험은 같은 기록 pose에 관측 track 보존만 바꾼 것이며 새 정책의 실제 주행이나 원시 scan·연결 추적의 재생이 아니다.
+[keep3 CPU 회귀](b522_gate_failure_retention_sim.json)는 단순 관문과 고정 참고 구현 각각 v1+무작위60, 총122회를 실행했다. 관문58/60+v1, 참고57/60+v1로 기존 기록 대비 새 실패0·회복0, 시간 초과·실행 오류0이었다.
+이후 [정식 v9 파일을 읽은 참고 구현61회](b522_v9_reference_sim.json)도57/60+v1 PASS·오류0이었다. 참고 구현 SHA256 `80de7d39…`는 이전과 같다.
+[단일2초 전체 scan 공백 시험](b522_gate_failure_dropout.json)은 두 제어기의 keep1/keep3 총4회가 모두 PASS였고 각 구형·신형의 종료 시각도 같았다. 이 조건에서는 개선 효과가 없었으며 실제 Isaac의 부분 track 소실을 재현하지 못했다.
+따라서 채택 근거는 기록 상태9표본의 조기 감속과 CPU 회귀 부재다. **수정 후 Isaac은 실행하지 않았으며, 최초 M2 접촉이 해결됐다는 결론은 아직 낼 수 없다.**
+사후 truth의 현재 간격은 분석용2D 계산이며 controller 입력이나 Isaac mesh 접촉 측정이 아니다. 저장 상태 후보 평가는 원인 분리용이고, 그 상태가 새 정책의 닫힌 고리 주행에서도 발생하거나 회피된다는 보장은 없다.

@@ -1,0 +1,26 @@
+<section id="empty" data-transition="fade" style="background:#F7F6F2;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:32px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">결과 · 빈 응답 2건 (T3)</p>
+<h2 style="font-size:56px;font-weight:600;line-height:1.15">출력 한도에 걸린 답이 본문 없이 돌아와, 두 실행이 일찍 끝났다</h2>
+</div>
+<div style="display:flex;gap:40px;align-items:start">
+<div style="width:760px;display:flex;flex-direction:column;gap:20px">
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:28px 32px;display:flex;flex-direction:column;gap:8px">
+<h3 style="font-size:30px;font-weight:600">T3 a1 · 3회차</h3>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">출력 16,384 = 추론 15,922 + 돌아오지 않은 462 토큰. 추론이 한도의 97%를 썼다.</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:28px 32px;display:flex;flex-direction:column;gap:8px">
+<h3 style="font-size:30px;font-weight:600">T3 a0 · 6회차</h3>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">출력 16,384 = 추론 13,078 + 돌아오지 않은 3,306 토큰(약 12,000자, 파일 한 벌). 추론 끝 문장은 "Now produce final answer with the entire file. Let's write it."</p>
+</div>
+</div>
+<ul style="flex:1;font-size:26px;line-height:1.5;color:#3B4556;display:flex;flex-direction:column;gap:14px">
+<li>둘 다 finish_reason = length. 서버가 잘린 답 본문을 버리고 빈 본문(content=None)으로 돌려줬다.</li>
+<li>정상 응답 31건에서 '출력 − 추론 − 10' 토큰은 본문 길이와 맞았다(글자/토큰 3.2–4.7). 그래서 남는 토큰은 쓰다 잘린 답으로 본다.</li>
+<li>회차 루프의 기존 규칙(빈 응답이면 실행 종료)에 따라 두 실행은 상한 8 중 3·6회차만 썼다. 사전 기록한 규칙이라 그대로 두고 한계로 보고한다.</li>
+<li>T2P는 호출당 출력 한도를 24,576으로 올렸다.</li>
+</ul>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 20 / 27 · results/turns/transfer_t3/npu_gpt_oss_120b_t3_a1_t3_raw.json · _a0_t6_raw.json</p>
+<aside>추론을 늘린 대가도 있었습니다. T3의 두 실행은 출력 한도 16,384토큰에 걸렸는데, 서버가 잘린 답을 버리고 빈 응답으로 돌려줘서 실행이 3회차와 6회차에 끝났습니다. 특히 a0의 6회차는 추론을 마치고 파일 한 벌 분량을 쓰던 중에 잘렸습니다. 미리 정한 규칙대로 처리했고, 대신 T2P에서는 출력 한도를 높였습니다.</aside>
+</section>

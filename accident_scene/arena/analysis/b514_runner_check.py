@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Exercise B-5-14 launch control with local substitutes; no HTTP, GPU, or Isaac."""
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime
+
+A = Path(__file__).resolve().parents[1]
+TAG = "gpu_gpt_oss_120b_pB514"
+D = Path("results/turns/prompt_b5_14")
+checks = []
+
+
+def check(name, condition, detail=None):
+    checks.append({"name": name, "pass": bool(condition), "detail": detail})
+
+
+def script_args(path):
+    text = path.read_text().replace("\\\n", " ")
+    cmd = text.split("python3 agent_loop.py ", 1)[1].split(" > ", 1)[0]
+    return shlex.split(cmd)
+
+
+def run_sequential(name, outcomes, expected_samples, expected_lines):
+    with tempfile.TemporaryDirectory(prefix="b514_sequential_mock_") as tmp:
+        root = Path(tmp)
+        shutil.copy2(A / "run_b514_sequential.sh", root)
+        (root / "agent_loop.py").write_text('''import json, os, pathlib, sys
+args = sys.argv[1:]
+s = int(args[args.index("--sample") + 1])
+spec = json.loads(os.environ["B514_MOCK_CASE"])[s]
+assert os.environ.get("CARTER_CONTACT_ALL_LINKS") == "1"
+with open("calls.jsonl", "a") as f: f.write(json.dumps(args) + "\\n")
+d = pathlib.Path(args[args.index("--out-dir") + 1])
+p = d / ("gpu_gpt_oss_120b_pB514_a%d_turns.json" % s)
+data = {"tag": "gpu_gpt_oss_120b_pB514", "sample": s, "turns": spec.get("turns", [])}
+if spec.get("artifact") == "malformed": p.write_text("{")
+elif spec.get("artifact") != "missing": p.write_text(json.dumps(data))
+sys.exit(spec["rc"])
+''')
+        env = dict(os.environ, B514_MOCK_CASE=json.dumps(outcomes))
+        proc = subprocess.run(["bash", "run_b514_sequential.sh"], cwd=root, env=env,
+                              capture_output=True, text=True, timeout=15)
+        calls = [json.loads(s) for s in (root / "calls.jsonl").read_text().splitlines()]
+        samples = [int(a[a.index("--sample") + 1]) for a in calls]
+        log = (root / D / "sequential.log").read_text()
+        check(name, proc.returncode == 0 and samples == expected_samples
+              and all(line in log for line in expected_lines)
+              and log.splitlines()[-1].endswith(" done"),
+              {"samples": samples, "log": log, "returncode": proc.returncode})
+        before = {p.relative_to(root).as_posix(): p.read_bytes()
+                  for p in (root / D).rglob("*") if p.is_file()}
+        retry = subprocess.run(["bash", "run_b514_sequential.sh"], cwd=root, env=env,
+                               capture_output=True, text=True, timeout=15)
+        after = {p.relative_to(root).as_posix(): p.read_bytes()
+                 for p in (root / D).rglob("*") if p.is_file()}
+        check(name + "_preserves_existing", retry.returncode == 73 and before == after)
+
+
+def run_gpu(name, verdict, smoke_rc, expect_run, stale=False, timeout=False):
+    with tempfile.TemporaryDirectory(prefix="b514_gpu_mock_") as tmp:
+        root = Path(tmp)
+        script = (A / "run_b514_gpu_steps.sh").read_text()
+        if timeout:
+            # Accelerate only the copied fixture's deadline; production remains 1800 s.
+            assert "MAX_WAIT_S=1800" in script
+            script = script.replace("MAX_WAIT_S=1800", "MAX_WAIT_S=0")
+        (root / "run_b514_gpu_steps.sh").write_text(script)
+        (root / "bin").mkdir()
+        curl = root / "bin/curl"
+        curl.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"data":[{"id":"gpt-oss-120b"}]}\'\n')
+        curl.chmod(0o755)
+        (root / "analysis").mkdir()
+        verdict_path = Path("results/analysis/b514_accuracy_isaac/verdict.txt")
+        (root / "analysis/b514_accuracy_isaac_check.py").write_text(
+            "from pathlib import Path\n"
+            "Path('smoke_called').write_text('yes')\n"
+            f"p = Path({str(verdict_path)!r})\n"
+            "p.parent.mkdir(parents=True, exist_ok=True)\n"
+            + (f"p.write_text({verdict!r} + '\\n')\n" if verdict is not None else "")
+            + f"raise SystemExit({smoke_rc})\n")
+        (root / "run_b514_sequential.sh").write_text("#!/bin/sh\necho yes > sequential_called\nexit 0\n")
+        if stale:
+            (root / verdict_path).parent.mkdir(parents=True)
+            (root / verdict_path).write_text("PASS\n")
+        env = dict(os.environ, PATH=str(root / "bin") + os.pathsep + os.environ["PATH"])
+        proc = subprocess.run(["bash", "run_b514_gpu_steps.sh"], cwd=root, env=env,
+                              capture_output=True, text=True, timeout=15)
+        log = (root / D / "gpu_steps.log").read_text()
+        expected_rc = 124 if timeout else 73 if stale else 0 if expect_run else 1
+        check(name, (root / "sequential_called").exists() == expect_run
+              and proc.returncode == expected_rc
+              and (not (stale or timeout) or not (root / "smoke_called").exists()),
+              {"returncode": proc.returncode, "log": log})
+
+
+def main():
+    old = script_args(A / "run_b513_sequential.sh")
+    expected = [s.replace("B5_13", "B5_14").replace("pB513", "pB514")
+                .replace("base_carter_run_ros_map_lidartime_objects.py",
+                         "base_carter_run_ros_map_lidartime_objects_check_v2.py") for s in old]
+    check("identical_agent_flags_except_requested_paths_tag", script_args(A / "run_b514_sequential.sh") == expected)
+    for filename in ("run_b514_sequential.sh", "run_b514_gpu_steps.sh"):
+        result = subprocess.run(["bash", "-n", str(A / filename)], capture_output=True, text=True)
+        check(filename + "_syntax", result.returncode == 0, result.stderr)
+    p1 = {"rc": 0, "turns": [{"turn": 1, "verdict": "pass"}]}
+    p2 = {"rc": 0, "turns": [{"turn": 1, "verdict": "fail"}, {"turn": 2, "verdict": "pass"}]}
+    fail = {"rc": 1, "turns": [{"turn": 1, "verdict": "fail"}, {"turn": 2, "verdict": "fail"}]}
+    run_sequential("both_pass_run_all_even_a2_failure", [p1, p2, fail, p1], [0, 1, 2, 3],
+                   ["a0 exit=0 grade=PASS turn=1", "a1 exit=0 grade=PASS turn=2",
+                    "a2 exit=1 grade=FAIL turn=-", "a3 exit=0 grade=PASS turn=1"])
+    run_sequential("a0_fail_still_run_a1_then_stop", [fail, p1], [0, 1],
+                   ["a0 exit=1 grade=FAIL turn=-", "a1 exit=0 grade=PASS turn=1"])
+    run_sequential("a1_fail_stop", [p1, fail], [0, 1], ["a1 exit=1 grade=FAIL turn=-"])
+    test_pass = {"rc": 0, "turns": [{"turn": 1, "verdict": "fail", "tests": [{"verdict": "pass"}]}]}
+    run_sequential("test_pass_and_zero_exit_do_not_pass_grade", [test_pass, p1], [0, 1],
+                   ["a0 exit=0 grade=FAIL turn=-"])
+    run_sequential("missing_malformed_grade_keep_real_exit", [{"rc": 27, "artifact": "missing"},
+                   {"rc": 19, "artifact": "malformed"}], [0, 1],
+                   ["a0 exit=27 grade=FAIL turn=-", "a1 exit=19 grade=FAIL turn=-"])
+    run_gpu("gpu_pass_launches", "PASS", 0, True)
+    run_gpu("gpu_fail_does_not_launch", "FAIL bad clearance", 0, False)
+    run_gpu("gpu_nonzero_pass_does_not_launch", "PASS", 7, False)
+    run_gpu("gpu_missing_verdict_does_not_launch", None, 0, False)
+    run_gpu("gpu_stale_pass_does_not_launch", "PASS", 0, False, stale=True)
+    run_gpu("gpu_timeout_does_not_smoke_or_launch", "PASS", 0, False, timeout=True)
+    report = {"passed": sum(c["pass"] for c in checks), "total": len(checks), "checks": checks,
+              "execution": "local mocks only; no real HTTP, GPU, Isaac, or agent_loop"}
+    out = A / "results/analysis/b514_runner_check.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        archive = A / "results" / ("archive_b514_runner_check_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".json")
+        shutil.copy2(out, archive)
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    print(json.dumps({"passed": report["passed"], "total": report["total"], "file": str(out)}))
+    for c in checks:
+        if not c["pass"]:
+            print(json.dumps(c, ensure_ascii=False))
+    return 0 if report["passed"] == report["total"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

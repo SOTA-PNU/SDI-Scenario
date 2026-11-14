@@ -1,0 +1,25 @@
+<section id="a4" data-transition="fade" style="background:#EEF1F5;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:26px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">부록 A4 · Claude의 실패 시드 분석 (64–88분, 자작 시뮬레이터 안)</p>
+<h2 style="font-size:52px;font-weight:600;line-height:1.15">고치기 전에, 무엇 때문에 실패했는지부터 가렸다</h2>
+</div>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:24px;color:#14213D">
+<tr style="background:#14213D"><th style="width:12%;color:#F4F2EC;text-align:left">시드</th><th style="width:15%;color:#F4F2EC;text-align:left">증상</th><th style="width:21%;color:#F4F2EC;text-align:left">길이 있나 (로봇 반경별)</th><th style="width:30%;color:#F4F2EC;text-align:left">가린 원인</th><th style="width:22%;color:#F4F2EC;text-align:left">처리</th></tr>
+<tr><td>53</td><td>20.53초 팔레트 접촉</td><td>0.33 · 0.40 m 모두 있음</td><td>시뮬레이터 옵션(자기 반사)이 켜졌을 때만 나는 충돌. 세 번째 재현에서 확인</td><td>코드 그대로, 기록</td></tr>
+<tr style="background:#E3E8EF"><td>45</td><td>시간 초과</td><td>0.33 m만 있음</td><td>얇은 로봇만 지나는 좁은 틈</td><td>여유 줄이는 최후 수단 추가 → 여전히 초과, 접촉 0</td></tr>
+<tr><td>82</td><td>시간 초과</td><td>0.33 m만 있음</td><td>좁은 틈</td><td>같음 (최종 보고서에는 빠짐)</td></tr>
+<tr style="background:#E3E8EF"><td>319 (시야 180°)</td><td>시간 초과</td><td>0.40 m까지 있음</td><td>360°로도 실패 → 시야 문제 아님. 한 자세에서 회피 모드를 오감</td><td>더 고치지 않고 기록</td></tr>
+</table>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:14px;padding:24px 28px;display:flex;flex-direction:column;gap:8px">
+<h3 style="font-size:28px;font-weight:600">한 일의 순서</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">단독 재실행으로 접촉 시각·위치 확보 → 같은 조건 재현(53은 묶음 실행의 시드 규칙까지 맞춰야 재현됨) → 길 존재 확인 → 분류 → 처리. 틈 폭 0.85–1.20 m 장벽으로 지나갈 수 있는 틈도 쟀다(모두 통과).</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:14px;padding:24px 28px;display:flex;flex-direction:column;gap:8px">
+<h3 style="font-size:28px;font-weight:600">T2P로 옮긴 것</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">7단계의 원인 가리기 순서와 처리 분류(결함 수정 · 시뮬레이터 결함 기록 · 성립 안 하는 배치는 바꿈 · 한계는 실패로 셈). '장애물을 부풀린 격자 위 길 탐색'이라는 방법 자체는 해법 구조라 지시하지 않았다.</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 부록 A4 / A6 · 최종 회귀: 고정 34/34 · 무작위 58/60 · 시야 180° 29/30 · repro.py</p>
+<aside>Claude는 자기 시뮬레이터의 시험에서 실패한 시드 네 개를 바로 고치지 않고 원인부터 가렸습니다. 53번은 처음엔 재현되지 않았는데, 묶음 실행 때 시드 규칙으로 자기 반사 옵션이 켜져 있었다는 걸 알아채고서야 재현했습니다. 시뮬레이터 옵션 탓이라 코드는 그대로 두었습니다. 45번과 82번은 얇은 로봇만 지나가는 좁은 틈이었고, 319번은 시야 문제가 아니라 한 자세에서 갇힌 경우였습니다. 이 순서를 T2P 7단계로 옮겼습니다.</aside>
+</section>

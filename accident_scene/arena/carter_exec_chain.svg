@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Carter 미션 실행 경로 1 - 실행 체인 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 566" role="img" aria-label="실행 체인: 셸 명령이 run_isaac.sh 래퍼를 거쳐 스크립트를 실행하고, 스크립트가 Harness.boot()에서 Isaac Sim을 처음 import 한다">
+        <rect x="0" y="0" width="880" height="566" fill="#ffffff"/>
+          <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <polygon points="0,0 10,5 0,10" fill="#101820"></polygon>
+          </marker>
+        </defs>
+
+        <!-- 1 명령 -->
+        <rect x="40" y="24" width="800" height="96" rx="8" fill="#f6f8fa" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="62" y="50" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#5a6a79">01 · 명령</text>
+        <text x="62" y="78" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="12" fill="#101820">CARTER_WHEEL_TOE_DEG=15 carter-run \</text>
+        <text x="62" y="98" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="12" fill="#101820">  accident_scene/arena/claude_b_carter_run.py</text>
+
+        <line x1="440" y1="120" x2="440" y2="152" fill="none" stroke="#101820" stroke-width="1.4" marker-end="url(#a1)"></line>
+        <text x="452" y="142" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">직렬 실행 검사 · 다른 Isaac 있으면 EXIT 75</text>
+
+        <!-- 2 래퍼 -->
+        <rect x="40" y="160" width="800" height="96" rx="8" fill="#f6f8fa" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="62" y="186" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#5a6a79">02 · 래퍼</text>
+        <text x="62" y="212" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="14" font-weight="600" fill="#101820">levels/run_isaac.sh</text>
+        <text x="62" y="234" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="12" fill="#5a6a79">EULA 승인 · ROS 2 환경변수 · 브리지 라이브러리 경로</text>
+        <text x="470" y="234" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79">exec micromamba run -n isaacsim python</text>
+
+        <line x1="440" y1="256" x2="440" y2="288" fill="none" stroke="#101820" stroke-width="1.4" marker-end="url(#a1)"></line>
+        <text x="452" y="278" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79">python &lt;스크립트&gt;</text>
+
+        <!-- 3 스크립트 -->
+        <rect x="40" y="296" width="800" height="96" rx="8" fill="#f6f8fa" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="62" y="322" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#5a6a79">03 · 스크립트</text>
+        <text x="62" y="348" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="12" fill="#101820">claude_b_carter_run.py</text>
+        <text x="62" y="372" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="12" fill="#5a6a79">MISSION · START · GOAL · 하네스 호출 — 모든 제출이 동일</text>
+        <rect x="486" y="316" width="334" height="60" rx="6" fill="#f8e7ba" stroke="#9a6807" stroke-width="1.2"></rect>
+        <text x="502" y="338" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#9a6807">[EDIT REGION] — 모델이 쓴 부분</text>
+        <text x="502" y="360" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="12" fill="#101820">controller(t, pose, env) → (v, w, done)</text>
+
+        <line x1="440" y1="392" x2="440" y2="424" fill="none" stroke="#101820" stroke-width="1.4" marker-end="url(#a1)"></line>
+        <text x="452" y="414" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">여기서 isaacsim 을 처음 import</text>
+
+        <!-- 4 부팅 -->
+        <rect x="40" y="432" width="800" height="110" rx="8" fill="#f6f8fa" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="62" y="458" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#5a6a79">04 · 부팅</text>
+        <text x="152" y="458" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="12" fill="#5a6a79">Harness.boot() — 순서가 곧 제약이다</text>
+        <rect x="62" y="474" width="142" height="44" rx="6" fill="#ffffff" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="133" y="494" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">SimulationApp()</text>
+        <text x="133" y="509" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">Kit 기동</text>
+        <rect x="216" y="474" width="142" height="44" rx="6" fill="#ffffff" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="287" y="494" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">ros2.bridge</text>
+        <text x="287" y="509" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">확장 활성화</text>
+        <rect x="370" y="474" width="142" height="44" rx="6" fill="#ffffff" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="441" y="494" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">open_stage()</text>
+        <text x="441" y="509" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">창고 · 로봇</text>
+        <rect x="524" y="474" width="142" height="44" rx="6" fill="#ffffff" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="595" y="494" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">_spawn_obstacle()</text>
+        <text x="595" y="509" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">박스 · 결함</text>
+        <rect x="678" y="474" width="142" height="44" rx="6" fill="#ffffff" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="749" y="494" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">play()</text>
+        <text x="749" y="509" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">물리 시작</text>
+      </svg>

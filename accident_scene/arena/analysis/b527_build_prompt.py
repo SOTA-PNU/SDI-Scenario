@@ -1,0 +1,90 @@
+"""B526 -> B527: economical map-tool use and explicit planning diagnostics."""
+from datetime import datetime
+import hashlib
+from pathlib import Path
+import shutil
+
+import b526_build_prompt as PREV
+
+ARENA = Path(__file__).resolve().parents[1]
+SRC = ARENA / "PROMPT_B5_26.md"
+SRC_SHA16 = "f9ae658b31cedf9a"
+OUT = ARENA / "PROMPT_B5_27.md"
+BASE = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v15.py"
+BASE_SHA16 = "fc4f6d17c9423f38"
+TITLE = "# ARENA 미션 프롬프트 B-5-27 (B-5-26 에 지도 격자 캐시와 계획 시간 및 재시도 완화를 더함)"
+FIRST_ACTION, CALL_EXAMPLE = PREV.FIRST_ACTION, PREV.CALL_EXAMPLE
+SCENE_SENTENCE, VALIDATE_DOC = PREV.SCENE_SENTENCE, PREV.VALIDATE_DOC
+SCAFFOLD = PREV.SCAFFOLD
+MAP_DOC = PREV.MAP_DOC
+
+USE_DOC = '''- 권장 해상도는 `res=0.5`m입니다. 처음부터0.1m 격자로 만들지 말고, 계획 함수 한 번이0.5s 안에 끝나는 것을 목표로 합니다.
+  이는 성능 권고이며 강제 중단 시간이 아닙니다. `DBG plan_summary`의 `ms`(계획별 ms)와 `batch_ms`(계획 묶음 전체 ms)로 확인하고, 모델 코드에서 벽시계를 읽지 않습니다.
+  `occupancy_grid`는 같은 여유·해상도 결과를 base가 캐시하고 호출자 소유 복사본을 반환합니다. 각 계획에서 한 번 얻은 격자를 모든 칸 검사에 재사용합니다.
+  탐색은 정수 칸 위에서 수행하고, 이미 확정한 칸이나 오래된 heap 항목을 다시 확장하지 않습니다.
+  같은 칸 쌍의 `segment_free` 결과도 계획 안에서 재사용하여 중복 기하 검사를 피합니다.
+  빠르게 하려고 이웃 선분 검사를 생략하지 않습니다. 칸 중심이 비어 있어도 대각 연결은 물체를 가로지를 수 있습니다.
+
+다음은 지도 도구 호출 예이며 탐색 코드가 아닙니다. 먼저 범위를 검사한 칸에만 배열을 접근합니다.
+```python
+blocked, origin, res = occupancy_grid(clearance_m, 0.5)
+cell = cell_of(start_xy, origin, res)
+in_bounds = 0 <= cell[0] < blocked.shape[1] and 0 <= cell[1] < blocked.shape[0]
+p = xy_of(cell, origin, res)
+start_connection_ok = in_bounds and not blocked[cell[1], cell[0]] and segment_free(start_xy, p, clearance_m)
+```
+'''
+
+CHANGES = (
+    "v15 input, cached grid use, recommended .5m resolution and .5s per-plan performance target without hard interruption.",
+    "Five-line map API call example only; no A* implementation. Reuse cells/edges and avoid stale or closed-node expansion while retaining connection checks.",
+    "Explicit last-valid-anchor simplification and short rejection details before returning None, preserving required scene sentence and200s test argument.",
+    "No-path retries back off10/20/40/60 seconds with reset on accepted plan; measured planning duration is observable.",
+)
+SHORTENINGS = CHANGES
+
+
+def replace_once(text, old, new):
+    assert text.count(old) == 1, old
+    return text.replace(old, new, 1)
+
+
+def build(src, base=None):
+    assert hashlib.sha256(src.encode()).hexdigest()[:16] == SRC_SHA16
+    base = BASE.read_text() if base is None else base
+    assert BASE_SHA16 is not None and hashlib.sha256(base.encode()).hexdigest()[:16] == BASE_SHA16
+    text = replace_once(src, src.splitlines()[0], TITLE)
+    text = replace_once(text,
+        "아직 채택한 경로가 없으면 정지 입력을 요청하고10초마다 현재 위치에서 다시 계획합니다.",
+        "아직 채택한 경로가 없으면 정지 입력을 요청하고 재시도 간격을10,20,40,60초로 늘려 최대60초를 유지합니다. 경로를 채택하거나 시각이 역행하면 간격을 초기화합니다.")
+    text = replace_once(text,
+        "계획 거부는 이유별10초에 한 줄 DBG로 알립니다. 별도 `DBG plan_summary`는10초 간격으로 시도한 모든 여유의 결과와 상태를 요약합니다.",
+        "새 계획 거부 이유는 DBG로 알리고, 같은 실패가 반복되면 상세 이유를 되풀이하지 않습니다. `DBG plan_summary` 한 줄에서 모든 시도 여유와 결과, 계획별 `ms`, 묶음 `batch_ms`, 반복 횟수를 확인합니다.")
+    text = replace_once(text,
+        "계획 거부와 목표 보정 DBG는 각각 이유별10초 간격입니다. 계획 묶음 요약은10초 간격으로 모든 시도 여유와 승인/거부 이유를 앞부분에 보여줍니다. 도구의 한 줄 전체240자 제한으로 `details` 상세JSON이 잘릴 수 있으며,",
+        "목표 보정 DBG는 이유별10초 간격입니다. 계획 묶음 요약은 시도 여유와 승인/거부 이유, 소요 시간을 앞부분에 보여주고 같은 실패 반복은 한 줄로 합칩니다. 도구의 한 줄 전체240자 제한으로 `details` 상세JSON이 잘릴 수 있으며,")
+    text = replace_once(text,
+        "- 기준점(anchor)에서 검사를 통과한 가장 먼 점을 추가하여 직선 단순화합니다. 시작점을 보존하고 모든 연결과 양 끝점을\n  다시 검사합니다. 점-직선 편차만으로 중간점을 삭제하지 않습니다. 코너 여유를 지키며0.35m보다 충분히 긴 구간으로 묶습니다.",
+        USE_DOC + "\n- 단순화에서는 기준점(anchor)에서 연결되는 마지막 유효점을 따로 기억합니다. 다음 점과 연결이 막히면 그 마지막 유효점을 추가하고\n"
+        "  이를 새 기준점으로 삼습니다. 이전 기준점을 중복 추가하거나 막힌 점을 새 기준점으로 바로 지정하지 않습니다.\n"
+        "  시작점을 보존하고 모든 연결과 양 끝점을 다시 검사합니다. 점-직선 편차만으로 중간점을 삭제하지 않으며 코너 여유를 지키고0.35m보다 충분히 긴 구간으로 묶습니다.")
+    text = replace_once(text,
+        "승인된 `path`를 반환하고, 거부되면 해당 경로를 고쳐 다시 검사하거나 찾지 못한 경우 None 또는 []를 반환합니다.",
+        "승인된 `path`를 반환합니다. 거부되면 원인을 고쳐 다시 검사하고, 찾지 못해 None 또는 []를 반환하기 전에\n"
+        "  `reason`, `first_bad_segment_points`, `check_path`의 최소 간격과 요구 margin(`min_gap_map`, `margin_m`)을 한 줄 DBG로 남깁니다. 240자 안에 핵심값을 넣습니다.\n"
+        "  `validate_plan`의 거부 정보를 버리고 None만 반환하면 base에는 빈 경로라는 사실만 보입니다.")
+    assert text.count(SCENE_SENTENCE) == 1
+    return text
+
+
+def archive_write(path, text):
+    if path.exists():
+        if path.read_text() == text:
+            return
+        shutil.copy2(path, ARENA / "results" / f"archive_{path.name}_before_b527_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    path.write_text(text)
+
+
+if __name__ == "__main__":
+    archive_write(OUT, build(SRC.read_text()))
+    print("wrote", OUT, "chars", len(OUT.read_text()))

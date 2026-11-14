@@ -1,0 +1,831 @@
+{
+  "verdict": "complete",
+  "complete": true,
+  "base_sha16": "cbfde453976e9db0",
+  "base_sha256": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+  "reference_file": "/home/jun/SDI-Scenario/accident_scene/arena/analysis/b523_reference.py",
+  "reference_sha256": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+  "reference_snapshot": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/reference_snapshot.py",
+  "calibrated_engine_sha256": "8d0308dbf55c288297ade1c92bcd4c71570b888562cf58b03e94e3518e9a8358",
+  "phases": "standard61",
+  "random_passed": 0,
+  "random_total": 0,
+  "v1_pass": null,
+  "runtime_errors": 0,
+  "hook_error_ticks": 24003,
+  "wall_s": 28.17121716402471,
+  "exact_source_matches": true,
+  "reference_structure": {
+    "pass": true,
+    "top_functions": [
+      "plan_path",
+      "lookahead_target",
+      "follow_cmd",
+      "controller"
+    ],
+    "signatures": [
+      [
+        "start_xy",
+        "goal_xy",
+        "clearance_m"
+      ],
+      [
+        "path",
+        "pose"
+      ],
+      [
+        "pose",
+        "target_xy"
+      ]
+    ],
+    "stub": true,
+    "no_chooser_or_observation_calls": true
+  },
+  "audit_pass": true,
+  "threshold": "Task22 stability requires future actual model samples a0-a3 4/4; reference CPU completion is not that criterion.",
+  "configuration": {
+    "physics_dt": 0.016666666666666666,
+    "accel_v": 2.0,
+    "accel_w": 2.68,
+    "sensor_dt": 0.1,
+    "sensor_age_s": 0.1,
+    "sensor_phase_frame": 5,
+    "range_noise_std_m": 0.01,
+    "sensor_seed_rule": "515 for bad functions; 515 + phase index for reference",
+    "phase_seeds": [
+      1,
+      2
+    ],
+    "per_seed": 30,
+    "contact_shape": [
+      [
+        -0.59,
+        0.13,
+        -0.18,
+        0.18
+      ],
+      [
+        -0.14,
+        0.14,
+        -0.25,
+        0.25
+      ]
+    ],
+    "t_max": 200.0,
+    "goal_finish_distance_m": 0.5,
+    "goal_finish_yaw_rad": 0.15,
+    "lookahead_m": 3.0,
+    "lookahead_corner_switch_m": 0.35,
+    "grid_resolution_m": 0.5,
+    "base_center_clearance_attempts": [
+      0.5,
+      0.45,
+      0.4,
+      0.35
+    ]
+  },
+  "limitations": [
+    "CPU approximation, no physical settle, wheel slip or contact dynamics.",
+    "Static lidar false positives/height-dependent occlusion are not simulated.",
+    "The filled reference and mover truth are excluded from model input.",
+    "The GOAL is on the path endpoint and is not rejected by off-path distance alone.",
+    "Checked zero requests may choose an escape if stopping itself is unsafe."
+  ],
+  "failure_cases": [
+    {
+      "label": "goal_target_v1",
+      "verdict": "collision",
+      "t": 8.866666666666667,
+      "hit": "start_zone",
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/goal_target_v1.jsonl.gz",
+      "error": null,
+      "final_goal_distance": 29.014378344367607
+    },
+    {
+      "label": "empty_path_v1",
+      "verdict": "timeout",
+      "t": 200.0,
+      "hit": null,
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/empty_path_v1.jsonl.gz",
+      "error": null,
+      "final_goal_distance": 32.16037935099647
+    },
+    {
+      "label": "plan_path_exception_v1",
+      "verdict": "timeout",
+      "t": 200.0,
+      "hit": null,
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/plan_path_exception_v1.jsonl.gz",
+      "error": null,
+      "final_goal_distance": 32.16037935099647
+    },
+    {
+      "label": "lookahead_target_exception_v1",
+      "verdict": "timeout",
+      "t": 200.0,
+      "hit": null,
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/lookahead_target_exception_v1.jsonl.gz",
+      "error": null,
+      "final_goal_distance": 32.16037935099647
+    },
+    {
+      "label": "follow_cmd_exception_v1",
+      "verdict": "timeout",
+      "t": 200.0,
+      "hit": null,
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/follow_cmd_exception_v1.jsonl.gz",
+      "error": null,
+      "final_goal_distance": 32.16037935099647
+    }
+  ],
+  "results": [
+    {
+      "verdict": "collision",
+      "t": 8.866666666666667,
+      "hit": "start_zone",
+      "pose": [
+        -7.408445215789629,
+        -8.084832046245863,
+        0.8170672019298775
+      ],
+      "time_to_goal_s": null,
+      "final_goal_distance": 29.014378344367607,
+      "max_start_distance": 3.534280032180525,
+      "chosen_counts": {
+        "fast": 173,
+        "follow": 139,
+        "slow": 58,
+        "turn_r": 30,
+        "back": 132
+      },
+      "chooser_calls": 532,
+      "wall_s": 0.7655173139646649,
+      "base_sha16": "cbfde453976e9db0",
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/goal_target_v1.jsonl.gz",
+      "phases": [
+        8.47,
+        6.08,
+        4.9,
+        6.46,
+        0.0
+      ],
+      "last_choice": "back",
+      "engine_verdict": "collision",
+      "mission": {
+        "verdict": "fail",
+        "reason": "collision",
+        "position_ok": false,
+        "yaw_ok": true,
+        "time_ok": true,
+        "no_collision": false,
+        "final_distance_m": 29.014378344367607,
+        "final_yaw_error_rad": 0.1967327980701226,
+        "position_tolerance_m": 0.75,
+        "yaw_tolerance_rad": 0.26,
+        "note": "Original MISSION criteria applied to CPU final pose; no physical post-run settle is modeled."
+      },
+      "controller_tick_median_ms": 0.8004035,
+      "median_choose_ms": 0.7811945,
+      "label": "goal_target_v1",
+      "sensor_noise_seed": 515,
+      "variant": "goal_target",
+      "base_sha256": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+      "reference_sha256": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+      "audit": {
+        "ticks": 532,
+        "choose_calls": 532,
+        "call_order_errors": 0,
+        "returned_command_changes": 0,
+        "goal_finish_errors": 0,
+        "diagnostic_mismatches": 0,
+        "plan_events": [
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.5,
+            "path": [
+              [
+                -9.0,
+                -10.8
+              ],
+              [
+                -1.0500000000000007,
+                -3.4000000000000004
+              ],
+              [
+                2.9499999999999993,
+                1.5999999999999996
+              ],
+              [
+                3.9499999999999993,
+                2.0999999999999996
+              ],
+              [
+                5.449999999999999,
+                3.5999999999999996
+              ],
+              [
+                5.449999999999999,
+                14.1
+              ],
+              [
+                8.0,
+                16.5
+              ]
+            ],
+            "check_path": {
+              "min_gap_map": 0.2653882032022078,
+              "min_location": [
+                3.1999999999999993,
+                1.7249999999999996
+              ],
+              "first_bad_segment": null,
+              "margin_m": 0.25,
+              "sampling_step_m": 0.1
+            }
+          }
+        ],
+        "function_calls": {
+          "plan_path": 1,
+          "lookahead_target": 532,
+          "follow_cmd": 532
+        },
+        "controller_stub_calls": 0,
+        "hook_error_ticks": 0,
+        "target_corrected_ticks": 0,
+        "error_nominal_nonzero": 0,
+        "error_examples": [],
+        "dbg_lines": 18,
+        "dbg_examples": [],
+        "exact_one_choose_per_tick": true,
+        "pass": true
+      },
+      "trace_sha256": "a42dc3ef54e9060a015d454b065f46c9465711e26c9ad624e96cc93a0fa6c5b9"
+    },
+    {
+      "verdict": "timeout",
+      "hit": null,
+      "t": 200.0,
+      "pose": [
+        -9.0,
+        -10.8,
+        1.0138
+      ],
+      "time_to_goal_s": null,
+      "final_goal_distance": 32.16037935099647,
+      "max_start_distance": 0.0,
+      "chosen_counts": {
+        "follow": 12001
+      },
+      "chooser_calls": 12001,
+      "wall_s": 13.27187978499569,
+      "base_sha16": "cbfde453976e9db0",
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/empty_path_v1.jsonl.gz",
+      "phases": [
+        8.47,
+        6.08,
+        4.9,
+        6.46,
+        0.0
+      ],
+      "last_choice": "follow",
+      "engine_verdict": "timeout",
+      "mission": {
+        "verdict": "fail",
+        "reason": "goal_position",
+        "position_ok": false,
+        "yaw_ok": true,
+        "time_ok": true,
+        "no_collision": true,
+        "final_distance_m": 32.16037935099647,
+        "final_yaw_error_rad": 0.0,
+        "position_tolerance_m": 0.75,
+        "yaw_tolerance_rad": 0.26,
+        "note": "Original MISSION criteria applied to CPU final pose; no physical post-run settle is modeled."
+      },
+      "controller_tick_median_ms": 0.970552,
+      "median_choose_ms": 0.963145,
+      "label": "empty_path_v1",
+      "sensor_noise_seed": 515,
+      "variant": "empty_path",
+      "base_sha256": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+      "reference_sha256": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+      "audit": {
+        "ticks": 12001,
+        "choose_calls": 12001,
+        "call_order_errors": 0,
+        "returned_command_changes": 0,
+        "goal_finish_errors": 0,
+        "diagnostic_mismatches": 0,
+        "plan_events": [
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.5,
+            "path": [],
+            "check_path": null
+          },
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.45,
+            "path": [],
+            "check_path": null
+          },
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.4,
+            "path": [],
+            "check_path": null
+          },
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.35,
+            "path": [],
+            "check_path": null
+          }
+        ],
+        "function_calls": {
+          "plan_path": 4,
+          "lookahead_target": 0,
+          "follow_cmd": 0
+        },
+        "controller_stub_calls": 0,
+        "hook_error_ticks": 0,
+        "target_corrected_ticks": 0,
+        "error_nominal_nonzero": 0,
+        "error_examples": [],
+        "dbg_lines": 401,
+        "dbg_examples": [],
+        "exact_one_choose_per_tick": true,
+        "pass": true
+      },
+      "trace_sha256": "4b4053b2d767078fe6aaa382359d5f1db09e15cb65e132b1d2e860f8ce743613"
+    },
+    {
+      "verdict": "timeout",
+      "hit": null,
+      "t": 200.0,
+      "pose": [
+        -9.0,
+        -10.8,
+        1.0138
+      ],
+      "time_to_goal_s": null,
+      "final_goal_distance": 32.16037935099647,
+      "max_start_distance": 0.0,
+      "chosen_counts": {
+        "follow": 12001
+      },
+      "chooser_calls": 12001,
+      "wall_s": 13.069251258042641,
+      "base_sha16": "cbfde453976e9db0",
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/plan_path_exception_v1.jsonl.gz",
+      "phases": [
+        8.47,
+        6.08,
+        4.9,
+        6.46,
+        0.0
+      ],
+      "last_choice": "follow",
+      "engine_verdict": "timeout",
+      "mission": {
+        "verdict": "fail",
+        "reason": "goal_position",
+        "position_ok": false,
+        "yaw_ok": true,
+        "time_ok": true,
+        "no_collision": true,
+        "final_distance_m": 32.16037935099647,
+        "final_yaw_error_rad": 0.0,
+        "position_tolerance_m": 0.75,
+        "yaw_tolerance_rad": 0.26,
+        "note": "Original MISSION criteria applied to CPU final pose; no physical post-run settle is modeled."
+      },
+      "controller_tick_median_ms": 0.969115,
+      "median_choose_ms": 0.961702,
+      "label": "plan_path_exception_v1",
+      "sensor_noise_seed": 515,
+      "variant": "plan_path_exception",
+      "base_sha256": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+      "reference_sha256": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+      "audit": {
+        "ticks": 12001,
+        "choose_calls": 12001,
+        "call_order_errors": 0,
+        "returned_command_changes": 0,
+        "goal_finish_errors": 0,
+        "diagnostic_mismatches": 0,
+        "plan_events": [
+          {
+            "t": 0.0,
+            "requested_center_clearance": 0.5,
+            "error": "RuntimeError('injected plan_path failure')"
+          }
+        ],
+        "function_calls": {
+          "plan_path": 1,
+          "lookahead_target": 0,
+          "follow_cmd": 0
+        },
+        "controller_stub_calls": 0,
+        "hook_error_ticks": 1,
+        "target_corrected_ticks": 0,
+        "error_nominal_nonzero": 0,
+        "error_examples": [
+          {
+            "t": 0.0,
+            "error": {
+              "hook": "plan_path",
+              "type": "RuntimeError",
+              "message": "injected plan_path failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "dbg_lines": 402,
+        "dbg_examples": [
+          "DBG base_loop t=0.00 hook=plan_path error=RuntimeError: injected plan_path failure; checked stop requested"
+        ],
+        "exact_one_choose_per_tick": true,
+        "pass": true
+      },
+      "trace_sha256": "08ae36dd2cfefd62cb1aab66de44c4982a2e64e4c5e7f7724316715298801686"
+    },
+    {
+      "verdict": "timeout",
+      "hit": null,
+      "t": 200.0,
+      "pose": [
+        -9.0,
+        -10.8,
+        1.0138
+      ],
+      "time_to_goal_s": null,
+      "final_goal_distance": 32.16037935099647,
+      "max_start_distance": 0.0,
+      "chosen_counts": {
+        "follow": 12001
+      },
+      "chooser_calls": 12001,
+      "wall_s": 13.25460511597339,
+      "base_sha16": "cbfde453976e9db0",
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/lookahead_target_exception_v1.jsonl.gz",
+      "phases": [
+        8.47,
+        6.08,
+        4.9,
+        6.46,
+        0.0
+      ],
+      "last_choice": "follow",
+      "engine_verdict": "timeout",
+      "mission": {
+        "verdict": "fail",
+        "reason": "goal_position",
+        "position_ok": false,
+        "yaw_ok": true,
+        "time_ok": true,
+        "no_collision": true,
+        "final_distance_m": 32.16037935099647,
+        "final_yaw_error_rad": 0.0,
+        "position_tolerance_m": 0.75,
+        "yaw_tolerance_rad": 0.26,
+        "note": "Original MISSION criteria applied to CPU final pose; no physical post-run settle is modeled."
+      },
+      "controller_tick_median_ms": 0.978824,
+      "median_choose_ms": 0.965352,
+      "label": "lookahead_target_exception_v1",
+      "sensor_noise_seed": 515,
+      "variant": "lookahead_target_exception",
+      "base_sha256": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+      "reference_sha256": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+      "audit": {
+        "ticks": 12001,
+        "choose_calls": 12001,
+        "call_order_errors": 0,
+        "returned_command_changes": 0,
+        "goal_finish_errors": 0,
+        "diagnostic_mismatches": 0,
+        "plan_events": [
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.5,
+            "path": [
+              [
+                -9.0,
+                -10.8
+              ],
+              [
+                -1.0500000000000007,
+                -3.4000000000000004
+              ],
+              [
+                2.9499999999999993,
+                1.5999999999999996
+              ],
+              [
+                3.9499999999999993,
+                2.0999999999999996
+              ],
+              [
+                5.449999999999999,
+                3.5999999999999996
+              ],
+              [
+                5.449999999999999,
+                14.1
+              ],
+              [
+                8.0,
+                16.5
+              ]
+            ],
+            "check_path": {
+              "min_gap_map": 0.2653882032022078,
+              "min_location": [
+                3.1999999999999993,
+                1.7249999999999996
+              ],
+              "first_bad_segment": null,
+              "margin_m": 0.25,
+              "sampling_step_m": 0.1
+            }
+          }
+        ],
+        "function_calls": {
+          "plan_path": 1,
+          "lookahead_target": 12001,
+          "follow_cmd": 0
+        },
+        "controller_stub_calls": 0,
+        "hook_error_ticks": 12001,
+        "target_corrected_ticks": 0,
+        "error_nominal_nonzero": 0,
+        "error_examples": [
+          {
+            "t": 0.0,
+            "error": {
+              "hook": "lookahead_target",
+              "type": "RuntimeError",
+              "message": "injected lookahead_target failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "t": 0.016666666666666666,
+            "error": {
+              "hook": "lookahead_target",
+              "type": "RuntimeError",
+              "message": "injected lookahead_target failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "t": 0.03333333333333333,
+            "error": {
+              "hook": "lookahead_target",
+              "type": "RuntimeError",
+              "message": "injected lookahead_target failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "dbg_lines": 12402,
+        "dbg_examples": [
+          "DBG base_loop t=0.00 hook=lookahead_target error=RuntimeError: injected lookahead_target failure; checked stop requested",
+          "DBG base_loop t=0.02 hook=lookahead_target error=RuntimeError: injected lookahead_target failure; checked stop requested",
+          "DBG base_loop t=0.03 hook=lookahead_target error=RuntimeError: injected lookahead_target failure; checked stop requested"
+        ],
+        "exact_one_choose_per_tick": true,
+        "pass": true
+      },
+      "trace_sha256": "3e58534a94fbb5f540d426018d2408bc23dfd1ec8b6a3f94d36d987c9b864ec5"
+    },
+    {
+      "verdict": "timeout",
+      "hit": null,
+      "t": 200.0,
+      "pose": [
+        -9.0,
+        -10.8,
+        1.0138
+      ],
+      "time_to_goal_s": null,
+      "final_goal_distance": 32.16037935099647,
+      "max_start_distance": 0.0,
+      "chosen_counts": {
+        "follow": 12001
+      },
+      "chooser_calls": 12001,
+      "wall_s": 13.895954986917786,
+      "base_sha16": "cbfde453976e9db0",
+      "trace": "/home/jun/SDI-Scenario/accident_scene/arena/results/analysis/b523_bad_functions/traces/follow_cmd_exception_v1.jsonl.gz",
+      "phases": [
+        8.47,
+        6.08,
+        4.9,
+        6.46,
+        0.0
+      ],
+      "last_choice": "follow",
+      "engine_verdict": "timeout",
+      "mission": {
+        "verdict": "fail",
+        "reason": "goal_position",
+        "position_ok": false,
+        "yaw_ok": true,
+        "time_ok": true,
+        "no_collision": true,
+        "final_distance_m": 32.16037935099647,
+        "final_yaw_error_rad": 0.0,
+        "position_tolerance_m": 0.75,
+        "yaw_tolerance_rad": 0.26,
+        "note": "Original MISSION criteria applied to CPU final pose; no physical post-run settle is modeled."
+      },
+      "controller_tick_median_ms": 1.032572,
+      "median_choose_ms": 0.964754,
+      "label": "follow_cmd_exception_v1",
+      "sensor_noise_seed": 515,
+      "variant": "follow_cmd_exception",
+      "base_sha256": "cbfde453976e9db0afea7142237bf6265e6f06e99f5318d002a469f756b04d99",
+      "reference_sha256": "29418d703ffe7ce16b8e88c42f7ccbca15c643ac114d9efa4e4aa3f98c2c2f3b",
+      "audit": {
+        "ticks": 12001,
+        "choose_calls": 12001,
+        "call_order_errors": 0,
+        "returned_command_changes": 0,
+        "goal_finish_errors": 0,
+        "diagnostic_mismatches": 0,
+        "plan_events": [
+          {
+            "t": 0.0,
+            "start_xy": [
+              -9.0,
+              -10.8
+            ],
+            "goal_xy": [
+              8.0,
+              16.5
+            ],
+            "requested_center_clearance": 0.5,
+            "path": [
+              [
+                -9.0,
+                -10.8
+              ],
+              [
+                -1.0500000000000007,
+                -3.4000000000000004
+              ],
+              [
+                2.9499999999999993,
+                1.5999999999999996
+              ],
+              [
+                3.9499999999999993,
+                2.0999999999999996
+              ],
+              [
+                5.449999999999999,
+                3.5999999999999996
+              ],
+              [
+                5.449999999999999,
+                14.1
+              ],
+              [
+                8.0,
+                16.5
+              ]
+            ],
+            "check_path": {
+              "min_gap_map": 0.2653882032022078,
+              "min_location": [
+                3.1999999999999993,
+                1.7249999999999996
+              ],
+              "first_bad_segment": null,
+              "margin_m": 0.25,
+              "sampling_step_m": 0.1
+            }
+          }
+        ],
+        "function_calls": {
+          "plan_path": 1,
+          "lookahead_target": 12001,
+          "follow_cmd": 12001
+        },
+        "controller_stub_calls": 0,
+        "hook_error_ticks": 12001,
+        "target_corrected_ticks": 0,
+        "error_nominal_nonzero": 0,
+        "error_examples": [
+          {
+            "t": 0.0,
+            "error": {
+              "hook": "follow_cmd",
+              "type": "RuntimeError",
+              "message": "injected follow_cmd failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "t": 0.016666666666666666,
+            "error": {
+              "hook": "follow_cmd",
+              "type": "RuntimeError",
+              "message": "injected follow_cmd failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "t": 0.03333333333333333,
+            "error": {
+              "hook": "follow_cmd",
+              "type": "RuntimeError",
+              "message": "injected follow_cmd failure"
+            },
+            "nominal": [
+              0.0,
+              0.0
+            ]
+          }
+        ],
+        "dbg_lines": 12402,
+        "dbg_examples": [
+          "DBG base_loop t=0.00 hook=follow_cmd error=RuntimeError: injected follow_cmd failure; checked stop requested",
+          "DBG base_loop t=0.02 hook=follow_cmd error=RuntimeError: injected follow_cmd failure; checked stop requested",
+          "DBG base_loop t=0.03 hook=follow_cmd error=RuntimeError: injected follow_cmd failure; checked stop requested"
+        ],
+        "exact_one_choose_per_tick": true,
+        "pass": true
+      },
+      "trace_sha256": "f46a5d702debfd5b4c2c098fbc114274c31734369d443ac318b7aa0096469cbe"
+    }
+  ]
+}

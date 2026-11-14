@@ -1,0 +1,93 @@
+"""B-5-14 preparation checks based on b513_selftest; no GPU, HTTP, or Isaac.
+
+Validate the exact generated prose and base, actual agent_loop model input,
+EDIT REGION splicing, absence of mover hints, and the offline check provenance.
+The Isaac smoke test remains a separately gated GPU step.
+"""
+import ast
+from datetime import datetime
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import sys
+
+ARENA = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ARENA))
+sys.path.insert(0, str(ARENA / "analysis"))
+import agent_loop as A
+import b513_build_base as BB513
+import b514_build_base as BB
+import b514_build_prompt as BP
+
+
+def sha16(text):
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def main():
+    checks = []
+
+    def check(name, cond):
+        checks.append({"name": name, "pass": bool(cond)})
+        print(("PASS " if cond else "FAIL ") + name)
+
+    old_prompt = (ARENA / "PROMPT_B5_13.md").read_text()
+    prompt = BP.OUT.read_text()
+    old_base = (ARENA / "base_carter_run_ros_map_lidartime_objects.py").read_text()
+    base = BP.BASE.read_text()
+    tree = ast.parse(base)
+    check("prompt is B-5-13 plus exactly the specified builder edits", BP.build(old_prompt, base) == prompt)
+    check("title passes only the B-5 prompt gate", all((m == "b5") == (f"프롬프트 B-{m[1]}" in prompt.splitlines()[0]) for m in ("b1", "b2", "b3", "b4", "b5")))
+    check("base reproduces from the untouched B-5-13 base", BB.build(old_base) == base)
+    check("B-5-13 source still reproduces from its original builder", BB513.build((ARENA / "base_carter_run_ros_map_dbg_heapq_lidartime.py").read_text()) == old_base)
+    start = base.index("# [EDIT REGION] mission controller")
+    end = base.index(A.END_LINE)
+    first_line = base[:start].count("\n") + 4
+    check("check_motion is after observed_objects and outside EDIT REGION", base.index("def observed_objects(") < base.index("def check_motion(") < start < end)
+    funcs = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
+    motion = funcs["check_motion"]
+    check("check_motion signature has requested defaults", [a.arg for a in motion.args.args] == ["v", "w", "horizon_s", "dt", "margin_m"] and [ast.literal_eval(v) for v in motion.args.defaults] == [3.0, 0.1, 0.2])
+    constants = {node.targets[0].id: node.value for node in tree.body if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)}
+    check("actual body box and lidar self-filter box stay separate", ast.literal_eval(constants["_BASE_BODY_BOX"]) == (-0.59, 0.13, -0.25, 0.25) and ast.literal_eval(constants["_BASE_SELF_BOX"]) == (-0.70, 0.25, -0.34, 0.34))
+    check("tracking block is inherited without hidden scene information", base[base.index("# ---- 감지 기본 코드 (물체 추적) ----"):base.index("def observed_objects(")] == old_base[old_base.index("# ---- 감지 기본 코드 (물체 추적) ----"):old_base.index("def observed_objects(")])
+    A.BASE_FILE = BP.BASE
+    A.BASE = A.SP.BASE = base
+    A.B_MODE = "b5"
+    A.A21 = A.A22 = A.A23 = A.A4T = False
+    model_input = A.model_input(BP.OUT.name)
+    marker = "\n\n---\n\n`base_carter_run.py`:\n\n```python\n"
+    check("actual model input embeds the exact base file", model_input == prompt + marker + base + "```\n" and model_input.split(marker, 1)[1][:-4] == base)
+    region = base[start:end]
+    rebuilt = A.build(A.TL.extract("```python\n" + region + "```"))
+    ok, detail = A.static_check(rebuilt)
+    check("EDIT REGION round-trip preserves fixed base and valid syntax", ok and A.TL._outside(rebuilt) == A.TL._outside(base))
+    malformed = A.build(A.TL.extract("```python\n" + region[2:] + "```"))
+    ok, detail = A.static_check(malformed)
+    check("first-answer line number and malformed header regression", not ok and f"line {first_line}" in detail and f"답의 첫 줄이 {first_line}행입니다" in prompt)
+    banned = (r"\bM[1-5]\b", r"arena_mover", r"start_zone", r"goal_south", r"0\.5 m/s", r"11\.6", r"왕복", r"되돌아", r"끝에서", r"방향을 바꾼", r"상자면")
+    check("no mover identities, position, lane, period, timing or motion-form hints", not any(re.search(pattern, prompt + "\n" + base) for pattern in banned) and prompt.count("오가") == old_prompt.count("오가") == 1)
+    scene_keys = ("MISSION", "START", "GOAL", "WALLS", "FIXED_OBSTACLES")
+    old_tree = ast.parse(old_base)
+    def scene_assigns(t):
+        return {name: ast.dump(node.value) for node in t.body if isinstance(node, ast.Assign) for target in node.targets if isinstance(target, ast.Name) for name in [target.id] if name in scene_keys}
+    check("static scene coordinates remain exactly those in the old base", scene_assigns(tree) == scene_assigns(old_tree))
+    check("decision paragraph and three failure lessons match requested text", BP.DECISION in prompt and BP.LESSONS in prompt)
+    check("explicit 200-second test instruction appears in both required sections", prompt.count(BP.TEST_TIME) == 2 and "기본 600 s" not in prompt and "200 정도면" not in prompt and "판단은 이렇게 구현합니다" not in prompt)
+    check("detection docs cover body box, stale observation time and return fields", BP.DETECTION in prompt and "check_motion" in ast.get_docstring(tree) and all(f"`{key}`" in BP.DETECTION for key in ("min_gap_obj", "t_hit_obj", "hit_obj_id", "min_gap_map", "t_hit_map", "t_hit", "end_pose", "seen_t", "vel_ok")))
+    offline_path = ARENA / "results/analysis/b514_check_offline.json"
+    offline = json.loads(offline_path.read_text()) if offline_path.exists() else {}
+    check("offline validation passed on this exact base", offline.get("verdict") == "pass" and offline.get("base_sha16") == sha16(base))
+    summary = {"verdict": "pass" if all(item["pass"] for item in checks) else "fail", "passed": sum(item["pass"] for item in checks), "total": len(checks), "base_file": BP.BASE.name, "base_sha16": sha16(base), "prompt_file_sha16": sha16(prompt), "prompt_sha16": sha16(model_input), "prompt_chars": len(model_input), "answer_first_line": first_line, "isaac_smoke": "pending_gpu", "checks": checks}
+    output = ARENA / "results/analysis/b514_selftest.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        shutil.copy2(output, ARENA / "results" / f"archive_b514_selftest.json_before_rerun_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    print(f"SELFTEST={summary['passed']}/{summary['total']} BASE_SHA16={summary['base_sha16']} PROMPT_SHA16={summary['prompt_sha16']} PROMPT_CHARS={summary['prompt_chars']}")
+    return 0 if summary["verdict"] == "pass" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

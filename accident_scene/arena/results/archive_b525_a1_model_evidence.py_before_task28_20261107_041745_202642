@@ -1,0 +1,201 @@
+"""Saved B525 a1 model revisions, feedback fidelity and static termination.
+
+Read-only original artifacts. No model, HTTP, process inspection, GPU or Isaac.
+The only executed user functions are a pure lookahead on a labeled L-path
+fixture; actual planner/path/vehicle replay belongs to the separate map audit.
+"""
+import ast
+from collections import Counter
+from datetime import datetime
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import sys
+
+ARENA = Path(__file__).resolve().parents[1]
+sys.path[:0] = [str(ARENA), str(ARENA / "analysis")]
+import agent_loop as A
+from b515_check_offline import load_ns
+
+D = ARENA / "results/turns/prompt_b5_25"
+P = "gpu_gpt_oss_120b_pB525_a1"
+BASE = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v13.py"
+OUT = ARENA / "results/analysis/b525_a1_model_evidence.json"
+HOOKS = ("plan_path", "lookahead_target", "follow_cmd", "controller")
+
+
+def sha(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def rel(path):
+    return str(path.relative_to(ARENA))
+
+
+def refs(path, needle):
+    return [{"file": rel(path), "line": i, "text": line} for i, line in enumerate(path.read_text().splitlines(), 1) if needle in line]
+
+
+def normal(fn):
+    fn = ast.parse(ast.unparse(fn)).body[0]
+    for node in ast.walk(fn):
+        if isinstance(node, ast.FunctionDef) and node.body and isinstance(node.body[0], ast.Expr):
+            val = node.body[0].value
+            if isinstance(val, ast.Constant) and isinstance(val.value, str):
+                node.body = node.body[1:]
+    return ast.dump(fn, include_attributes=False)
+
+
+MODIFICATIONS = [
+    "t1: 0.2m grid A*, center and all neighbor/start/goal edges checked, furthest-visible anchored simplification. Zero tool trials before final code.",
+    "test01: grid0.2->0.1m, add direct-line shortcut, change deterministic neighbor order; lookahead local variable renames preserve the same2m across-segment calculation.",
+    "test02: add two checked L-shaped routes before0.2m grid fallback.",
+    "test03: add checked bottom-perimeter route before the same0.2m grid fallback.",
+    "test04: remove perimeter branch and restore0.1m grid fallback; checked direct/L routes retained.",
+    "test05: return None for requested clearance>0.35 to force the lowest option, keeping0.1m A* and anchored simplification.",
+    "test06: retain forced0.35 and remove simplification, returning the full A* node sequence.",
+    "test07: remove forced0.35, retain full0.1m node sequence and unchanged lookahead/follow.",
+]
+
+
+def main():
+    sources = [D / f"{P}_turns.json", D / f"{P}_events.jsonl", BASE, ARENA / "PROMPT_B5_25.md", ARENA / "agent_loop.py"]
+    turns = json.loads(sources[0].read_text())
+    events = [json.loads(line) for line in sources[1].read_text().splitlines()]
+    calls, revisions, feedback = [], [], []
+    prior = None
+    saved_dbg = A.DBG_FULL_CHARS
+    A.DBG_FULL_CHARS = 0
+    try:
+        for c in range(1, 10):
+            rawp, reqp, textp = [D / f"{P}_c{c:02d}_{suffix}" for suffix in ("raw.json", "request.json", "raw_text.txt")]
+            sources += [rawp, reqp, textp]
+            raw, req = json.loads(rawp.read_text()), json.loads(reqp.read_text())
+            msg = raw["choices"][0]["message"]
+            quote_lines = refs(textp, "<|channel|>analysis")
+            needles = {2: "previous attempt likely failed", 3: "plan_summary shows accepted", 4: "perimeter", 5: "finer resolution", 6: "force plan_path", 7: "do not simplify", 8: "Remove the early return", 9: "out of time"}
+            if c in needles:
+                quote_lines += refs(textp, needles[c])[:2]
+            calls.append({"call": c, "turn": 1 if c==1 else 2, "raw": rel(rawp), "request": rel(reqp), "seed": req.get("seed"),
+                "tool_choice": req.get("tool_choice"), "max_tokens": req.get("max_tokens"), "usage": raw.get("usage"),
+                "finish_reason": raw["choices"][0]["finish_reason"], "tool_calls": len(msg.get("tool_calls", [])),
+                "content_chars": len(msg.get("content") or ""), "reasoning_evidence": quote_lines,
+                "stated_beliefs_are_not_execution_evidence": True})
+            if c==9:
+                continue
+            suffix = "" if c==1 else f"_t2_test{c-1:02d}"
+            snap = D / "isaac_logs" / f"{P}{suffix}_carter_run.py"
+            stdout = D / "isaac_logs" / f"{P}{suffix}.carter-run.stdout.log"
+            resultp = D / "isaac_logs" / f"{P}{suffix}_result.json"
+            sources += [snap, stdout, resultp]
+            src = snap.read_text()
+            fns = {n.name:n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name in HOOKS}
+            forms = {k: normal(v) for k,v in fns.items()}
+            result = json.loads(resultp.read_text())
+            names = Counter(n.func.id for fn in fns.values() for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name))
+            log = stdout.read_text(errors="replace")
+            summary = refs(stdout, "DBG plan_summary ")
+            stops = refs(stdout, "DBG follow 가 지도에 막힘")
+            reject = refs(stdout, "DBG plan_reject ")
+            revisions.append({"call": c, "stage": "grade_t1" if c==1 else f"test{c-1:02d}", "snapshot": rel(snap),
+                "source_sha256": sha(snap.read_bytes()), "modification": MODIFICATIONS[c-1],
+                "changed_function_execution_ast": list(forms) if prior is None else [k for k in forms if prior[k]!=forms[k]],
+                "functions": {k:{"line":v.lineno,"end_line":v.end_lineno,"execution_ast_sha256":sha(forms[k].encode())} for k,v in fns.items()},
+                "relevant_edit_calls": {n:names[n] for n in ("segment_clearance","map_clearance","validate_plan","check_path","choose_command","observed_objects")},
+                "planner_source": [{"line":i,"text":src.splitlines()[i-1]} for i in range(fns["plan_path"].lineno,fns["plan_path"].end_lineno+1)],
+                "lookahead_source": ast.get_source_segment(src,fns["lookahead_target"]),
+                "result": rel(resultp), "verdict": result["verdict"], "metrics": result["metrics"],
+                "all_plan_summary": summary, "map_stop_warnings": stops,
+                "reject_reason_counts": dict(Counter(r["text"].split("reason=",1)[1].split()[0] for r in reject)),
+                "last_choose": refs(stdout,"DBG choose ")[-3:]})
+            prior = forms
+            if c>=2:
+                toolp = D / f"{P}_c{c:02d}_tool1.json"
+                nextp = D / f"{P}_c{c+1:02d}_request.json"
+                sources += [toolp, nextp]
+                tool, nxt = json.loads(toolp.read_text()), json.loads(nextp.read_text())
+                matches = [(i,m) for i,m in enumerate(nxt["messages"]) if m.get("role")=="tool" and m.get("tool_call_id")==tool["tool_call"]["id"]]
+                extracted, omitted = A.dbg_lines(log)
+                delivered = tool["result"]["controller_output"]
+                feedback.append({"call":c,"test":c-1,"tool_file":rel(toolp),"next_request":rel(nextp),
+                    "next_message_index":matches[0][0] if len(matches)==1 else None,
+                    "payload_exactly_delivered":len(matches)==1 and json.loads(matches[0][1]["content"])==tool["result"],
+                    "actual_harness_dbg_lines_exact":extracted==delivered and omitted==tool["result"].get("controller_output_omitted_lines",0),
+                    "tool_argument_keys":list(tool["arguments"]),"sim_seconds_present":"sim_seconds" in tool["arguments"],
+                    "applied_sim_seconds":tool["result"]["sim_seconds"],"controller_output_count":len(delivered),"omitted_count":omitted,
+                    "delivered_plan_lines":[line for line in delivered if "DBG plan_" in line],
+                    "full_summary_count":len(summary),"delivered_summary_count":sum("DBG plan_summary "in s for s in delivered),
+                    "record":tool["record"]})
+    finally:
+        A.DBG_FULL_CHARS = saved_dbg
+    replyp = D / f"{P}_t2_reply.md"
+    subp = ARENA / f"{P}_t2_carter_run.py"
+    sources += [replyp,subp]
+    reply = replyp.read_text()
+    ok, static_detail = A.static_check(subp.read_text())
+    final_event = next(e for e in events if e["type"]=="submission" and e["turn"]==2)
+    request_event = next(e for e in events if e["type"]=="request" and e["call"]==9)
+    response_event = next(e for e in events if e["type"]=="response" and e["call"]==9)
+    test_event = next(e for e in events if e["type"]=="tool_result" and e["call"]==8)
+    terminal = {"reply_file":rel(replyp),"reply":reply,"submitted_source":rel(subp),
+        "invalid_source_line":refs(subp,"Cannot provide a passing solution"),
+        "actual_static_ok":ok,"actual_static_detail":static_detail,"recorded_submission_event":final_event,
+        "final_usage":calls[-1]["usage"],"final_finish_reason":calls[-1]["finish_reason"],
+        "final_request_tool_choice":calls[-1]["tool_choice"],
+        "test07_feedback_to_final_request_s":round(request_event["ts"]-test_event["ts"],6),
+        "final_request_to_response_s":round(response_event["ts"]-request_event["ts"],6),
+        "final_response_to_static_submission_s":round(final_event["ts"]-response_event["ts"],6),
+        "grading_events_turn2":[e for e in events if e["type"]=="grading"and e["turn"]==2],
+        "http_error_events":[e for e in events if e["type"]=="http_error"],
+        "harness_branch_refs":refs(ARENA/"agent_loop.py","if not calls:")+refs(ARENA/"agent_loop.py",'rec.update(verdict="static_dq"'),
+        "conclusion":"The model returned a non-code final sentence with finish=stop; actual static_check rejects line1269, so turn2 never reaches Isaac grading. No call cap, context-overflow or generation-length cutoff is indicated."}
+    ns = load_ns(BASE)
+    last = revisions[-1]
+    lastsrc = (ARENA/last["snapshot"]).read_text()
+    target_fn = next(n for n in ast.parse(lastsrc).body if isinstance(n,ast.FunctionDef)and n.name=="lookahead_target")
+    exec(compile(ast.Module(body=[target_fn],type_ignores=[]),"<actual test07 lookahead>","exec"),ns)
+    ns["_BASE_LOOP_ST"]["path_progress_s"]=None
+    path,pose=[(0.,0.),(2.,0.),(2.,3.)],(1.,0.,0.)
+    target=ns["lookahead_target"](path,pose)
+    guarded,info=ns["_base_loop_guard_target"](path,pose,target,0.)
+    corner={"scope":"Pure synthetic L-path contract fixture; no map obstacle, no saved runtime target, no sensor or vehicle replay.",
+        "path":path,"pose":pose,"actual_model_target":target,"current_segment_end":path[1],
+        "actual_base_guarded_target":guarded,"guard_detail":info,
+        "conclusion":"The model uses total remaining arc instead of current-segment end, and the old guard accepts a2m target beyond a corner. This establishes a source behavior, not the specific collision's geometry."}
+    checks=[
+        ("first_turn_zero_trials_second_turn_seven",turns["turns"][0]["tests_used"]==0 and turns["turns"][1]["tests_used"]==7),
+        ("all_seven_feedback_payloads_exact_in_next_request",all(x["payload_exactly_delivered"]for x in feedback)),
+        ("all_seven_feedbacks_match_actual_harness_default_extraction",all(x["actual_harness_dbg_lines_exact"]for x in feedback)),
+        ("all_trial_calls_omit200s_argument",all(not x["sim_seconds_present"]and x["applied_sim_seconds"]==600.for x in feedback)),
+        ("all_initial_plans_actually_accepted",all("status=accepted"in r["all_plan_summary"][0]["text"]for r in revisions)),
+        ("all_eight_planners_have_segment_checks_but_no_public_validator",all(r["relevant_edit_calls"]["segment_clearance"]>0 and r["relevant_edit_calls"]["validate_plan"]==0 for r in revisions)),
+        ("follow_and_wrapper_execution_unchanged",all(r["functions"][k]["execution_ast_sha256"]==revisions[0]["functions"][k]["execution_ast_sha256"]for r in revisions for k in("follow_cmd","controller"))),
+        ("test07_no_goal_grading_instead_static_dq",not ok and static_detail==turns["turns"][1]["detail"]and turns["turns"][1]["verdict"]=="static_dq"and not terminal["grading_events_turn2"]),
+        ("final_response_stop_not_token_limit",calls[-1]["finish_reason"]=="stop"and calls[-1]["usage"]["completion_tokens"]<calls[-1]["max_tokens"]and not terminal["http_error_events"]),
+        ("synthetic_corner_target_crosses_segment_and_old_guard_keeps_it",tuple(target)==(2.,1.)and guarded==target and info["target_reject_reason"]is None),
+    ]
+    report={"verdict":"pass"if all(v for _,v in checks)else"fail","passed":sum(v for _,v in checks),"total":len(checks),
+        "scope":"Completed B525 a1 saved artifacts only; no edits to original model code, base, harness, runner or results.",
+        "calls":calls,"revisions":revisions,"feedback":feedback,"termination":terminal,"corner_contract_fixture":corner,
+        "conclusions":[
+            "Unlike B524 a1, these A* implementations check segment edges and initially return paths accepted by the base; do not diagnose the previous unchecked-edge bug again.",
+            "The model changes resolution, tries checked direct/L/perimeter routes, then forces0.35 clearance in tests05/06, removes simplification in06, and removes clearance forcing in07.",
+            "All model follow functions are unchanged. All lookahead functions use projection plus up to2m total arc with no current-segment cap or pose-target connector check.",
+            "validate_plan is never called directly despite the prompt. Base validation still runs and initial acceptance is explicit; acceptance does not prove a curved body trajectory is safe.",
+            "test07 is an accepted-path map-blocking stop, not initial no_path. Mid-run plan summaries are omitted by first40/last40 feedback, while full logs retain the repeated accepted replans.",
+            "The final non-code sentence causes static disqualification and prevents second grading. The model's stated time pressure is not evidence of an enforced call/context limit."],
+        "limits":["No assertion that the A* core is mathematically invalid: expensive all-visible start links, forced low clearance and corner-following must be distinguished from a search correctness bug.",
+                  "Actual precontact geometry and the physical cause of the two box contacts require the separate map/trajectory audit.",
+                  "Selected-candidate DBG map values are not current true gaps or evidence every candidate was map safe."],
+        "checks":[{"name":k,"pass":bool(v)}for k,v in checks],
+        "source_sha256":{rel(p):sha(p.read_bytes())for p in dict.fromkeys(sources)}}
+    if OUT.exists():
+        shutil.copy2(OUT,ARENA/"results"/f"archive_{OUT.name}_before_task28_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    OUT.write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n")
+    print(json.dumps({"file":rel(OUT),"verdict":report["verdict"],"passed":report["passed"],"total":report["total"]}))
+
+
+if __name__=="__main__":
+    main()

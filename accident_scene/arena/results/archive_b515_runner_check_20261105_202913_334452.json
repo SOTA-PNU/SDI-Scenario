@@ -1,0 +1,165 @@
+{
+  "passed": 20,
+  "total": 20,
+  "checks": [
+    {
+      "name": "identical_agent_flags_except_requested_paths_tag",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "run_b515_sequential.sh_syntax",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "run_b515_gpu_steps.sh_syntax",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "both_pass_run_all_even_a2_failure",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "log": "2026-11-05 20:27:36 start\n2026-11-05 20:27:36 a0 exit=0 grade=PASS turn=1\n2026-11-05 20:27:36 a1 exit=0 grade=PASS turn=2\n2026-11-05 20:27:36 a2 exit=1 grade=FAIL turn=-\n2026-11-05 20:27:36 a3 exit=0 grade=PASS turn=1\n2026-11-05 20:27:36 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "both_pass_run_all_even_a2_failure_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "a0_fail_still_run_a1_then_stop",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:27:36 start\n2026-11-05 20:27:36 a0 exit=1 grade=FAIL turn=-\n2026-11-05 20:27:36 a1 exit=0 grade=PASS turn=1\n2026-11-05 20:27:36 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "a0_fail_still_run_a1_then_stop_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "a1_fail_stop",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:27:36 start\n2026-11-05 20:27:36 a0 exit=0 grade=PASS turn=1\n2026-11-05 20:27:36 a1 exit=1 grade=FAIL turn=-\n2026-11-05 20:27:36 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "a1_fail_stop_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "test_pass_and_zero_exit_do_not_pass_grade",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:27:36 start\n2026-11-05 20:27:36 a0 exit=0 grade=FAIL turn=-\n2026-11-05 20:27:36 a1 exit=0 grade=PASS turn=1\n2026-11-05 20:27:36 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "test_pass_and_zero_exit_do_not_pass_grade_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "missing_malformed_grade_keep_real_exit",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:27:36 start\n2026-11-05 20:27:36 a0 exit=27 grade=FAIL turn=-\n2026-11-05 20:27:36 a1 exit=19 grade=FAIL turn=-\n2026-11-05 20:27:36 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "missing_malformed_grade_keep_real_exit_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_pass_launches",
+      "pass": true,
+      "detail": {
+        "returncode": 0,
+        "log": "2026-11-05 20:27:36 agent_check PASS count=0\n2026-11-05 20:27:36 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:27:36 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:27:36 gate start sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:27:36 gate PASS exit=0\n2026-11-05 20:27:36 sequential start samples=a0,a1; a2,a3_if_both_pass\n2026-11-05 20:27:36 sequential exit=0; done\n"
+      }
+    },
+    {
+      "name": "gpu_fail_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:27:36 agent_check PASS count=0\n2026-11-05 20:27:36 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:27:36 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:27:36 gate start sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:27:36 gate FAIL exit=0 verdict=FAIL bad clearance; done\n"
+      }
+    },
+    {
+      "name": "gpu_nonzero_pass_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:27:36 agent_check PASS count=0\n2026-11-05 20:27:36 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:27:36 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:27:36 gate start sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:27:36 gate FAIL exit=7 verdict=PASS; done\n"
+      }
+    },
+    {
+      "name": "gpu_missing_verdict_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:27:36 agent_check PASS count=0\n2026-11-05 20:27:36 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:27:36 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:27:36 gate start sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:27:36 gate FAIL exit=0 verdict=missing; done\n"
+      }
+    },
+    {
+      "name": "gpu_stale_pass_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 73,
+        "log": "2026-11-05 20:27:36 agent_check PASS count=0\n2026-11-05 20:27:36 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:27:36 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:27:36 gate FAIL existing_verdict=results/analysis/b515_gate_isaac/verdict.txt; done\n"
+      }
+    },
+    {
+      "name": "gpu_timeout_does_not_smoke_or_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 124,
+        "log": "2026-11-05 20:27:36 agent_check PASS count=0\n2026-11-05 20:27:36 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:27:36 models_wait FAIL timeout=1800s; done\n"
+      }
+    },
+    {
+      "name": "gpu_busy_agent_blocks_before_gate",
+      "pass": true,
+      "detail": {
+        "returncode": 75,
+        "log": "2026-11-05 20:27:36 agent_check BUSY count=1; done\n"
+      }
+    }
+  ],
+  "execution": "local mocks only; no real HTTP, GPU, Isaac, or agent_loop"
+}

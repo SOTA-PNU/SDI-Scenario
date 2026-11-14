@@ -1,0 +1,39 @@
+# B-5-28 최종 구성과 결과 범위
+
+작업 폴더는 `/home/jun/SDI-Scenario/accident_scene/arena`다. 아래 값은 최종 파일에서 읽은 SHA-256 앞16자리와 Unicode 글자 수이며, 기존 검증 metadata와 일치한다.
+
+| 용도 | 최종 파일 | sha16 | 글자 수 |
+|---|---|---|---:|
+| 프롬프트 | `PROMPT_B5_28.md` | `aebb0a96c06e9023` | 11,887 |
+| base v16 | `base_carter_run_ros_map_lidartime_objects_check_v16.py` | `cce2cdc6c7c5b48c` | 84,646 |
+| 관문 후 실행 | `run_b528_gpu_steps.sh` | `2346958d61506664` | 5,401 |
+| a0~a3 순차 실행 | `run_b528_sequential.sh` | `6b1506377eba1f0d` | 2,991 |
+| 전체 model_input | 프롬프트 + 구분자 + base 코드 펜스 | `299e048ef1e8be41` | 96,577 |
+
+전체 입력 해시는 `agent_loop.model_input`의 사용자 입력 문자열 범위다. 실행 스크립트나 후속 도구 피드백을 포함한 전체 대화의 해시가 아니다.
+실행 출력은 `results/turns/prompt_b5_28/`, tag는 `gpu_gpt_oss_120b_pB528`이다. 하네스와 EDIT 밖 코드는 모델의 수정 대상이 아니다.
+
+base는 1/60s 제어 루프, 목표 정렬, 재계획 시점과 실패 backoff, 경로 수용 검사, 목표 연결 보정, 명령 범위 제한 및 틱당 한 번의 chooser 호출을 소유한다.
+지도 격자와 좌표 변환, 선분/경로 검사, 센서 기반 물체 관측과 동작 후보 평가는 제공한다. 경로 탐색과 직선 단순화는 제공하지 않는다.
+v16의 경로 형태/점 수/끝점 거리/수리 힌트와 `plan_stage`는 진단이다. 수용 여유를 낮추거나 잘못된 경로를 자동으로 고치지 않는다.
+
+| 모델이 구현하는 함수 | 모델 책임 |
+|---|---|
+| `plan_path(start_xy, goal_xy, clearance_m)` | 지도 위 탐색, 경로 재구성, 선택적인 단순화, 끝점 보존과 검증 및 실패 단계 표시 |
+| `lookahead_target(path, pose)` | 채택 경로의 진행 위치와 현재 선분을 고려한 앞쪽 목표 선택 |
+| `follow_cmd(pose, target_xy)` | 제시된 추종 식으로 nominal `(v,w)` 계산 |
+
+EDIT의 `controller`는 호환용이며 실제 dispatcher는 base 루프를 직접 호출한다. 세 함수는 센서/chooser를 직접 호출하거나 base 제어 상태를 덮어쓰지 않는다.
+프롬프트와 base에는 동적 물체의 정답 위치, 레인, 주기, 특정 시각, 이동 경로 좌표를 주지 않는다. 정적 지도와 START/GOAL은 제공하며 동적 물체는 센서 관측만 사용한다.
+완성된 참고 planner와 A* 또는 단순화 구현도 모델 입력에 넣지 않는다. `plan_stage`의 단계와 점 수는 모델 신고값이며 실제 단계 수행을 증명하지 않는다.
+
+채점은 고정 B5 하네스와 같은 장면의 시험/제출로 이루어진다. `CARTER_CONTACT_ALL_LINKS=1`로 바퀴를 포함한 링크 접촉을 센다.
+목표 위치 허용치는0.5m, 최종 yaw 허용치는0.15rad이며 충돌 수0이 필요하다. 최종 채점 제한은600s이고 시험 호출 지시는 `sim_seconds=200`이다.
+실행기는 모델 `gpt-oss-120b`, 최대2회차, temperature0.7, top_p0.95, seed_base1000을 사용한다. a0/a1 제출 채점이 모두 PASS이면 a2/a3를 진행한다.
+실험54 최종 제출은 a0 2회차, a1/a2/a3 1회차에서 PASS였다. 네 표본 모두 충돌0이고 최종 yaw 오차는0.135~0.136rad로, 사용자의 a0~a3 4/4 기준을 충족했다.
+
+한계는 모델 표본4개와 단일 채점 위상이다. 이 결과는 다른 seed, 위상, 장면과 반복 실행의 성공률이나 일반적 안전 보장을 뜻하지 않는다.
+2D CPU의 무작위60/60 및 v1 PASS는 별도 참고 구현 기준이며 모델이 생성한 네 코드의 무작위 위상 시험 결과가 아니다. 센서/물리/접촉 형상 전체의 Isaac 재생도 아니다.
+잘못된 함수10종은 CPU에서 무접촉이었지만 임무 완주는2/10이다. 잘못된 경로의 채택 차단과 임무 완주를 구분한다.
+준비 시 검증은 selftest124/124, 실제 agent_loop 장면 검사9/9, offline19/19, 관문 CPU29/29, 실행기 모의143/143이었다. 이 기록 단계에서는 새 검증이나 새 판을 실행하지 않았다.
+근거: `b528_selftest.json`, `b528_prompt_guard.json`, `b528_launch_preparation.json`, `b528_reference_sim.json`, `b528_bad_functions.json`, 실험54 제출 채점 자료와 REPORT의 결과 절.

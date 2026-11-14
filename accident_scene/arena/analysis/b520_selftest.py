@@ -1,0 +1,126 @@
+"""B-5-20 prompt/format/CPU contract checks; no Isaac, HTTP, or processes.
+
+Checks actual agent_loop extraction and splicing without writing a submission.
+These checks validate the prompt and examples, not future model compliance.
+"""
+import ast
+from datetime import datetime
+import hashlib
+import json
+from pathlib import Path
+import re
+import shutil
+import sys
+
+import numpy as np
+
+ARENA = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ARENA))
+sys.path.insert(0, str(ARENA / "analysis"))
+import agent_loop as A
+import b519_build_base as BB
+import b520_build_prompt as BP
+from b515_selftest import AGENT_LOOP_SHA16, helper_namespace, sha16
+
+
+def main():
+    checks = []
+
+    def check(name, value):
+        checks.append({"name": name, "pass": bool(value)})
+        print(("PASS " if value else "FAIL ") + name)
+
+    base_bytes = BP.BASE.read_bytes()
+    base = base_bytes.decode()
+    old_prompt, prompt = BP.SRC.read_text(), BP.OUT.read_text()
+    old_hash = sha16(old_prompt)
+    tree = ast.parse(base)
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    check("prompt reproduces from B519 with declared changes", BP.build(old_prompt, base) == prompt)
+    check("title is the exact task17 title and only the B5 gate matches", prompt.splitlines()[0] == BP.TITLE and BP.TITLE == "# ARENA 미션 프롬프트 B-5-20 (B-5-19 에 재계획 검증, choose_command() 한 번 호출, 답 형식 예시를 더함)" and all((m == "b5") == (f"프롬프트 B-{m[1]}" in BP.TITLE) for m in ("b1", "b2", "b3", "b4", "b5")))
+    check("original B519 prompt remains byte-identical", old_hash == "b25dbb6a6db121fa")
+    check("v8 base is unchanged and reproduces from its original builder", sha16(base) == BP.BASE_SHA16 == "d92eed4891798942" and BB.build(BB.SRC.read_text()).encode() == base_bytes)
+    check("no new base is selected or embedded in the prompt file", BP.BASE.name == "base_carter_run_ros_map_lidartime_objects_check_v8.py" and "MISSION = dict(" not in prompt)
+    check("all existing sensor, geometry, uncertainty, horizon and path API prose is retained", BP.PREV.motion_doc(BP.PREV.base_config(base)) in prompt and BP.PREV.PATH_API_DOC in prompt and "min(horizon_s, max(0.8, 0.5 + max(abs(v)/2, abs(w)/2.68)))" in prompt)
+    check("first and every replanned route require completed check_path validation", BP.PATH_DOC in prompt and "최초 계획과 모든 재계획" in prompt and "새 경로를 만들거나 재시도할 때마다 같은 검사를 반복" in prompt)
+    check("actual current start, grid connector and all edges must be checked", "실제 계획 시작 위치" in prompt and "현재 위치에서 그 칸까지와 A* 의 이웃 칸 사이" in prompt and "실제 현재 위치부터 그 칸을 거쳐 목표까지" in prompt and "각 계획의 실제 현재 위치와 마지막 `GOAL` 을 보존" in prompt)
+    check("planner adjustments cannot lower the center or corrected-gap minimum", "최소 중심 여유 0.5 m / `check_path` 간격 0.25 m 기준은 낮추지 않습니다" in prompt and "min_gap_map` 이 0.25 m 이상" in prompt and "first_bad_segment is None" in prompt)
+    check("failed routes cannot replace valid routes or become unchecked straight fallbacks", "실패한 새 경로로 기존 경로를 덮어쓰지 않습니다" in prompt and "검사를 통과하지 못한 경로, 검증되지 않은 직선 대체, 손으로 고른 점은 쓰지 않습니다" in prompt and "이전의 유효하지 않은 경로나 직선 대체를 계속 따라가지 않습니다" in prompt)
+    check("plan failure requests stop once and preserves any returned escape command", BP.PLAN_FAILURE_DOC in prompt and "choose_command(0, 0, target_xy)" in prompt and "결과를 강제로 `(0, 0)` 으로" in prompt and "그대로 쓰고 `done=False`" in prompt)
+    check("plan failure GOAL target does not authorize direct-line following", "GOAL 은 chooser 에 주는 목표일 뿐, 실패한 직선 경로를 따라가라는 뜻이 아닙니다" in prompt)
+    check("failed-plan state persists during retry waits without resuming the cached old route", "검증된 새 경로를 얻을 때까지 계획 실패 상태를 유지" in prompt and "재시도를 기다리는 주기도 정지 입력을 한 번만 요청" in prompt and "저장된 옛 경로가 남아 있다는 이유로 추종을 재개하지 않습니다" in prompt)
+    check("goal alignment/completion takes priority over planned retries and failure-stop", "`d_goal <= 0.5` m 이면 목표\n정렬·종료를 우선하며 예약된 경로 계산은 보류" in prompt and "목표 범위 밖에서 경로 계산이나 검사가 실패하면" in prompt)
+    check("plan retries use elapsed controller time and retain expensive-work guidance", "`t` 의 경과 시간으로 계산" in prompt and "매 틱 전체 탐색을 반복하거나 특정 절대 시각까지 기다리는" in prompt and "다시 계산해야 할 때도 매 호출 하지는 마십시오" in prompt)
+    check("current chooser info only schedules a next-tick replan", BP.REPLAN_DOC in prompt and "다음 주기에 재계획할 상태만 예약" in prompt and "다음 주기 시작에서 현재 `pose`" in prompt and "현재 주기는 이미 선택된 명령을 그대로 반환" in prompt)
+    check("continuous map-stop condition keeps all predicates, duration and reset semantics", "info['chosen'] == 'stop'" in prompt and "반환한 `(v, w) == (0, 0)`" in prompt and "info['candidates']['follow']['t_hit_map'] is not None" in prompt and "끊김 없이 10 s 를 넘으면" in prompt and "조건이 깨지거나 시각이 역행하면" in prompt and "재계획을 시도한 뒤에도 그 시각을 초기화" in prompt)
+    check("DBG is diagnostic and is never parsed for replanning", "DBG 문자열을 읽거나 파싱하지 않습니다" in prompt and BP.PREV.BLOCKED_DOC in prompt)
+    check("exactly one common chooser call follows mutually exclusive input selection", BP.TICK_DOC in prompt and "경로 추종·목표\n정렬·목표 정지·계획 실패 중 하나의 입력만" in prompt and "공통 호출 지점" in prompt and "정확히 한 번" in prompt)
+    check("manual sensor overrides and after-result reverse/stop recalls are forbidden", BP.INPUT_DOC in prompt and "반환 결과를 보고 손으로 후진·회전·정지를 골라 다시 호출" in prompt and "안전한 stop 이 나와도 재호출하지 않습니다" in prompt)
+    check("goal and planning-failure inputs are explicit path-following exceptions", "목표 정렬·종료와 경로 계산 실패의 정지 요청은 경로 추종 입력의 예외" in prompt and "목표 정렬·정지와 경로 실패 요청에서는 `GOAL[:2]`" in prompt)
+    check("goal alignment and completion use one common chooser with unchanged thresholds", BP.GOAL_DOC in prompt and "d_goal <= 0.5" in prompt and "|e_yaw| <= 0.15" in prompt and "d_goal > 0.5" in prompt and "별도 chooser 를 호출하지 않고 그 주기의 공통 호출 한 번" in prompt and "경로 계산 실패의 정지 요청을 완료로 간주하지 않습니다" in prompt)
+    check("deterministic map route, anchor simplification and continuous targets remain required", BP.PREV.DETERMINISTIC_DOC in prompt and "보존할 현재 기준점(anchor)을 고정" in prompt and "경로 위 앞쪽 목표점 `(tx, ty)` 를 매 호출 갱신" in prompt and "경유점 간격은 통과 반경 0.35 m 보다 충분히 길게" in prompt)
+    check("old contradictory same-tick replanning and goal-call paragraphs were replaced", BP.PREV.REPLAN_DOC not in prompt and BP.PREV.GOAL_DOC not in prompt and "블록 밖의 설명은 채점에 쓰지 않습니다" not in prompt and "다음 여섯 가지를 지켜" not in prompt)
+    check("final answer is one Python fence and marked EDIT only", BP.FORMAT_DOC in prompt and "최종 답은 **python 코드 펜스 하나 안의 EDIT REGION 블록**" in prompt and "펜스 밖 설명도 넣지 않습니다" in prompt and "시험의 `code` 와 최종 답에는 수정한 `[EDIT REGION]` 블록만" in prompt)
+    check("good example is explicitly format-only, not a mission solution", "형식만 보여 주는 정지 요청" in prompt and "미션을 통과하는 경로 제어기 예제가 아닙니다" in prompt and BP.GOOD_FINAL in prompt)
+    check("bad JSON and prose examples are explicitly final-answer errors", BP.BAD_JSON_FINAL in prompt and BP.BAD_PROSE_FINAL in prompt and "도구 인자에 쓰는 JSON 을 최종 답으로 복사하지 마십시오" in prompt)
+    check("PASS exact-code requirement and retest after any change remain intact", BP.PREV.SUBMISSION_DOC in prompt and "통과 뒤 바꾸려면 다시 시험해 통과한 코드만 제출" in prompt)
+    check("each test retains explicit top-level 200 seconds and original JSON examples", prompt.count(BP.CALL_EXAMPLE) == 2 and "매 호출의 최상위 JSON 에 `code` 와 `sim_seconds` 두 키" in prompt and "시험 도구 호출의 인자 형식은 앞의 JSON 그대로" in prompt and "생략하면 도구 기본값 600 s" in prompt)
+    check("first response still must call run_isaac_sim", prompt.split("## 지금 할 일\n", 1)[1].strip().splitlines()[0] == BP.FIRST_ACTION)
+    banned = (r"\bM[1-5]\b", r"arena_mover", r"start_zone", r"goal_south", r"0\.5 m/s", r"11\.6", r"왕복", r"되돌아", r"끝에서", r"방향을 바꾼", r"상자면")
+    check("no mover identity, hidden coordinates, timing or route added", not any(re.search(p, prompt + "\n" + base) for p in banned) and prompt.count("오가") == old_prompt.count("오가") == 1 and "좌표를 손으로 넣지 않습니다" in prompt)
+
+    # Actual base path API: rejecting a bad start cannot be evaded by dropping it.
+    ns = helper_namespace(base)
+    ns["_MAP_RECTS"][:] = [np.array([[0.4, 0.6, -0.2, 0.2]])]
+    bad_start = ns["check_path"]([(0.0, 0.0), (-1.0, 0.0)])
+    omitted_start = ns["check_path"]([(-0.3, 0.0), (-1.0, 0.0)])
+    crossed = ns["check_path"]([(-1.0, 0.0), (2.0, 0.0)])
+    check("actual check_path rejects bad current start even when truncated suffix passes", bad_start["first_bad_segment"] == 0 and bad_start["min_gap_map"] < 0.25 and omitted_start["first_bad_segment"] is None)
+    check("actual check_path rejects unchecked direct segment through map obstacle", crossed["first_bad_segment"] == 0 and crossed["min_gap_map"] == -0.25)
+    check("base goal tolerances remain larger than prompt completion thresholds", ns["MISSION"]["position_tolerance_m"] == 0.75 and ns["MISSION"]["yaw_tolerance_rad"] == 0.26)
+
+    A.BASE_FILE, A.BASE, A.SP.BASE = BP.BASE, base, base
+    A.B_MODE = "b5"
+    A.A21 = A.A22 = A.A23 = A.A4T = False
+    model_input = A.model_input(BP.OUT.name)
+    marker = "\n\n---\n\n`base_carter_run.py`:\n\n```python\n"
+    check("actual assembled model input embeds exact unchanged v8 base", model_input == prompt + marker + base + "```\n")
+    extracted = A.TL.extract(BP.GOOD_FINAL)
+    final_file = A.build(extracted)
+    payload = json.loads(json.dumps({"code": BP.FORMAT_BLOCK, "sim_seconds": 200}))
+    tool_file = A.build(payload["code"])
+    check("actual good final extracts and splices into a statically accepted executable", A.static_check(final_file)[0] and A.TL._outside(final_file) == A.TL._outside(base) and A.SP.splice(extracted) is not None)
+    check("same example in actual tool JSON builds byte-identically to final answer", tool_file == final_file and A.static_check(tool_file)[0] and payload["sim_seconds"] == 200 and "```" not in payload["code"])
+    example_fn = next(n for n in ast.parse(final_file).body if isinstance(n, ast.FunctionDef) and n.name == "controller")
+    example_calls = [n for n in ast.walk(example_fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "choose_command"]
+    check("executable example has one chooser call and no raw command return", len(example_calls) == 1 and ast.dump(example_fn) == ast.dump(next(n for n in ast.parse(BP.FORMAT_BLOCK).body if isinstance(n, ast.FunctionDef))) and all(isinstance(n.value, ast.Tuple) and [ast.unparse(k) for k in n.value.elts[:2]] == ["v", "w"] for n in ast.walk(example_fn) if isinstance(n, ast.Return)))
+    calls = []
+    def choose_stub(v, w, target):
+        calls.append((v, w, target))
+        return 0.17, -0.23, {"chosen": "escape"}
+    example_ns = {"choose_command": choose_stub, "GOAL": (2.0, 3.0, 0.0)}
+    exec(compile(ast.Module(body=[example_fn], type_ignores=[]), "<format-example>", "exec"), example_ns)
+    outputs = [example_ns["controller"](t, pose, {}) for t, pose in [(0.0, (0, 0, 0)), (1.0, (2, 3, 0)), (2.0, (2, 3, 1))]]
+    check("example requests stop once per tick but preserves a nonzero chosen escape", len(calls) == 3 and calls == [(0.0, 0.0, (2.0, 3.0))] * 3 and outputs == [(0.17, -0.23, False)] * 3)
+    json_bad = A.build(A.TL.extract(BP.BAD_JSON_FINAL))
+    check("actual JSON-wrapper final example is rejected instead of silently decoded", A.SP.splice(A.TL.extract(BP.BAD_JSON_FINAL)) is None and A.static_check(json_bad) == (False, "EDIT REGION 표시가 없거나 깨졌습니다."))
+    string_bad = json.dumps(BP.FORMAT_BLOCK, ensure_ascii=False)
+    check("actual quoted JSON-string final is also rejected", not A.static_check(A.build(A.TL.extract(string_bad)))[0])
+    check("actual explanation-only final example is rejected", not A.static_check(A.build(A.TL.extract(BP.BAD_PROSE_FINAL)))[0])
+    check("actual outside-region mutation remains rejected", not A.static_check(final_file.replace("MISSION = dict(", "MISSION = dict(\n", 1))[0])
+    check("shared harness/tool schema and v8 base remain byte-unchanged after tests", sha16((ARENA / "agent_loop.py").read_text()) == AGENT_LOOP_SHA16 and BP.BASE.read_bytes() == base_bytes and sha16(BP.SRC.read_text()) == old_hash)
+
+    offline_path = ARENA / "results/analysis/b520_check_offline.json"
+    offline = json.loads(offline_path.read_text()) if offline_path.exists() else {}
+    check("new B520 offline regressions passed for this unchanged v8 hash", offline.get("verdict") == "pass" and offline.get("base_sha16") == sha16(base) and offline.get("passed") == offline.get("total") and offline.get("total", 0) >= 23)
+    summary = {"verdict": "pass" if all(c["pass"] for c in checks) else "fail", "passed": sum(c["pass"] for c in checks), "total": len(checks), "base_file": BP.BASE.name, "base_sha16": sha16(base), "base_sha256": hashlib.sha256(base_bytes).hexdigest(), "base_changed": False, "prompt_file": BP.OUT.name, "prompt_file_sha16": sha16(prompt), "prompt_file_chars": len(prompt), "prompt_sha16": sha16(model_input), "prompt_chars": len(model_input), "answer_format": "one_python_fence_marked_edit_region_only", "tool_format": "marked_edit_region_string_without_fence_and_top_level_sim_seconds_200", "shared_agent_loop_sha16": AGENT_LOOP_SHA16, "offline_file": str(offline_path.relative_to(ARENA)), "offline_passed": offline.get("passed"), "offline_total": offline.get("total"), "isaac_gate": "not_run_in_this_task", "limitations": ["Prompt and example checks do not enforce or prove future model controller compliance.", "No new GPU/Isaac run or hidden mover replay was performed."], "checks": checks}
+    output = ARENA / "results/analysis/b520_selftest.json"
+    if output.exists():
+        shutil.copy2(output, ARENA / "results" / f"archive_b520_selftest.json_before_rerun_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    print(f"SELFTEST={summary['passed']}/{summary['total']} BASE_SHA16={summary['base_sha16']} PROMPT_FILE_SHA16={summary['prompt_file_sha16']} PROMPT_SHA16={summary['prompt_sha16']} PROMPT_CHARS={summary['prompt_chars']}")
+    return 0 if summary["verdict"] == "pass" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

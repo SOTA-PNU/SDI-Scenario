@@ -1,0 +1,98 @@
+{
+  "_note": "실험 8 (T3/T2) 수동 확정. 보수적 정규식에서 L0 이 아닌 15건을 응답 전문 문맥으로 판정했고, 독립 평가자 1명이 판정을 모른 채 다시 분류했다(analysis/exp8_review_notes.md). 'manual' 은 실험 1 과 같은 척도다 — spec_tier.py 의 SCAN_SIG_RE 처럼 모델 문장 속 스캔 서명 재인용('n_beams=61, fov_deg=180, z=0.35, max_range=6.0')은 평면 언급으로 세지 않는다. 'manual_count_requote' 는 재인용을 세는 대안이다. L3 는 상자 높이와 스캔 평면을 잇는 올바른 귀결이 있어야 하며, 각도 범위('앞쪽 180°', '뒤에 있으면 못 본다')는 높이 귀결이 아니다.",
+  "npu_gpt_oss_120b_t3_a0_t4_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L0",
+    "why": "모델 문장 안 스캔 기본값 재인용 'which defaults to n_beams=61, fov_deg=180.0, z=0.35, max_range=6.0' (평면만). 0.25 m 는 거리",
+    "revised": "2026-10-07 블라인드 재확인 반영",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t3_a0_t5_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "scan 기본값 z=0.35 언급 + 'Box #04 is relatively low height (0.25 m), but we consider collisions based on chassis contact' — 둘 다 언급, 센서와 연결 없음",
+    "manual_count_requote": "L2"
+  },
+  "npu_gpt_oss_120b_t3_a2_t7_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L0",
+    "why": "'The robot's sensor: env.raycast_scan(n_beams=61, fov_deg=180.0, z=0.35, max_range=6.0).' 평면만(서명 재인용, 가장 약한 경우). 0.25 m 는 로봇 반경",
+    "revised": "2026-10-07 블라인드 재확인 반영",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t3_a2_t8_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L0",
+    "why": "0.25 m 는 로봇 반경 추정",
+    "manual_count_requote": "L0"
+  },
+  "npu_gpt_oss_120b_t3_a3_t8_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L1",
+    "why": "'raycast origin is at z=0.35' 언급(평면만). 'can't see it' 은 목표가 뒤에 있을 때의 각도 범위 이야기",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t3_a4_t4_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L0",
+    "why": "0.25 m 는 격자 해상도",
+    "manual_count_requote": "L0"
+  },
+  "npu_gpt_oss_120b_t3_a4_t5_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "'raycast origin is at z=0.35' 평면만",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t3_a4_t6_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L0",
+    "why": "'The default parameters are n_beams=61, fov_deg=180, z=0.35, max_range=6.0.' 평면만. 0.25 m 는 격자 해상도",
+    "revised": "2026-10-07 블라인드 재확인 반영",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t3_a4_t7_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "'sensor is at height 0.35 m' 평면만. 직후 box 04 충돌을 근거로 표 기반 A* 로 전환",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t2_a0_t7_call01_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L2",
+    "why": "'the raycast is from robot's height (z=0.35), so obstacles near ground will be detected' + 다른 곳 'box 04 … height 0.25' — 둘 다 언급, 귀결이 사실과 반대(2026-10-06 정정 기록과 같은 L2)",
+    "revised": "2026-10-07 블라인드 재확인 반영",
+    "manual_count_requote": "L2"
+  },
+  "npu_gpt_oss_120b_t2_a1_t2_call01_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "'scan is planar at height 0.35m' 평면만",
+    "manual_count_requote": "L1"
+  },
+  "npu_gpt_oss_120b_t2_a1_t3_call03_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L2",
+    "why": "'box 04 … height 0.25 (low height but still collision)' + 'it returns distance to any object at z=0.35' — 둘 다 언급, 연결 없음",
+    "revised": "2026-10-07 블라인드 재확인 반영",
+    "manual_count_requote": "L2"
+  },
+  "npu_gpt_oss_120b_t2_a1_t6_call01_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L0",
+    "why": "'the raycast won't see it' 은 상자가 로봇 뒤에 있을 때의 각도 범위. 높이·평면 언급 0",
+    "manual_count_requote": "L0"
+  },
+  "npu_gpt_oss_120b_t2_a2_t2_call03_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "scan 기본값 z=0.35 + box 04 'height=0.25' — 둘 다 언급, 연결 없음('went through that box')",
+    "manual_count_requote": "L2"
+  },
+  "npu_gpt_oss_120b_t2_a2_t4_call01_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "상자 04·05·06 높이 나열, 평면 언급 0",
+    "manual_count_requote": "L1"
+  }
+}

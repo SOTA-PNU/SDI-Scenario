@@ -1,0 +1,300 @@
+"""B-5-15 v4 synthetic sensor scenes, ordering invariance, raw v3 parity and timing.
+
+No simulator, process inspection, or HTTP. Synthetic mover points exist only here.
+"""
+import copy
+import hashlib
+import json
+import math
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+
+from b514_build_base import archive_before_write
+from b514_check_offline import seed
+
+ARENA = Path(__file__).resolve().parents[1]
+BASE = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v4.py"
+V3 = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v3.py"
+OUT = ARENA / "results/analysis/b515_check_offline.json"
+
+
+def load_ns(base=BASE):
+    source = Path(base).read_text()
+    ns = {"np": np, "math": math}
+    exec(source[source.index("MISSION = dict("):source.index("\nSTART = ")], ns)
+    exec(source[source.index("def to_world("):source.index("# ---- 지도 기본 코드 ----")], ns)
+    exec(source[source.index("# ---- 지도 기본 코드 ----"):source.index("# ---- DBG 기록 ----")], ns)
+    ns["print"] = lambda *args, **kwargs: None
+    # Isolate the chooser's direct output without monkeypatching Python's global builtins.
+    ns["builtins"] = SimpleNamespace(print=lambda *args, **kwargs: None)
+    return ns
+
+
+def object_fixture(x, y, vx, vy, face="left", ident=1):
+    offsets = np.linspace(-0.3, 0.3, 20)
+    points = [[x + (-0.3 if face == "left" else 0.3), y + float(a)] for a in offsets]
+    return dict(id=ident, x=x, y=y, vx=vx, vy=vy, vel_ok=True, radius=0.3, points=points)
+
+
+def scene_ns(objects=()):
+    ns = load_ns()
+    # Spacious synthetic static map, no map obstruction of these object-only scenes.
+    ns["WALLS"] = (-100.0, 100.0, -100.0, 100.0)
+    ns["_MAP_RECTS"][:] = [np.array([[50.0, 51.0, 50.0, 51.0]])]
+    seed(ns, objects, pose=(0.0, 0.0, 0.0), now=10.0)
+    return ns
+
+
+def safe_json(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return "inf" if value > 0 else "-inf" if value < 0 else "nan"
+    if isinstance(value, dict):
+        return {k: safe_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [safe_json(v) for v in value]
+    return value
+
+
+def run():
+    checks, scenes = {}, {}
+    definitions = {
+        "crossing_stop": ([object_fixture(1.3, 1.2, 0.0, -0.4)], "stop"),
+        "approaching_stopped_robot": ([object_fixture(-2.0, 0.0, 0.7, 0.0, "right")], "fast"),
+        "empty_road": ([], "fast"),
+        "all_unsafe": ([object_fixture(2.0, 0.0, -0.7, 0.0)], "back"),
+        "slow_priority": ([object_fixture(1.4, 0.0, 0.0, 0.0)], "slow"),
+    }
+    for name, (objects, expected) in definitions.items():
+        ns = scene_ns(objects)
+        v, w, info = ns["choose_command"](0.3, 0.0, (5.0, 0.0))
+        cs = info["candidates"]
+        ok = info["chosen"] == expected and len(cs) == 7 and (v, w) == (cs[expected]["v"], cs[expected]["w"])
+        if name == "crossing_stop":
+            ok = ok and cs["follow"]["t_hit"] is not None and cs["slow"]["t_hit"] is not None and cs["stop"]["t_hit"] is None
+        if name == "approaching_stopped_robot":
+            ok = ok and cs["stop"]["t_hit"] is not None and cs[expected]["t_hit"] is None
+        if name == "all_unsafe":
+            ok = ok and all(c["t_hit"] is not None for c in cs.values())
+            ok = ok and cs[expected]["min_gap"] == max(c["min_gap"] for c in cs.values())
+        checks[name] = dict(pass_=bool(ok), expected=expected, actual=info["chosen"])
+        scenes[name] = {"pose": [0.0, 0.0, 0.0], "objects": objects, "target": [5.0, 0.0], "result": info}
+        factory = ns["_base_command_candidates"]
+        order_ok = True
+        for variant in ("reverse", "rotate", "shuffle"):
+            def reordered(vf, wf, variant=variant):
+                candidates = factory(vf, wf)
+                if variant == "reverse":
+                    return candidates[::-1]
+                if variant == "rotate":
+                    return candidates[3:] + candidates[:3]
+                indices = np.random.default_rng(515).permutation(len(candidates))
+                return [candidates[i] for i in indices]
+            ns["_base_command_candidates"] = reordered
+            av, aw, ai = ns["choose_command"](0.3, 0.0, (5.0, 0.0))
+            order_ok = order_ok and (av, aw, ai["chosen"], ai["reason"]) == (v, w, info["chosen"], info["reason"])
+            order_ok = order_ok and ai["candidates"] == info["candidates"]
+        checks[name + "_candidate_order"] = dict(pass_=bool(order_ok), permutations=3)
+
+    ns = scene_ns()
+    factory = ns["_base_command_candidates"]
+    checks["candidate_values_and_fast_gate"] = dict(pass_=(
+        factory(0.3, 0.2) == [("follow", 0.3, 0.2), ("slow", 0.15, 0.2), ("stop", 0.0, 0.0),
+                               ("fast", 1.0, 0.2), ("turn_l", 0.0, 0.4), ("turn_r", 0.0, -0.4), ("back", -0.2, 0.0)]
+        and dict((n, v) for n, v, w in factory(0.8, -0.1))["fast"] == 1.0
+        and dict((n, v) for n, v, w in factory(0.001, 0))["fast"] == 1.0
+        and "fast" not in [n for n, v, w in factory(0.0, 0.0)]
+        and "fast" not in [n for n, v, w in factory(-0.1, 0.0)]))
+
+    # Ranking unit checks complement the real sensor scenes above. Time [s] and gap [m] are separate keys.
+    rank = ns["_base_choose_rank"]
+    blocked = {n: {"t_hit": 0.1, "min_gap": -1.0, "end_pose": (0.0, 0.0, 0.0)}
+               for n in ("follow", "slow", "stop")}
+    choices = {**blocked, "turn_l": {"t_hit": None, "min_gap": 0.8, "end_pose": (1, 1, 0)},
+               "turn_r": {"t_hit": None, "min_gap": 0.9, "end_pose": (1, -1, 0)}}
+    got = rank(choices, (5, 0))
+    checks["safe_distance_tie_prefers_gap"] = dict(pass_=got == ("turn_r", "safe_progress"), actual=got)
+    choices["turn_l"]["min_gap"] = 0.9
+    got = rank(dict(reversed(list(choices.items()))), (5, 0))
+    checks["exact_tie_prefers_name"] = dict(pass_=got == ("turn_l", "safe_progress"), actual=got)
+    choices["turn_l"].update(t_hit=2.0, min_gap=0.01)
+    choices["turn_r"].update(t_hit=1.9, min_gap=10.0)
+    got = rank(choices, (5, 0))
+    checks["unsafe_uses_gap_before_time"] = dict(pass_=got == ("turn_r", "largest_gap"), actual=got)
+    choices["turn_r"].update(t_hit=2.0)
+    got = rank(choices, (5, 0))
+    checks["unsafe_time_tie_prefers_gap"] = dict(pass_=got == ("turn_r", "largest_gap"), actual=got)
+    choices["turn_l"].update(t_hit=2.1, min_gap=10.0)
+    got = rank(choices, (5, 0))
+    checks["unsafe_gap_tie_prefers_time"] = dict(pass_=got == ("turn_l", "largest_gap"), actual=got)
+    choices["turn_r"].update(t_hit=2.1)
+    got = rank(dict(reversed(list(choices.items()))), (5, 0))
+    checks["unsafe_exact_tie_prefers_name"] = dict(pass_=got == ("turn_l", "largest_gap"), actual=got)
+
+    near = scene_ns()
+    _, _, info = near["choose_command"](0.3, 0, (0.5, 0))
+    checks["fast_requires_strictly_better_progress"] = dict(pass_=info["chosen"] == "follow", result=info)
+
+    lines = []
+    ns["builtins"].print = lambda *args, **kwargs: lines.append(" ".join(str(a) for a in args))
+    for t in (0.0, 0.1, 0.49, 0.5, 0.51, 0.999, 1.0):
+        seed(ns, pose=(0, 0, 0), now=t)
+        ns["choose_command"](0.3, 0, (5, 0))
+    checks["dbg_half_second_cadence"] = dict(pass_=len(lines) == 3
+        and all(len(line) < 160 and "pick=fast" in line and "f=" in line and "s=" in line and "obj_min=" in line and "rob=" in line for line in lines), lines=lines)
+
+    # Load the actual global DBG throttle, consume its one line, then call the chooser.
+    # The chooser must still emit once and not retry within the same half-second.
+    runtime = scene_ns()
+    source = BASE.read_text()
+    exec(source[source.index("# ---- DBG 기록 ----"):source.index("# [EDIT REGION] mission controller")], runtime)
+    captured = []
+    runtime["builtins"] = SimpleNamespace(print=lambda *args, **kwargs: captured.append(" ".join(str(a) for a in args)))
+    for t in (1.0, 1.1, 1.5, 1.6):
+        seed(runtime, pose=(0, 0, 0), now=t)
+        runtime["_BASE_DBG_STATE"]["t"] = t
+        runtime["print"]("DBG observed object diagnostic before choose")
+        runtime["choose_command"](0.3, 0.0, (5.0, 0.0))
+    chooser_lines = [line for line in captured if line.startswith("DBG choose ")]
+    ordinary_lines = [line for line in captured if not line.startswith("DBG choose ")]
+    checks["chooser_dbg_survives_global_throttle"] = dict(
+        pass_=len(chooser_lines) == 2 and len(ordinary_lines) == 2
+        and "t=1.00" in chooser_lines[0] and "t=1.50" in chooser_lines[1]
+        and runtime["_BASE_DBG_STATE"]["dropped"] == 2,
+        chooser_lines=chooser_lines, ordinary_lines=ordinary_lines,
+        ordinary_dropped=runtime["_BASE_DBG_STATE"]["dropped"])
+
+    ns, old = load_ns(), load_ns(V3)
+    rng = np.random.default_rng(515)
+    max_map_error, map_cases = 0.0, 0
+    for _ in range(100):
+        center = rng.uniform([-11, -13], [10, 19])
+        points = center + rng.uniform(-2, 2, size=(31, 26, 2))
+        new_values = ns["map_clearance"](points[..., 0], points[..., 1])
+        old_values = old["map_clearance"](points[..., 0], points[..., 1])
+        max_map_error = max(max_map_error, float(np.max(np.abs(new_values - old_values))))
+        map_cases += points.shape[0] * points.shape[1]
+    checks["map_clearance_v3_parity"] = dict(pass_=max_map_error < 1e-12, points=map_cases, max_error_m=max_map_error)
+    parity_ok = True
+    for _ in range(40):
+        pose = (*rng.uniform([-10, -12], [9, 17]), float(rng.uniform(-math.pi, math.pi)))
+        objects = [object_fixture(pose[0] + 2 + 0.1 * i, pose[1] + i * 0.25, -0.2, 0.1, ident=i) for i in range(10)]
+        seed(ns, objects, pose=pose, now=10)
+        seed(old, copy.deepcopy(objects), pose=pose, now=10)
+        v, w = float(rng.uniform(-0.2, 1)), float(rng.uniform(-0.4, 0.4))
+        a, b = ns["check_motion"](v, w), old["check_motion"](v, w)
+        parity_ok = parity_ok and all(a[key] == b[key] for key in ("min_gap_obj", "min_gap_map", "end_pose", "t_hit_map"))
+        parity_ok = parity_ok and a["raw_t_hit_obj"] == b["t_hit_obj"] and a["raw_t_hit"] == b["t_hit"]
+    checks["check_motion_raw_v3_parity"] = dict(pass_=parity_ok, cases=40, objects=10, points_per_object=20)
+
+    dynamic = scene_ns([object_fixture(2.0, 0.0, -0.5, 0.0)])
+    result = dynamic["check_motion"](0, 0)
+    checks["robust_moving_warning_is_earlier"] = dict(
+        pass_=result["t_hit_obj"] is not None and result["raw_t_hit_obj"] is not None
+        and result["t_hit_obj"] < result["raw_t_hit_obj"]
+        and result["robust_min_gap_obj"] < result["min_gap_obj"], result=result)
+
+    observed = object_fixture(2, 0, 0.5, 0)
+    observed["seen_t"] = 9.9
+    dynamic = scene_ns([observed])
+    start = dynamic["check_motion"](0, 0, horizon_s=0)
+    result = dynamic["check_motion"](0, 0)
+    checks["moving_margin_age_and_future_window"] = dict(
+        pass_=abs((start["min_gap_obj"] - start["robust_min_gap_obj"]) - 0.2) < 1e-12
+        and abs((result["end_gap_obj"] - result["robust_end_gap_obj"]) - 0.8) < 1e-12,
+        current_extra=start["min_gap_obj"] - start["robust_min_gap_obj"],
+        end_extra=result["end_gap_obj"] - result["robust_end_gap_obj"])
+
+    unknown = object_fixture(0.73, 0, 0.7, 0)
+    unknown["vel_ok"] = False
+    dynamic = scene_ns([unknown])
+    result = dynamic["check_motion"](0, 0)
+    checks["unknown_velocity_fixed_margin"] = dict(
+        pass_=abs(result["min_gap_obj"] - result["robust_min_gap_obj"] - 0.15) < 1e-12
+        and result["raw_t_hit_obj"] is None and result["t_hit_obj"] == 0.0, result=result)
+    static = scene_ns([object_fixture(0.73, 0, 0, 0)])
+    result = static["check_motion"](0, 0)
+    checks["known_stationary_object_no_extra_margin"] = dict(
+        pass_=result["robust_min_gap_obj"] == result["min_gap_obj"] and result["t_hit_obj"] is None, result=result)
+    for space in (ns, old):
+        seed(space, pose=(8, -11, 0))
+    a, b = ns["check_motion"](0.3, 0, horizon_s=4), old["check_motion"](0.3, 0, horizon_s=4)
+    checks["static_wall_threshold_unchanged"] = dict(
+        pass_=a["t_hit_map"] == b["t_hit_map"] == 3.4000000000000004
+        and a["t_hit"] == a["raw_t_hit"] == b["t_hit"] and a["min_gap_map"] == b["min_gap_map"], result=a)
+
+    rejected, required = 0, 0
+    for bad in (math.nan, math.inf, -math.inf):
+        for field in range(5):
+            required += 1
+            args = [0.3, 0, 3, 0.1, 0.2]
+            args[field] = bad
+            try:
+                ns["check_motion"](*args)
+            except ValueError:
+                rejected += 1
+        for args in ((bad, 0, (5, 0)), (0, bad, (5, 0)), (0, 0, (bad, 0)), (0, 0, (0, bad)), (0, 0, (5, 0), bad)):
+            required += 1
+            try:
+                ns["choose_command"](*args)
+            except ValueError:
+                rejected += 1
+        for field in ("vx", "vy", "seen_t"):
+            required += 1
+            ob = object_fixture(2, 0, 0, 0)
+            ob[field] = bad
+            space = scene_ns([ob])
+            try:
+                space["check_motion"](0, 0)
+            except ValueError:
+                rejected += 1
+        for field in range(4):
+            required += 1
+            space = scene_ns()
+            pose = list(space["_BASE_POSES"][-1])
+            pose[field] = bad
+            space["_BASE_POSES"][-1] = tuple(pose)
+            try:
+                space["check_motion"](0, 0)
+            except ValueError:
+                rejected += 1
+    checks["nonfinite_commands_pose_and_observation_rejected"] = dict(pass_=rejected == required, rejected=rejected, required=required)
+
+    objects = [object_fixture(-6.0 + i * 0.25, -10.0 + i * 0.15, -0.1 + i * 0.02, 0.05, ident=i) for i in range(10)]
+    seed(ns, objects, pose=(-8.0, -10.0, 0.0), now=10.0)
+    for _ in range(50):
+        ns["choose_command"](0.3, 0.2, (-5.0, -7.0))
+    times = []
+    for _ in range(500):
+        start = time.perf_counter_ns()
+        ns["choose_command"](0.3, 0.2, (-5.0, -7.0))
+        times.append((time.perf_counter_ns() - start) / 1e6)
+    performance = dict(calls=len(times), objects=10, points_per_object=20, candidates=7, horizon_s=3.0,
+                       median_ms=float(np.median(times)), mean_ms=float(np.mean(times)),
+                       p95_ms=float(np.percentile(times, 95)), max_ms=float(max(times)), target_ms=3.0)
+    checks["performance_target"] = dict(pass_=performance["median_ms"] <= 3.0, **performance)
+    checks = {name: {("pass" if k == "pass_" else k): v for k, v in row.items()} for name, row in checks.items()}
+    passed = sum(c["pass"] for c in checks.values())
+    out = dict(verdict="pass" if passed == len(checks) else "fail", passed=passed, total=len(checks),
+               base_file=str(BASE), base_sha16=hashlib.sha256(BASE.read_bytes()).hexdigest()[:16],
+               checks=checks, scenes=scenes, performance=performance,
+               expectation_changes=["빈 길은 같은 시간에 경유점 진전이 큰 fast(1.0 m/s)를 선택합니다.",
+                   "횡단 장면의 시작 x를 0.8에서 1.3 m로 옮겨 확대한 불확실성 여유에서도 정지 위치가 안전한 경우를 검사합니다.",
+                   "모두 위험하면 가장 큰 보수적 최소 간격을 먼저 비교하고, 같은 간격이면 TTC를 비교합니다.",
+                   "v3 비교는 raw_t_hit과 원래 기하 간격만 동일해야 하며, 추가 여유의 t_hit은 더 빨라질 수 있습니다."])
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    archive_before_write(OUT)
+    OUT.write_text(json.dumps(safe_json(out), ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    print(f"{out['verdict']} {passed}/{len(checks)} median={performance['median_ms']:.4f}ms p95={performance['p95_ms']:.4f}ms")
+    for name, check in checks.items():
+        if not check["pass"]:
+            print("FAIL", name, check)
+    for name, record in scenes.items():
+        print(name, record["result"]["chosen"], {n: c["t_hit"] for n, c in record["result"]["candidates"].items()})
+    return out
+
+
+if __name__ == "__main__":
+    raise SystemExit(0 if run()["verdict"] == "pass" else 1)

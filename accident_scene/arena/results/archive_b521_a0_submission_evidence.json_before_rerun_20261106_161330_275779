@@ -1,0 +1,3178 @@
+{
+  "scope": "Completed B521 a0 only; saved artifacts read without GPU, HTTP, process inspection or a1 access.",
+  "rows": [
+    {
+      "label": "_t1_test01",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test01_carter_run.py",
+      "source_sha256": "86810e8643e148ebd8d35a26a24f2d4bf3c269eeacafb66a3f5d6c0ea9adaae2",
+      "edit_sha256": "0ec79967c67978e93f86069255e0e5faa33242f40bb90d364a1d25897efca3e3",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 873
+        },
+        {
+          "name": "_clamp",
+          "line": 877
+        },
+        {
+          "name": "plan_path",
+          "line": 880
+        },
+        {
+          "name": "lookahead_target",
+          "line": 984
+        },
+        {
+          "name": "follow_cmd",
+          "line": 996
+        },
+        {
+          "name": "controller",
+          "line": 1012
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 1040
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1058
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1067
+        },
+        {
+          "name": "choose_command",
+          "line": 1069
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 880,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 894,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 956,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 984,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 1022,
+          "text": "    replan_now = False"
+        },
+        {
+          "line": 1027,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1029,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1030,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1035,
+          "text": "            replan_now = True"
+        },
+        {
+          "line": 1039,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 1045,
+          "text": "                    _NEXT_PLAN_T = t + 5.0  # next plan after some time"
+        },
+        {
+          "line": 1049,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1061,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1062,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1064,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1069,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1077,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 28.3676,
+          "final_dist_m": 28.3729,
+          "final_yaw_err_rad": 2.7559,
+          "final_pose": [
+            -8.6718,
+            -6.4581,
+            -1.7421
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 631.2,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=28.373m (tol 0.75), yaw_err=2.756rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test01",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 28.3729,
+        "collisions": 0,
+        "partners": [],
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": 601.0,
+        "runtime_error": null,
+        "wall_s": 653.0,
+        "dbg_lines": 1197,
+        "test": 1
+      },
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.6717",
+          "y": "-6.4574",
+          "yaw": "-1.7413"
+        },
+        "max_displacement_from_first_m": 4.374650820351265
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test01.carter-run.stdout.log",
+      "chooser_samples": 1197,
+      "choice_counts": {
+        "follow": 1127,
+        "stop": 45,
+        "back": 5,
+        "toward": 3,
+        "turn_r": 9,
+        "forward_slow": 4,
+        "fast": 3,
+        "turn_l": 1
+      },
+      "reason_counts": {
+        "follow_safe": 1127,
+        "stop_safe": 45,
+        "safe_progress": 20,
+        "map_clearance_object_gap": 2,
+        "fast_progress": 3
+      },
+      "first_chooser": [
+        {
+          "line": 450,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 451,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.32 rob=0.41 map=0.76",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.32",
+          "rob": "0.41",
+          "map": "0.76"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=1.00 pick=stop why=stop_safe f=1.2 s=- obj_min=0.94 rob=0.27 map=0.84",
+          "t": "1.00",
+          "pick": "stop",
+          "why": "stop_safe",
+          "f": "1.2",
+          "s": "-",
+          "obj_min": "0.94",
+          "rob": "0.27",
+          "map": "0.84"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.00 rob=0.25 map=0.83",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.00",
+          "rob": "0.25",
+          "map": "0.83"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.10 rob=0.40 map=1.01",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.10",
+          "rob": "0.40",
+          "map": "1.01"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 1885,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.50 rob=0.56 map=0.90",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.50",
+          "rob": "0.56",
+          "map": "0.90"
+        },
+        {
+          "line": 1886,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.11 rob=0.32 map=0.80",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.11",
+          "rob": "0.32",
+          "map": "0.80"
+        }
+      ],
+      "planning_counts": {},
+      "first_planning": [],
+      "last_planning": []
+    },
+    {
+      "label": "_t1_test02",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test02_carter_run.py",
+      "source_sha256": "f5f7ff62c811ea6171639dd2dfebbf1cb3bf6518b17f729fb2b57b0b6b6b3ce4",
+      "edit_sha256": "a7650409c93298610b2f0723f8948b69cbfdb93a01d6c2c85e034a2a23e346bf",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 872
+        },
+        {
+          "name": "_clamp",
+          "line": 875
+        },
+        {
+          "name": "plan_path",
+          "line": 878
+        },
+        {
+          "name": "lookahead_target",
+          "line": 951
+        },
+        {
+          "name": "follow_cmd",
+          "line": 962
+        },
+        {
+          "name": "controller",
+          "line": 978
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 1000
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1015
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1022
+        },
+        {
+          "name": "choose_command",
+          "line": 1023
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 878,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 891,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 921,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 928,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 951,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 990,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 992,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 993,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 996,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 999,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 1005,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 1008,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1017,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1018,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1019,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1023,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1030,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 31.6787,
+          "final_dist_m": 31.748,
+          "final_yaw_err_rad": 2.5974,
+          "final_pose": [
+            -8.7436,
+            -10.4738,
+            -1.5836
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 615.3,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=31.748m (tol 0.75), yaw_err=2.597rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test02",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 31.748,
+        "collisions": 0,
+        "partners": [],
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": 601.0,
+        "runtime_error": null,
+        "wall_s": 637.0,
+        "dbg_lines": 1197,
+        "test": 2
+      },
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.7436",
+          "y": "-10.473",
+          "yaw": "-1.5807"
+        },
+        "max_displacement_from_first_m": 0.485824299515781
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test02.carter-run.stdout.log",
+      "chooser_samples": 1197,
+      "choice_counts": {
+        "follow": 1064,
+        "turn_r": 2,
+        "back": 31,
+        "stop": 82,
+        "slow": 2,
+        "turn_l": 16
+      },
+      "reason_counts": {
+        "follow_safe": 1064,
+        "safe_progress": 49,
+        "stop_safe": 82,
+        "slow_safe": 2
+      },
+      "first_chooser": [
+        {
+          "line": 450,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 451,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.27 rob=0.39 map=0.76",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.27",
+          "rob": "0.39",
+          "map": "0.76"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=1.00 pick=turn_r why=safe_progress f=1.1 s=2.2 obj_min=0.93 rob=0.27 map=0.79",
+          "t": "1.00",
+          "pick": "turn_r",
+          "why": "safe_progress",
+          "f": "1.1",
+          "s": "2.2",
+          "obj_min": "0.93",
+          "rob": "0.27",
+          "map": "0.79"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.13 rob=0.33 map=0.81",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.13",
+          "rob": "0.33",
+          "map": "0.81"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.08 rob=0.40 map=0.92",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.08",
+          "rob": "0.40",
+          "map": "0.92"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 1885,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.37 rob=0.70 map=1.09",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.37",
+          "rob": "0.70",
+          "map": "1.09"
+        },
+        {
+          "line": 1886,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.35 rob=0.72 map=1.12",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.35",
+          "rob": "0.72",
+          "map": "1.12"
+        }
+      ],
+      "planning_counts": {},
+      "first_planning": [],
+      "last_planning": []
+    },
+    {
+      "label": "_t1_test03",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test03_carter_run.py",
+      "source_sha256": "1b6a9572494cc032ea8f049d23f88af4314e701b9c69d64536343d303dc75694",
+      "edit_sha256": "fef02f2f2070d576501058dbc74dc7374d318f1f91042d0d3bdc8e79ce06943e",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 872
+        },
+        {
+          "name": "_clamp",
+          "line": 875
+        },
+        {
+          "name": "plan_path",
+          "line": 878
+        },
+        {
+          "name": "lookahead_target",
+          "line": 947
+        },
+        {
+          "name": "follow_cmd",
+          "line": 956
+        },
+        {
+          "name": "controller",
+          "line": 970
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 992
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1007
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1014
+        },
+        {
+          "name": "choose_command",
+          "line": 1015
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 878,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 889,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 918,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 924,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 947,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 982,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 984,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 985,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 988,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 991,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 997,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 1000,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1009,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1010,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1011,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1015,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1022,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 30.8453,
+          "final_dist_m": 30.8759,
+          "final_yaw_err_rad": 0.8418,
+          "final_pose": [
+            -8.716,
+            -9.4595,
+            0.172
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 602.7,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=30.876m (tol 0.75), yaw_err=0.842rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test03",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 30.8759,
+        "collisions": 0,
+        "partners": [],
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": 601.0,
+        "runtime_error": null,
+        "wall_s": 627.0,
+        "dbg_lines": 1197,
+        "test": 3
+      },
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.717",
+          "y": "-9.4598",
+          "yaw": "0.215"
+        },
+        "max_displacement_from_first_m": 1.4400158401906549
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test03.carter-run.stdout.log",
+      "chooser_samples": 1197,
+      "choice_counts": {
+        "follow": 1032,
+        "stop": 85,
+        "back": 44,
+        "turn_l": 14,
+        "toward": 3,
+        "slow": 11,
+        "turn_r": 5,
+        "forward_slow": 3
+      },
+      "reason_counts": {
+        "follow_safe": 1031,
+        "stop_safe": 85,
+        "safe_progress": 64,
+        "map_clearance_object_gap": 6,
+        "slow_safe": 11
+      },
+      "first_chooser": [
+        {
+          "line": 450,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 451,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.33 rob=0.42 map=0.76",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.33",
+          "rob": "0.42",
+          "map": "0.76"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=1.00 pick=stop why=stop_safe f=1.2 s=- obj_min=0.91 rob=0.24 map=0.83",
+          "t": "1.00",
+          "pick": "stop",
+          "why": "stop_safe",
+          "f": "1.2",
+          "s": "-",
+          "obj_min": "0.91",
+          "rob": "0.24",
+          "map": "0.83"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.04 rob=0.29 map=0.85",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.04",
+          "rob": "0.29",
+          "map": "0.85"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.07 rob=0.38 map=0.95",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.07",
+          "rob": "0.38",
+          "map": "0.95"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 1885,
+          "text": "DBG choose t=599.00 pick=slow why=slow_safe f=1.2 s=- obj_min=0.98 rob=0.27 map=0.63",
+          "t": "599.00",
+          "pick": "slow",
+          "why": "slow_safe",
+          "f": "1.2",
+          "s": "-",
+          "obj_min": "0.98",
+          "rob": "0.27",
+          "map": "0.63"
+        },
+        {
+          "line": 1886,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.21 rob=0.48 map=0.66",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.21",
+          "rob": "0.48",
+          "map": "0.66"
+        }
+      ],
+      "planning_counts": {},
+      "first_planning": [],
+      "last_planning": []
+    },
+    {
+      "label": "_t1_test04",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test04_carter_run.py",
+      "source_sha256": "0d61d906b942bbc730df5cbb60c7294b3657f957fa8e3a428283d4e8f7c20111",
+      "edit_sha256": "2458a22a44ba8fb5d74d357bbf2387e3417c4dc048a14fbdf4638a567cf6ca19",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 872
+        },
+        {
+          "name": "_clamp",
+          "line": 875
+        },
+        {
+          "name": "plan_path",
+          "line": 878
+        },
+        {
+          "name": "lookahead_target",
+          "line": 950
+        },
+        {
+          "name": "follow_cmd",
+          "line": 959
+        },
+        {
+          "name": "controller",
+          "line": 973
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 994
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1008
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1015
+        },
+        {
+          "name": "choose_command",
+          "line": 1016
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 878,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 889,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 918,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 926,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 950,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 985,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 987,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 988,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 991,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 993,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 999,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 1002,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1010,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1011,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1012,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1016,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1022,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 31.2487,
+          "final_dist_m": 31.5964,
+          "final_yaw_err_rad": 2.6342,
+          "final_pose": [
+            -9.1534,
+            -10.0347,
+            -1.6204
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 600.8,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=31.596m (tol 0.75), yaw_err=2.634rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test04",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 31.5964,
+        "collisions": 0,
+        "partners": [],
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": 601.0,
+        "runtime_error": null,
+        "wall_s": 624.9,
+        "dbg_lines": 1317,
+        "test": 4
+      },
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-9.1534",
+          "y": "-10.0343",
+          "yaw": "-1.654"
+        },
+        "max_displacement_from_first_m": 0.9470954334173513
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test04.carter-run.stdout.log",
+      "chooser_samples": 1198,
+      "choice_counts": {
+        "follow": 1111,
+        "turn_r": 8,
+        "back": 17,
+        "toward": 2,
+        "stop": 24,
+        "turn_l": 25,
+        "slow": 10,
+        "forward_slow": 1
+      },
+      "reason_counts": {
+        "follow_safe": 1110,
+        "safe_progress": 53,
+        "map_clearance_object_gap": 1,
+        "stop_safe": 24,
+        "slow_safe": 10
+      },
+      "first_chooser": [
+        {
+          "line": 451,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.29 rob=0.31 map=0.76",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.29",
+          "rob": "0.31",
+          "map": "0.76"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.00 pick=turn_r why=safe_progress f=1.1 s=2.2 obj_min=0.94 rob=0.28 map=0.79",
+          "t": "1.00",
+          "pick": "turn_r",
+          "why": "safe_progress",
+          "f": "1.1",
+          "s": "2.2",
+          "obj_min": "0.94",
+          "rob": "0.28",
+          "map": "0.79"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.13 rob=0.34 map=0.80",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.13",
+          "rob": "0.34",
+          "map": "0.80"
+        },
+        {
+          "line": 455,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.08 rob=0.39 map=0.92",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.08",
+          "rob": "0.39",
+          "map": "0.92"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 2005,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.37 rob=1.11 map=0.71",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.37",
+          "rob": "1.11",
+          "map": "0.71"
+        },
+        {
+          "line": 2006,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.46 rob=1.07 map=0.61",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.46",
+          "rob": "1.07",
+          "map": "0.61"
+        }
+      ],
+      "planning_counts": {
+        "DBG plan_path success": 119
+      },
+      "first_planning": [
+        {
+          "line": 450,
+          "text": "DBG plan_path success clearance=1.00 points=64"
+        },
+        {
+          "line": 462,
+          "text": "DBG plan_path success clearance=1.00 points=64"
+        },
+        {
+          "line": 475,
+          "text": "DBG plan_path success clearance=1.00 points=64"
+        }
+      ],
+      "last_planning": [
+        {
+          "line": 1983,
+          "text": "DBG plan_path success clearance=1.00 points=65"
+        },
+        {
+          "line": 1995,
+          "text": "DBG plan_path success clearance=1.00 points=65"
+        }
+      ]
+    },
+    {
+      "label": "_t1_test05",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test05_carter_run.py",
+      "source_sha256": "8270cb2729e4897ab10ca645a65ce75a2cb56dcd1b0184ea5b96e249567c629e",
+      "edit_sha256": "cfee080708fbdfc4ecb3defa264e1b4c067d1714d8dbb171c5b62b49bcacc5d0",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 872
+        },
+        {
+          "name": "_clamp",
+          "line": 875
+        },
+        {
+          "name": "plan_path",
+          "line": 878
+        },
+        {
+          "name": "lookahead_target",
+          "line": 946
+        },
+        {
+          "name": "follow_cmd",
+          "line": 958
+        },
+        {
+          "name": "controller",
+          "line": 972
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 993
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1007
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1014
+        },
+        {
+          "name": "choose_command",
+          "line": 1015
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 878,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 886,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 914,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 922,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 946,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 984,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 986,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 987,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 990,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 992,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 998,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 1001,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1009,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1010,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1011,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1015,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1021,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 9.726,
+          "final_dist_m": 9.7252,
+          "final_yaw_err_rad": 0.4957,
+          "final_pose": [
+            0.2159,
+            10.6701,
+            1.5095
+          ],
+          "collision_count": 13,
+          "collision_partners": [
+            "/World/arena_mover_02"
+          ],
+          "first_collision_t": 150.6,
+          "contact_all_links": true,
+          "collision_robot_links": [
+            "/World/Nova_Carter_ROS/caster_frame_base",
+            "/World/Nova_Carter_ROS/caster_swivel_right",
+            "/World/Nova_Carter_ROS/caster_wheel_right",
+            "/World/Nova_Carter_ROS/chassis_link"
+          ],
+          "sim_time_s": 156.6,
+          "wall_time_s": 147.5,
+          "frames": 9396
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "not_at_goal",
+            "detail": "final_dist=9.725m (tol 0.75), yaw_err=0.496rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": false,
+            "reason": "collision",
+            "detail": "collision_count=13, partners=['/World/arena_mover_02']"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test05",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 9.7252,
+        "collisions": 13,
+        "partners": [
+          "/World/arena_mover_02"
+        ],
+        "first_collision_t": 150.6,
+        "time_to_goal_s": null,
+        "sim_time_s": 156.6,
+        "runtime_error": null,
+        "wall_s": 170.3,
+        "dbg_lines": 343,
+        "test": 5
+      },
+      "trajectory": {
+        "samples": 2335,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "155.6",
+          "x": "0.2156",
+          "y": "10.6687",
+          "yaw": "1.5526"
+        },
+        "max_displacement_from_first_m": 23.362963624506204
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test05.carter-run.stdout.log",
+      "chooser_samples": 311,
+      "choice_counts": {
+        "follow": 219,
+        "stop": 18,
+        "back": 48,
+        "toward": 4,
+        "slow": 8,
+        "turn_r": 1,
+        "fast": 11,
+        "forward_slow": 1,
+        "forward_fast": 1
+      },
+      "reason_counts": {
+        "follow_safe": 219,
+        "stop_safe": 18,
+        "safe_progress": 29,
+        "slow_safe": 8,
+        "map_clearance_object_gap": 37
+      },
+      "first_chooser": [
+        {
+          "line": 451,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.36 rob=0.34 map=0.76",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.36",
+          "rob": "0.34",
+          "map": "0.76"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.00 pick=stop why=stop_safe f=1.2 s=- obj_min=0.91 rob=0.24 map=0.83",
+          "t": "1.00",
+          "pick": "stop",
+          "why": "stop_safe",
+          "f": "1.2",
+          "s": "-",
+          "obj_min": "0.91",
+          "rob": "0.24",
+          "map": "0.83"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.04 rob=0.29 map=0.85",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.04",
+          "rob": "0.29",
+          "map": "0.85"
+        },
+        {
+          "line": 455,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.07 rob=0.38 map=0.95",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.07",
+          "rob": "0.38",
+          "map": "0.95"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 865,
+          "text": "DBG choose t=155.00 pick=follow why=follow_safe f=- s=- obj_min=2.67 rob=1.73 map=0.95",
+          "t": "155.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "2.67",
+          "rob": "1.73",
+          "map": "0.95"
+        },
+        {
+          "line": 866,
+          "text": "DBG choose t=155.50 pick=follow why=follow_safe f=- s=- obj_min=2.50 rob=1.57 map=0.97",
+          "t": "155.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "2.50",
+          "rob": "1.57",
+          "map": "0.97"
+        }
+      ],
+      "planning_counts": {
+        "DBG plan_path success": 32
+      },
+      "first_planning": [
+        {
+          "line": 450,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 462,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 475,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        }
+      ],
+      "last_planning": [
+        {
+          "line": 852,
+          "text": "DBG plan_path success clearance=1.00 points=24 start=(-1.3000000000000007, 8.85) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 864,
+          "text": "DBG plan_path success clearance=1.00 points=21 start=(0.1999999999999993, 10.35) goal=(8.2, 16.35)"
+        }
+      ]
+    },
+    {
+      "label": "_t1_test06",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test06_carter_run.py",
+      "source_sha256": "7956bb8080b7427d8ab5e7a33d72e61c2a1ff297e5102168e236df6f1209283d",
+      "edit_sha256": "6ae350e8e30e0b25610f74dac24179da95086af5208c3d3c98262a0e66fa347d",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 872
+        },
+        {
+          "name": "_clamp",
+          "line": 875
+        },
+        {
+          "name": "plan_path",
+          "line": 878
+        },
+        {
+          "name": "lookahead_target",
+          "line": 946
+        },
+        {
+          "name": "follow_cmd",
+          "line": 956
+        },
+        {
+          "name": "controller",
+          "line": 970
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 992
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1006
+        },
+        {
+          "name": "observed_objects",
+          "line": 1008
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1021
+        },
+        {
+          "name": "choose_command",
+          "line": 1022
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 878,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 886,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 914,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 922,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 946,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 982,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 984,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 985,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 989,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 991,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 997,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 1000,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1008,
+          "text": "        objs = observed_objects()"
+        },
+        {
+          "line": 1009,
+          "text": "        close_obj = any(o['dist'] < 2.0 for o in objs)"
+        },
+        {
+          "line": 1011,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1012,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1013,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1016,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1017,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1018,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1022,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1028,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": null,
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test06",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": null,
+        "collisions": null,
+        "partners": null,
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": null,
+        "runtime_error": "TimeoutError: 시험 주행이 벽시계 1700 s 안에 끝나지 않아 하네스가 멈췄습니다. controller() 한 번 호출이 오래 걸렸을 수 있습니다.",
+        "wall_s": 1704.6,
+        "dbg_lines": 372,
+        "test": 6
+      },
+      "trajectory": null,
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test06.carter-run.stdout.log",
+      "chooser_samples": 187,
+      "choice_counts": {
+        "follow": 154,
+        "turn_r": 16,
+        "back": 17
+      },
+      "reason_counts": {
+        "follow_safe": 154,
+        "safe_progress": 33
+      },
+      "first_chooser": [
+        {
+          "line": 451,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 462,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.40 rob=0.58 map=0.72",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.40",
+          "rob": "0.58",
+          "map": "0.72"
+        },
+        {
+          "line": 464,
+          "text": "DBG choose t=1.00 pick=follow why=follow_safe f=- s=- obj_min=1.41 rob=0.62 map=0.72",
+          "t": "1.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.41",
+          "rob": "0.62",
+          "map": "0.72"
+        },
+        {
+          "line": 466,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.40 rob=0.57 map=0.72",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.40",
+          "rob": "0.57",
+          "map": "0.72"
+        },
+        {
+          "line": 468,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.33 rob=0.61 map=0.72",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.33",
+          "rob": "0.61",
+          "map": "0.72"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 874,
+          "text": "DBG choose t=92.50 pick=turn_r why=safe_progress f=1.2 s=1.2 obj_min=1.06 rob=0.25 map=1.09",
+          "t": "92.50",
+          "pick": "turn_r",
+          "why": "safe_progress",
+          "f": "1.2",
+          "s": "1.2",
+          "obj_min": "1.06",
+          "rob": "0.25",
+          "map": "1.09"
+        },
+        {
+          "line": 876,
+          "text": "DBG choose t=93.00 pick=turn_r why=safe_progress f=1.2 s=1.2 obj_min=1.06 rob=0.27 map=1.09",
+          "t": "93.00",
+          "pick": "turn_r",
+          "why": "safe_progress",
+          "f": "1.2",
+          "s": "1.2",
+          "obj_min": "1.06",
+          "rob": "0.27",
+          "map": "1.09"
+        }
+      ],
+      "planning_counts": {
+        "DBG plan_path success": 185
+      },
+      "first_planning": [
+        {
+          "line": 450,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 452,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 453,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        }
+      ],
+      "last_planning": [
+        {
+          "line": 873,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 875,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        }
+      ]
+    },
+    {
+      "label": "_t1_test07",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test07_carter_run.py",
+      "source_sha256": "b72dac6aa677d45b0374fdd893a0543b2d538c144489883912e2356ff9d904d8",
+      "edit_sha256": "aefa212be4f218e3c5e7052138f2f6d8c1b02d9095b6ce5b85b01336750ab2e0",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 872
+        },
+        {
+          "name": "_clamp",
+          "line": 875
+        },
+        {
+          "name": "plan_path",
+          "line": 878
+        },
+        {
+          "name": "lookahead_target",
+          "line": 946
+        },
+        {
+          "name": "follow_cmd",
+          "line": 956
+        },
+        {
+          "name": "controller",
+          "line": 970
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 991
+        },
+        {
+          "name": "lookahead_target",
+          "line": 1005
+        },
+        {
+          "name": "observed_objects",
+          "line": 1013
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1017
+        },
+        {
+          "name": "choose_command",
+          "line": 1018
+        }
+      ],
+      "citations": [
+        {
+          "line": 866,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 878,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 886,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 914,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 922,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 946,
+          "text": "def lookahead_target(path, pose):"
+        },
+        {
+          "line": 982,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 984,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 985,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 988,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 990,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 996,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 999,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 1007,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1008,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1009,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1013,
+          "text": "            objs = observed_objects()"
+        },
+        {
+          "line": 1014,
+          "text": "            if any(o['dist'] < 2.0 for o in objs):"
+        },
+        {
+          "line": 1015,
+          "text": "                v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1018,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1024,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 31.4541,
+          "final_dist_m": 31.7002,
+          "final_yaw_err_rad": 0.5969,
+          "final_pose": [
+            -8.6659,
+            -10.4657,
+            0.4169
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 599.4,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=31.700m (tol 0.75), yaw_err=0.597rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test07",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 31.7002,
+        "collisions": 0,
+        "partners": [],
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": 601.0,
+        "runtime_error": null,
+        "wall_s": 620.9,
+        "dbg_lines": 1317,
+        "test": 7
+      },
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.6674",
+          "y": "-10.4664",
+          "yaw": "0.3715"
+        },
+        "max_displacement_from_first_m": 0.7421247671382494
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test07.carter-run.stdout.log",
+      "chooser_samples": 1198,
+      "choice_counts": {
+        "follow": 968,
+        "back": 119,
+        "turn_r": 111
+      },
+      "reason_counts": {
+        "follow_safe": 968,
+        "safe_progress": 230
+      },
+      "first_chooser": [
+        {
+          "line": 451,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.69",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.69"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.40 rob=0.62 map=0.72",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.40",
+          "rob": "0.62",
+          "map": "0.72"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.00 pick=follow why=follow_safe f=- s=- obj_min=1.41 rob=0.63 map=0.72",
+          "t": "1.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.41",
+          "rob": "0.63",
+          "map": "0.72"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.40 rob=0.58 map=0.72",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.40",
+          "rob": "0.58",
+          "map": "0.72"
+        },
+        {
+          "line": 455,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.33 rob=0.62 map=0.72",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.33",
+          "rob": "0.62",
+          "map": "0.72"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 2005,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.44 rob=1.03 map=0.99",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.44",
+          "rob": "1.03",
+          "map": "0.99"
+        },
+        {
+          "line": 2006,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.54 rob=1.08 map=0.99",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.54",
+          "rob": "1.08",
+          "map": "0.99"
+        }
+      ],
+      "planning_counts": {
+        "DBG plan_path success": 119
+      },
+      "first_planning": [
+        {
+          "line": 450,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 462,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 475,
+          "text": "DBG plan_path success clearance=1.00 points=63 start=(-8.3, -10.15) goal=(8.2, 16.35)"
+        }
+      ],
+      "last_planning": [
+        {
+          "line": 1983,
+          "text": "DBG plan_path success clearance=1.00 points=63 start=(-8.3, -10.15) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 1995,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        }
+      ]
+    },
+    {
+      "label": "_t1_test08",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test08_carter_run.py",
+      "source_sha256": "cd11ddfbccc9c6a7ed7323d473214302cc06f88fa1353075f7be098e861e491f",
+      "edit_sha256": "89940608bb0a459ef72e8151467f0252fdd037938981919ceeff38727b0c2f87",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 873
+        },
+        {
+          "name": "_clamp",
+          "line": 876
+        },
+        {
+          "name": "plan_path",
+          "line": 879
+        },
+        {
+          "name": "follow_cmd",
+          "line": 947
+        },
+        {
+          "name": "controller",
+          "line": 961
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 982
+        },
+        {
+          "name": "observed_objects",
+          "line": 1011
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1015
+        },
+        {
+          "name": "choose_command",
+          "line": 1016
+        }
+      ],
+      "citations": [
+        {
+          "line": 867,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 879,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 887,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 915,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 923,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 973,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 975,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 976,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 979,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 981,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 988,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 991,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 998,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 999,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1000,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1007,
+          "text": "                target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1011,
+          "text": "            objs = observed_objects()"
+        },
+        {
+          "line": 1012,
+          "text": "            if any(o['dist'] < 2.0 for o in objs):"
+        },
+        {
+          "line": 1013,
+          "text": "                v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1016,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1022,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 31.3361,
+          "final_dist_m": 31.5045,
+          "final_yaw_err_rad": 0.5355,
+          "final_pose": [
+            -8.7154,
+            -10.2045,
+            0.4783
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 597.9,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=31.504m (tol 0.75), yaw_err=0.535rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": {
+        "variant": "gpu_gpt_oss_120b_pB521_a0_t1_test08",
+        "sim_seconds": 600.0,
+        "static_ok": true,
+        "verdict": "fail",
+        "final_dist_m": 31.5045,
+        "collisions": 0,
+        "partners": [],
+        "first_collision_t": null,
+        "time_to_goal_s": null,
+        "sim_time_s": 601.0,
+        "runtime_error": null,
+        "wall_s": 621.0,
+        "dbg_lines": 1317,
+        "test": 8
+      },
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.716",
+          "y": "-10.2047",
+          "yaw": "0.4775"
+        },
+        "max_displacement_from_first_m": 0.8239586033290758
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t1_test08.carter-run.stdout.log",
+      "chooser_samples": 1198,
+      "choice_counts": {
+        "follow": 1067,
+        "back": 61,
+        "turn_r": 69,
+        "stop": 1
+      },
+      "reason_counts": {
+        "follow_safe": 1067,
+        "safe_progress": 130,
+        "stop_safe": 1
+      },
+      "first_chooser": [
+        {
+          "line": 451,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.72",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.72"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.39 rob=0.61 map=0.73",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.39",
+          "rob": "0.61",
+          "map": "0.73"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.00 pick=follow why=follow_safe f=- s=- obj_min=1.39 rob=0.60 map=0.73",
+          "t": "1.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.39",
+          "rob": "0.60",
+          "map": "0.73"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.40 rob=0.58 map=0.73",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.40",
+          "rob": "0.58",
+          "map": "0.73"
+        },
+        {
+          "line": 455,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.23 rob=0.53 map=0.73",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.23",
+          "rob": "0.53",
+          "map": "0.73"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 2005,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.36 rob=0.86 map=0.94",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.36",
+          "rob": "0.86",
+          "map": "0.94"
+        },
+        {
+          "line": 2006,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.50 rob=1.00 map=0.94",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.50",
+          "rob": "1.00",
+          "map": "0.94"
+        }
+      ],
+      "planning_counts": {
+        "DBG plan_path success": 119
+      },
+      "first_planning": [
+        {
+          "line": 450,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 462,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 475,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        }
+      ],
+      "last_planning": [
+        {
+          "line": 1983,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 1995,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        }
+      ]
+    },
+    {
+      "label": "grading1",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_carter_run.py",
+      "source_sha256": "e24dd29acd153326e5a476237f6ed4e03135af19f3e4ad7dd446c7370a8ee8b3",
+      "edit_sha256": "4b35ae0e56bac5e5f0af4e95cf8eb39af3c37e53158fdd535f636a9287cd08ad",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 873
+        },
+        {
+          "name": "_clamp",
+          "line": 876
+        },
+        {
+          "name": "plan_path",
+          "line": 879
+        },
+        {
+          "name": "follow_cmd",
+          "line": 947
+        },
+        {
+          "name": "controller",
+          "line": 961
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "plan_path",
+          "line": 982
+        },
+        {
+          "name": "observed_objects",
+          "line": 1009
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1012
+        },
+        {
+          "name": "choose_command",
+          "line": 1013
+        }
+      ],
+      "citations": [
+        {
+          "line": 867,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 879,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 887,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 915,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 923,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 973,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 975,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 976,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 979,
+          "text": "        replan_now = _REPLAN_PENDING or t >= _NEXT_PLAN_T"
+        },
+        {
+          "line": 981,
+          "text": "            while _PLAN_CLEARANCE >= 0.5:"
+        },
+        {
+          "line": 988,
+          "text": "                    _NEXT_PLAN_T = t + 5.0"
+        },
+        {
+          "line": 991,
+          "text": "                    _PLAN_CLEARANCE = max(0.5, _PLAN_CLEARANCE - 0.1)"
+        },
+        {
+          "line": 998,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 999,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1000,
+          "text": "            _REPLAN_PENDING = True"
+        },
+        {
+          "line": 1006,
+          "text": "                target_xy = GOAL[:2]"
+        },
+        {
+          "line": 1009,
+          "text": "            if any(o['dist'] < 2.0 for o in observed_objects()):"
+        },
+        {
+          "line": 1010,
+          "text": "                v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1013,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1019,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 31.3565,
+          "final_dist_m": 31.465,
+          "final_yaw_err_rad": 0.4399,
+          "final_pose": [
+            -8.682,
+            -10.1788,
+            0.5739
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 608.8,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=31.465m (tol 0.75), yaw_err=0.440rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": null,
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.6827",
+          "y": "-10.1792",
+          "yaw": "0.5728"
+        },
+        "max_displacement_from_first_m": 0.8035491521991664
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0.carter-run.stdout.log",
+      "chooser_samples": 1198,
+      "choice_counts": {
+        "follow": 1056,
+        "back": 80,
+        "turn_r": 61,
+        "stop": 1
+      },
+      "reason_counts": {
+        "follow_safe": 1056,
+        "safe_progress": 141,
+        "stop_safe": 1
+      },
+      "first_chooser": [
+        {
+          "line": 451,
+          "text": "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.72",
+          "t": "0.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.72"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.44 rob=0.74 map=0.72",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.44",
+          "rob": "0.74",
+          "map": "0.72"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.00 pick=follow why=follow_safe f=- s=- obj_min=1.37 rob=0.59 map=0.72",
+          "t": "1.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.37",
+          "rob": "0.59",
+          "map": "0.72"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.41 rob=0.60 map=0.72",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.41",
+          "rob": "0.60",
+          "map": "0.72"
+        },
+        {
+          "line": 455,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.28 rob=0.59 map=0.72",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.28",
+          "rob": "0.59",
+          "map": "0.72"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 2005,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.31 rob=0.88 map=0.99",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.31",
+          "rob": "0.88",
+          "map": "0.99"
+        },
+        {
+          "line": 2006,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.44 rob=0.98 map=0.99",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.44",
+          "rob": "0.98",
+          "map": "0.99"
+        }
+      ],
+      "planning_counts": {
+        "DBG plan_path success": 119
+      },
+      "first_planning": [
+        {
+          "line": 450,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 462,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.65) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 475,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        }
+      ],
+      "last_planning": [
+        {
+          "line": 1983,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        },
+        {
+          "line": 1995,
+          "text": "DBG plan_path success clearance=1.00 points=64 start=(-8.8, -10.15) goal=(8.2, 16.35)"
+        }
+      ],
+      "identical_test_edit_bytes": [],
+      "identical_test_edit_ast": []
+    },
+    {
+      "label": "_t2",
+      "source": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t2_carter_run.py",
+      "source_sha256": "dd259f2ef01006750812dbaf7bc91c1dbce7370997b52b2b0de86f2b3068e142",
+      "edit_sha256": "a01b1690f66f7dbf31ff774fe52d2a74fd9021bd8d8cb481df325fe2a23342bd",
+      "functions": [
+        {
+          "name": "_wrap",
+          "line": 871
+        },
+        {
+          "name": "_clamp",
+          "line": 874
+        },
+        {
+          "name": "plan_path",
+          "line": 877
+        },
+        {
+          "name": "follow_cmd",
+          "line": 954
+        },
+        {
+          "name": "controller",
+          "line": 969
+        }
+      ],
+      "controller_calls": [
+        {
+          "name": "observed_objects",
+          "line": 998
+        },
+        {
+          "name": "follow_cmd",
+          "line": 1001
+        },
+        {
+          "name": "choose_command",
+          "line": 1004
+        }
+      ],
+      "citations": [
+        {
+          "line": 865,
+          "text": "_REPLAN_PENDING = True"
+        },
+        {
+          "line": 877,
+          "text": "def plan_path():"
+        },
+        {
+          "line": 887,
+          "text": "    min_x = wx0 + _PLAN_CLEARANCE"
+        },
+        {
+          "line": 921,
+          "text": "            cp = check_path(path, margin_m=0.25)"
+        },
+        {
+          "line": 930,
+          "text": "        if map_clearance(cx_w, cy_w) < _PLAN_CLEARANCE:"
+        },
+        {
+          "line": 988,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 990,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 991,
+          "text": "            target_xy = GOAL[:2]"
+        },
+        {
+          "line": 995,
+          "text": "        target_xy = GOAL[:2]"
+        },
+        {
+          "line": 998,
+          "text": "        if any(o['dist'] < 2.0 for o in observed_objects()):"
+        },
+        {
+          "line": 999,
+          "text": "            v_follow, w_follow = 0.0, 0.0"
+        },
+        {
+          "line": 1004,
+          "text": "    v, w, info = choose_command(v_follow, w_follow, target_xy)"
+        },
+        {
+          "line": 1012,
+          "text": "            _REPLAN_PENDING = True"
+        }
+      ],
+      "result": {
+        "verdict": "fail",
+        "metrics": {
+          "time_to_goal_s": null,
+          "min_goal_dist_m": 31.3339,
+          "final_dist_m": 31.423,
+          "final_yaw_err_rad": 0.602,
+          "final_pose": [
+            -8.7044,
+            -10.1152,
+            0.4118
+          ],
+          "collision_count": 0,
+          "collision_partners": [],
+          "first_collision_t": null,
+          "contact_all_links": true,
+          "collision_robot_links": [],
+          "sim_time_s": 601.0,
+          "wall_time_s": 569.9,
+          "frames": 36060
+        },
+        "oracles": [
+          {
+            "name": "reached_goal",
+            "passed": false,
+            "reason": "timeout",
+            "detail": "final_dist=31.423m (tol 0.75), yaw_err=0.602rad (tol 0.26)"
+          },
+          {
+            "name": "no_collision",
+            "passed": true,
+            "reason": null,
+            "detail": "collision_count=0, partners=[]"
+          }
+        ]
+      },
+      "test_record": null,
+      "trajectory": {
+        "samples": 2001,
+        "first": {
+          "t": "0.0",
+          "x": "-8.9998",
+          "y": "-10.7997",
+          "yaw": "1.0138"
+        },
+        "last": {
+          "t": "600.0",
+          "x": "-8.705",
+          "y": "-10.1155",
+          "yaw": "0.4135"
+        },
+        "max_displacement_from_first_m": 0.8320094470617514
+      },
+      "log": "results/turns/prompt_b5_21/isaac_logs/gpu_gpt_oss_120b_pB521_a0_t2.carter-run.stdout.log",
+      "chooser_samples": 1197,
+      "choice_counts": {
+        "fast": 1,
+        "follow": 1114,
+        "back": 28,
+        "turn_r": 54
+      },
+      "reason_counts": {
+        "fast_progress": 1,
+        "follow_safe": 1114,
+        "safe_progress": 81,
+        "map_clearance_object_gap": 1
+      },
+      "first_chooser": [
+        {
+          "line": 450,
+          "text": "DBG choose t=0.00 pick=fast why=fast_progress f=- s=- obj_min=inf rob=inf map=0.72",
+          "t": "0.00",
+          "pick": "fast",
+          "why": "fast_progress",
+          "f": "-",
+          "s": "-",
+          "obj_min": "inf",
+          "rob": "inf",
+          "map": "0.72"
+        },
+        {
+          "line": 451,
+          "text": "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.34 rob=0.43 map=0.76",
+          "t": "0.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.34",
+          "rob": "0.43",
+          "map": "0.76"
+        },
+        {
+          "line": 452,
+          "text": "DBG choose t=1.00 pick=follow why=follow_safe f=- s=- obj_min=1.36 rob=0.55 map=0.76",
+          "t": "1.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.36",
+          "rob": "0.55",
+          "map": "0.76"
+        },
+        {
+          "line": 453,
+          "text": "DBG choose t=1.50 pick=follow why=follow_safe f=- s=- obj_min=1.38 rob=0.57 map=0.76",
+          "t": "1.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.38",
+          "rob": "0.57",
+          "map": "0.76"
+        },
+        {
+          "line": 454,
+          "text": "DBG choose t=2.00 pick=follow why=follow_safe f=- s=- obj_min=1.27 rob=0.59 map=0.76",
+          "t": "2.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.27",
+          "rob": "0.59",
+          "map": "0.76"
+        }
+      ],
+      "last_chooser": [
+        {
+          "line": 1885,
+          "text": "DBG choose t=599.00 pick=follow why=follow_safe f=- s=- obj_min=1.34 rob=0.95 map=0.95",
+          "t": "599.00",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.34",
+          "rob": "0.95",
+          "map": "0.95"
+        },
+        {
+          "line": 1886,
+          "text": "DBG choose t=599.50 pick=follow why=follow_safe f=- s=- obj_min=1.45 rob=1.00 map=0.95",
+          "t": "599.50",
+          "pick": "follow",
+          "why": "follow_safe",
+          "f": "-",
+          "s": "-",
+          "obj_min": "1.45",
+          "rob": "1.00",
+          "map": "0.95"
+        }
+      ],
+      "planning_counts": {},
+      "first_planning": [],
+      "last_planning": [],
+      "identical_test_edit_bytes": [],
+      "identical_test_edit_ast": []
+    }
+  ],
+  "tool_arguments": [
+    {
+      "call": 1,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c01_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 2,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c02_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 3,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c03_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 4,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c04_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 5,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c05_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 6,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c06_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 7,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c07_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    },
+    {
+      "call": 8,
+      "file": "results/turns/prompt_b5_21/gpu_gpt_oss_120b_pB521_a0_c08_tool1.json",
+      "argument_keys": [
+        "code"
+      ],
+      "sim_seconds_present": false,
+      "sim_seconds": null
+    }
+  ],
+  "findings": [
+    "Both graded submissions retain one chooser call and return its command unchanged, but manually zero nominal inputs when any observed distance is below2m.",
+    "Grade1 logs repeated successful planning at1m; grade2 does not call its retained planner at all. A start-cell failure is not established as their stop cause.",
+    "Tests1-4 scan from the route beginning for a point farther than0.2m, without nearest-progress projection. Test5 adds a positive heading-dot check; test6 adds manual waiting and per-tick pending replanning; test7 removes that per-tick pending write; test8 removes lookahead in favor of an index.",
+    "All8 tool calls omit sim_seconds; the saved test records show600s. Six tests time out without contacts, one contacts mover02, and test6 hits the1700s wall-time guard.",
+    "A saturated clearance while-loop can fail to terminate at0.5m, but the saved graded logs do not show that branch occurring."
+  ],
+  "limitations": [
+    "Chooser DBG prints selected names and gaps, not the submitted nominal velocities, targets or full observed-object lists.",
+    "A follow choice may carry zero nominal velocity; counts are sampled DBG lines, not all control ticks.",
+    "Source mechanisms and saved trajectories establish structural deviations; sensor-state replay and map geometry are separate evidence.",
+    "Test6 has no completed result JSON or trajectory; its last chooser line is not an exact simulation termination time."
+  ]
+}

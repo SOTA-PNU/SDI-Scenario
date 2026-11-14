@@ -1,0 +1,131 @@
+"""Validate B-5-19 prose, v8 split horizons and deterministic replanning, and the actual EDIT-only harness path.
+
+No Isaac, HTTP, launches or process inspection. Geometry and chooser regressions
+are linked to the separate offline result for this exact base.
+"""
+import ast
+from datetime import datetime
+import json
+from pathlib import Path
+import re
+import shutil
+import sys
+
+ARENA = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ARENA))
+sys.path.insert(0, str(ARENA / "analysis"))
+import agent_loop as A
+import b519_build_base as BB
+import b519_build_prompt as BP
+from b515_selftest import AGENT_LOOP_SHA16, finite_rejections, helper_namespace, sha16
+
+
+def main():
+    checks = []
+
+    def check(name, value):
+        checks.append({"name": name, "pass": bool(value)})
+        print(("PASS " if value else "FAIL ") + name)
+
+    old_prompt, prompt = BP.SRC.read_text(), BP.OUT.read_text()
+    old_base, base = BB.SRC.read_text(), BP.BASE.read_text()
+    old_tree, tree = ast.parse(old_base), ast.parse(base)
+    old_functions = {n.name: n for n in old_tree.body if isinstance(n, ast.FunctionDef)}
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    config, escape = BP.base_config(base), BP.escape_config(base)
+    map_config = BP.map_horizon_config(base)
+    check("prompt reproduces from B-5-18 with declared deterministic path and horizon edits", BP.build(old_prompt, base) == prompt)
+    check("base reproduces from v7 with the B-5-19 builder", BB.build(old_base) == base)
+    check("title is exact and passes only the B-5 gate", prompt.splitlines()[0] == BP.TITLE and all((m == "b5") == (f"프롬프트 B-{m[1]}" in prompt.splitlines()[0]) for m in ("b1", "b2", "b3", "b4", "b5")))
+    preserved = ("_base_command_candidates", "check_path", "_base_note_map_stop", "map_clearance", "observed_objects", "_base_track_step", "_base_obj_pose_at", "_base_obj_cluster", "_base_obj_velocity", "_drop_body")
+    check("candidates, path checker, map, diagnostics and tracking are unchanged from v7", all(ast.dump(functions[n]) == ast.dump(old_functions[n]) for n in preserved) and config == BP.base_config(old_base))
+    def givens(t):
+        names = {"MISSION", "START", "GOAL", "WALLS", "FIXED_OBSTACLES", "_BASE_SELF_BOX", "_BASE_BODY_BOX", "_BASE_OBJ_CFG"}
+        return {target.id: ast.dump(n.value) for n in t.body if isinstance(n, ast.Assign) for target in n.targets if isinstance(target, ast.Name) and target.id in names}
+    check("scene, body and tracker constants are unchanged", givens(tree) == givens(old_tree))
+    start = base.index("# [EDIT REGION] mission controller")
+    end = base.index(A.END_LINE)
+    choose = functions["choose_command"]
+    check("chooser retains its public signature and stays outside EDIT REGION", base.index("def check_motion(") < base.index("def choose_command(") < start < end and [p.arg for p in choose.args.args] == ["v_follow", "w_follow", "target_xy", "horizon_s"] and [ast.literal_eval(d) for d in choose.args.defaults] == [3.0])
+    check("check_path has the documented public signature outside EDIT REGION", base.index("def check_path(") < start and [p.arg for p in functions["check_path"].args.args] == ["points", "margin_m"] and [ast.literal_eval(d) for d in functions["check_path"].args.defaults] == [0.25])
+    check("chooser prose reflects literal uncertainty and escape configuration", escape == BP.escape_config(old_base) and BP.chooser_doc(config, escape, map_config) in prompt and BP.motion_doc(config) in prompt)
+    check("short map horizon uses the approved literal parameters", map_config == {"minimum_s": 0.8, "buffer_s": 0.5, "linear_decel_m_s2": 2.0, "angular_decel_rad_s2": 2.68})
+    ns = helper_namespace(base)
+    path_result = ns["check_path"]([(0.0, 0.0), (1.0, 0.0)])
+    check("actual check_path result schema and literal clearance constants match prose", set(path_result) == {"min_gap_map", "min_location", "first_bad_segment", "margin_m", "sampling_step_m"} and path_result["margin_m"] == 0.25 and path_result["sampling_step_m"] == 0.1 and ns["_BASE_PATH_HALF_WIDTH"] == 0.25 and BP.PATH_API_DOC in prompt)
+    check("completed routes are checked against center 0.5 m and corrected gap 0.25 m", BP.PATH_DOC in prompt and "min_gap_map` 이 0.25 m 이상" in prompt and "first_bad_segment is None" in prompt and "검사 실패를 출력만 하고 그 경로를 따라가지 않습니다" in prompt)
+    ns["observed_objects"] = lambda: []
+    _, _, info = ns["choose_command"](0.0, 0.4, (5.0, 3.0))
+    names = set(info["candidates"])
+    check("rotation retains three inspected forward candidates and safe requested alignment", {"forward_slow", "forward_fast", "toward"} <= names and len(names) == 9 and info["chosen"] == "follow")
+    def expected_map_horizon(candidate, h=3.0):
+        return min(h, max(map_config["minimum_s"], map_config["buffer_s"] + max(
+            abs(candidate["v"]) / map_config["linear_decel_m_s2"],
+            abs(candidate["w"]) / map_config["angular_decel_rad_s2"])))
+    check("every actual chooser candidate exposes separate object and map horizons", all(c["object_horizon_s"] == 3.0 and abs(c["map_horizon_s"] - expected_map_horizon(c)) < 1e-12 for c in info["candidates"].values()) and info["object_horizon_s"] == 3.0 and info["map_horizon_s"] == info["candidates"][info["chosen"]]["map_horizon_s"])
+    check("chooser candidate end poses and object gaps retain the full object horizon", all(c["end_pose"] == ns["check_motion"](c["v"], c["w"], 3.0)["end_pose"] and c["min_gap_obj"] == ns["check_motion"](c["v"], c["w"], 3.0)["min_gap_obj"] for c in info["candidates"].values()))
+    _, _, short_info = ns["choose_command"](0.3, 0.0, (5.0, 0.0), horizon_s=0.2)
+    check("short requested horizon caps both reported inspection times", all(c["object_horizon_s"] == 0.2 and c["map_horizon_s"] == 0.2 for c in short_info["candidates"].values()))
+    old_ns = helper_namespace(old_base)
+    old_ns["observed_objects"] = lambda: []
+    check("public check_motion signature and full-horizon result remain compatible", ast.dump(functions["check_motion"].args) == ast.dump(old_functions["check_motion"].args) and all(ns["check_motion"](v, w) == old_ns["check_motion"](v, w) for v, w in [(0.0, 0.0), (0.3, 0.2), (-0.2, 0.0), (0.0, 0.4)]))
+    check("live info exposes separate object/map diagnostics and filtering fields", {"min_gap_obj", "robust_min_gap_obj", "min_gap_map", "map_filtered", "map_filter", "excluded_map_names"} <= set(info) and all("min_gap" not in item and {"min_gap_map", "robust_min_gap_obj", "t_hit_obj", "t_hit_map"} <= set(item) for item in info["candidates"].values()))
+    check("map-clearance first pool and independent ranking are explicit in the prompt", "`t_hit_map is None` 후보만 남깁니다" in prompt and "그런 후보가 없을 때만 `min_gap_map > 0` 인 후보를 남겨" in prompt and "결합된 `min_gap` 필드는 없습니다" in prompt and "min_gap=min(" not in prompt)
+    ns["observed_objects"] = lambda: [dict(id=1, vx=0.0, vy=0.0, seen_t=10.0, vel_ok=True, points=[[0.0, 0.0]])]
+    _, _, overlapping = ns["choose_command"](0.3, 0.0, (5.0, 0.0))
+    check("all-map-clear unsafe scene reports clearance mode without fabricated exclusions", overlapping["reason"] == "map_clearance_object_gap" and overlapping["map_filter"] == "clearance" and not overlapping["map_filtered"] and overlapping["excluded_map_names"] == [] and all(c["t_hit_obj"] == 0.0 and c["t_hit_map"] is None for c in overlapping["candidates"].values()))
+    check("invalid current pose and observed velocity/time still fail closed", finite_rejections(base))
+    check("computed route simplification and continuous forward targets are required", BP.ROUTE_DOC in prompt and "경유점 간격은 통과 반경 0.35 m 보다 충분히 길게" in prompt and "경로 위 앞쪽 목표점 `(tx, ty)` 를 매 호출 갱신" in prompt and "마지막이 아닌 경유점은 `dist < 0.35` m 가 되면 다음 경유점" not in prompt)
+    check("grid A* has deterministic ordering and explicit same-input path rationale", BP.DETERMINISTIC_DOC in prompt and "비용이 같은 점의 우선순위" in prompt and "시험에서 통과한 경로가" in prompt and "어떤 알고리즘으로 계산할지는 직접 정합니다" not in prompt)
+    check("map-stop replanning is an actual timed info-based branch from current pose", BP.REPLAN_DOC in prompt and "info['chosen'] == 'stop'" in prompt and "info['candidates']['follow']['t_hit_map'] is not None" in prompt and "현재 `pose` 에서 더 큰 지도 여유" in prompt and "다음 제어 주기부터 새 경로" in prompt and "DBG 문자열을 읽거나 파싱하지 말고" in prompt)
+    check("simplification preserves anchors and validates every completed route segment", "보존할 현재 기준점(anchor)을 고정" in prompt and "기존 마지막 점을 다음 점으로 덮어쓰면" in prompt and "완성된 경로의 모든 연결 구간을 다시" in prompt and "시작 위치에서 첫 추종점까지의 연결도 검사" in prompt)
+    check("manual fallback paths and sensor-based input overrides are explicitly forbidden", BP.INPUT_DOC in prompt and "검증하지 않은 `START`–`GOAL` 직선이나 손으로 고른 중간 좌표로 대신하지" in prompt and "입력 명령이나 목표점을 바꾸는" in prompt and "지도로 검증한 목표나 경로를 갱신" in prompt)
+    check("every tool-call JSON explicitly requires a top-level 200-second field", "매 호출의 최상위 JSON 에 `code` 와 `sim_seconds` 두 키" in prompt and "code` 문자열 안의 주석이나 변수로 적는 것은 도구 인자를 지정한 것이 아닙니다" in prompt)
+    check("200-second requirement has no obsolete all-passes-under-140s claim", "시험 주행은 매번 최상위 도구 인자에 `sim_seconds=200` 을 명시" in prompt and "모두 140 s 안에 목표" not in prompt)
+    banned = (r"\bM[1-5]\b", r"arena_mover", r"start_zone", r"goal_south", r"0\.5 m/s", r"11\.6", r"왕복", r"되돌아", r"끝에서", r"방향을 바꾼", r"상자면")
+    check("no mover identity, coordinates, cycle, timing or route supplied", not any(re.search(p, prompt + "\n" + base) for p in banned) and prompt.count("오가") == old_prompt.count("오가") == 1 and "좌표를 손으로 넣지 않습니다" in prompt)
+    check("all motion including goal stop remains selected by the chooser", "choose_command(0.0, 0.0, GOAL[:2])" in prompt and "반환한 `(v, w)` 가 모두 0 일 때만" in prompt and "회전 입력을 그대로 반환하지 않습니다" in prompt)
+    check("goal completion uses actual goal distance and explicit rotate/stop/approach branches", BP.GOAL_DOC in prompt and "d_goal <= 0.5" in prompt and "|e_yaw| <= 0.15" in prompt and "d_goal > 0.5" in prompt and "`dist < 0.25`" not in prompt and "`|e| < 0.05`" not in prompt)
+    mission = ns["MISSION"]
+    check("goal completion thresholds are strictly inside fixed success tolerances", 0.5 < mission["position_tolerance_m"] == 0.75 and 0.15 < mission["yaw_tolerance_rad"] == 0.26)
+    check("PASS code is preserved exactly and any later modification requires a passing retest", BP.SUBMISSION_DOC in prompt and "통과 뒤 바꾸려면 다시 시험해 통과한 코드만 제출" in prompt and "도구를 더 부르지 말고" not in prompt)
+    check("prolonged map-stop warning is separate and requires checked replanning", BP.BLOCKED_DOC in prompt and "follow 가 지도에 막힘: 경로 여유 부족" in prompt and "builtins.print(" in ast.get_source_segment(base, functions["_base_note_map_stop"]) and "지도 막힘이 10 s 넘게 이어지면 그 경고도 10 s 마다 별도로" in prompt)
+    now = prompt.split("## 지금 할 일\n", 1)[1].strip().splitlines()[0]
+    check("Now section begins with first-response run_isaac_sim instruction", now == BP.FIRST_ACTION)
+    check("test and final answer both require only the marked modified region", "시험의 `code` 와 최종 답에는 수정한 `[EDIT REGION]` 블록만" in prompt and "시작 주석 `# [EDIT REGION]" in prompt and "끝 주석 `# ========================= [END EDIT REGION]" in prompt and "전체 코드 파일을 넣으십시오" not in prompt and "전체 코드 파일로 내십시오" not in prompt and "최종 답도 전체 코드" not in prompt)
+    check("both tool examples require 200 seconds without changing shared schema", prompt.count(BP.CALL_EXAMPLE) == 2 and "생략하면 도구 기본값 600 s 가 적용되므로 생략하지 마십시오" in prompt)
+    check("outside-region rule and assembled-file error-line explanation are retained", "`[EDIT REGION]` 블록 밖은 한 글자도 바꾸지 마십시오" in prompt and "수정 블록을 base 와 합친 실행 파일 기준" in prompt)
+    check("automatic chooser DBG remains independent and horizon-minimum meaning is clear", "builtins.print(" in ast.get_source_segment(base, choose) and "모델의 추가 DBG 줄 제한과 별도로" in prompt and "현재 자세에서의 간격과 다릅니다" in prompt)
+    A.BASE_FILE, A.BASE, A.SP.BASE = BP.BASE, base, base
+    A.B_MODE = "b5"
+    A.A21 = A.A22 = A.A23 = A.A4T = False
+    model_input = A.model_input(BP.OUT.name)
+    marker = "\n\n---\n\n`base_carter_run.py`:\n\n```python\n"
+    check("real model input embeds the exact v8 base", model_input == prompt + marker + base + "```\n")
+    body = '_controller_calls = 0\n\ndef controller(t, pose, env):\n    global _controller_calls\n    _controller_calls += 1\n    v, w, info = choose_command(0.0, 0.0, GOAL[:2])\n    return v, w, False'
+    block = '# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\n\n' + body + '\n\n' + A.END_LINE.rstrip('\n')
+    payload = json.loads(json.dumps({"code": block, "sim_seconds": 200}))
+    tool_file = A.build(payload["code"])
+    expected_fn = ast.dump(next(n for n in ast.parse(body).body if isinstance(n, ast.FunctionDef)))
+    actual_fn = ast.dump(next(n for n in ast.parse(tool_file).body if isinstance(n, ast.FunctionDef) and n.name == "controller"))
+    check("actual tool JSON marked block splices into executable base with exact controller", A.static_check(tool_file)[0] and A.TL._outside(tool_file) == A.TL._outside(base) and actual_fn == expected_fn and "_controller_calls += 1" in tool_file)
+    final_file = A.build(A.TL.extract("```python\n" + block + "\n```\n"))
+    check("same marked block in final fence extracts and builds identically to tool code", final_file == tool_file and A.static_check(final_file)[0])
+    bare_file = A.build(body)
+    check("actual splice also accepts bare region content as the inspected harness specifies", A.static_check(bare_file)[0] and A.TL._outside(bare_file) == A.TL._outside(base) and ast.dump(next(n for n in ast.parse(bare_file).body if isinstance(n, ast.FunctionDef) and n.name == "controller")) == expected_fn)
+    check("outside-region changes and explanation-only final answers are rejected", not A.static_check(tool_file.replace("MISSION = dict(", "MISSION = dict(\n", 1))[0] and not A.static_check(A.build(A.TL.extract("[No answer provided due to inability to achieve a passing solution.]")))[0])
+    check("shared agent_loop and tool schema are unchanged", sha16((ARENA / "agent_loop.py").read_text()) == AGENT_LOOP_SHA16)
+    offline_path = ARENA / "results/analysis/b519_check_offline.json"
+    offline = json.loads(offline_path.read_text()) if offline_path.exists() else {}
+    check("offline regressions passed against this exact base", offline.get("verdict") == "pass" and offline.get("base_sha16") == sha16(base))
+    summary = {"verdict": "pass" if all(c["pass"] for c in checks) else "fail", "passed": sum(c["pass"] for c in checks), "total": len(checks), "base_file": BP.BASE.name, "base_sha16": sha16(base), "prompt_file_sha16": sha16(prompt), "prompt_sha16": sha16(model_input), "prompt_chars": len(model_input), "answer_format": "marked_edit_region_only", "tool_format": "marked_edit_region_string_without_markdown_fence", "shared_agent_loop_sha16": AGENT_LOOP_SHA16, "isaac_gate": "pending_gpu", "checks": checks}
+    output = ARENA / "results/analysis/b519_selftest.json"
+    if output.exists():
+        shutil.copy2(output, ARENA / "results" / f"archive_b519_selftest.json_before_rerun_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    output.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
+    print(f"SELFTEST={summary['passed']}/{summary['total']} BASE_SHA16={summary['base_sha16']} PROMPT_SHA16={summary['prompt_sha16']} PROMPT_CHARS={summary['prompt_chars']}")
+    return 0 if summary["verdict"] == "pass" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

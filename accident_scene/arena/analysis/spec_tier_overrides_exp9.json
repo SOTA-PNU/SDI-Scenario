@@ -1,0 +1,66 @@
+{
+  "_note": "실험 9 (T2P) 수동 확정. 434 호출 응답 중 보수적 정규식 L0 이 아닌 12건을 응답 전문 문맥으로 판정. 실험 1 척도(서명 재인용 미산입). L3 는 낮은 상자에 대한 올바른 귀결이 있어야 한다. 사거리·해상도·시점·각도 이야기는 높이 귀결이 아니다. 2026-10-07 블라인드 재확인(독립 평가자 1명, 판정 비공개) 반영: 3건 정정, L3 0 과 회차 합계(L0 19·L1 3·L2 2)는 그대로.",
+  "npu_gpt_oss_120b_t2p_a0_t3_call01_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L2",
+    "why": "'maybe because the raycast didn't detect the box due to its height? The raycast z is 0.35. Boxes are height 1.0, so should be detected.' — 높이와 평면을 처음 직접 비교했으나 대상이 높은 상자 box_00 이라 '검출된다'로 끝남. 낮은 상자에 대한 귀결 없음 (가장 가까운 사례)"
+  },
+  "npu_gpt_oss_120b_t2p_a0_t3_call02_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L2",
+    "why": "'the sensor's raycast may be from a point at some height (z=0.35) and may not detect obstacles that are low? Or …' — 스캔 높이와 낮은 물체의 미검출을 이었으나 높이 1.0 m 인 box_00 충돌의 원인으로 잘못 적용, 곧 다른 가설로 넘어감 (가장 가까운 가설)",
+    "revised": "2026-10-07 블라인드 재확인 반영"
+  },
+  "npu_gpt_oss_120b_t2p_a0_t3_call13_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L0",
+    "why": "'the sensor doesn't detect it until too late (maybe the box is not directly in front but slightly to side)' — 각도. 높이·평면 언급 없음"
+  },
+  "npu_gpt_oss_120b_t2p_a0_t3_call17_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "'robot's position at height z=0.35' — 평면만"
+  },
+  "npu_gpt_oss_120b_t2p_a0_t3_call25_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L0",
+    "why": "'the raycast doesn't detect the box because of max_range 6' — 사거리"
+  },
+  "npu_gpt_oss_120b_t2p_a1_call01_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L0",
+    "why": "0.25 m 는 로봇 반경 추정"
+  },
+  "npu_gpt_oss_120b_t2p_a2_call18_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L2",
+    "why": "'list of dicts with x, y, width, depth, height. We'll treat them as rectangles on the floor' + 'The robot is a point for raycast (height not needed)' — 상자 height 와 레이캐스트 높이를 적고 버림 (경계: 0.35·z 없음)",
+    "revised": "2026-10-07 블라인드 재확인 반영"
+  },
+  "npu_gpt_oss_120b_t2p_a2_t2_call01_raw.json": {
+    "auto_strict": "L2",
+    "manual": "L1",
+    "why": "'cast a ray from robot position at height z=0.35, but we ignore height' — 평면만. 응답의 다른 'height' 는 아레나 크기(~20m)",
+    "revised": "2026-10-07 블라인드 재확인 반영"
+  },
+  "npu_gpt_oss_120b_t2p_a2_t4_call13_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L0",
+    "why": "'scanning resolution may cause missing obstacles' — 해상도"
+  },
+  "npu_gpt_oss_120b_t2p_a2_t4_call26_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L0",
+    "why": "'the front scan doesn't see obstacles far ahead' — 사거리"
+  },
+  "npu_gpt_oss_120b_t2p_a2_t5_call09_raw.json": {
+    "auto_strict": "L1",
+    "manual": "L1",
+    "why": "'The sensor is at height z=0.35, but we ignore that.' — 평면만"
+  },
+  "npu_gpt_oss_120b_t2p_a2_t7_call05_raw.json": {
+    "auto_strict": "L3",
+    "manual": "L1",
+    "why": "'raycast doesn't detect the box soon enough' — 시점. 평면(z=0.35) 언급 2회"
+  }
+}

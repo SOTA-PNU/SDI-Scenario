@@ -1,0 +1,149 @@
+{
+  "scope": "Analysis-only of completed B516 goal finishing plus B517 controller text and unchanged harness. No simulator/model/process/network execution.",
+  "created_at": "2026-11-06T01:47:21.089263+09:00",
+  "prior_goal_finishing": [
+    {
+      "variant": "gpu_gpt_oss_120b_pB516_a3",
+      "first_pose_inside_controller_goal_radius": {
+        "t": 134.7,
+        "x": 7.8727,
+        "y": 16.3023,
+        "yaw": 0.9823
+      },
+      "first_yaw_error": 0.031500000000000083,
+      "first_requested_alignment_w": 0.047250000000000125,
+      "first_later_pose_outside_controller_radius": {
+        "t": 599.1,
+        "x": 8.1296,
+        "y": 16.7139,
+        "yaw": 1.0122
+      },
+      "trajectory_sample_count_after_first_entry": 1552,
+      "samples_inside_radius": 1548,
+      "final_metrics": {
+        "time_to_goal_s": 132.883,
+        "min_goal_dist_m": 0.0034,
+        "final_dist_m": 0.2519,
+        "final_yaw_err_rad": 0.3651,
+        "final_pose": [
+          8.1309,
+          16.7152,
+          0.6487
+        ],
+        "collision_count": 0,
+        "collision_partners": [],
+        "first_collision_t": null,
+        "contact_all_links": true,
+        "collision_robot_links": [],
+        "sim_time_s": 601.0,
+        "wall_time_s": 590.4,
+        "frames": 36060
+      },
+      "oracles": [
+        {
+          "name": "reached_goal",
+          "passed": false,
+          "reason": "yaw_misaligned",
+          "detail": "final_dist=0.252m (tol 0.75), yaw_err=0.365rad (tol 0.26)"
+        },
+        {
+          "name": "no_collision",
+          "passed": true,
+          "reason": null,
+          "detail": "collision_count=0, partners=[]"
+        }
+      ],
+      "controller_source_lines": [
+        891,
+        937
+      ],
+      "code_sha16": "87ecce2d4c7b8798",
+      "scope": "Saved observations of robot pose only. First requested w follows code algebra, not reconstructed actual choice or sensors."
+    },
+    {
+      "variant": "gpu_gpt_oss_120b_pB516_a3_t2",
+      "first_pose_inside_controller_goal_radius": {
+        "t": 135.0,
+        "x": 7.8768,
+        "y": 16.3066,
+        "yaw": 0.9891
+      },
+      "first_yaw_error": 0.024700000000000055,
+      "first_requested_alignment_w": 0.03705000000000008,
+      "first_later_pose_outside_controller_radius": {
+        "t": 593.1,
+        "x": 8.1307,
+        "y": 16.7133,
+        "yaw": 1.0128
+      },
+      "trajectory_sample_count_after_first_entry": 1551,
+      "samples_inside_radius": 1527,
+      "final_metrics": {
+        "time_to_goal_s": 133.117,
+        "min_goal_dist_m": 0.0022,
+        "final_dist_m": 0.2586,
+        "final_yaw_err_rad": 0.001,
+        "final_pose": [
+          8.1352,
+          16.7205,
+          1.0128
+        ],
+        "collision_count": 0,
+        "collision_partners": [],
+        "first_collision_t": null,
+        "contact_all_links": true,
+        "collision_robot_links": [],
+        "sim_time_s": 601.0,
+        "wall_time_s": 570.2,
+        "frames": 36060
+      },
+      "oracles": [
+        {
+          "name": "reached_goal",
+          "passed": true,
+          "reason": null,
+          "detail": "final_dist=0.259m (tol 0.75), yaw_err=0.001rad (tol 0.26)"
+        },
+        {
+          "name": "no_collision",
+          "passed": true,
+          "reason": null,
+          "detail": "collision_count=0, partners=[]"
+        }
+      ],
+      "controller_source_lines": [
+        870,
+        916
+      ],
+      "code_sha16": "55d0dc60da6f80ce",
+      "scope": "Saved observations of robot pose only. First requested w follows code algebra, not reconstructed actual choice or sensors."
+    }
+  ],
+  "b517_a3_completed_test03_goal_branch": {
+    "file": "/home/jun/SDI-Scenario/accident_scene/arena/results/turns/prompt_b5_17/isaac_logs/gpu_gpt_oss_120b_pB517_a3_t2_test03_carter_run.py",
+    "lines": [
+      853,
+      859
+    ],
+    "observation": "Always requests proportional nonzero yaw correction, then checks returned w <1e-6 and yaw error<.05. No explicit choose_command(0,0) branch after angular tolerance. This is latent; the saved run never reached the goal."
+  },
+  "harness_submission_gate": {
+    "file": "/home/jun/SDI-Scenario/accident_scene/arena/agent_loop.py",
+    "schema_required": [
+      "code"
+    ],
+    "default_test_sim_seconds": 600,
+    "same_passed_code_gate_condition": "A22 only at no-tool final answer (line1250); B_MODE=b5 does not invoke it.",
+    "time_limit_recommendation": "B5-scoped required sim_seconds or documented 200 default/reject omission; do not silently claim the prose is enforcement."
+  },
+  "protected_sha256": {
+    "/home/jun/SDI-Scenario/accident_scene/arena/REPORT.md": "c34e05d62b9eb27f8b6b00466d97529171253375630d9b6e0868ee84fc938c4d",
+    "/home/jun/SDI-Scenario/accident_scene/arena/PROMPT_B5_17.md": "151eb33a285773cddb9af52312de55fe59b7de632048272c558fd03c5c9cfeaa",
+    "/home/jun/SDI-Scenario/accident_scene/arena/base_carter_run_ros_map_lidartime_objects_check_v6.py": "576efa3a29f3c8249be3d5c9f387a92fb6e0bd0b9eba8676645925c94508ba76",
+    "/home/jun/SDI-Scenario/accident_scene/arena/agent_loop.py": "f6ab9cd0d094ba9b4a36a945509de62eabb63ea03e4b00daf028c8aed1e3d2cb",
+    "/home/jun/SDI-Scenario/accident_scene/arena/arena_harness.py": "0e0634eef78af9f2caba92e2f8fb065fb72528648b267e86c7af0e8692c7dd67",
+    "/home/jun/SDI-Scenario/levels/common/carter_env.py": "2e83a1aeaf8ab55708dcd8877f4976053f490c80b6f1960db27920fba05f30f1",
+    "/home/jun/SDI-Scenario/accident_scene/arena/run_b517_gpu_steps.sh": "cea7f09dcb329bb88878d93a22662786f25129129f8a1c02b40227ee94cf6013",
+    "/home/jun/SDI-Scenario/accident_scene/arena/run_b517_sequential.sh": "9df1ba3c4d6f040b24f36cd7c46ed48b7f88a2d55ea0007cf7bfac6437556ad1"
+  }
+}

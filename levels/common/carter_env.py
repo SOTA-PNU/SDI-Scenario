@@ -94,6 +94,7 @@ class Harness:
         )
 
         self.collisions = []  # (sim_t, type, partner)
+        self.collision_links = set()  # robot bodies that touched a counted partner
         self.traj = []  # (t, x, y, yaw) every step
         self._wall0 = None
         self._t0 = None
@@ -173,9 +174,21 @@ class Harness:
         # contact report on the chassis BEFORE play
         from pxr import PhysxSchema
 
-        chassis_prim = self.stage.GetPrimAtPath(CHASSIS)
-        capi = PhysxSchema.PhysxContactReportAPI.Apply(chassis_prim)
-        capi.CreateThresholdAttr().Set(0.0)
+        # CARTER_CONTACT_ALL_LINKS=1 (project C 실험 38, user 2026-10-29): report contacts on every rigid body of the
+        # robot (chassis, drive wheels, casters), not only chassis_link: a moving box pushed a drive wheel 0.86 m in
+        # B-5-11 a2 and was not counted. Off by default, so every earlier run is scored as before.
+        self.contact_all_links = os.environ.get("CARTER_CONTACT_ALL_LINKS") == "1"
+        report_prims = [self.stage.GetPrimAtPath(CHASSIS)]
+        if self.contact_all_links:
+            from pxr import Usd, UsdPhysics
+
+            report_prims = [q for q in Usd.PrimRange(self.stage.GetPrimAtPath(ROBOT_ROOT))
+                            if q.HasAPI(UsdPhysics.RigidBodyAPI)]
+            print(f"[harness] contact report on {len(report_prims)} robot bodies: "
+                  f"{[str(q.GetPath()) for q in report_prims]}", flush=True)
+        for prim in report_prims:
+            capi = PhysxSchema.PhysxContactReportAPI.Apply(prim)
+            capi.CreateThresholdAttr().Set(0.0)
 
         from isaacsim.core.api import SimulationContext
 
@@ -196,10 +209,15 @@ class Harness:
                     a1 = str(PhysicsSchemaTools.intToSdfPath(h.actor1))
                 except Exception:
                     a0, a1 = "?", "?"
-                partner = a1 if a0.startswith(CHASSIS) or a0 == CHASSIS else a0
+                if self.contact_all_links:
+                    robot_side, partner = (a0, a1) if a0.startswith(ROBOT_ROOT) else (a1, a0)
+                else:
+                    robot_side = CHASSIS
+                    partner = a1 if a0.startswith(CHASSIS) or a0 == CHASSIS else a0
                 if any(partner.startswith(p) for p in self.excluded):
                     continue
                 self.collisions.append((now, htype, partner))
+                self.collision_links.add(robot_side)
 
         self._contact_sub = (
             omni.physx.get_physx_simulation_interface().subscribe_contact_report_events(
@@ -533,6 +551,8 @@ class Harness:
                 "first_collision_t": None
                 if not self.collisions
                 else round(self.collisions[0][0] - self._t0, 3),
+                **({"contact_all_links": True, "collision_robot_links": sorted(self.collision_links)}
+                   if getattr(self, "contact_all_links", False) else {}),
                 "sim_time_s": round(sim_t, 3),
                 "wall_time_s": round(wall, 1),
                 "frames": self.frames,

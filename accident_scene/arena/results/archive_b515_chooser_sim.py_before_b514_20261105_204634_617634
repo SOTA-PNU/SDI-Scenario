@@ -1,0 +1,325 @@
+"""CPU development simulator for the B-5-15 base chooser; no Isaac or HTTP.
+
+The actual base tracker/check_motion/choose_command and frozen gate follower are
+executed unchanged. Truth is confined to synthetic delayed visible-face lidar
+and contact/goal scoring. Contacts use the measured chassis+wheel rectangle union.
+
+python3 analysis/b515_chooser_sim.py --base BASE.py --phases v1 --out OUT.json --trace-dir DIR
+python3 analysis/b515_chooser_sim.py --base BASE.py --phases standard61 --workers 6 --out OUT.json
+
+API: run(base_file, movers=None, t_max=200, seed=515, trace_path=None,
+         sensor_noise_m=.005, sensor_age_s=.1, sensor_phase=5, control_dt=1/60)
+phase_sets('v1'|'random:30:1'|'standard61') -> [(label, mover_dicts), ...].
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import hashlib
+import importlib.util
+import json
+import math
+import multiprocessing as mp
+import sys
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+
+ARENA = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ARENA))
+import arena_movers as AM
+import claude_ros_sim2d as ORIGINAL
+from b514_build_base import archive_before_write
+
+COPIED = ARENA / "results/analysis/next_step_20261030"
+_spec = importlib.util.spec_from_file_location("_b515_ext_geometry", COPIED / "ext_sweep.py")
+EXT = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(EXT)
+BODY_UNION = EXT.SHAPES["union"]
+DEFAULT_BASE = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v3.py"
+FROZEN_GATE = ARENA / "results/analysis/b515_gate_isaac/b515_gate_probe_carter_run.py"
+_PATH_CACHE = {}
+
+
+def phase_sets(spec):
+    if spec in ("standard61", "all", "60+v1"):
+        return [("v1", AM.scenario("v1"))] + [
+            (f"seed{seed}_a{i:02}", m) for seed in (1, 2)
+            for i, m in enumerate(ORIGINAL.phase_sets(f"random:30:{seed}"))]
+    return [("v1" if spec == "v1" else f"{spec.replace(':', '_')}_a{i:02}", movers)
+            for i, movers in enumerate(ORIGINAL.phase_sets(spec))]
+
+
+def load_base(base_file):
+    source = Path(base_file).read_text()
+    ns = {"np": np, "math": math, "builtins": SimpleNamespace(print=lambda *a, **k: None),
+          "print": lambda *a, **k: None}
+    exec(source[source.index("MISSION = dict("):source.index("\nSTART = ")], ns)
+    exec(source[source.index("def to_world("):source.index("# ---- 지도 기본 코드 ----")], ns)
+    exec(source[source.index("# ---- 지도 기본 코드 ----"):source.index("# ---- DBG 기록 ----")], ns)
+    ns["START"], ns["GOAL"] = ns["MISSION"]["start_xy_yaw"], ns["MISSION"]["goal_xy_yaw"]
+    sensor_box = next(n for n in ast.parse(source).body if isinstance(n, ast.Assign)
+                      and any(isinstance(t, ast.Name) and t.id == "_BASE_SELF_BOX" for t in n.targets))
+    ns["_BASE_SELF_BOX"] = ast.literal_eval(sensor_box.value)
+    gate = FROZEN_GATE.read_text()
+    functions = [n for n in ast.parse(gate).body if isinstance(n, ast.FunctionDef)
+                 and n.name in ("_probe_plan", "_probe_follow")]
+    assert len(functions) == 2, "frozen gate planner/follower unavailable"
+    for fn in functions:
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), str(FROZEN_GATE), "exec"), ns)
+    # These functions are the same source as the executed Isaac gate, not hand-selected waypoints.
+    static_key = hashlib.sha256((repr(ns["MISSION"]) + repr(ns["FIXED_OBSTACLES"]) +
+                                  repr(ns["WALLS"]) + ast.dump(ast.Module(body=functions, type_ignores=[]))).encode()).hexdigest()
+    if static_key not in _PATH_CACHE:
+        _PATH_CACHE[static_key] = ns["_probe_plan"]()
+    ns["_PROBE"] = {"path": list(_PATH_CACHE[static_key]), "i": 1, "tick": -1, "cmd": (0.0, 0.0)}
+    return ns
+
+
+def gate_command(ns, pose):
+    v, w, target = ns["_probe_follow"](pose)
+    goal = ns["GOAL"]
+    distance = math.hypot(pose[0] - goal[0], pose[1] - goal[1])
+    error = math.atan2(math.sin(goal[2] - pose[2]), math.cos(goal[2] - pose[2]))
+    aligned = distance <= 0.5 and abs(error) <= 0.1
+    if distance <= 0.5:
+        target = goal[:2]
+        v, w = 0.0, 0.0 if aligned else max(-0.4, min(0.4, 1.5 * error))
+    cv, cw, info = ns["choose_command"](v, w, target)
+    return cv, cw, aligned and cv == 0.0 and cw == 0.0, info, (v, w), target
+
+
+def _rects_at(movers, t):
+    out = []
+    for m in movers:
+        x, y = AM.position(m, t)
+        hx, hy = m["size"][0] / 2, m["size"][1] / 2
+        out.append((x - hx, x + hx, y - hy, y + hy))
+    return np.array(out, dtype=float).reshape(-1, 4)
+
+
+def _old_pose(history, t):
+    for ts, pose in reversed(history):
+        if ts <= t + 1e-10:
+            return pose
+    return history[0][1]
+
+
+def _occluded(origin, points, rects):
+    if not len(rects) or not len(points):
+        return np.zeros(len(points), dtype=bool)
+    delta = points - origin
+    reciprocal = np.divide(1.0, delta, out=np.full_like(delta, np.inf), where=np.abs(delta) > 1e-12)
+    tx1 = (rects[:, 0] - origin[0])[None, :] * reciprocal[:, 0, None]
+    tx2 = (rects[:, 1] - origin[0])[None, :] * reciprocal[:, 0, None]
+    ty1 = (rects[:, 2] - origin[1])[None, :] * reciprocal[:, 1, None]
+    ty2 = (rects[:, 3] - origin[1])[None, :] * reciprocal[:, 1, None]
+    near = np.maximum(np.minimum(tx1, tx2), np.minimum(ty1, ty2))
+    far = np.minimum(np.maximum(tx1, tx2), np.maximum(ty1, ty2))
+    return ((far >= np.maximum(near, 0.0)) & (far > 0.0) & (near < 0.9999)).any(axis=1)
+
+
+def synthetic_scan(which, pose, sample_t, movers, rects, self_box, rng, noise_m):
+    """Visible faces at delayed sensor pose, range noise, occlusion and self-point rejection.
+
+    The surface centroid naturally differs from the hidden box center by about .2 m;
+    no extra .2 m center offset is injected. Base history regression supplies velocity noise/lag.
+    """
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    mount = 0.026 if which == "front" else -0.489
+    origin = np.array([x + c * mount, y + s * mount])
+    moving = _rects_at(movers, max(0.0, sample_t))
+    groups = []
+    for i, r in enumerate(moving):
+        if math.hypot((r[0] + r[1]) / 2 - x, (r[2] + r[3]) / 2 - y) > 8.5:
+            continue
+        visible = []
+        # Visibility is determined from the ray origin; no hidden back face is provided.
+        if origin[0] < r[0]:
+            visible.append(np.column_stack((np.full(16, r[0]), np.linspace(r[2], r[3], 16))))
+        if origin[0] > r[1]:
+            visible.append(np.column_stack((np.full(16, r[1]), np.linspace(r[2], r[3], 16))))
+        if origin[1] < r[2]:
+            visible.append(np.column_stack((np.linspace(r[0], r[1], 16), np.full(16, r[2]))))
+        if origin[1] > r[3]:
+            visible.append(np.column_stack((np.linspace(r[0], r[1], 16), np.full(16, r[3]))))
+        if not visible:
+            continue
+        points = np.concatenate(visible)
+        blockers = np.concatenate((rects, np.delete(moving, i, axis=0)))
+        points = points[~_occluded(origin, points, blockers)]
+        if not len(points):
+            continue
+        rays = points - origin
+        length = np.linalg.norm(rays, axis=1)
+        points += rays / np.maximum(length[:, None], 1e-9) * rng.normal(0.0, noise_m, size=(len(points), 1))
+        groups.append(points)
+    if not groups:
+        return np.zeros((0, 2))
+    points = np.concatenate(groups)
+    dx, dy = points[:, 0] - x, points[:, 1] - y
+    rx, ry = c * dx + s * dy, -s * dx + c * dy
+    angle = np.degrees(np.arctan2(ry, rx - mount))
+    keep = np.abs(angle) <= 140 if which == "front" else np.abs(angle) >= 40
+    keep &= ~((rx >= self_box[0]) & (rx <= self_box[1]) & (ry >= self_box[2]) & (ry <= self_box[3]))
+    return np.column_stack((rx[keep], ry[keep]))
+
+
+def contacts(pose, t, movers, map_rects, walls):
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    moving = _rects_at(movers, t)
+    all_rects = np.concatenate((map_rects, moving))
+    cx, cy = (all_rects[:, 0] + all_rects[:, 1]) / 2, (all_rects[:, 2] + all_rects[:, 3]) / 2
+    hx, hy = (all_rects[:, 1] - all_rects[:, 0]) / 2, (all_rects[:, 3] - all_rects[:, 2]) / 2
+    sep = np.minimum.reduce([EXT.obb_aabb_sep(x, y, c, s, box, cx, cy, hx, hy) for box in BODY_UNION])
+    found = np.flatnonzero(sep <= 0.0)
+    if len(found):
+        idx = int(found[0])
+        return "map" if idx < len(map_rects) else movers[idx - len(map_rects)]["name"]
+    for box in BODY_UNION:
+        for bx, by in ((box[0], box[2]), (box[1], box[2]), (box[1], box[3]), (box[0], box[3])):
+            wx, wy = x + c * bx - s * by, y + s * bx + c * by
+            if wx <= walls[0] or wx >= walls[1] or wy <= walls[2] or wy >= walls[3]:
+                return "wall"
+    return None
+
+
+def run(base_file=DEFAULT_BASE, movers=None, t_max=200.0, seed=515, trace_path=None,
+        sensor_noise_m=0.005, sensor_age_s=0.1, sensor_phase=5, control_dt=1 / 60):
+    started = time.perf_counter()
+    movers = AM.scenario("v1") if movers is None else movers
+    ns = load_base(base_file)
+    map_rects, walls = ns["map_rects"](), ns["WALLS"]
+    pose = tuple(ns["START"])
+    scans = {"front": np.zeros((0, 2)), "back": np.zeros((0, 2))}
+    ns["lidar2d_points"] = lambda which="front": scans[which]
+    history, va, wa, goal_t = [], 0.0, 0.0, None
+    timings, chosen_counts = [], {}
+    rng = np.random.default_rng(seed)
+    trace = None
+    if trace_path:
+        trace_path = Path(trace_path)
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        archive_before_write(trace_path)
+        trace = trace_path.open("w")
+    result = {"verdict": "timeout", "hit": None, "t": t_max}
+    max_start_distance = 0.0
+    last_info = None
+    try:
+        for k in range(int(math.ceil(t_max / control_dt)) + 1):
+            t = k * control_dt
+            history.append((t, pose))
+            if len(history) > 120:
+                history.pop(0)
+            ns["_BASE_POSES"].append((t, *pose))
+            while ns["_BASE_POSES"] and t - ns["_BASE_POSES"][0][0] > 1.0:
+                ns["_BASE_POSES"].pop(0)
+            if k % 6 == sensor_phase:
+                old = _old_pose(history, t - sensor_age_s)
+                for which in scans:
+                    scans[which] = synthetic_scan(which, old, t - sensor_age_s, movers, map_rects,
+                                                   ns["_BASE_SELF_BOX"], rng, sensor_noise_m)
+            ns["_base_track_step"](t)
+            before = time.perf_counter_ns()
+            cv, cw, done, info, nominal, target = gate_command(ns, pose)
+            timings.append((time.perf_counter_ns() - before) / 1e6)
+            chosen_counts[info["chosen"]] = chosen_counts.get(info["chosen"], 0) + 1
+            last_info = info
+            distance = math.hypot(pose[0] - ns["GOAL"][0], pose[1] - ns["GOAL"][1])
+            if goal_t is None and distance <= 0.75:
+                goal_t = t
+            if trace and (k % 6 == 0 or done):
+                trace.write(json.dumps({"t": t, "pose": pose, "nominal": nominal, "target_xy": target,
+                                        "command": [cv, cw], "actual_velocity": [va, wa], "info": info,
+                                        "objects": ns["observed_objects"](), "choose_ms": timings[-1], "done": done}) + "\n")
+            if done:
+                result = {"verdict": "pass", "t": t, "hit": None}
+                break
+            if t >= t_max:
+                break
+            # Same semi-implicit update and measured acceleration limits as ext_sweep --motion ratelimit.
+            va += max(-2.0 * control_dt, min(2.0 * control_dt, cv - va))
+            wa += max(-2.68 * control_dt, min(2.68 * control_dt, cw - wa))
+            yaw = pose[2] + wa * control_dt
+            pose = (pose[0] + va * math.cos(yaw) * control_dt,
+                    pose[1] + va * math.sin(yaw) * control_dt, yaw)
+            max_start_distance = max(max_start_distance, math.hypot(pose[0] - ns["START"][0], pose[1] - ns["START"][1]))
+            hit = contacts(pose, t + control_dt, movers, map_rects, walls)
+            if hit:
+                result = {"verdict": "collision", "t": t + control_dt, "hit": hit}
+                break
+    except Exception as exc:
+        result = {"verdict": "error", "t": t, "hit": None, "error": repr(exc)}
+    finally:
+        if trace:
+            trace.close()
+    result.update(pose=list(pose), time_to_goal_s=goal_t,
+                  final_goal_distance=math.hypot(pose[0] - ns["GOAL"][0], pose[1] - ns["GOAL"][1]),
+                  max_start_distance=max_start_distance, chosen_counts=chosen_counts,
+                  median_choose_ms=float(np.median(timings)) if timings else None,
+                  chooser_calls=len(timings), wall_s=time.perf_counter() - started,
+                  base_sha16=hashlib.sha256(Path(base_file).read_bytes()).hexdigest()[:16],
+                  trace=str(trace_path) if trace_path else None,
+                  phases=[m["phase"] for m in movers], last_choice=last_info["chosen"] if last_info else None)
+    return result
+
+
+def _job(args):
+    label, base, movers, kwargs = args
+    result = run(base, movers, **kwargs)
+    result["label"] = label
+    return result
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--base", type=Path, default=DEFAULT_BASE)
+    ap.add_argument("--phases", default="standard61")
+    ap.add_argument("--workers", type=int, default=1)
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--trace-dir", type=Path)
+    ap.add_argument("--t-max", type=float, default=200.0)
+    ap.add_argument("--sensor-noise", type=float, default=0.005)
+    ap.add_argument("--sensor-age", type=float, default=0.1)
+    ap.add_argument("--sensor-phase", type=int, default=5)
+    args = ap.parse_args()
+    configs = phase_sets(args.phases)
+    jobs = [(label, args.base, movers, dict(t_max=args.t_max, seed=515 + i,
+             sensor_noise_m=args.sensor_noise, sensor_age_s=args.sensor_age, sensor_phase=args.sensor_phase,
+             trace_path=args.trace_dir / f"{label}.jsonl" if args.trace_dir else None))
+            for i, (label, movers) in enumerate(configs)]
+    if args.workers > 1:
+        with mp.Pool(args.workers) as pool:
+            results = list(pool.imap(_job, jobs))
+    else:
+        results = [_job(job) for job in jobs]
+    random = [r for r in results if r["label"] != "v1"]
+    baseline = next((r for r in results if r["label"] == "v1"), None)
+    report = {"base_file": str(args.base), "base_sha16": hashlib.sha256(args.base.read_bytes()).hexdigest()[:16],
+              "phases": args.phases, "random_passed": sum(r["verdict"] == "pass" for r in random),
+              "random_total": len(random), "v1_pass": baseline["verdict"] == "pass" if baseline else None,
+              "v3_reproduces_M1_9_to_10_s": bool(baseline and baseline["hit"] == "start_zone" and 9 <= baseline["t"] <= 10),
+              "configuration": {"physics_dt": 1 / 60, "accel_v": 2.0, "accel_w": 2.68,
+                  "sensor_dt": 0.1, "sensor_age_s": args.sensor_age, "sensor_phase_frame": args.sensor_phase,
+                  "range_noise_std_m": args.sensor_noise, "velocity_model": "actual base .8s centroid regression",
+                  "center_bias": "arises from visible faces, no extra center noise offset",
+                  "contact_shape": BODY_UNION, "t_max": args.t_max,
+                  "follower_source": str(FROZEN_GATE)},
+              "limitations": ["No contact dynamics, wheel slip, rolling scan distortion, or static false-positive lidar returns.",
+                  "Synthetic surface density and ray noise approximate the observed scans; simulation pass is not Isaac pass."],
+              "results": results}
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    archive_before_write(args.out)
+    args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    for r in results:
+        print(r["label"], r["verdict"], f"t={r['t']:.3f}", r["hit"], f"wall={r['wall_s']:.2f}s", flush=True)
+    print(f"random {report['random_passed']}/{report['random_total']} v1={report['v1_pass']}", flush=True)
+    return 0 if all(r["verdict"] != "error" for r in results) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

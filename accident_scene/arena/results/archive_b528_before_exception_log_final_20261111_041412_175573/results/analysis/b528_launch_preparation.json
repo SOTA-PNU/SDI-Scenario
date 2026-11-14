@@ -1,0 +1,90 @@
+{
+  "task": 30,
+  "experiment_preparation": 54,
+  "created": "2026-11-11T04:09:42.676619+09:00",
+  "execution": "Required CPU gate and isolated shell branch mocks only; no real GPU, Isaac, HTTP, model, agent_loop, or host process query.",
+  "source_sha256": {
+    "run_b528_gpu_steps.sh": "66e5318458982f9db5a6ff0f25e6d6bd4296252ca4fdf77f767dbdf1dae8b6d5",
+    "run_b528_sequential.sh": "6b1506377eba1f0dd2ca64b9822567ee010bedea8b2e9de5720131e5a5083360",
+    "analysis/b528_gate_isaac.py": "548b1a4e8b70adeda79d9c37a755884e59ce2b039c37dfef2a883f7925d2f12f",
+    "analysis/b528_runner_check.py": "fbea96a148d0cf8205bf079fc0901737259d84072c55572ef15d21b35ef1e2d2",
+    "base_carter_run_ros_map_lidartime_objects_check_v16.py": "12662ccd0817cc0a7b68f3e0327b803a982d9db0eb4c40c5a120552e06be819f",
+    "analysis/b528_reference.py": "f791af3ba23bd301e2ba752f660a00d4ef0a962fed692f80f7e0e3708655f56a",
+    "PROMPT_B5_28.md": "aebb0a96c06e9023cf4e18f81bccc16eaf7d828c184cf56234f637d22ba016b7"
+  },
+  "base_file": "base_carter_run_ros_map_lidartime_objects_check_v16.py",
+  "reference_file": "analysis/b528_reference.py",
+  "prompt_file_chars": 11887,
+  "prompt_sha16": "5e4ffb508906cca9",
+  "prompt_chars": 96021,
+  "prompt_hash_scope": "prompt_sha16/prompt_chars refer to actual A.model_input; prompt file hash separately recorded above.",
+  "gate_control": "Actual v16 _robot_only and _base_control_loop with exact reference hooks; audit wrapper preserves chooser return.",
+  "gate_criteria": {
+    "collision_count": 0,
+    "execution_errors": 0,
+    "median_choose_ms_max": 3,
+    "sim_seconds": 200,
+    "goal_required": false,
+    "early_finish_requires_legitimate_goal": true
+  },
+  "predecessor_wait_removed": true,
+  "gpu_stage_order": [
+    "independent active agent check",
+    "model readiness <=1800s",
+    "full base/reference SHA check",
+    "one locked gate with fresh UUID",
+    "rc0+PASS+matching UUID/source metadata",
+    "a0,a1 then a2,a3 iff both submitted grades pass"
+  ],
+  "output_contract": {
+    "directory": "results/turns/prompt_b5_28",
+    "tag": "gpu_gpt_oss_120b_pB528",
+    "prompt_file": "PROMPT_B5_28.md"
+  },
+  "no_overwrite": true,
+  "prior_B527_source_sha256": {
+    "run_b527_gpu_steps.sh": "712e029ca3d1649f49d94e1f30775fafb27b557b354059c81ef6400a865815c4",
+    "run_b527_sequential.sh": "b30dd3a63a17628543c5ce0ed8dfe48ec6c62f1ddc56e06e9975d4b27a504d32",
+    "analysis/b527_gate_isaac.py": "d03da62567f5a2b80b7a569ac7c46e837bf2ddc51d87a2a82d173808a86c0b7b",
+    "analysis/b527_runner_check.py": "52fa8da821b2ae46af670289289c3dd31a180560557d10924624303d1f0858d9",
+    "base_carter_run_ros_map_lidartime_objects_check_v15.py": "fc4f6d17c9423f383364423d4ea2f5e9da13c8376588b45400dd8850402f0924",
+    "analysis/b527_reference.py": "f791af3ba23bd301e2ba752f660a00d4ef0a962fed692f80f7e0e3708655f56a",
+    "PROMPT_B5_27.md": "c97659adfdd1d07c1bee0fe4798719f5aaab09291937db62d2ee2d95d0bbdca7"
+  },
+  "prior_B527_sources_unchanged": {
+    "run_b527_gpu_steps.sh": true,
+    "run_b527_sequential.sh": true,
+    "analysis/b527_gate_isaac.py": true,
+    "analysis/b527_runner_check.py": true,
+    "base_carter_run_ros_map_lidartime_objects_check_v15.py": true,
+    "analysis/b527_reference.py": true,
+    "PROMPT_B5_27.md": true
+  },
+  "new_actual_runtime_artifacts_absent": {
+    "results/analysis/b528_gate_isaac": true,
+    "results/turns/prompt_b5_28": true,
+    "b528_gate_probe_carter_run.py": true
+  },
+  "validation": {
+    "gate": {
+      "passed": 29,
+      "total": 29,
+      "artifact": "results/analysis/b528_gate_selftest.json",
+      "sha256": "56154512062e9a1709970a441a3839e21172471cfd4bd8585632a0d4b412bd76"
+    },
+    "runner": {
+      "passed": 143,
+      "total": 143,
+      "artifact": "results/analysis/b528_runner_check.json",
+      "sha256": "8aefb4f421ebbec7a6308f9a99f4f8f08fb99c9a08d1cad80ed16119b37f32d7"
+    }
+  },
+  "previous_experiments_evidence": {
+    "artifact": "results/analysis/b527_results_evidence.json",
+    "sha256": "04282df0320e651af076f19196ae923020d1aca6337b832cd4183e7fd8775e3f",
+    "B526": "Stopped incomplete after five failed tests",
+    "B527": "Three of four submitted samples passed; a3 failed both turns"
+  },
+  "archive_policy": "New operational files separate; drafts archived before changes; gate selftest archives previous output before rerun on final base.",
+  "launch_cmd": "bash /home/jun/SDI-Scenario/accident_scene/arena/run_b528_gpu_steps.sh"
+}

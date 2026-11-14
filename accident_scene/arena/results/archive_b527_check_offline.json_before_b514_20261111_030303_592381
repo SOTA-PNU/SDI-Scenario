@@ -1,0 +1,184 @@
+{
+  "verdict": "fail",
+  "passed": 18,
+  "total": 19,
+  "base_sha256": "fc4f6d17c9423f383364423d4ea2f5e9da13c8376588b45400dd8850402f0924",
+  "base_sha16": "fc4f6d17c9423f38",
+  "checks": {
+    "fixed_v14_builder_reproduces_v15": {
+      "pass": true
+    },
+    "only_three_existing_functions_changed_no_search_added": {
+      "pass": true,
+      "changed": [
+        "_base_control_loop",
+        "_base_loop_note_plan_summary",
+        "occupancy_grid"
+      ]
+    },
+    "harness_robot_dispatch_and_public_geometry_identical": {
+      "pass": true
+    },
+    "one_common_chooser_callsite": {
+      "pass": true
+    },
+    "cached_grid_v14_geometry_parity_and_owned_mutation_safe_copy": {
+      "pass": true,
+      "timings": [
+        {
+          "clearance_m": 0.5,
+          "res": 0.5,
+          "cold_ms": 3.304523997940123,
+          "cached_copy_ms": 0.005862035322934389
+        },
+        {
+          "clearance_m": 0.35,
+          "res": 0.1,
+          "cold_ms": 36.81498300284147,
+          "cached_copy_ms": 0.009490991942584515
+        },
+        {
+          "clearance_m": 0.0,
+          "res": 0.5,
+          "cold_ms": 1.2817619717679918,
+          "cached_copy_ms": 0.004408997483551502
+        }
+      ]
+    },
+    "all_cached_arrays_are_readonly": {
+      "pass": true
+    },
+    "cache_hit_does_not_recompute_map_clearance": {
+      "pass": true
+    },
+    "argument_keys_and_sixteen_entry_fifo_bound": {
+      "pass": false,
+      "count": 16
+    },
+    "failed_batches_back_off_10_20_40_60_capped_even_map_stop": {
+      "pass": true,
+      "schedules": [
+        {
+          "t": 0.0,
+          "next_retry": 10.0,
+          "fail_streak": 1
+        },
+        {
+          "t": 10.0,
+          "next_retry": 30.0,
+          "fail_streak": 2
+        },
+        {
+          "t": 30.0,
+          "next_retry": 70.0,
+          "fail_streak": 3
+        },
+        {
+          "t": 70.0,
+          "next_retry": 130.0,
+          "fail_streak": 4
+        },
+        {
+          "t": 130.0,
+          "next_retry": 190.0,
+          "fail_streak": 5
+        },
+        {
+          "t": 190.0,
+          "next_retry": 250.0,
+          "fail_streak": 6
+        }
+      ],
+      "calls": 24
+    },
+    "same_rejection_repeats_only_one_summary_per_batch": {
+      "pass": true,
+      "reason_lines": 1,
+      "summary_lines": 6
+    },
+    "summary_240_prefix_retains_status_all_clearances_and_times": {
+      "pass": true,
+      "example": "DBG plan_summary t=0.00 status=no_path attempts=0.50:empty_path|0.45:empty_path|0.40:empty_path|0.35:empty_path ms=0.001469/0.00105/0.000541/0.000313 batch_ms=0.02114 repeat=1 adopted_clearance=None path_points=0 next_retry=10.0 details=[{\""
+    },
+    "finite_hook_times_and_batch_includes_validation": {
+      "pass": true,
+      "last_summary": {
+        "status": "no_path",
+        "adopted_clearance": null,
+        "path_points": 0,
+        "next_retry": 250.0,
+        "attempts": [
+          {
+            "c": 0.5,
+            "accepted": false,
+            "reason": "empty_path",
+            "plan_ms": 0.00031903618946671486,
+            "segment": null,
+            "min_gap": null,
+            "margin": null,
+            "segment_points": null
+          },
+          {
+            "c": 0.45,
+            "accepted": false,
+            "reason": "empty_path",
+            "plan_ms": 0.0002750311978161335,
+            "segment": null,
+            "min_gap": null,
+            "margin": null,
+            "segment_points": null
+          },
+          {
+            "c": 0.4,
+            "accepted": false,
+            "reason": "empty_path",
+            "plan_ms": 0.00019400613382458687,
+            "segment": null,
+            "min_gap": null,
+            "margin": null,
+            "segment_points": null
+          },
+          {
+            "c": 0.35,
+            "accepted": false,
+            "reason": "empty_path",
+            "plan_ms": 0.00019103754311800003,
+            "segment": null,
+            "min_gap": null,
+            "margin": null,
+            "segment_points": null
+          }
+        ],
+        "batch_ms": 0.007203023415058851,
+        "repeat_count": 6,
+        "fail_streak": 6
+      }
+    },
+    "accepted_path_resets_failure_streak_and_next_retry": {
+      "pass": true
+    },
+    "time_reversal_resets_retry_and_repetition_state": {
+      "pass": true
+    },
+    "failed_retained_path_has_no_new_no_path_backoff": {
+      "pass": true
+    },
+    "retained_path_map_stop_still_queues_after_ten_then_next_tick": {
+      "pass": true
+    },
+    "hook_exception_times_all_four_clearances_and_clears_context": {
+      "pass": true
+    },
+    "public_validate_plan_remains_state_and_log_pure": {
+      "pass": true
+    },
+    "saved_original_model_rejections_unchanged_all_ten_calls": {
+      "pass": true,
+      "cases": 10
+    }
+  },
+  "limits": [
+    "Only focused cache/timing/retry checks plus unchanged-source invariants; no repeated large regression or performance bundle.",
+    "Wall timings are diagnostic CPU observations, not Isaac timings; grid caching does not fix the original model search algorithm."
+  ]
+}

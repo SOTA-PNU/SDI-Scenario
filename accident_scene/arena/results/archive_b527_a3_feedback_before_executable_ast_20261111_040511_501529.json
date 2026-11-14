@@ -1,0 +1,28 @@
+{
+  "source_sha256": {
+    "results/turns/prompt_b5_27/gpu_gpt_oss_120b_pB527_a3_c02_request.json": "cca4911d4a5984dbfe0610d099ca0eea94cd4fb8ca555ad3a4ea2a588d75a122",
+    "results/turns/prompt_b5_27/gpu_gpt_oss_120b_pB527_a3_c03_request.json": "f258a66a33515f1c2e3a0603fac035c283cea835ecadebd8c45b5101989ed59c",
+    "results/turns/prompt_b5_27/gpu_gpt_oss_120b_pB527_a3_c02_raw.json": "638f47ca3101beecf90d9e1026e9da661f22bffb6d5a56c59b6ac56e8583ecf8",
+    "results/turns/prompt_b5_27/gpu_gpt_oss_120b_pB527_a3_c03_raw.json": "99345e6d99dbfe3352dc1e5dd76ce0b446ba938935521d4b8cd5e68ec5cd274d",
+    "results/turns/prompt_b5_27/gpu_gpt_oss_120b_pB527_a3_c02_tool1.json": "8b83b56dae6422bffc963a9da654762d91eb90e733bc16bfda7f5fabe43adfd8",
+    "results/turns/prompt_b5_27/isaac_logs/gpu_gpt_oss_120b_pB527_a3_t2_test01_carter_run.py": "45b0ad17c7eb738e8341644be1ff6763b0e70b18a05d58f9ee6bf5055b3e74ce",
+    "results/turns/prompt_b5_27/isaac_logs/gpu_gpt_oss_120b_pB527_a3_t2_carter_run.py": "f24164cf607379e0550a7e405442770156be4f818d5cfddb6f451f33c2e6383d"
+  },
+  "turn1_grade_feedback_has_DBG": false,
+  "turn2_model_reasoning_summary": "Before test feedback, model speculated blocked/coarse endpoint cells or failed search and added 0.25 m fallback; simplifier still overwrites its only point.",
+  "turn2_reasoning_fragments": [
+    "But failure indicates robot never moved: final pose near start. Likely planning never succeeded, so path stayed None, causing no forward target, causing checked_zero and robot stays. Why plan_path returned None? Possibly because start or goal cells are blocked due to clearance. Need to check occupancy_grid: clearance_m passed from base attempts: first 0.5. The grid marks cells occupied if distance < need - 1e-12, where need = half_width + max(0, clearance - half_width). For clearance 0.5, half_width 0.25, need = 0.25 + (0.5-0.25)=0.5. So cells whose center clearance <0.5 are blocked. Might block many cells near obstacles and walls. Start at (-9.0,-10.8). Need to see if that cell is blocked. Likely yes because near wall at -10.30 x min, -12.15 y min. Start is near wall but maybe still free. However goal may be blocked? Goal (8,16.5). Might be near wall at x max 9.35, y max 17.95, likely free.",
+    "We can modify plan_path to try two resolutions: first 0.5, then 0.25 if fails."
+  ],
+  "tool_feedback_plan_lines": [
+    "DBG plan_reject t=0.00 reason=invalid_path clearance=0.50 start_gap=None goal_gap=None segment=None min_gap=None margin=None error=None",
+    "DBG plan_summary t=0.00 status=no_path attempts=0.50:invalid_path|0.45:invalid_path|0.40:invalid_path|0.35:invalid_path ms=252.6/233.2/216.3/224.3 batch_ms=926.4 repeat=1 adopted_clearance=None path_points=0 next_retry=10.0 details=[{\"c\":0.",
+    "DBG plan_summary t=10.00 status=no_path attempts=0.50:invalid_path|0.45:invalid_path|0.40:invalid_path|0.35:invalid_path ms=257.6/238.1/221.4/229.5 batch_ms=946.6 repeat=2 adopted_clearance=None path_points=0 next_retry=30.000000521540642 d"
+  ],
+  "tool_feedback_omitted_lines": 1130,
+  "sim_seconds_argument_present": false,
+  "effective_sim_seconds": 600.0,
+  "post_test_reasoning": null,
+  "test_submission_function_AST_equal": false,
+  "limits": "No post-test reasoning text was recorded; cannot assert an internal reason for resubmitting the failure. Point count/stage absent from v15 generic invalid_path diagnostic."
+}

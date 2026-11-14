@@ -1,0 +1,115 @@
+"""B-5-18: checked map routes, explicit goal completion, exact tested submission."""
+from datetime import datetime
+from pathlib import Path
+import shutil
+
+import b517_build_prompt as PREV
+from b515_build_prompt import replace_once
+
+ARENA = Path(__file__).resolve().parents[1]
+SRC = ARENA / "PROMPT_B5_17.md"
+OUT = ARENA / "PROMPT_B5_18.md"
+BASE = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v7.py"
+TITLE = "# ARENA 미션 프롬프트 B-5-18 (B-5-17 에 경로 여유 검사 함수, 목표 마무리, 통과 코드 그대로 제출을 더함)"
+CALL_EXAMPLE, FIRST_ACTION = PREV.CALL_EXAMPLE, PREV.FIRST_ACTION
+base_config, escape_config, motion_doc = PREV.base_config, PREV.escape_config, PREV.motion_doc
+INPUT_DOC, ROUTE_DOC = PREV.INPUT_DOC, PREV.ROUTE_DOC
+
+PATH_DOC = '''- 경로의 중심은 지도 물체에서 몸체 반폭 0.25 m 에 검사 여유 0.2 m 와 0.05 m 를 더한
+  **0.5 m 이상** 떨어져야 합니다. 단순화까지 마친 경로를 `check_path(points)` 로 검사하십시오. `points` 에는
+  출발 위치 또는 재계획하는 현재 위치부터 `GOAL` 까지의 모든 경로점을 순서대로 넣습니다.
+  반환한 `min_gap_map` 이 0.25 m 이상이고 `first_bad_segment is None` 인 경로만 따릅니다. 이 값은 중심 거리에서
+  몸체 반폭 0.25 m 를 이미 뺀 값이므로 중심의 지도 거리 0.5 m 와 구분하십시오. 모자라면 탐색의 지도 여유를 늘려
+  경로를 다시 계산하고 검사합니다. 손으로 고른 점으로 메우거나, 검사 실패를 출력만 하고 그 경로를 따라가지 않습니다.
+'''
+PATH_API_DOC = '''- 경로 검사 함수 `check_path(points, margin_m=0.25)` 는 2차원 꺾은선 경로를 각 구간의 끝점을 포함해
+  0.1 m 이하 간격으로 검사합니다. 반환은 `min_gap_map`(중심의 지도 거리에서 몸체 반폭 0.25 m 를 뺀 최솟값),
+  `min_location`(그 최솟값의 월드 좌표), `first_bad_segment`(간격이 `margin_m` 보다 작은 첫 구간의 0부터 센 번호,
+  없으면 None), `margin_m`, `sampling_step_m=0.1` 입니다. 경계 비교에는 1e-12 m 의 수치 오차를 허용합니다.
+  기본 `margin_m=0.25` 는 검사 여유 0.2 m 에 0.05 m 를 더한 값입니다. `points` 는 유한한 (x, y) 점이 둘 이상인
+  배열이며 중복점도 검사합니다. 잘못된 점이나 음수·비유한 여유는 ValueError 입니다.
+  이것은 지도 경로의 폭을 검사하는 함수입니다. 실제 방향에 따른 몸체 앞뒤와 회전, 관측 물체의 위험은 매 제어 주기에
+  `choose_command()` 가 검사하므로, 경로 검사가 통과해도 명령 선택을 건너뛰지 않습니다.
+'''
+BLOCKED_DOC = '''  follow 가 지도 여유를 지키지 못하고 stop 을 10 s 넘게 연속 선택하면, base 는 10 s 마다 별도 DBG 한 줄
+  `follow 가 지도에 막힘: 경로 여유 부족` 을 남깁니다. 이 줄이 보이면 경로 여유가 부족하다는 뜻이므로 현재 자세에서
+  지도의 여유를 늘려 경로를 다시 계산하고 `check_path()` 로 검사하십시오. 이 경고도 모델의 추가 DBG 제한과 별도로 남습니다.
+'''
+GOAL_DOC = '''- 경로 위 앞쪽 목표점의 거리와 별개로, 매 호출 실제 목표 거리 `d_goal = hypot(GOAL[0]-x, GOAL[1]-y)` 와
+  목표 방향 오차 `e_yaw = wrap(GOAL[2]-yaw)` 를 계산합니다. `d_goal <= 0.5` m 이면 경로 추종 대신 목표 방향 정렬을
+  요청합니다. `|e_yaw| > 0.15` rad 이면 `choose_command(0.0, clamp(1.5*e_yaw, -0.4, 0.4), GOAL[:2])` 를 부르고
+  반환한 `(v, w)` 와 `done=False` 를 그대로 냅니다. 이 정렬 명령도 회피가 필요하면 chooser 가 바꿀 수 있습니다.
+- `d_goal <= 0.5` m 이고 `|e_yaw| <= 0.15` rad 이면 `choose_command(0.0, 0.0, GOAL[:2])` 를 부릅니다.
+  반환한 `(v, w)` 가 모두 0 일 때만 그 명령과 `done=True` 를 반환해 미션을 끝냅니다. 그 밖에는 선택된 명령과
+  `done=False` 를 반환하고 위치와 정렬을 다시 확인합니다. `d_goal > 0.5` m 로 벗어나면 경로 추종으로 다시 다가갑니다.
+  이 완료 기준 0.5 m 와 0.15 rad 는 성공 조건의 0.75 m 와 0.26 rad 안에 있습니다.
+'''
+SUBMISSION_DOC = '''시험 주행에서 pass 를 확인했으면 그 시험의 `code` 에 보낸 수정 영역을 한 글자도 바꾸지 않고
+이를 Python 코드 블록 하나에 담아 답하십시오. 설명, 주석, 정리 작업을 이유로도 코드를 다시 쓰지 않습니다.
+통과 뒤 코드를 고치고 싶으면 바꾼 코드를 다시 시험하여 pass 를 확인한 것만 제출하십시오.
+base 전문이나 설명만 낸 답은 요구 형식이 아닙니다.
+'''
+
+
+def chooser_doc(config, escape):
+    return PREV.chooser_doc(config, escape) + BLOCKED_DOC
+
+
+def build(src, base=None):
+    base = BASE.read_text() if base is None else base
+    config, escape = base_config(base), escape_config(base)
+    src = replace_once(src, src.splitlines()[0], TITLE)
+    src = replace_once(src, "## 추종 방법 (이 값으로 통과를 확인했습니다)", "## 추종 방법과 목표 마무리")
+    src = replace_once(src,
+        "- 로봇이 지날 경로는 점뿐 아니라 **점 사이의 직선 구간 전체**가 장애물에서 떨어져 있어야 합니다.\n",
+        "- 로봇이 지날 경로는 점뿐 아니라 **점 사이의 직선 구간 전체**가 장애물에서 떨어져 있어야 합니다.\n" + PATH_DOC)
+    src = replace_once(src,
+        "| `segment_clearance(p, q)` | 두 점 사이 직선 구간에서 `map_clearance` 의 최솟값 [m] |\n",
+        "| `segment_clearance(p, q)` | 두 점 사이 직선 구간에서 `map_clearance` 의 최솟값 [m] |\n"
+        "| `check_path(points, margin_m=0.25)` | 꺾은선의 몸체 반폭 보정 지도 간격 최솟값, 그 위치, 여유가 부족한 첫 구간 |\n")
+    src = replace_once(src,
+        "| `unmapped_points(points_world, margin)` | 월드 좌표 점 가운데 지도 물체와 벽에서 `margin` [m] 넘게 떨어진 점, 곧 지도에 없는 물체의 점만 돌려줍니다 |\n",
+        "| `unmapped_points(points_world, margin)` | 월드 좌표 점 가운데 지도 물체와 벽에서 `margin` [m] 넘게 떨어진 점, 곧 지도에 없는 물체의 점만 돌려줍니다 |\n\n" + PATH_API_DOC)
+    src = replace_once(src,
+        "  그 구간의 두 끝점을 넣습니다. 경로를 찾지 못했으면 그 사실과 이유를 찍습니다. 첫 0.5 s 에는 추가 DBG 열 줄까지 남습니다.",
+        "  그 구간의 두 끝점과 `check_path()` 의 `min_gap_map`, `min_location`, `first_bad_segment` 를 넣습니다.\n"
+        "  경로를 찾지 못했으면 그 사실과 이유를 찍습니다. 첫 0.5 s 에는 추가 DBG 열 줄까지 남습니다.")
+    start = src.index("- 마지막 경유점(`GOAL`)에서 `dist < 0.25`")
+    end = src.index("- 명령은 ROS 2", start)
+    src = src[:start] + GOAL_DOC + src[end:]
+    start = src.index("- 명령 선택 함수 `choose_command(")
+    end = src.index("\n## 지금까지의 주행에서 알게 된 것\n", start)
+    src = src[:start] + chooser_doc(config, escape) + src[end:]
+    src = replace_once(src,
+        "0.5 s 에 한 줄씩 남습니다. 합친 출력의 처음 40줄과 마지막 40줄만 돌아오므로, 볼 수 있는 시간 폭은 추가 줄 수에 따라 달라집니다.",
+        "0.5 s 에 한 줄씩 남고, 지도 막힘이 10 s 넘게 이어지는 경고는 10 s 마다 별도로 남습니다.\n"
+        "합친 출력의 처음 40줄과 마지막 40줄만 돌아오므로, 볼 수 있는 시간 폭은 추가 줄 수에 따라 달라집니다.")
+    src = replace_once(src,
+        "  `choose_command()` 자동 DBG 는 별도로 0.5 s 에 한 줄을 남깁니다.",
+        "  `choose_command()` 자동 DBG 는 별도로 0.5 s 에 한 줄, 10 s 넘게 이어지는 지도 막힘 경고는 10 s 마다 남깁니다.")
+    src = replace_once(src,
+        "  추가 DBG 는 일반 기록 제한으로 0.5 s 에 한 줄, 자동 DBG 는 그 제한과 별도로 0.5 s 에 한 줄을 남깁니다.",
+        "  추가 DBG 는 일반 기록 제한으로 0.5 s 에 한 줄, 자동 선택 DBG 는 그 제한과 별도로 0.5 s 에 한 줄을 남깁니다.\n"
+        "  지도 막힘이 10 s 넘게 이어지면 그 경고도 10 s 마다 별도로 남깁니다.")
+    src = replace_once(src,
+        "시험 주행에서 pass 를 확인했으면 도구를 더 부르지 말고, 그 시험의 `code` 에 보낸 수정 영역을\n"
+        "한 글자도 바꾸지 않고 ```python 코드 블록 하나에 담아 답하십시오. base 전문이나 설명만 낸 답은 요구 형식이 아닙니다.\n",
+        SUBMISSION_DOC)
+    src = replace_once(src,
+        "   ```python 코드 블록 하나에 담아 답하십시오. pass 를 받기 전에는 답을 내지 말고 계속 시험하십시오.\n",
+        "   Python 코드 블록 하나에 담아 답하십시오. 통과 뒤 바꾸려면 다시 시험해 통과한 코드만 제출합니다.\n"
+        "   pass 를 받기 전에는 답을 내지 말고 계속 시험하십시오.\n")
+    return src
+
+
+def archive_write(path, text):
+    if path.exists():
+        if path.read_text() == text:
+            return
+        shutil.copy2(path, ARENA / "results" / f"archive_{path.name}_before_b518_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    path.write_text(text)
+
+
+if __name__ == "__main__":
+    archive_write(OUT, build(SRC.read_text()))
+    print("wrote", OUT)

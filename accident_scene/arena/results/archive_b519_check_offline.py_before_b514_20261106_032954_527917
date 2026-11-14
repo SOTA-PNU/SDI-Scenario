@@ -1,0 +1,274 @@
+"""B519 split-horizon checks; CPU geometry/fixtures only, no simulator launch."""
+import ast
+import copy
+import hashlib
+import inspect
+import json
+import math
+import time
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+
+import b519_build_base as BUILDER
+from b514_build_base import archive_before_write
+from b515_check_offline import load_ns, object_fixture, safe_json, seed
+
+ARENA = Path(__file__).resolve().parents[1]
+BASE = BUILDER.OUT
+V7 = BUILDER.SRC
+OUT = ARENA / "results/analysis/b519_check_offline.json"
+
+
+def space(objects=(), base=BASE, rect=(50., 51., 50., 51.)):
+    ns = load_ns(base)
+    ns["WALLS"] = (-100., 100., -100., 100.)
+    ns["_MAP_RECTS"][:] = [np.array([rect])]
+    seed(ns, objects, pose=(0., 0., 0.), now=10.)
+    return ns
+
+
+def run():
+    checks, examples = {}, {}
+
+    def record(name, passed, **details):
+        checks[name] = {"pass": bool(passed), **details}
+
+    source, old_source = BASE.read_text(), V7.read_text()
+    record("builder_reproduces_base", BUILDER.build(old_source) == source)
+    nodes = lambda s: {n.name: n for n in ast.parse(s).body if isinstance(n, ast.FunctionDef)}
+    new_nodes, old_nodes = nodes(source), nodes(old_source)
+    additions = {"_base_map_horizon", "_base_check_motion"}
+    unchanged = set(new_nodes) == set(old_nodes) | additions
+    unchanged &= all(ast.dump(old_nodes[n], include_attributes=False) == ast.dump(new_nodes[n], include_attributes=False)
+                     for n in old_nodes if n not in {"check_motion", "choose_command"})
+    record("all_other_functions_preserved", unchanged)
+    record("public_motion_signature_preserved", ast.dump(new_nodes["check_motion"].args) == ast.dump(old_nodes["check_motion"].args)
+           and ast.dump(new_nodes["check_motion"].returns) == ast.dump(old_nodes["check_motion"].returns))
+    object_block = lambda text: text[text.index("    objects = observed_objects()", text.index("def check_motion")):
+                                   text.index("    perimeter = _BASE_BODY_PERIMETER", text.index("def check_motion"))]
+    original_object_block = object_block(old_source)
+    new_object_block = object_block(source).split("    # Object prediction, uncertainty")[0]
+    record("object_geometry_uncertainty_block_unchanged", new_object_block == original_object_block,
+           block_sha16=hashlib.sha256(original_object_block.encode()).hexdigest()[:16])
+
+    old, new = load_ns(V7), load_ns(BASE)
+    record("configuration_and_body_unchanged", all(old[k] == new[k] for k in
+           ("_BASE_BODY_BOX", "_BASE_MOTION_UNCERTAINTY", "_BASE_ESCAPE_CONFIG")))
+    cases = [(0., 0., 3., .8), (.3, .4, 3., .8), (1., .4, 3., 1.),
+             (-.2, 0., 3., .8), (2., 0., 3., 1.5), (0., 5., 3., .5+5./2.68),
+             (1., .4, .35, .35), (1., .4, 0., 0.)]
+    formula_ok = all(abs(new["_base_map_horizon"](v, w, h)-expected) < 1e-12 for v, w, h, expected in cases)
+    record("map_horizon_formula_and_short_public_horizon_cap", formula_ok, cases=cases,
+           config=new["_BASE_MAP_HORIZON_CONFIG"])
+
+    # Complete dict parity of the original public function, including all geometry,
+    # unknown/known velocity uncertainty, timestamps, raw hit fields and end_pose.
+    rng = np.random.default_rng(519)
+    parity, core_equal_horizon, core_objects, metadata = True, True, True, True
+    object_keys = ("min_gap_obj", "t_hit_obj", "hit_obj_id", "raw_t_hit_obj", "robust_min_gap_obj", "end_gap_obj",
+                   "robust_end_gap_obj", "future_min_gap_obj", "end_pose")
+    candidate_keys = tuple(k for k in object_keys if k not in ("hit_obj_id", "end_gap_obj"))
+    for case in range(100):
+        objects = [object_fixture(float(rng.uniform(-8., -3.)), float(rng.uniform(-10., -5.)),
+                                  float(rng.uniform(-.8, .8)), float(rng.uniform(-.8, .8)), ident=i)
+                   for i in range(case % 6)]
+        for obj in objects:
+            obj["seen_t"] = 30. - float(rng.uniform(0., .9))
+            obj["vel_ok"] = bool(rng.integers(2))
+        pose = (-8.+float(rng.uniform(0., 2.)), -10.+float(rng.uniform(0., 2.)), float(rng.uniform(-math.pi, math.pi)))
+        seed(old, objects, pose=pose, now=30.); seed(new, objects, pose=pose, now=30.)
+        v, w = float(rng.uniform(-.3, 1.)), float(rng.uniform(-.8, .8))
+        horizon = (0., .03, .73, 1., 2.93, 3.)[case % 6]
+        dt = (.07, .1, .3)[case % 3]
+        margin = (.0, .2, .35)[case % 3]
+        expected = old["check_motion"](v, w, horizon, dt, margin)
+        actual = new["check_motion"](v, w, horizon, dt, margin)
+        parity &= actual == expected
+        core_equal_horizon &= new["_base_check_motion"](v, w, horizon, dt, margin, horizon) == expected
+        mh = new["_base_map_horizon"](v, w, horizon)
+        short = new["_base_check_motion"](v, w, horizon, dt, margin, mh)
+        core_objects &= all(short[k] == expected[k] for k in object_keys)
+        vf = 0. if case % 2 else .3
+        _, _, info = new["choose_command"](vf, w, (-3., -4.), horizon)
+        for c in info["candidates"].values():
+            expected = old["check_motion"](c["v"], c["w"], horizon)
+            core_objects &= all(c[k] == expected[k] for k in candidate_keys)
+            metadata &= c["object_horizon_s"] == horizon and c["map_horizon_s"] == new["_base_map_horizon"](c["v"], c["w"], horizon)
+        metadata &= info["object_horizon_s"] == horizon and info["map_horizon_s"] == info["candidates"][info["chosen"]]["map_horizon_s"]
+    record("public_motion_exact_v7_parity", parity, cases=100)
+    record("private_equal_horizon_exact_v7_parity", core_equal_horizon, cases=100)
+    record("short_map_keeps_all_object_fields_and_full_end_pose", core_objects, cases=100)
+    record("candidate_and_top_level_actual_horizon_metadata", metadata, cases=100)
+
+    # The map-only horizon is shorter while a future object at2.3s remains unsafe.
+    ns = space([object_fixture(1.3, 0., 0., 0.)])
+    _, _, late = ns["choose_command"](.3, 0., (5., 0.))
+    follow = late["candidates"]["follow"]
+    record("object_collision_after_map_horizon_is_not_discarded", follow["map_horizon_s"] == .8
+           and follow["object_horizon_s"] == 3. and follow["t_hit_obj"] > 2.
+           and follow["t_hit_obj"] <= 3. and late["chosen"] == "stop"
+           and abs(follow["end_pose"][0]-.9) < 1e-12, follow=follow, chosen=late["chosen"])
+    examples["late_object"] = late
+
+    # Physical map obstruction remains a stop if it is inside even the slow horizon.
+    ns = space(rect=(.42, 2., -1., 1.))
+    v, w, blocked = ns["choose_command"](.3, 0., (5., 0.))
+    record("immediate_map_obstacle_still_stops", (v, w, blocked["chosen"]) == (0., 0., "stop")
+           and blocked["candidates"]["follow"]["t_hit_map"] is not None
+           and blocked["candidates"]["slow"]["t_hit_map"] is not None
+           and blocked["candidates"]["stop"]["t_hit_map"] is None, info=blocked)
+    # A long-horizon-only map hit disappears from choose diagnostics, not from the public helper.
+    ns = space(rect=(1., 2., -1., 1.))
+    public = ns["check_motion"](.3, 0.)
+    _, _, shorter = ns["choose_command"](.3, 0., (.5, 0.))
+    short = shorter["candidates"]["follow"]
+    record("map_hit_beyond_short_horizon_excluded_only_inside_chooser", public["t_hit_map"] is not None
+           and public["t_hit_map"] > short["map_horizon_s"] and short["t_hit_map"] is None
+           and short["min_gap_map"] > .2 and short["end_pose"] == public["end_pose"], public=public, follow=short)
+    endpoint_ns = space(rect=(1., 2., -1., 1.))
+    endpoint = endpoint_ns["_base_check_motion"](1., 0., 2., dt=.1, margin_m=.15, map_horizon_s=.73)
+    record("short_map_grid_includes_fractional_endpoint", endpoint["t_hit_map"] == .73
+           and abs(endpoint["min_gap_map"]-.14) < 1e-12, result=endpoint)
+    wall = space(); wall["WALLS"] = (-10., 1., -10., 10.)
+    r = wall["_base_check_motion"](1., 0., 3., map_horizon_s=.8)
+    record("short_map_checks_walls_and_full_body", r["t_hit_map"] == .7 and abs(r["min_gap_map"]-.07) < 1e-12, result=r)
+
+    # Existing sensor scenarios retain semantics in clear static space.
+    definitions = {
+        "crossing_stop": ([object_fixture(1.3, 1.2, 0., -.4)], (.3, 0., (5., 0.)), "stop"),
+        "approaching_stopped_robot": ([object_fixture(-2., 0., .7, 0., "right")], (.3, 0., (5., 0.)), "fast"),
+        "empty_road": ([], (.3, 0., (5., 0.)), "fast"),
+        "all_unsafe": ([object_fixture(2., 0., -.7, 0.)], (.3, 0., (5., 0.)), "back"),
+        "slow_priority": ([object_fixture(1.4, 0., 0., 0.)], (.3, 0., (5., 0.)), "slow"),
+        "zero_follow_escape": ([object_fixture(-2., 0., .7, 0., "right")], (0., .4, (5., 5.)), "toward"),
+    }
+    scenes_ok, order_ok = True, True
+    scene_out = {}
+    for label, (objects, args, expected) in definitions.items():
+        ns = space(objects)
+        v, w, info = ns["choose_command"](*args)
+        scenes_ok &= info["chosen"] == expected
+        scene_out[label] = {"expected": expected, "actual": info["chosen"]}
+        factory = ns["_base_command_candidates"]
+        count = 9 if args[0] == 0. else 7
+        for order in (list(range(count-1, -1, -1)), list(range(3, count))+list(range(3)), rng.permutation(count).tolist()):
+            def reordered(*a, order=order):
+                candidates = factory(*a)
+                return [candidates[i] for i in order]
+            ns["_base_command_candidates"] = reordered
+            av, aw, ai = ns["choose_command"](*args)
+            order_ok &= (av, aw, ai) == (v, w, info)
+    record("six_sensor_scenes_preserved_in_clear_map", scenes_ok, scenes=scene_out)
+    record("candidate_order_invariant", order_ok, scenes=6, permutations_per_scene=3)
+
+    # Nonfinite commands, poses, observations and private bounds must fail early.
+    ns = space(); failures, expected_failures = 0, 0
+    calls = []
+    for invalid in (math.nan, math.inf, -math.inf):
+        for index in range(5):
+            args = [.3, .2, 3., .1, .2]; args[index] = invalid
+            calls.append(lambda args=args: ns["check_motion"](*args))
+        calls.extend([lambda q=invalid: ns["choose_command"](q, .2, (5., 0.)),
+                      lambda q=invalid: ns["choose_command"](.3, q, (5., 0.)),
+                      lambda q=invalid: ns["choose_command"](.3, .2, (q, 0.)),
+                      lambda q=invalid: ns["choose_command"](.3, .2, (5., 0.), q),
+                      lambda q=invalid: ns["_base_check_motion"](.3, .2, map_horizon_s=q)])
+    calls.extend([lambda: ns["_base_check_motion"](.3, .2, map_horizon_s=-.1),
+                  lambda: ns["_base_check_motion"](.3, .2, map_horizon_s=3.1),
+                  lambda: ns["check_motion"](.3, .2, -1.), lambda: ns["check_motion"](.3, .2, dt=0.),
+                  lambda: ns["check_motion"](.3, .2, margin_m=-.1)])
+    for call in calls:
+        expected_failures += 1
+        try: call()
+        except ValueError: failures += 1
+    for index in range(4):
+        pose_time = [10., 0., 0., 0.]; pose_time[index] = math.nan
+        ns["_BASE_POSES"][:] = [tuple(pose_time)]; expected_failures += 1
+        try: ns["choose_command"](.3, 0., (5., 0.))
+        except ValueError: failures += 1
+    for key in ("vx", "vy", "seen_t", "points"):
+        obj = object_fixture(2., 0., 0., 0.)
+        obj[key] = [[math.nan, 0.]] if key == "points" else math.nan
+        seed(ns, [obj], pose=(0., 0., 0.), now=10.); expected_failures += 1
+        try: ns["choose_command"](.3, 0., (5., 0.))
+        except ValueError: failures += 1
+    record("invalid_inputs_rejected", failures == expected_failures, rejected=failures, cases=expected_failures)
+
+    # Integration cadence after shortening map time; other DBG must not consume it.
+    runtime = space(rect=(.42, 2., -1., 1.))
+    exec(source[source.index("# ---- DBG 기록 ----"):source.index("# [EDIT REGION] mission controller")], runtime)
+    lines = []
+    runtime["builtins"] = SimpleNamespace(print=lambda *args, **kwargs: lines.append(" ".join(str(a) for a in args)))
+    boundaries, selections = {}, set()
+    for frame in range(1202):
+        t = frame/60.
+        seed(runtime, pose=(0., 0., 0.), now=t)
+        runtime["_BASE_DBG_STATE"]["t"] = t
+        runtime["print"]("DBG ordinary line consumes global allowance")
+        v, w, info = runtime["choose_command"](.3, 0., (5., 0.))
+        selections.add((v, w, info["chosen"]))
+        if frame in (600, 601, 1200, 1201):
+            boundaries[str(frame)] = sum("follow 가 지도에 막힘" in line for line in lines)
+    warnings = [line for line in lines if "follow 가 지도에 막힘" in line]
+    record("map_warning_and_independent_dbg_cadence_preserved", boundaries == {"600": 0, "601": 1, "1200": 1, "1201": 2}
+           and selections == {(0., 0., "stop")} and runtime["_BASE_DBG_STATE"]["dropped"] > 0
+           and any("DBG choose t=10.00" in line for line in lines), boundary_counts=boundaries, warning_lines=warnings)
+    # Choice changes continue to reset the independent warning timer.
+    helper = runtime["_base_note_map_stop"]
+    blocked_candidates = {"follow": {"v": .3, "w": 0., "t_hit_map": .5}, "stop": {"v": 0., "w": 0.}}
+    reset_ok = True
+    for alteration in ("different", "clear", "rewind"):
+        runtime["_BASE_MAP_STOP_DBG_STATE"].update(since=None, last_t=None, last_warn_t=None)
+        lines.clear(); helper(0., "stop", blocked_candidates); helper(9., "stop", blocked_candidates)
+        altered = copy.deepcopy(blocked_candidates)
+        if alteration == "different": helper(9.5, "follow", altered)
+        elif alteration == "clear":
+            altered["follow"]["t_hit_map"] = None; helper(9.5, "stop", altered)
+        else: helper(-1., "stop", altered)
+        start = 10. if alteration != "rewind" else -1.
+        helper(start, "stop", blocked_candidates); helper(start+10., "stop", blocked_candidates)
+        reset_ok &= len(lines) == 0
+        helper(start+10.+1/60., "stop", blocked_candidates)
+        reset_ok &= len(lines) == 1
+    record("map_warning_resets_preserved", reset_ok)
+
+    # check_path implementation was AST-preserved; retain boundary/invalid smoke checks.
+    path_ns = space(rect=(0., 2., 0., 2.))
+    boundary = path_ns["check_path"]([(-.5, .5), (-.5, 1.5)])
+    inside = path_ns["check_path"]([(-.499, .5), (-.499, 1.5)])
+    record("path_boundary_still_matches_half_width_contract", boundary["first_bad_segment"] is None
+           and boundary["min_gap_map"] == .25 and inside["first_bad_segment"] == 0)
+
+    ns = load_ns(BASE)
+    objects = [object_fixture(-6.+i*.25, -10.+i*.15, -.1+i*.02, .05, ident=i) for i in range(10)]
+    seed(ns, objects, pose=(-8., -10., 0.), now=10.)
+    performance = {}
+    for label, vf, n in (("following", .3, 7), ("alignment", 0., 9)):
+        for _ in range(50): ns["choose_command"](vf, .2, (-5., -7.))
+        times = []
+        for _ in range(400):
+            start = time.perf_counter_ns(); ns["choose_command"](vf, .2, (-5., -7.))
+            times.append((time.perf_counter_ns()-start)/1e6)
+        row = dict(calls=len(times), objects=10, points_per_object=20, candidates=n, object_horizon_s=3.,
+                   map_horizon_range_s=[.8, 1.], median_ms=float(np.median(times)), p95_ms=float(np.percentile(times, 95)), target_ms=3.)
+        performance[label] = row; record("performance_"+label, row["median_ms"] <= 3., **row)
+    passed = sum(check["pass"] for check in checks.values())
+    output = dict(verdict="pass" if passed == len(checks) else "fail", passed=passed, total=len(checks),
+                  base_file=str(BASE), base_sha16=hashlib.sha256(BASE.read_bytes()).hexdigest()[:16],
+                  checks=checks, examples=examples, performance=performance,
+                  limitations=["Map horizon is a CPU-acceleration-model heuristic, not a measured braking guarantee.",
+                               "Object prediction still assumes constant observed velocity; hidden geometry/acceleration is unknown.",
+                               "Synthetic corner rollout and calibrated61-phase CPU sweep are separate results; no GPU/HTTP here."])
+    archive_before_write(OUT)
+    OUT.write_text(json.dumps(safe_json(output), ensure_ascii=False, indent=2, allow_nan=False)+"\n")
+    print(f"{output['verdict']} {passed}/{len(checks)} sha={output['base_sha16']} "
+          + " ".join(f"{name}={row['median_ms']:.4f}ms" for name, row in performance.items()))
+    for name, check in checks.items():
+        if not check["pass"]: print("FAIL", name, check)
+    return output
+
+
+if __name__ == "__main__":
+    raise SystemExit(0 if run()["verdict"] == "pass" else 1)

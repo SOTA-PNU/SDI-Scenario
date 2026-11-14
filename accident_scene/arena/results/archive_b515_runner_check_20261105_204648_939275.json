@@ -1,0 +1,277 @@
+{
+  "passed": 37,
+  "total": 37,
+  "checks": [
+    {
+      "name": "identical_agent_flags_except_requested_paths_tag",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "run_b515_sequential.sh_syntax",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "run_b515_gpu_steps.sh_syntax",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "both_pass_run_all_even_a2_failure",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "log": "2026-11-05 20:46:18 start\n2026-11-05 20:46:18 a0 exit=0 grade=PASS turn=1\n2026-11-05 20:46:18 a1 exit=0 grade=PASS turn=2\n2026-11-05 20:46:18 a2 exit=1 grade=FAIL turn=-\n2026-11-05 20:46:18 a3 exit=0 grade=PASS turn=1\n2026-11-05 20:46:18 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "both_pass_run_all_even_a2_failure_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "a0_fail_still_run_a1_then_stop",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:46:18 start\n2026-11-05 20:46:18 a0 exit=1 grade=FAIL turn=-\n2026-11-05 20:46:18 a1 exit=0 grade=PASS turn=1\n2026-11-05 20:46:18 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "a0_fail_still_run_a1_then_stop_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "a1_fail_stop",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:46:18 start\n2026-11-05 20:46:18 a0 exit=0 grade=PASS turn=1\n2026-11-05 20:46:18 a1 exit=1 grade=FAIL turn=-\n2026-11-05 20:46:18 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "a1_fail_stop_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "test_pass_and_zero_exit_do_not_pass_grade",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:46:18 start\n2026-11-05 20:46:18 a0 exit=0 grade=FAIL turn=-\n2026-11-05 20:46:18 a1 exit=0 grade=PASS turn=1\n2026-11-05 20:46:18 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "test_pass_and_zero_exit_do_not_pass_grade_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "missing_malformed_grade_keep_real_exit",
+      "pass": true,
+      "detail": {
+        "samples": [
+          0,
+          1
+        ],
+        "log": "2026-11-05 20:46:18 start\n2026-11-05 20:46:18 a0 exit=27 grade=FAIL turn=-\n2026-11-05 20:46:18 a1 exit=19 grade=FAIL turn=-\n2026-11-05 20:46:18 done\n",
+        "returncode": 0
+      }
+    },
+    {
+      "name": "missing_malformed_grade_keep_real_exit_preserves_existing",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_pass_launches",
+      "pass": true,
+      "detail": {
+        "returncode": 0,
+        "log": "2026-11-05 20:46:18 agent_check PASS count=0\n2026-11-05 20:46:18 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:18 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:18 gate start run_id=8268012c58ed4ddf8264862315596e34 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:18 gate PASS exit=0 run_id=8268012c58ed4ddf8264862315596e34\n2026-11-05 20:46:18 sequential start samples=a0,a1; a2,a3_if_both_pass\n2026-11-05 20:46:18 sequential exit=0; done\n"
+      }
+    },
+    {
+      "name": "gpu_fail_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:18 agent_check PASS count=0\n2026-11-05 20:46:18 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:18 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:18 gate start run_id=a965618ffd3b461a8b7273954d89e585 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:18 gate FAIL exit=0 verdict=FAIL bad clearance; done\n"
+      }
+    },
+    {
+      "name": "gpu_nonzero_pass_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:18 agent_check PASS count=0\n2026-11-05 20:46:18 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:18 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:18 gate start run_id=088d815ec872460dbf43c6026e5b90df base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:18 gate FAIL exit=7 verdict=PASS; done\n"
+      }
+    },
+    {
+      "name": "gpu_missing_verdict_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:18 agent_check PASS count=0\n2026-11-05 20:46:18 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:18 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:18 gate start run_id=d3f542b06446406282ca53b109f906af base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL exit=0 verdict=missing; done\n"
+      }
+    },
+    {
+      "name": "gpu_prior_pass_new_pass_launches",
+      "pass": true,
+      "detail": {
+        "returncode": 0,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=70c9ed6f96ac49a6a8e7a69b8a8d2903 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate PASS exit=0 run_id=70c9ed6f96ac49a6a8e7a69b8a8d2903\n2026-11-05 20:46:19 sequential start samples=a0,a1; a2,a3_if_both_pass\n2026-11-05 20:46:19 sequential exit=0; done\n"
+      }
+    },
+    {
+      "name": "gpu_prior_pass_new_pass_launches_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_unchanged_prior_pass_zero_exit_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=d3373ca825e9486092484fb99bcdfcf4 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=d3373ca825e9486092484fb99bcdfcf4; done\n"
+      }
+    },
+    {
+      "name": "gpu_prior_pass_new_fail_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=dbcf0928c259452d8593ae7928cd045f base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL exit=0 verdict=FAIL collision; done\n"
+      }
+    },
+    {
+      "name": "gpu_prior_pass_new_fail_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_fresh_verdict_old_launch_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=ae21886e634a41e093a12fc10d9e8516 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=ae21886e634a41e093a12fc10d9e8516; done\n"
+      }
+    },
+    {
+      "name": "gpu_fresh_verdict_old_launch_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_fresh_verdict_old_summary_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=2ffa7d8ac05548778c3dbe851bbd6aaa base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=2ffa7d8ac05548778c3dbe851bbd6aaa; done\n"
+      }
+    },
+    {
+      "name": "gpu_fresh_verdict_old_summary_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_fresh_verdict_fail_summary_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=42d499ba9cc548999f4526ae85c90786 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=42d499ba9cc548999f4526ae85c90786; done\n"
+      }
+    },
+    {
+      "name": "gpu_fresh_verdict_fail_summary_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_fresh_verdict_old_base_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=ac1fea6aab394c019b6029441d442ba8 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=ac1fea6aab394c019b6029441d442ba8; done\n"
+      }
+    },
+    {
+      "name": "gpu_fresh_verdict_old_base_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_fresh_verdict_missing_launch_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=7399db65061f4822b34e99f90d7fa719 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=7399db65061f4822b34e99f90d7fa719; done\n"
+      }
+    },
+    {
+      "name": "gpu_fresh_verdict_missing_launch_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_fresh_verdict_missing_summary_does_not_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait PASS model=gpt-oss-120b\n2026-11-05 20:46:19 gate start run_id=b90fd1fb40324b889b399a8a2540fe67 base=v4 sim_seconds=200 launcher=carter_run_locked.sh collisions=0 median_ms<=3 errors=0\n2026-11-05 20:46:19 gate FAIL stale_or_inconsistent_result run_id=b90fd1fb40324b889b399a8a2540fe67; done\n"
+      }
+    },
+    {
+      "name": "gpu_fresh_verdict_missing_summary_does_not_launch_archives_previous_observations",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "gpu_timeout_does_not_smoke_or_launch",
+      "pass": true,
+      "detail": {
+        "returncode": 124,
+        "log": "2026-11-05 20:46:19 agent_check PASS count=0\n2026-11-05 20:46:19 models_wait start endpoint=http://127.0.0.1:8420/v1/models max_s=1800\n2026-11-05 20:46:19 models_wait FAIL timeout=1800s; done\n"
+      }
+    },
+    {
+      "name": "gpu_busy_agent_blocks_before_gate",
+      "pass": true,
+      "detail": {
+        "returncode": 75,
+        "log": "2026-11-05 20:46:19 agent_check BUSY count=1; done\n"
+      }
+    },
+    {
+      "name": "gpu_process_scan_error_blocks",
+      "pass": true,
+      "detail": {
+        "returncode": 1,
+        "log": "2026-11-05 20:46:19 agent_check FAIL process scan error; done\n"
+      }
+    }
+  ],
+  "execution": "local mocks only; no real HTTP, GPU, Isaac, or agent_loop"
+}

@@ -1,0 +1,517 @@
+{
+ "audits": [
+  {
+   "part": "front-back",
+   "checked": 84,
+   "flagged": 18,
+   "notes": "어떤 파일도 고치거나 만들지 않았다. Python은 stdin/-c로만 실행했다. 아래 수치는 원자료로 확인했고 문제가 없다.\n- 결론의 스캔 한계 수치: analysis/scan_order_v1.log 기준 2,451/94,672 = 2.59%, 과대량 중앙값 0.92 m. 가장 가까운 면이 지게차·선반인 경우 2,207/2,451. carter_env.py raycast_scan은 첫 비자기 충돌에서 멈추며, 파일은 2026-09-11 이후 바뀌지 않아 모든 실험이 같은 규칙으로 채점되었다.\n- 약 50배: transfer_summary.json 기준 394/8 = 49.25.\n- 108개 상황: stream 기준 28+40+40.\n- 60 Hz: docstring '1/60 s', GPU a4 t5가 3,477프레임 / 57.95 s.\n- v1 높이: env_v1/base_carter_run.py에서 0.25/0.20/0.18/0.20, z=0.35도 docstring에 있음.\n- 1회차 60건: runs.csv에서 모두 fail(가시 35·정지 13·저평면 10·실행 오류 2), GPU·NPU 각 30건.\n- 93회차 분포: cap8/*_turns.json으로 직접 세어 본문과 일치(GPU 45: 1·13·16·11·0·4, NPU 48: 0·9·23·12·1·3).\n- GPU a4 t5: result.json 0.6967 m·56.417 s, rerun.log 0.7048 m. 루프 원 채점값은 0.6966 m·56.433 s.\n- 상한 30: 30회차 모두 통과 없음, 최소 13.94 m(24회차).\n- T3 a4: 0.450 m로 통과.\n- T3 빈 응답 2건: a1 3회차, a0 6회차에서 실행 종료.\n- 디코드 속도: T3 6.0–24.7, T2 6.1–28.7, T2P 회차 단위 22.7–28.8 tok/s로 '6~29 tok/s' 범위 안.\n- 가속기 간 실패 분포: 순열 카이제곱 p≈0.57(루프와 1회차 모두)이라 '구별되지 않았다'는 타당하다.\n- L3 0건: spec_tier_overrides_exp8/9.json으로 확인.\n- 에이전트 시점: 첫 도구 호출 13.0분(출력 77,846), 첫 초안 20.2분.\n- 첫 초안 머리 주석에 'Four boxes are lower than the default z=0.35 scan plane'이 있고, mock_sim.py에 상자 z 범위(z0 <= z <= z1)가 구현되어 있음.\n- T2P: a0는 시뮬레이터 없음, a2 sim.py에 'For simplicity, ignore z' 주석, test_log는 최대 64 B."
+  },
+  {
+   "part": "sec1-2",
+   "checked": 95,
+   "flagged": 9,
+   "notes": "My part (Ⅱ.1, Ⅱ.2, Tables 1–2, Fig. 1–2 and their captions) has about 95 claims. Most of them check out against the primary sources. Confirmed values:\n- Poses and corners: start/goal poses, SW/NE corners, straight-line distance 32.16 m.\n- Box heights (v1 from env_v1/base_carter_run.py and layout.json): 14 boxes, ten at 1.0 m, and 04/05/06/13 at 0.25/0.20/0.18/0.20 m. The four low boxes are invisible at z=0.35 (analysis/sensor_probe_scene.log, box_visibility_v1.log).\n- Box geometry claims for 03, 04, 05 and 06, and the A* path: 0.6 m clearance, length 34.72 m (layout.json, sim2d.path_exists).\n- Harness: 1/60 s step (60 frames per sim second), ground-truth chassis pose, ROS 2 /cmd_vel, raycast_scan defaults, 120 s timeout, 1 s settle, 0.75 m / 0.26 rad tolerances, abort 5 s after first contact. Lidar and camera topics are not given to the controller.\n- Rules and checks: forbidden actions, order of the 4 static checks, serial guard (carter-run exit 75). check_b_track was rewritten to HARD/STRONG/SOFT after Claude's B turn 1 (CLAUDE_VS_NPU.md §9.4).\n- Turn feedback: track A gets everything minus the obstacle block; track B uses the mask() fields. Runtime errors return the exception line. All 7 cap8 static disqualifications got the line-diff message. Cap 8, 60k trimming, splice rule.\n- Input lengths 6,961 / 7,450 chars, recomputed with v1 and matching gen.log.\n- Hardware from nproc, free, lsb_release, nvidia-smi and the Kit log: 285K with 24 cores, 125 GiB / 128,070 MB, Ubuntu 24.04.4, kernel 7.0.0-28, RTX PRO 6000 at 97,887 MiB, driver 580.173.02.\n- Software: Isaac Sim 4.5.0 (dist-info) on Kit 106.5; vLLM 0.29.0 with TP 1, max_model_len 32768 and gpt_oss_mxfp4.\n- Sampling: temperature 0.7 and top_p 0.95 in every recorded request. max_tokens is 24,576 for turn 1, 12,288 for GPU loops and 16,384 for NPU loops. NPU EXAONE track-A runs have no _bench, but their prompt_tokens are the same as GPU (2876).\n- Weights: the Qwen3 sha256 match is 7/7, confirmed from HF blob names in the local caches. tp=32 / 4 cards comes from the furiosa-ai Qwen3-32B-FP8 README.\n- Claude agent: Claude Code 2.1.291, claude-opus-5-5[1m], effort max; MCP off and web tools disallowed; --resume between turns; September exclusion reasons as in CLAUDE_VS_NPU §10.1.\n\nCaveats I did not file as findings:\n- The seed-ignored claim rests on another session's source reading that was not re-checked on this host. The same 'no-op' block reading turned out wrong for reasoning_effort, and REPORT.md:1146-1154 says the seed conclusion was not re-measured. A footnote with this provenance is advisable.\n- The T2/T2P system message and their 250k/300k-char context budget (finding 4) also need a fix in 4.2, which another auditor covers.\n- The run scripts (run_t3.sh and the others) launch samples in parallel against the NPU. Isaac grading stayed serial.\n\nNo file was modified."
+  },
+  {
+   "part": "sec3",
+   "checked": 78,
+   "flagged": 9,
+   "notes": "원자료로 다시 계산해 일치를 확인한 항목:\n- 표 3 셀별 저·가·정·오: results/runs.csv와 score_runs.py 규칙으로 재계산. 6개 셀과 합계 10·35·13·2가 모두 맞는다.\n- 가시 충돌의 첫 접촉 대상 00 27건, 01 7건, 지게차 포크 1건: partners 목록이 알파벳순이라 [01,02] 2건은 궤적으로 01을 확인했다.\n- EXAONE 18건 중 17건 ≥2 m, UnboundLocalError 2건: 맞음.\n- 21건 splice(Qwen3 GPU 10·NPU 10, NPU gpt-oss a2 1): pre_splice와 최종 파일 대조로 확인.\n- 정적 검증 60/60: env_v1/base_carter_run.py 대비 구역 밖 동일 60/60, check_b_track.py rc=0 30/30.\n- 93회차 분포: cap8/*_turns.json에서 계산하면 GPU 1·13·16·11·0·4, NPU 0·9·23·12·1·3, 합계 39·23·22·7·1·1로 맞는다. 정적 실격 7회는 모두 문장부호 치환이다.\n- 통과 실행: 3·4·5회차 해소, 여유 0.045–0.053 m, 상자 06 하드코딩과 'large central box' 주석 모두 맞음.\n- 상한 30 실행: 24회차 13.94 m. 절제 실험: 5×2×8, 새 생성 70, 통과 0. 929자는 GPU 트랙 A cap8 피드백의 compact JSON 중앙값과 일치.\n- 처리량 193.6/40.8/38.1 대 30.9/51.0/34.4: serving.csv e2e 중앙값과 일치. 비 6.26·1.107·1.250 → 6.3·1.1·1.25, 출력 토큰 비(NPU/GPU) 0.974–1.018 → 0.97~1.02.\n- 표 4 시간 중앙값 15.5/47.2/63.0, 65.15/44.6/115.1: 회차 집합 차이는 지적 8 참고.\n\n내 담당 밖이지만 관련된 관찰:\n- 표 2 주 ᵃ 'NPU EXAONE 트랙 A 생성 설정 기록 없음': npu_generation.log 22행과 run_npu.sh를 보면 이 5건은 인자 없이 generate.py 기본값으로 생성되었다. 다만 generate.py는 9-22에 수정되었으므로 당시 기본값은 확인이 필요하다.\n- 서론의 '회차 루프 93회차를 물리 실행으로 판정': 93에는 물리 실행을 하지 않은 정적 실격 7회가 들어 있다.\n\n근거 파일은 모두 읽기만 했고 아무 파일도 수정하지 않았다. check_b_track.py는 출력만 하는 스크립트라 -I -B로 실행했다."
+  },
+  {
+   "part": "sec4",
+   "checked": 150,
+   "flagged": 12,
+   "notes": "원자료와 맞는 것으로 확인한 항목:\n- 4.1 수치: 0.1018 m, 0.0287 rad, 39.75 s, 90분(5,393.5 s), 305,106·227,362, 도구 98회(Bash 64/Read 20/Edit 10/Write 2/ToolSearch 1/Monitor 1), 서브에이전트 0. 근거는 claude_eq_a0_turns.json과 전사다.\n- 첫 API 응답 77,846 토큰(13.0분)은 맞다. 단, 이 값에는 첫 tool_use 블록이 들어 있고 스트림 사고 추정치는 77,600이다. 0.3% 차이라 보고하지 않았다.\n- 첫 초안(+20:11)의 머리 주석 원문과 상자 14개 지도, 108/108(+46:43 = 28+40+40), 최종 회귀 34/34·58/60·29/30(+87:2), 단계별 시각은 모두 맞다.\n- mock_sim.py 주장도 사실이다. 첫 판(+21:17)부터 상자를 z0=0~z1=height 직육면체로 두고 raycast에서 sel=(z0<=z)&(z1>=z)인 물체만 맞힌다.\n- T2P 시뮬레이터가 높이를 무시한다는 주장도 사실이다. sim.py 세 판(a1 1회차·6회차, a2)과 셀 안 시뮬레이션(a0 c82, a1 c38·c78, a2 c8·c18 등)이 모두 z를 받기만 하고 쓰지 않는다. a2 sim.py 주석은 'For simplicity, ignore z and use 2D geometry'다.\n- T2P 수치(전부 일치): 보류 16, 강제 7, 394/중앙값 15, 정적 실격 6(파일 없음 4·글리프 2), notes.md 3/3·갱신 0, assemble.py 3/3, test_log 0–64 B, 같은 지점(box_01) 4회, system.txt 12,322자(strip 기준, sha16 4d523c71204977f9)·11단계, 높이별 센서 모델 제외(workflow_result excluded[12]).\n- T3 a4 통과(0.45 m, 33.667 s)와 4·6·7·8회차 경과, 빈 응답 2건(16,384), L3 0, 사전 점검값 282·456·444 → 1,163·774·1,034, T2 8회/5회차, 표 6의 시간·판정 분포(transfer_summary.json)도 모두 일치한다.\n\n함께 고칠 곳: 3·4·1번 항목을 고치면 요약(시뮬레이터가 높이를 버린 2D여서 자기 시험으로는 실패 원인이 드러나지 않았다)과 결론 둘째 문단의 같은 취지 문장도 맞춰야 한다. 이 두 곳은 내 담당 밖이라 검사하지 않았다.\n\n참고: 과제에 적힌 exp9.json은 실제로 analysis/spec_tier_overrides_exp9.json이다. 내가 만든 파일은 /tmp/audit_t2p/의 분석 스크립트뿐이고, 프로젝트 파일은 수정하지 않았다."
+  }
+ ],
+ "confirmed": [
+  {
+   "id": "front-back-1",
+   "part": "front-back",
+   "location": "요약, 다섯째 문장(회차 루프)",
+   "draft_text": "판정을 되돌려주는 회차 루프(상한 8)에서도 gpt-oss-120b는 12개 실행 중 1개만 통과하였고, 응답 119건 중 상자 높이와 스캔 평면을 올바르게 연결한 응답은 없었다.",
+   "kind": "incorrect",
+   "evidence": "results/analysis/spec_reading.csv의 119행을 turn_idx와 경로로 나누면 세 묶음이다. (1) 1회차 30행(3개 모델 × GPU·NPU × 5). 이 중 20행은 Qwen3·EXAONE이고 피드백을 받지 않았다. (2) 상한 8 루프의 2회차 이후 60행. (3) NPU a2 상한 30 실행의 t2–t30 29행. REPORT.md:321과 본문 3.2도 같은 구성이다. 따라서 gpt-oss-120b 상한 8 루프 응답은 119건 중 60건뿐인데, 문장은 119건 전체가 그 루프의 응답인 것처럼 읽힌다. 유일한 L2(npu_gpt_oss_120b_a2_t30)도 상한 30 실행에서 나왔다. 또 EXPERIMENTS.md:80 규칙 4(cap8과 cap30 풀링 금지)에 어긋난다. 상한 30을 뺀 90건은 모두 L0이다.",
+   "fix": "판정을 되돌려주는 회차 루프(상한 8)에서도 gpt-oss-120b는 12개 실행 중 1개만 통과하였다. 3개 모델의 1회차와 상한 8 루프의 트랙 A 응답 90건 중 상자 높이와 스캔 평면을 연결한 응답은 없었다(상한 30 별도 실행 29건 중 1건은 연결했으나 결론이 반대).",
+   "verifier": "spec_reading.csv의 119행은 세 묶음이다. 1회차 30행(3개 모델, 그중 20행은 Qwen3·EXAONE), 상한 8 루프 2회차 이후 60행, 상한 30 실행(npu a2 t2–t30) 29행이다. 유일한 L2(npu_gpt_oss_120b_a2_t30)도 상한 30 실행에서 나왔다. 요약 문장은 119건 전체가 상한 8 루프의 gpt-oss 응답인 것처럼 읽히고, EXPERIMENTS.md:80 규칙 4(cap8·cap30 풀링 금지)에도 걸린다. 1회차와 상한 8 응답 90건은 수동 판정이 모두 L0이다. (2차 검토 집계: 지적 48건을 모두 원자료로 다시 확인했고, 확인 40건·기각 8건이다.)",
+   "final_fix": "판정을 되돌려주는 회차 루프(상한 8)에서도 gpt-oss-120b는 12개 실행 중 1개만 통과하였다. 3개 모델의 1회차와 상한 8 루프의 트랙 A 응답 90건 중 상자 높이와 스캔 평면을 연결한 응답은 없었다(상한 30 별도 실행 29건 중 1건은 연결했으나 결론이 반대)."
+  },
+  {
+   "id": "front-back-2",
+   "part": "front-back",
+   "location": "I. 서론, 기여 둘째 항목",
+   "draft_text": "공개 가중치 모델 3종을 GPU·NPU에서 서빙하여 1회차 60건과 gpt-oss-120b 회차 루프 93회차를 물리 실행으로 판정하였다.",
+   "kind": "incorrect",
+   "evidence": "results/turns/cap8/*_turns.json으로 93회차를 직접 집계했다: 통과 1, 저평면 22, 가시 39, 정지 23, 실행 오류 1, 정적 실격 7. 정적 실격 7회차(gpu a0 t3, a1 t2, a2 t2·t8, npu a3 t2, a4 t2·t7)는 sim_wall_s와 final_dist_m가 모두 null이다. 즉 Isaac을 실행하지 않았다(본문 2.1 '하나라도 어기면 시뮬레이터를 실행하지 않고'). 물리 실행은 86회차뿐이다. 또 루프의 1회차 12건은 1회차 60건을 재사용한 것이라('reused': true) 두 수가 겹친다.",
+   "fix": "공개 가중치 모델 3종을 GPU·NPU에서 서빙하여 1회차 60건과 gpt-oss-120b 회차 루프 93회차(1회차 12건 공유, 정적 실격 7회차 포함)를 정적 검증과 물리 실행으로 판정하였다.",
+   "verifier": "cap8/*_turns.json의 93회차 가운데 정적 실격 7회차(gpu a0 t3, a1 t2, a2 t2·t8, npu a3 t2, a4 t2·t7)에는 final_dist_m과 sim_wall_s가 없다. Isaac을 돌리지 않은 것이므로 물리 실행은 86회차다. 또 12개 루프의 1회차는 모두 reused=true여서 1회차 60건과 겹친다. 따라서 '물리 실행으로 판정'은 정적 실격 회차에 맞지 않는다(경미).",
+   "final_fix": "공개 가중치 모델 3종을 GPU·NPU에서 서빙하여 1회차 60건과 gpt-oss-120b 회차 루프 93회차(1회차 12건은 앞의 60건과 공유)를 정적 검증과 물리 실행으로 판정하였다."
+  },
+  {
+   "id": "front-back-3",
+   "part": "front-back",
+   "location": "요약, 끝에서 둘째 문장(작업 순서 지시 조건)",
+   "draft_text": "작업 순서 지시 조건(3회 중 0회)에서는 도구 사용이 약 50배로 늘었으나, 시뮬레이터가 높이를 버린 2D여서 자기 시험으로는 실패 원인이 드러나지 않았다.",
+   "kind": "overstated",
+   "evidence": "(1) 시뮬레이터는 3실행 중 a1·a2만 만들었다. a0는 8회차 내내 만들지 않았다(transfer_t2p/*_files의 sim.py는 a1·a2에만 있음, REPORT.md:1499, 표 5 '2/3'). (2) T2P 24회차의 판정은 높은 상자 9, 정적 실격 6, 정지 5, 저평면 2, 실행 오류 2이다(results/analysis/transfer_summary.json T2P.kinds). 높이를 버려서 재현할 수 없는 저평면 충돌은 2회뿐이다. 높은 상자 box_00·01 충돌과 a0의 반복 실행 오류('cannot unpack non-iterable NoneType', REPORT.md:1504)는 2D 시뮬레이터로도 드러날 수 있었다. 그런데 시뮬레이터는 작성 직후 셀 3개에서 한 번씩만 실행되었고 시험 묶음은 0이었다(REPORT.md:1500). 본문 4.3도 '저평면 충돌이 재현될 수 없었다'로 범위를 한정한다.",
+   "fix": "작업 순서 지시 조건(3회 중 0회)에서는 도구 사용이 약 50배로 늘었으나, 시뮬레이터는 3실행 중 2실행만 만들었고 둘 다 높이를 버린 2D여서 저평면 충돌을 재현할 수 없었으며, 작성 직후 한 번씩 실행되었을 뿐 시험 묶음은 만들어지지 않았다.",
+   "verifier": "sim.py는 a1·a2만 만들었고 a0는 만들지 않았다(REPORT.md:1499). transfer_summary.json의 T2P 24회차 판정은 가시 9·정적 실격 6·정지 5·저평면 2·실행 오류 2다. 높이를 버린 탓에 재현할 수 없는 저평면 충돌은 2회뿐이다. 실패 원인이 드러나지 않은 직접 이유는 시뮬레이터가 사실상 돌지 않은 데 있다. sim.py 실행 2회가 모두 오류였고 시험 묶음은 0이었다(sec4-39). 따라서 '2D여서 드러나지 않았다'는 인과는 과장이다.",
+   "final_fix": "작업 순서 지시 조건(3회 중 0회)에서는 도구 사용이 약 50배로 늘었으나, 시뮬레이터는 3실행 중 2실행만 만들었고 둘 다 높이를 버린 2D였으며 시험 묶음은 만들어지지 않았다."
+  },
+  {
+   "id": "front-back-4",
+   "part": "front-back",
+   "location": "요약, 마지막 문장",
+   "draft_text": "절차의 형식은 지시로 옮겨졌으나 명세를 담은 자기 검증은 옮겨지지 않았다.",
+   "kind": "overstated",
+   "evidence": "표 5 오른쪽 열과 REPORT.md 실험 9 결과(1496–1505, 1534–1537)를 보면, 설계 메모 3/3(1회차 작성 후 갱신 0)과 조립 스크립트 3/3은 있었다. 반면 시뮬레이터 2/3, 시험 묶음 0/3, 재현 기록 0, 정적 실격 6이다. 즉 지시문 6·7단계(시험 묶음, 원인 가리기)라는 내용 없는 형식 자체가 옮겨지지 않았다. REPORT.md:1537도 'gpt-oss 는 그 절차를 끝까지 수행하지 못했고'라고 적는다. '지시로'라는 귀속도 지나치다. 필수 파일(test_log.txt 0~64 B)은 하네스의 최종 답 보류 안내(24회차 중 16회차에 발송)를 통과하려고 만든 것이고, 도구 호출도 반환 401건 중 133건이 보류 안내 뒤에 나왔다(transfer_t2p/*_turns.json의 reminders.call 기준). T2P는 예산 12→28회, 출력 한도, base 원문 제공, 보류 안내가 함께 바뀐 묶음 조건이다(REPORT.md:1449).",
+   "fix": "설계 메모·조립 스크립트·잦은 도구 호출 같은 절차의 일부 형식은 나타났으나, 시험 묶음·원인 가리기와 명세를 담은 자기 검증은 나타나지 않았다.",
+   "verifier": "표 5 오른쪽 열을 보면 설계 메모 3/3과 조립 스크립트 3/3은 나타났다. 그러나 시험 묶음은 0, 재현 기록은 0, 시뮬레이터는 2/3이다. 단계 ④·⑤는 형식조차 옮겨지지 않은 것이다. REPORT.md:1534도 '시뮬레이터에서 주행 → 시험 묶음 → 실패 분석은 일어나지 않았다'고 적는다. 또 '지시로'는 예산과 보류 안내가 함께 바뀐 묶음 조건(REPORT.md:1449)의 결과를 지시 하나에 돌린다.",
+   "final_fix": "설계 메모·조립·잦은 도구 호출 같은 절차의 일부 형식은 옮겨졌으나, 시험 묶음과 명세를 담은 자기 검증은 옮겨지지 않았다."
+  },
+  {
+   "id": "front-back-5",
+   "part": "front-back",
+   "location": "Ⅲ. 결론, 둘째 문단",
+   "draft_text": "따라서 이번 표본에서 옮겨진 것은 절차의 형식이었고, 명세를 담은 자기 검증은 옮겨지지 않았다.",
+   "kind": "overstated",
+   "evidence": "시험 묶음 0/3, 재현 기록 0, 시뮬레이터 2/3이다(표 5, REPORT.md:1496–1505). 형식 중 ④(시험 묶음)와 ⑤(원인 가리기·회귀) 단계는 옮겨지지 않았다. 바로 앞 문장도 '시험 묶음은 만들어지지 않았다'고 적어, '절차의 형식이 옮겨졌다'와 같은 문단 안에서 어긋난다.",
+   "fix": "따라서 이번 표본에서 나타난 것은 설계 메모·조립 스크립트·잦은 도구 호출 같은 절차의 일부 형식이었고, 시험 묶음·원인 가리기와 명세를 담은 자기 검증은 나타나지 않았다.",
+   "verifier": "같은 문단 앞 문장이 '시험 묶음은 만들어지지 않았다'고 적는다. 표 5도 시험 묶음 0, 재현 기록 0이어서 단계 ④·⑤는 형식으로도 나타나지 않았다. 그런데 이 문장은 '옮겨진 것은 절차의 형식'이라고 범위 없이 말해, 4.3이 예로 든 메모·조립·도구 호출보다 넓게 주장한다.",
+   "final_fix": "따라서 이번 표본에서 옮겨진 것은 설계 메모·조립·잦은 도구 호출 같은 절차의 일부 형식이었고, 시험 묶음과 명세를 담은 자기 검증은 옮겨지지 않았다."
+  },
+  {
+   "id": "front-back-6",
+   "part": "front-back",
+   "location": "I. 서론, 기여 셋째 항목 마지막 문장",
+   "draft_text": "그 결과 절차의 형식은 옮겨져도 명세를 담은 자기 검증은 옮겨지지 않음을 보였다.",
+   "kind": "overstated",
+   "evidence": "T2P는 3실행짜리 묶음 조건이다(본문 4.2 'T2P는 ... 묶음 조건으로 해석한다', REPORT.md:1449 ''절차 지시만의 효과'로 좁혀 말하지 않는다', REPORT.md:1537 '표본 3'). 결론은 '이번 표본에서'로 한정하는데, 기여 항목은 일반 명제로 '보였다'고 단정해 결론과도 어긋난다. 또 형식 중 시험 묶음과 원인 가리기는 옮겨지지 않았다(표 5).",
+   "fix": "그 결과 이번 표본(조건당 3~5실행)에서는 설계 메모·조립 같은 절차의 일부 형식은 나타났으나 명세를 담은 자기 검증은 나타나지 않았다.",
+   "verifier": "T2P는 3실행짜리 묶음 조건이다. 결론은 '이번 표본에서'로 범위를 좁히는데, 기여 항목은 일반 명제로 '보였다'고 단정한다. 또 시험 묶음과 원인 가리기는 형식으로도 옮겨지지 않았다(표 5).",
+   "final_fix": "그 결과 이번 표본에서는 설계 메모·조립 같은 절차의 일부 형식은 옮겨졌으나 시험 묶음과 명세를 담은 자기 검증은 옮겨지지 않았다."
+  },
+  {
+   "id": "front-back-7",
+   "part": "front-back",
+   "location": "Ⅲ. 결론, 첫째 문단",
+   "draft_text": "트랙 A 응답 119건 중 상자 높이와 스캔 평면을 올바르게 연결한 응답은 0건이었다(연결한 1건은 결론이 반대).",
+   "kind": "inconsistent",
+   "evidence": "119건에는 상한 30 실행의 29건이 들어 있다. '연결한 1건'(npu_gpt_oss_120b_a2_t30, REPORT.md:1017)도 상한 30 실행에서 나왔다(results/analysis/spec_reading.csv). 이는 EXPERIMENTS.md:80 규칙 4 'cap8 과 cap30 을 풀링하지 않는다'에 어긋난다. 같은 문단의 앞 문장은 상한 30 실행을 따로 적고 있다.",
+   "fix": "1회차와 상한 8 루프의 트랙 A 응답 90건 중 상자 높이와 스캔 평면을 연결한 응답은 0건이었고, 상한 30 별도 실행의 29건 중 1건은 연결했으나 결론이 반대였다.",
+   "verifier": "119건에는 상한 30 실행의 29건이 들어 있고, '연결한 1건'(npu_gpt_oss_120b_a2_t30, REPORT.md:1017)도 그 실행에서 나왔다. 이는 EXPERIMENTS.md:80 규칙 4에 어긋난다. 같은 문단 앞 문장은 상한 30 실행을 따로 적고 있다. 1회차와 상한 8 응답 90건은 모두 L0이다.",
+   "final_fix": "1회차와 상한 8 루프의 트랙 A 응답 90건 중 상자 높이와 스캔 평면을 연결한 응답은 0건이었고, 상한 30 별도 실행의 29건 중 1건은 연결했으나 결론이 반대였다."
+  },
+  {
+   "id": "front-back-8",
+   "part": "front-back",
+   "location": "요약, 일곱째 문장(작업 절차 분해)",
+   "draft_text": "결정적 판단은 도구 사용 전의 숙고를 거친 첫 초안에 이미 있었고",
+   "kind": "unsupported",
+   "evidence": "전사(results/turns/claude_eq/claude_eq_a0_transcripts/projects/-home-jun-workspace/04cfd954-….jsonl)로 다시 계산했다. 첫 도구 호출은 +13.0분(누적 출력 77,846), 첫 초안 region.py 쓰기는 +20.2분(누적 130,154)이다. 그 사이에 도구 3회(+13:00 find, +13:02 ls/find, +17:47 base 저장; claude_eq_a0_timeline.md:10–14)와 출력 약 5.2만 토큰이 있었다. 사고 블록은 stream과 전사 모두 thinking이 빈 문자열(서명만)이어서, 판단이 13분 이전에 생겼는지는 확인할 수 없다. 확인되는 것은 시험 전 첫 초안의 머리 주석에 판단이 있었다는 사실뿐이다(시험 시점: mock_sim 작성 +21:17, 첫 실행 +21:24; REPORT.md:1139 '시험 이전 첫 초안에').",
+   "fix": "결정적 판단은 시험 전에 쓴 첫 초안(20분)에 이미 있었고",
+   "verifier": "전사(04cfd954-….jsonl)를 보면 첫 도구 호출은 +13.0분(누적 출력 77,846), 첫 초안 region.py 쓰기는 +20.2분(누적 130,154)이다. 그 사이에 도구 3회(find, ls, base 저장)와 출력 약 5.2만 토큰이 있다. 사고 블록 130개는 본문이 모두 빈 문자열이어서 판단이 13분 이전에 생겼는지는 확인할 수 없다. 기록으로 확인되는 것은 '시험 전 첫 초안에 있었다'(REPORT.md:1139)까지다(경미).",
+   "final_fix": "결정적 판단은 숙고를 거쳐 시험 전에 쓴 첫 초안(20분)에 이미 있었고"
+  },
+  {
+   "id": "front-back-9",
+   "part": "front-back",
+   "location": "I. 서론, 기여 첫째 항목",
+   "draft_text": "필요한 정보를 모델 입력에 모두 공개하였다.",
+   "kind": "overstated",
+   "evidence": "PROMPT.md:43은 '창고에는 벽·기둥·선반·지게차 같은 고정 구조물도 있습니다'라고 존재만 알리고 위치는 주지 않는다. 지게차 위치는 모델이 열람 금지된 env_v1/nova_carter_warehouse_arena.yaml:14에만 있다. 본문 1.1도 '상자 표에 없는 고정 구조물'이라 적는다. T3 a4 4회차의 표 기반 A*는 표에 없는 지게차에 충돌했다(REPORT.md:1284). 결론의 한계 문장대로, 바로 그 지게차·선반에 대해 스캔이 표본 빔 2.6%에서 거리를 과대 보고한다. 입력에 모두 있는 것은 저평면 장애물 판단에 필요한 상자 높이와 스캔 높이다(env_v1/base_carter_run.py의 MISSION과 docstring).",
+   "fix": "저평면 장애물 판단에 필요한 상자 높이와 스캔 높이를 모델 입력에 평문으로 공개하였다(고정 구조물은 존재만 알리고 위치는 주지 않았다).",
+   "verifier": "PROMPT.md는 벽·기둥·선반·지게차가 있다는 사실만 알리고 위치는 주지 않는다(규칙 6으로 yaml 열람도 금지). T3 a4 4회차는 표에 없는 지게차에 충돌했다(REPORT.md:1284). 스캔이 먼저 보고된 면을 돌려주는 성질(결론 셋째 문단)도 입력에 없다. 입력에 모두 있는 것은 저평면 장애물 판단에 필요한 상자 높이와 스캔 높이다(경미).",
+   "final_fix": "저평면 장애물 판단에 필요한 정보(상자 높이와 스캔 높이)를 모델 입력에 모두 공개하였다."
+  },
+  {
+   "id": "front-back-10",
+   "part": "front-back",
+   "location": "Ⅲ. 결론, 셋째 문단(스캔 충돌면 한계)",
+   "draft_text": "또한 하네스의 스캔은 PhysX가 먼저 보고한 충돌면을 반환하므로, 표본 빔의 2.6%에서 가장 가까운 면보다 먼 거리(중앙값 0.92 m, 주로 지게차·선반)를 돌려주었다. 이 성질은 모든 조건에 같게 적용되었으나 가시 충돌의 일부에 섞여 있을 수 있다.",
+   "kind": "overstated",
+   "evidence": "수치와 규칙은 맞다. analysis/scan_order_v1.log:489–501에 'poses 1552 beams 94672 first-reported != closest: 2451 (2.59 %)', 'overstatement median 0.92 m, max 4.99 m'가 있고, 가장 가까운 면이 지게차·선반인 경우가 2,207/2,451이다. levels/common/carter_env.py:332–337은 첫 비자기 충돌에서 return False로 탐색을 멈춘다(파일은 2026-09-11 이후 수정 없음). 문제는 표현 세 가지다. (1) 0.92 m는 반환 거리의 중앙값이 아니라 과대량(먼저 보고된 면 − 가장 가까운 면)의 중앙값이다(scan_order_probe_scene.py: errs.append(first[0] − near[0])). (2) 이 수치는 raycast_scan을 직접 부른 결과가 아니라 raycast_all의 보고 순서로 하네스가 돌려줄 값을 계산한 것이다(로그 493행 'prim the harness would report'). (3) 같은 하네스를 썼다는 것(REPORT.md 'Claude 가 같은 하네스를 썼다')과 영향이 '같게' 미쳤다는 것은 다르다. 영향은 주행 경로에 따라 달라진다.",
+   "fix": "또한 하네스의 스캔은 PhysX가 먼저 보고한 충돌면에서 탐색을 멈춘다. 빈 바닥 표본 빔(1,552곳 × 61빔)의 2.6%에서는 그 면이 가장 가까운 면보다 멀어, 하네스 규칙상 실제보다 먼 거리가 반환된다(과대량 중앙값 0.92 m, 가장 가까운 면은 주로 지게차·선반). 모든 조건이 같은 하네스로 채점되었으나 영향은 주행 경로에 따라 다를 수 있고, 가시 충돌의 일부에 섞여 있을 수 있다.",
+   "verifier": "수치는 맞다. 2,451/94,672 = 2.59 %이고, 가장 가까운 면이 지게차·선반인 경우가 2,207건이다. 탐색을 멈추는 규칙도 carter_env.py:337(return False)과 일치한다. 다만 0.92 m는 반환 거리의 중앙값이 아니라 과대량(먼저 보고된 면 − 가장 가까운 면)의 중앙값이다(scan_order_probe_scene.py:118–132, scan_order_v1.log:492). 지금 괄호는 반환 거리의 중앙값으로 읽힌다. '모든 조건에 같게 적용'은 같은 하네스라는 뜻으로 정확하므로 그대로 둔다.",
+   "final_fix": "또한 하네스의 스캔은 PhysX가 먼저 보고한 충돌면에서 탐색을 멈추므로, 빈 바닥 표본 빔의 2.6%에서 가장 가까운 면보다 먼 거리(초과분 중앙값 0.92 m, 가장 가까운 면은 주로 지게차·선반)를 돌려준다. 이 성질은 모든 조건에 같게 적용되었으나 가시 충돌의 일부에 섞여 있을 수 있다."
+  },
+  {
+   "id": "front-back-12",
+   "part": "front-back",
+   "location": "Ⅲ. 결론, 셋째 문단",
+   "draft_text": "작업 순서 지시 조건은 예산·출력 한도가 함께 바뀐 묶음 조건이며,",
+   "kind": "inconsistent",
+   "evidence": "REPORT.md:1411–1421은 T2 대비 차이로 지시문 외에 다음을 든다: 도구 예산(12→28회, 60→360분), 셀 시간 제한(300→600 s), 호출당 max_tokens(16,384→24,576), base_carter_run.py 원문 제공, 최종 답 보류 안내(회차당 1회). REPORT.md:1538은 'T2P 는 지시·예산·출력 한도·base 제공이 함께 다른 묶음 조건'이라 적고, 본문 4.2도 base 원문과 보류 안내를 서술한다. 보류 안내는 24회차 중 16회차에 나갔고 정적 실격·도구 사용 수와 직결되므로 한계 문장에서 빠지면 안 된다.",
+   "fix": "작업 순서 지시 조건은 지시문과 함께 도구 예산·출력 한도·base 원문 제공·최종 답 보류 안내가 바뀐 묶음 조건이며,",
+   "verifier": "REPORT.md:1411–1421에 적힌 T2 대비 차이는 지시문 말고도 여럿이다. 도구 예산(12→28회, 60→360분), 셀 시간 제한(300→600 s), 호출당 max_tokens(16,384→24,576), base 원문 제공, 최종 답 보류 안내(24회차 중 16회차에 발송), 대화 압축 기준(30만→25만 자)이 함께 바뀌었다. 한계 문장은 이 가운데 예산과 출력 한도만 든다. base 제공과 보류 안내가 빠졌다(REPORT.md:1538도 base 제공을 명시한다). 4.2의 '지시문과 함께 예산·출력 한도가 바뀐 묶음 조건' 문장도 같게 고쳐야 한다.",
+   "final_fix": "작업 순서 지시 조건은 지시문과 함께 도구 예산·출력 한도·base 원문 제공·최종 답 보류 안내가 바뀐 묶음 조건이며,"
+  },
+  {
+   "id": "front-back-14",
+   "part": "front-back",
+   "location": "Ⅲ. 결론, 둘째 문단 마지막 문장",
+   "draft_text": "공개 모델에 에이전트의 절차를 옮기려면 단계를 지시하는 것보다, 명세를 충실히 담은 검증 환경을 갖추게 하는 방법이 먼저 다뤄져야 한다.",
+   "kind": "unsupported",
+   "evidence": "명세를 담은 검증 환경을 주거나 유도한 조건은 없었다. 4.2는 높이를 반영한 센서 모델을 전하면 정답 누설이라고 한다. T2P 지시문 3단계 ④·⑤(prompts_t2p/system.txt:55–56)는 이미 '센서 함수는 base 문서의 이름·인자·기본값을 그대로', '장애물은 문서의 좌표 정의대로'를 요구했는데, 두 시뮬레이터 모두 z를 버렸다. 따라서 '단계 지시보다 먼저'라는 우선순위는 데이터로 비교된 적이 없다.",
+   "fix": "공개 모델이 정답 누설 없이 명세를 담은 검증 환경을 스스로 갖추게 하는 방법은 이번 실험에서 다루지 않았으며 후속 과제로 남는다.",
+   "verifier": "명세를 담은 검증 환경을 주거나 유도한 조건은 없었다. T2P 지시문(system.txt 3단계 ④·⑤)은 이미 '센서는 문서 인터페이스대로, 장애물은 문서 좌표 정의대로'를 요구했지만 두 시뮬레이터 모두 z를 버렸다. 에이전트 시뮬레이터가 통과에 기여했는지도 1건으로는 가릴 수 없다(sec4-38). 따라서 '단계 지시보다 먼저'라는 우선순위는 데이터로 비교된 적이 없는 처방이다.",
+   "final_fix": "이번 결과는 단계를 지시하는 것만으로는 부족하며, 정답 누설 없이 명세를 충실히 담은 검증 환경을 갖추게 하는 방법을 다룰 필요가 있음을 시사한다."
+  },
+  {
+   "id": "front-back-15",
+   "part": "front-back",
+   "location": "요약, 여섯째 문장",
+   "draft_text": "같은 입력을 받은 코딩 에이전트 Claude Code는 1회차에 통과하였다.",
+   "kind": "inconsistent",
+   "evidence": "결론은 '(1회 중 1회)'로 표본 수를 밝힌다. 2.4와 결론 셋째 문단은 시스템 프롬프트·도구·사고 예산이 달라 모델 비교가 아니라고 적는다(REPORT.md:1107 'k=1'). 그런데 요약에서는 바로 앞의 gpt-oss '12개 실행 중 1개'와 나란히 놓여, 표본 수와 조건 차이 없이 대비된다.",
+   "fix": "같은 입력을 받은 코딩 에이전트 Claude Code는 1회 실행에서 1회차에 통과하였다(1회 중 1회, 도구·시스템 프롬프트·사고 예산은 공개 모델과 다르다).",
+   "verifier": "보고 규칙은 통과 수를 'k회 중 n회'로 쓰게 하고, 결론도 '(1회 중 1회)'로 적는다. 그런데 요약은 표본 수 없이 바로 앞 gpt-oss의 '12개 실행 중 1개'와 나란히 놓여 있다(REPORT.md:1107, k=1). 조건 차이는 본문에 있으므로 표본 수만 밝히면 된다(경미).",
+   "final_fix": "같은 입력을 받은 코딩 에이전트 Claude Code는 1회 실행에서 1회차에 통과하였다."
+  },
+  {
+   "id": "sec1-2-19",
+   "part": "sec1-2",
+   "location": "Ⅱ.2 2.2절 첫 문장; 표 2 '모델' 행; 그림 2 NPU 상자(analysis/fig_paper_figs.py:186). 3.3절 첫 문장도 같은 주장",
+   "draft_text": "공개 가중치 모델 3종(gpt-oss-120b, Qwen3-32B-FP8, EXAONE-4.0-32B-FP8)을 GPU와 NPU에서 같은 모델 ID로 서빙하였다. / (표 2) (모델 ID 동일, 해시 확인은 Qwen3만) / (그림 2) 같은 모델 ID",
+   "kind": "incorrect",
+   "evidence": "모델 ID는 두 쪽이 다르다. results/generated/gpu_*_raw.json의 \"model\"과 _bench.requested_model은 'openai/gpt-oss-120b', 'furiosa-ai/Qwen3-32B-FP8', 'furiosa-ai/EXAONE-4.0-32B-FP8'이고, npu_*_raw.json은 'gpt-oss-120b', 'Qwen3-32B-FP8', 'EXAONE-4.0-32B-FP8'이다(endpoint :8400). vLLM 로그 results/generated/gpu_gpt_oss_120b.serve.log에도 served_model_name ['openai/gpt-oss-120b']로 찍혀 있다. 특히 gpt-oss는 GPU가 상류 openai 저장소를 로드했고 NPU 쪽 체크포인트는 기록이 없다. 그래서 'ID 동일'이라고 쓰면 같은 체크포인트를 쓴 것처럼 읽힌다.",
+   "fix": "2.2절: \"공개 가중치 모델 3종(gpt-oss-120b, Qwen3-32B-FP8, EXAONE-4.0-32B-FP8)을 GPU와 NPU에서 서빙하였다. 요청 모델 ID는 GPU(vLLM)가 openai/gpt-oss-120b·furiosa-ai/Qwen3-32B-FP8·furiosa-ai/EXAONE-4.0-32B-FP8, NPU 라우터가 gpt-oss-120b·Qwen3-32B-FP8·EXAONE-4.0-32B-FP8이다.\" 표 2: \"(같은 모델명, 해시 확인은 Qwen3만)\". 그림 2 NPU 상자: \"같은 모델명\". 3.3절도 \"같은 모델을 GPU 1장과 NPU 4장 구성에서 서빙하여\"로 고친다.",
+   "verifier": "모델 ID가 실제로 다르다. GPU 쪽 results/generated/gpu_*_raw.json의 model과 _bench.requested_model은 openai/gpt-oss-120b, furiosa-ai/Qwen3-32B-FP8, furiosa-ai/EXAONE-4.0-32B-FP8이다. NPU 쪽 npu_*_raw.json(:8400)은 gpt-oss-120b, Qwen3-32B-FP8, EXAONE-4.0-32B-FP8이다. gpu_gpt_oss_120b.serve.log:7의 served_model_name도 openai/gpt-oss-120b다.",
+   "final_fix": "2.2를 '공개 가중치 모델 3종(gpt-oss-120b, Qwen3-32B-FP8, EXAONE-4.0-32B-FP8)을 GPU와 NPU에서 같은 모델명으로 서빙하였다(요청 모델 ID는 GPU가 openai/·furiosa-ai/ 접두사가 붙은 저장소 ID, NPU가 접두사 없는 이름).'로 고친다. 표 2는 '(같은 모델명, 해시 확인은 Qwen3만)', 그림 2 NPU 상자(fig_paper_figs.py:186)는 '같은 모델명'으로 고친다."
+  },
+  {
+   "id": "sec1-2-20",
+   "part": "sec1-2",
+   "location": "Ⅱ.1 1.1절 셋째 문단; 표 1 '접촉' 행",
+   "draft_text": "collision_count는 물리 스텝마다 집계한 섀시 접촉 보고 수이다. / (표 1) collision_count 0 (상자·지게차·선반 포함)",
+   "kind": "overstated",
+   "evidence": "하네스는 로봇 자신, GroundPlane, 창고 셸 /World/warehouse_with_forklifts/Warehouse_Empty_small_realtime 하위와의 접촉을 집계에서 뺀다(levels/common/carter_env.py:87-94, 199-201). arena_harness.py는 이 목록을 바꾸지 않는다. 창고 셸 하위에는 벽 SM_WallA 18개, 기둥 SM_PillarPartA 10개, 랙 SM_RackFrame/SM_Rackshield 7개, 팔레트 SM_PaletteA 13개가 있다(arena_map.json owners). sim2d.py:19-23은 'wall - warehouse shell (walls, pillars, racks, pallets): NOT counted', 집계 대상은 지게차와 서쪽 선반(/World/warehouse_extras)뿐이라고 적고, REPORT.md:235도 같다. 전체 result.json의 접촉 상대는 arena_box_NN 199건과 Forklift 4건뿐이다. 1.1절은 고정 구조물에 벽·기둥을 넣어 나열하므로, 지금 정의로는 벽·기둥 접촉도 센다고 읽힌다.",
+   "fix": "1.1절: \"collision_count는 물리 스텝마다 집계한 섀시 접촉 보고 수이며, 로봇 자신·바닥·창고 셸(벽·기둥·랙 프레임·팔레트)과의 접촉은 하네스가 집계에서 제외한다.\" 표 1: \"collision_count 0 (상자·지게차·서쪽 선반 집계, 벽·기둥 등 창고 셸 제외)\"",
+   "verifier": "carter_env.py:87–94는 로봇 자신, GroundPlane, Warehouse_Empty_small_realtime(창고 셸)과의 접촉을 집계에서 뺀다(199–201행). 셸 아래에는 벽 SM_WallA, 기둥 SM_PillarPartA, 랙 SM_RackFrame/Rackshield, 팔레트 SM_PaletteA가 있다(arena_map.json owners). 집계되는 고정 구조물은 지게차와 서쪽 선반(/World/warehouse_extras)뿐이다(PROMPT.md 성공 조건, REPORT.md:235). 1.1은 고정 구조물로 벽·기둥을 나열하므로, 지금 정의로는 벽과의 접촉도 세는 것으로 읽힌다.",
+   "final_fix": "1.1을 'collision_count는 물리 스텝마다 집계한 섀시 접촉 보고 수이며, 로봇 자신·바닥·창고 셸(벽·기둥·랙·팔레트)과의 접촉은 하네스가 집계에서 제외한다.'로 고친다. 표 1은 'collision_count 0 (상자·지게차·서쪽 선반 집계, 창고 셸 제외)'로 고친다."
+  },
+  {
+   "id": "sec1-2-21",
+   "part": "sec1-2",
+   "location": "Ⅱ.2 표 2 '최대 생성 토큰' 행(4.3절과 충돌)",
+   "draft_text": "1회차 24,576 / 회차 루프 GPU 12,288·NPU 16,384(응답 238건 모두 finish_reason=stop)",
+   "kind": "inconsistent",
+   "evidence": "238은 REPORT.md:943-952에서 '1회차, 턴 프로토콜, 절제 실험, 처방 실험까지' 합친 수다. 직접 세면 results/generated 60 + results/turns 상위 103(상한 8의 2회차 이후 74, 상한 30 실행 29; GPU 39건 max_tokens 12288, NPU 64건 16384) + ablation_feedback 70 + results/prescription/externalize 5 = 238이고 모두 stop이다. 이 중 처방 실험 5건은 논문에 없는 실험이다. 상한 8 NPU a2의 2~8회차 7건은 원문이 소실되어 빠져 있다. 같은 NPU 16,384 한도를 쓴 이식 실험 T3(results/turns/transfer_t3, 33건)에는 finish_reason=length가 2건 있어 4.3절 '출력 한도(16,384 토큰)에 걸린 응답'과 어긋나 보이고, 독자는 238을 재구성할 수 없다.",
+   "fix": "\"1회차 24,576 / 회차 루프 GPU 12,288·NPU 16,384(이식 실험 전, 원문이 남은 응답 233건(1회차 60·회차 루프 103·절제 70) 모두 finish_reason=stop; 이식 조건 T3에서는 2건이 한도에 걸림, 4.3절)\"",
+   "verifier": "238건을 직접 세면 results/generated 60건, results/turns 상위 103건(상한 8 2회차 이후 74 + 상한 30 29), ablation_feedback 70건, prescription 5건이고 모두 stop이다. 이 중 처방 실험 5건은 논문에 없는 실험이다. 같은 NPU 16,384 한도로 돌린 이식 조건 T3(transfer_t3, 33건)에는 finish_reason=length가 2건 있어 4.3절과 충돌해 보인다. 독자가 238을 재구성할 수 없으므로 범위를 밝혀야 한다.",
+   "final_fix": "1회차 24,576 / 회차 루프 GPU 12,288·NPU 16,384(이식 실험 전 응답 233건(1회차 60, 회차 루프·상한 30 실행 103, 절제 70) 모두 finish_reason=stop; 이식 조건 T3에서는 2건이 한도에 걸림, 4.3절)"
+  },
+  {
+   "id": "sec1-2-22",
+   "part": "sec1-2",
+   "location": "Ⅱ.2 2.2절 '입력은…' 문장, 2.3절 대화 절단 문장(4.2절 'T0와 같다'와 충돌)",
+   "draft_text": "입력은 트랙 프롬프트와 기반 파일을 이은 메시지 하나뿐이며, 시스템 프롬프트와 도구는 주지 않는다. / 대화가 6만 자를 넘으면 첫 메시지를 남기고 가장 오래된 교환부터 제거한다.",
+   "kind": "inconsistent",
+   "evidence": "두 문장 모두 적용 범위를 밝히지 않았다. 6만 자 절단은 turn_loop.py:134-150, 324(--budget-chars 60000)에만 있고 1회차·상한 8·상한 30·T3가 여기에 해당한다. T2·T2P는 npu_tool_loop.py로 돌았다. 이 경로는 첫 메시지 앞에 system 메시지를 넣고(239행; T2는 40-44행의 도구 안내, T2P는 prompts_t2p/system.txt 12,323자), 교환을 지우지 않고 오래된 도구 출력·코드만 줄이는 compress()를 쓴다(94-114행). 예산은 T2 300,000자(기본값, transfer_t2/*_turns.json budget_chars), T2P 250,000자(prompts_t2p/t2p.args)다. 그런데 4.2절은 이식 조건의 '입력·…·피드백 문구·상한 8회차·샘플링은 T0와 같다'고 쓴다.",
+   "fix": "2.2절: \"입력은 트랙 프롬프트와 기반 파일을 이은 메시지 하나뿐이며, 시스템 프롬프트와 도구는 주지 않는다(이식 조건 T2·T2P는 4.2절).\" 2.3절 절단 문장 뒤에 \"이 절단은 회차 루프(T0·T3)와 상한 30 실행에 적용하였다. 도구를 쓰는 T2·T2P는 시스템 메시지(도구 안내·작업 순서 지시문)를 받고, 교환을 지우는 대신 오래된 도구 출력·코드를 줄여 각각 30만·25만 자 안에 맞췄다.\"를 덧붙인다. 4.2절에도 같은 단서를 단다.",
+   "verifier": "6만 자 절단은 turn_loop.py trim()(134–150행, --budget-chars 기본값 60000)에만 있고, T0·T3·상한 30·절제 실험이 여기에 해당한다. T2·T2P는 npu_tool_loop.py로 돌았다. 이 경로는 첫 메시지 앞에 system 메시지를 넣는다(239행; T2는 292자, T2P는 12,322자). 또 교환을 지우지 않고 오래된 도구 출력·코드만 줄이는 compress()(94–114행)를 30만 자(T2)·25만 자(T2P, t2p.args) 기준으로 쓴다. 그런데 4.2는 'T0와 같다'고만 적어 이 대화 처리 차이가 드러나지 않는다.",
+   "final_fix": "2.3 절단 문장 뒤에 '이 절단은 회차 루프(T0·T3)·상한 30 실행·절제 실험에 적용하였다. 도구를 쓰는 T2·T2P는 시스템 메시지(도구 안내·작업 순서 지시문)를 받고, 교환을 지우는 대신 오래된 도구 출력·코드를 줄여 각각 30만·25만 자 안에 맞췄다.'를 덧붙인다. 4.2는 '입력(첫 메시지)·정적 검증·물리 실행·피드백 문구·상한 8회차·샘플링은 T0와 같다'로 고친다."
+  },
+  {
+   "id": "sec1-2-23",
+   "part": "sec1-2",
+   "location": "Ⅱ.2 2.4절",
+   "draft_text": "작업 절차는 에이전트의 이벤트 스트림(모델 출력, 도구 호출과 결과, 시각)과 작업 폴더의 파일로 기록하였고",
+   "kind": "overstated",
+   "evidence": "사고 본문은 기록되지 않았다. results/turns/claude_eq/claude_eq_a0_turns.json의 agents.main은 thinking_blocks 130, thinking_chars 0이다. claude_eq_a0_stream.jsonl과 claude_eq_a0_transcripts의 사고 블록은 'thinking'이 빈 문자열이고 signature만 있다. claude_eq_a0_timeline.md에는 THINK 항목이 하나도 없다(범례만 있음). REPORT.md:1067의 설계는 showThinkingSummaries로 사고 요약을 남긴다고 했지만 남지 않았다. 숙고 단계에 남은 것은 시간과 사고 토큰 수(usage)뿐이다. 자작 시뮬레이터 등 산출물도 작업 폴더가 아니라 /tmp/arena_scratch에 있었다(CLAUDE_VS_NPU.md §10.3).",
+   "fix": "\"작업 절차는 에이전트의 이벤트 스트림과 세션 전사(에이전트가 쓴 문장, 도구 호출과 결과, 시각, 토큰 사용량)와 작업 폴더·/tmp의 파일로 기록하였고, 이를 시간대별로 재구성하여 단계로 나누었다. 사고 본문은 기록되지 않아(사고 블록 130개 모두 빈 문자열) 숙고 단계는 경과 시간과 사고 토큰 수로만 파악하였다.\"",
+   "verifier": "claude_eq_a0_turns.json의 agents.main은 thinking_blocks 130, thinking_chars 0이다. claude_eq_a0_stream.jsonl의 사고 블록 130개도 본문이 모두 빈 문자열이다. 설계(REPORT.md:1068)는 사고 요약을 남긴다고 했지만 남지 않았다. 또 산출물은 작업 폴더가 아니라 /tmp/arena_scratch에 있었다(claude_eq_a0_files/claude_eq_a0/tmp). 숙고 분석이 어떤 근거에 기대는지 밝혀야 한다.",
+   "final_fix": "작업 절차는 에이전트의 이벤트 스트림과 세션 전사(에이전트가 쓴 문장, 도구 호출과 결과, 시각, 토큰 사용량)와 작업 폴더·/tmp의 파일로 기록하였고, 이를 시간대별로 재구성하여 단계로 나누었다. 사고 본문은 기록되지 않아(사고 블록 130개 모두 빈 문자열) 숙고 단계는 경과 시간과 사고 토큰 수로만 파악하였다."
+  },
+  {
+   "id": "sec1-2-24",
+   "part": "sec1-2",
+   "location": "Ⅱ.1 1.1절 셋째 문단",
+   "draft_text": "첫 접촉 5 s 후 실행을 중단하므로 값은 중단 시점에서 잘린다(지속 접촉 1건이면 360).",
+   "kind": "inconsistent",
+   "evidence": "5 s×60 Hz는 300이다. 360은 중단 뒤 1 s 정지 구간까지 접촉 콜백이 계속 세기 때문에 나온다(carter_env.py:406-417 중단, 435-443 정지 구간에서도 sim.step 진행). 예: results/gpu_gpt_oss_120b_a4_t2_result.json은 first_collision_t 47.217, sim_time_s 53.217(=+6 s), collision_count 360이다. 결과 파일 117개가 정확히 360이다.",
+   "fix": "\"첫 접촉 5 s 후 주행을 중단하고 이어지는 1 s 정지 구간까지 집계하므로 값은 그 시점에서 잘린다(지속 접촉 1건이면 6 s × 60 스텝 = 360).\"",
+   "verifier": "5 s × 60 Hz는 300이어서 괄호의 360과 설명이 맞지 않는다. 360이 되는 이유는 중단 뒤 1 s 정지 구간에서도 sim.step이 돌아 접촉 콜백이 계속 세기 때문이다(carter_env.py 407–417행 중단, 436–443행 정지). 예를 들어 gpu_gpt_oss_120b_a4_t2_result.json은 first_collision_t 47.217, sim_time_s 53.217(+6 s), collision_count 360이다. 결과 파일 117개가 정확히 360이다.",
+   "final_fix": "첫 접촉 5 s 후 주행을 중단하고 이어지는 1 s 정지 구간까지 집계하므로 값은 그 시점에서 잘린다(지속 접촉 1건이면 6 s × 60 스텝 = 360)."
+  },
+  {
+   "id": "sec1-2-25",
+   "part": "sec1-2",
+   "location": "Ⅱ.2 2.4절",
+   "draft_text": "격리 환경에서는 빈 작업 폴더만 있는 새 홈 디렉터리만 보인다.",
+   "kind": "overstated",
+   "evidence": "claude_sandbox.sh:35-42를 보면 새 홈(/home/jun) 말고도 별도 /tmp(RUN_DIR/tmp)가 쓰기 가능하게 마운트되고, /usr·/etc·/sys·/run/systemd/resolve가 읽기 전용으로 보인다. 네트워크 네임스페이스는 분리하지 않았다(--unshare-net 없음; 막은 것은 웹 도구뿐). 에이전트는 실제로 /tmp/arena_scratch에서 작업했다(claude_eq_a0_timeline.md +17:47; claude_agent_loop.py:417-420이 workspace와 /tmp를 함께 보존).",
+   "fix": "\"격리 환경에서는 빈 작업 폴더가 든 새 홈 디렉터리와 비어 있는 별도 /tmp, 읽기 전용 시스템 디렉터리(/usr·/etc)만 보인다. 프로젝트 파일·사용자 메모리·Isaac Sim은 보이지 않는다.\"",
+   "verifier": "claude_sandbox.sh:35–42는 새 홈 말고도 별도 /tmp(RUN_DIR/tmp)를 쓰기 가능하게 연결하고, /usr·/etc·/sys는 읽기 전용으로 연결한다. 에이전트 산출물은 실제로 /tmp/arena_scratch에 있었다. sec1-2-23 수정으로 '/tmp의 파일'이 들어가면 '새 홈만 보인다'와 어긋난다. 과제 정보 격리(프로젝트·메모리·Isaac은 보이지 않음)라는 요지는 맞다(경미).",
+   "final_fix": "격리 환경에서는 빈 작업 폴더가 든 새 홈 디렉터리와 빈 /tmp, 읽기 전용 시스템 디렉터리(/usr·/etc)만 보인다."
+  },
+  {
+   "id": "sec1-2-26",
+   "part": "sec1-2",
+   "location": "Ⅱ.1 1.2절 둘째 문단",
+   "draft_text": "이를 피하려면 (가) 상자 표를 지도상 장애물로 쓰거나 (나) raycast_scan의 z 인자로 스캔 평면을 낮춰야 한다.",
+   "kind": "overstated",
+   "evidence": "필요조건이 아니다. 경로를 어떻게 고르느냐에 따라 저평면 장애물을 모르고도 비켜 갈 수 있다. 본문 3.1절도 EXAONE 궤적 18건 중 17건이 저평면 상자에서 2 m 이상 떨어져 주행했다고 적는다. layout.json의 상자 06 설명은 'its open west end is the clean route'이고, 상자 03의 서쪽 끝 우회로에는 저평면 상자가 없다. 설계 의도(REPORT.md:143-152)는 자연스러운 우회로에 저평면 상자를 둔 것이지, 다른 길이 없다는 것이 아니다.",
+   "fix": "\"이를 알고 피하려면 (가) 상자 표를 지도상 장애물로 쓰거나 (나) raycast_scan의 z 인자로 스캔 평면을 낮춰야 한다(경로에 따라 우연히 비켜 갈 수는 있다).\"",
+   "verifier": "문장이 (가)·(나)를 필요조건으로 쓰는데 데이터와 맞지 않는다. 유일한 GPU 통과본 gpu_gpt_oss_120b_a4_t5는 상자 06의 좌표만 하드코딩했다. 04·05·13은 무시했지만 경로가 그쪽으로 가지 않아 비켜 갔다(REPORT.md:533–534). 본문 3.1도 EXAONE 궤적 18건 중 17건이 저평면 상자에서 2 m 이상 떨어져 주행했다고 적는다. 설계 의도(REPORT.md:148–152)는 자연스러운 우회로 위에 저평면 상자를 둔 것이지, 다른 길이 없다는 것이 아니다.",
+   "final_fix": "이를 알고 피하려면 (가) 상자 표를 지도상 장애물로 쓰거나 (나) raycast_scan의 z 인자로 스캔 평면을 낮춰야 한다(경로에 따라서는 모르고 비켜 갈 수도 있다)."
+  },
+  {
+   "id": "sec1-2-27",
+   "part": "sec1-2",
+   "location": "Ⅱ.1 1.1절 셋째 문단 첫 문장(그림 2 '고정 하네스 (모델이 수정할 수 없음)'도 같음)",
+   "draft_text": "판정은 생성 코드가 수정할 수 없는 고정 하네스가 한다.",
+   "kind": "overstated",
+   "evidence": "하네스 코드 파일은 고정이지만, 제어기는 하네스 객체 자체를 env로 받아 같은 프로세스에서 돈다(carter_env.py:419 controller(t, (x, y, yaw), self)). 정적 검사(turn_loop.py:170-191, static_screen.py)는 env.collisions·env.pos_tol 같은 속성 변경을 막지 않는다. 막는 것은 프롬프트 규칙뿐이다. 실제로는 arena/*_carter_run.py 324개를 grep한 결과 env.raycast_scan 외의 env 속성 접근은 없었다.",
+   "fix": "\"판정은 제출 파일 밖에 있는 고정 하네스(levels/common/carter_env.py)가 한다.\" 필요하면 \"제어기가 받는 env는 하네스 객체이지만, 모든 제출은 env.raycast_scan 외의 속성을 쓰지 않았다\"를 덧붙인다.",
+   "verifier": "하네스 파일은 고정이지만, 제어기는 하네스 객체 자체를 env로 받는다(carter_env.py:419 controller(t, (x, y, yaw), self)). 판정은 그 객체의 collisions·pos_tol·yaw_tol로 계산되고(_evaluate, 448행 이후), 정적 검사(turn_loop.py static_check)는 이런 속성 접근을 막지 않는다. 따라서 '수정할 수 없다'는 과장이다. 실제로는 arena/*_carter_run.py 324개 모두 env.raycast_scan 외의 속성을 쓰지 않았다(env.max_range 2건은 주석)(경미).",
+   "final_fix": "판정은 제출 파일 밖에 있는 고정 하네스가 한다(제어기가 받는 env는 하네스 객체이지만, 모든 제출은 env.raycast_scan 외의 속성을 쓰지 않았다). 그림 2의 '(모델이 수정할 수 없음)'은 '(제출 파일 밖)'으로 바꾼다."
+  },
+  {
+   "id": "sec3-28",
+   "part": "sec3",
+   "location": "Ⅱ.3.2 회차 루프 결과, 둘째 문단 (통과 실행 재채점)",
+   "draft_text": "최종 거리는 vLLM의 GPU 상주 여부(상주 5회, 단독 3회)와 무관하게 하네스의 두 타이밍 모드(0.6967 m·56.417 s / 0.7048 m·56.117 s)를 오갔다.",
+   "kind": "incorrect",
+   "evidence": "0.7048 m 쪽 시각을 보여 주는 원시 기록은 재실행 로그 하나뿐이고, 거기에는 56.100 s로 남아 있다. 근거: /home/jun/SDI-Scenario/accident_scene/arena/results/gpu_gpt_oss_120b_a4_t5.rerun.log 524행 'entered goal disc at t=56.10s', 658행 \"time_to_goal_s\": 56.1, 660행 \"final_dist_m\": 0.7048, 690행 'PASS ttg=56.1s final_dist=0.7048m'. 하네스는 round(t,3)로 기록하므로 56.117이 아니라 56.100 s(60 Hz 3366프레임)이다. 56.117은 문서(TURNS.md:91, PAPER.md:117)에만 있다. 0.6967 m·56.417 s는 results/gpu_gpt_oss_120b_a4_t5_result.json과 일치한다. 루프 안 원 채점(cap8/gpu_gpt_oss_120b_a4_turns.json 5회차)은 0.6966 m·56.433 s이다.",
+   "fix": "최종 거리는 vLLM의 GPU 상주 여부(상주 5회, 단독 3회)와 무관하게 하네스의 두 타이밍 모드(0.6967 m·56.417 s / 0.7048 m·56.100 s)를 오갔다.",
+   "verifier": "0.7048 m 모드의 원시 기록은 results/gpu_gpt_oss_120b_a4_t5.rerun.log 하나뿐이다. 그 로그의 524행은 'entered goal disc at t=56.10s', 658행은 time_to_goal_s 56.1, 660행은 final_dist_m 0.7048이다. 60 Hz 3366프레임이므로 56.100 s다. 56.117은 TURNS.md:91과 PAPER.md:117에만 있고 원자료와 다르다. 0.6967 m·56.417 s는 result.json과 일치한다.",
+   "final_fix": "최종 거리는 vLLM의 GPU 상주 여부(상주 5회, 단독 3회)와 무관하게 하네스의 두 타이밍 모드(0.6967 m·56.417 s / 0.7048 m·56.100 s)를 오갔다."
+  },
+  {
+   "id": "sec3-29",
+   "part": "sec3",
+   "location": "Ⅱ.3.2 넷째 문단 (명세 연결 판정 119건)",
+   "draft_text": "트랙 A 응답 119건(1회차 30, 상한 8 루프의 2회차 이후 60, 상한 30 실행 29; 독립 표본 아님)의 코드와 추론을 수동으로 판정하였다. 상자 높이와 스캔 평면을 올바르게 연결한 응답은 없었다(연결한 1건은 결론이 반대).",
+   "kind": "inconsistent",
+   "evidence": "cap8/*_turns.json 기준 상한 8 트랙 A의 2회차 이후 응답은 60건이 아니라 67건이다(GPU a0–a3 7×4 + a4 4 = 32, NPU a0–a4 7×5 = 35). 60이 된 이유가 본문에 없다. 실제로는 상한 30 실행이 NPU a2의 2–8회차 원문 7건을 덮어썼다(REPORT.md:293–300). 그래서 results/analysis/spec_reading.csv의 npu_gpt_oss_120b_a2 행 turn_idx 2–30, 29건은 모두 상한 30 실행분이다. 또 상한 8과 상한 30 응답을 119건 하나로 합친 것은 EXPERIMENTS.md:80 규칙 4('cap8 과 cap30 을 풀링하지 않는다')와 맞지 않는다. 연결했으나 결론이 반대인 유일한 L2(npu_gpt_oss_120b_a2_t30, spec_reading.csv manual_tier)도 상한 30 실행에서 나왔다.",
+   "fix": "트랙 A 응답 119건(1회차 30건, 상한 8 루프 2회차 이후 67건 중 원문이 남은 60건, 상한 30 실행 29건; 독립 표본 아님)의 코드와 추론을 수동으로 판정하였다. NPU a2의 상한 8 2–8회차 7건은 상한 30 실행이 덮어써 원문이 없다. 상자 높이와 스캔 평면을 올바르게 연결한 응답은 1회차·상한 8 응답 90건 중 0건, 상한 30 응답 29건 중 0건이었다(연결했으나 결론이 반대인 1건은 상한 30 실행의 30회차).",
+   "verifier": "cap8/*_turns.json 기준 상한 8 트랙 A의 2회차 이후는 67건이다(GPU 32 = a0–a3 7×4 + a4 4, NPU 35). 본문은 이유 없이 60건이라고 적는다. 빠진 7건은 상한 30 실행이 같은 변이 이름을 써서 NPU a2 t2–t8 원문을 덮어쓴 것이다(REPORT.md:293–300). 또 119건 묶음과 그 안의 유일한 L2(a2 t30)는 EXPERIMENTS.md:80 규칙 4에 걸린다.",
+   "final_fix": "트랙 A 응답 119건(1회차 30건, 상한 8 루프 2회차 이후 67건 중 원문이 남은 60건, 상한 30 실행 29건; 독립 표본 아님)의 코드와 추론을 수동으로 판정하였다. NPU a2의 상한 8 2–8회차 7건은 같은 이름을 쓴 상한 30 실행이 덮어써 원문이 없다. 1회차·상한 8 응답 90건 중 상자 높이와 스캔 평면을 연결한 응답은 없었고, 상한 30 응답 29건 중 1건(30회차)은 연결했으나 결론이 반대였다."
+  },
+  {
+   "id": "sec3-30",
+   "part": "sec3",
+   "location": "표 4 주 ᵃ (NPU gpt-oss 처리량 30.9)",
+   "draft_text": "ᵃ a0은 MoE 예열 램프 표본(185.6 s·15.8 tok/s)이다. GPU는 --warmup을 썼고, NPU 1회차의 예열 여부는 기록이 없다.",
+   "kind": "incorrect",
+   "evidence": "NPU 예열은 기록되어 있다. /home/jun/.claude/jobs/fdd8b179/tmp/run_npu.sh 21–26행은 모델마다 예열 요청을 먼저 보낸다. npu_generation.log 20행은 EXAONE 'warmup http=200 97.4s', 38행은 gpt-oss-120b 'warmup http=503 100.456682s'이고, 41행 a0 '185.6s out=2937'이 그 직후 요청이다. NPU Qwen3 최종 표본은 serving.csv의 6898/5869/4827/6522/6279 토큰과 일치하며, qwen3_remeasure.log 1–3행에 '트랙 A (예열 포함) … warmup discarded (14.7s)'가 있다. 'MoE 램프'는 generate.py:95–97 주석에 근거한 해석이다. a0은 예열 요청이 503으로 실패한 직후의 첫 요청이다.",
+   "fix": "ᵃ a0은 예열 요청이 HTTP 503으로 실패한 직후의 첫 요청이다(185.6 s·15.8 tok/s). GPU는 --warmup을 썼고, NPU도 모델마다 예열 요청을 먼저 보냈다(Qwen3·EXAONE 성공, gpt-oss-120b 실패).",
+   "verifier": "NPU 예열은 기록이 있다. ~/.claude/jobs/fdd8b179/tmp/run_npu.sh:21–26은 모델마다 예열 요청을 먼저 보낸다. npu_generation.log:20은 EXAONE 'warmup http=200 97.4s', 38행은 gpt-oss-120b 'warmup http=503 100.46s'다. 41행의 a0 '185.6s out=2937'(serving.csv a0와 일치)은 그 바로 뒤의 요청이다. Qwen3 최종 표본도 qwen3_remeasure.log에 'warmup discarded (14.7s)'가 있다.",
+   "final_fix": "ᵃ a0(185.6 s·15.8 tok/s)은 예열 요청이 HTTP 503으로 실패한 직후의 첫 요청이다(예열 램프 구간으로 보인다). GPU는 --warmup을 썼고, NPU도 모델마다 예열 요청을 먼저 보냈다(gpt-oss-120b만 실패)."
+  },
+  {
+   "id": "sec3-31",
+   "part": "sec3",
+   "location": "표 4 주 ᵇ (NPU EXAONE 처리량 34.4)",
+   "draft_text": "ᵇ 트랙 A 요청 시간이 기록되지 않아 트랙 B 5건 기준이다.",
+   "kind": "incorrect",
+   "evidence": "트랙 A 요청 시간은 생성 로그에 남아 있다. /home/jun/.claude/jobs/fdd8b179/tmp/npu_generation.log 22–27행: NPU EXAONE 트랙 A 5건이 70.8/62.7/73.6/70.7/72.8 s이다. 출력 토큰 2383/2140/2537/2439/2504와 코드 글자 수가 results/generated/serving.csv의 npu_exaone 트랙 A 행과 같으므로 같은 표본이다. 비어 있는 것은 raw JSON의 _bench와 serving.csv의 wall_s뿐이다. 로그 시간을 넣은 10건 e2e 중앙값은 34.39 tok/s(A 34.40, B 34.38)라 표의 34.4와 GPU/NPU 비 1.1배는 그대로다.",
+   "fix": "ᵇ 트랙 A 5건은 원시 응답에 요청 시간이 저장되지 않아 트랙 B 5건 기준이다(생성 로그의 트랙 A 시간을 넣은 10건 중앙값도 34.4 tok/s이다).",
+   "verifier": "npu_generation.log:23–27에 NPU EXAONE 트랙 A 5건의 요청 시간(70.8/62.7/73.6/70.7/72.8 s)이 있다. 출력 토큰(2383/2140/2537/2439/2504)과 코드 글자 수가 serving.csv의 트랙 A 행과 같아 같은 표본이다. 비어 있는 것은 raw JSON의 _bench와 serving.csv의 wall_s뿐이다. 로그 시간을 넣은 10건 중앙값도 34.39 tok/s여서 표의 34.4와 1.1배는 그대로다.",
+   "final_fix": "ᵇ 트랙 A 5건은 원시 응답에 요청 시간이 저장되지 않아 트랙 B 5건 기준이다(생성 로그의 트랙 A 시간을 넣은 10건 중앙값도 34.4 tok/s)."
+  },
+  {
+   "id": "sec3-32",
+   "part": "sec3",
+   "location": "Ⅱ.3.3 첫 문장",
+   "draft_text": "같은 모델 ID를 GPU 1장과 NPU 4장 구성에서 서빙하여(해시 확인은 Qwen3만) 결과와 지연을 비교하였다(표 4).",
+   "kind": "overstated",
+   "evidence": "응답의 model 필드가 가속기마다 다르다. results/generated/gpu_*_a0_raw.json은 'openai/gpt-oss-120b', 'furiosa-ai/Qwen3-32B-FP8', 'furiosa-ai/EXAONE-4.0-32B-FP8'이고, npu_*_a0_raw.json은 'gpt-oss-120b', 'Qwen3-32B-FP8', 'EXAONE-4.0-32B-FP8'이다. results/turns/cap8/turns.csv의 model 열도 GPU 'openai/gpt-oss-120b' 대 NPU 'gpt-oss-120b'이다. 특히 gpt-oss는 GPU가 상류 openai 체크포인트(2.2절)를 로드했으므로 ID 자체가 같지 않다.",
+   "fix": "같은 이름의 모델(GPU: openai/gpt-oss-120b와 furiosa-ai 배포 Qwen3·EXAONE, NPU: furiosa-llm 라우터의 같은 이름 모델)을 GPU 1장과 NPU 4장 구성에서 서빙하여(가중치 해시 확인은 Qwen3만) 결과와 지연을 비교하였다(표 4).",
+   "verifier": "sec1-2-19와 같은 문제다. results/generated의 model 필드와 cap8/turns.csv의 model 열은 GPU가 'openai/gpt-oss-120b'(Qwen3·EXAONE은 furiosa-ai/ 접두사), NPU가 'gpt-oss-120b'로 다르다.",
+   "final_fix": "같은 이름의 모델을 GPU 1장과 NPU 4장 구성에서 서빙하여(가중치 해시 확인은 Qwen3만) 결과와 지연을 비교하였다(표 4)."
+  },
+  {
+   "id": "sec3-33",
+   "part": "sec3",
+   "location": "Ⅱ.3.1 둘째 문단 (실패 분류 정의); 표 3·표 4의 저/가 칸",
+   "draft_text": "저평면 충돌은 스캔 평면보다 낮은 상자와의 접촉, 가시 충돌은 스캔 평면에 걸리는 높이의 물체와의 접촉",
+   "kind": "unsupported",
+   "evidence": "실제 분류 규칙은 높이 기준이 아니다. /home/jun/SDI-Scenario/accident_scene/arena/score_runs.py:60–70 classify()는 접촉 상대에 상자 04·05·06·13이 하나라도 있으면 trap_collision, 그 밖에는 높이와 무관하게 visible_collision으로 셈한다. 가시 충돌 1건의 상대 '/World/warehouse_with_forklifts/Forklift/S_ForkliftFork/collision_box'(results/npu_exaone_4_0_32b_fp8_b2_result.json)의 높이는 프로젝트 어디에도 기록이 없다(arena_map.json bboxes는 지게차 전체 z −0.002~2.153 m뿐). 또 npu_qwen3_32b_fp8_a2는 상자 03(1.0 m)과 04(0.25 m)에 함께 접촉하여(partners [03,04], 683회) 두 정의에 모두 해당하는데 저평면으로 셌다. 첫 접촉 t=57.567 s 시점에 상자 03까지 0.33 m, 04까지 0.39 m라 어느 쪽이 먼저인지는 정해지지 않는다.",
+   "fix": "저평면 충돌은 접촉 상대에 저평면 상자(04·05·06·13)가 하나라도 있는 경우, 가시 충돌은 그 밖의 물체(높이 1.0 m 상자와 지게차·선반 등 고정 구조물)와만 접촉한 경우이다(상자 03·04에 함께 접촉한 1건은 저평면으로 셌다).",
+   "verifier": "실제 분류는 높이가 아니라 접촉 상대가 무엇인지로 한다. score_runs.py:60–70의 classify()는 접촉 상대에 상자 04·05·06·13이 하나라도 있으면 trap_collision, 그 밖에는 visible_collision으로 셈한다. 가시 충돌 1건의 상대인 Forklift/S_ForkliftFork/collision_box(npu_exaone_4_0_32b_fp8_b2_result.json)는 높이가 어디에도 기록되어 있지 않다. 또 npu_qwen3_32b_fp8_a2는 상자 03(1.0 m)과 04(0.25 m)에 함께 접촉했는데 저평면으로 셌다.",
+   "final_fix": "저평면 충돌은 접촉 상대에 저평면 상자(04·05·06·13)가 하나라도 있는 경우, 가시 충돌은 그 밖의 물체(높이 1.0 m 상자, 지게차 등)와만 접촉한 경우이다(상자 03·04에 함께 접촉한 1건은 저평면으로 셌다)."
+  },
+  {
+   "id": "sec3-34",
+   "part": "sec3",
+   "location": "Ⅱ.3.1 둘째 문단 정의 vs 3.2·표 4의 정지 23회",
+   "draft_text": "정지는 접촉 없이 목표에 도달하지 못한 경우",
+   "kind": "inconsistent",
+   "evidence": "93회차 분포의 정지 23회(GPU 11)에는 results/turns/cap8/gpu_gpt_oss_120b_a4_turns.json 4회차가 들어 있다. 이 회차는 collisions 0, final_dist_m 0.0008, time_to_goal_s 56.417(목표 원 진입)이고, results/gpu_gpt_oss_120b_a4_t4_result.json 기준 yaw 오차 2.4459 rad, sim_time 121 s(제한 시간 종료)이다. 같은 3.2절이 이 회차를 '위치(4회차)' 해소로 서술하므로 '목표에 도달하지 못한 경우'라는 정의와 맞지 않는다.",
+   "fix": "정지는 접촉 없이 위치·yaw 조건 중 하나 이상을 만족하지 못한 경우이다(목표 위치에 도달했으나 yaw가 틀린 1회차 포함).",
+   "verifier": "정지 23회(표 4)에 들어간 gpu_gpt_oss_120b_a4 4회차는 접촉 0, 최종 거리 0.0008 m(56.417 s에 목표 원 진입), yaw 오차 2.4459 rad, sim_time 121 s다. 하네스 사유도 'yaw_misaligned'다(gpu_gpt_oss_120b_a4_t4_result.json). 3.2가 이 회차를 '위치(4회차)' 해소로 서술하므로 '목표에 도달하지 못한 경우'라는 정의와 어긋난다. 이런 회차는 전체 결과 파일 중 이 1건뿐이다(경미).",
+   "final_fix": "정지는 접촉은 없으나 최종 위치·yaw 조건 중 하나라도 만족하지 못한 경우(목표 위치에는 도달했으나 yaw가 틀린 1회차 포함)"
+  },
+  {
+   "id": "sec3-35",
+   "part": "sec3",
+   "location": "Ⅱ.3.3 둘째 문단; 표 4 마지막 두 행과 주",
+   "draft_text": "물리 실행(하네스 기동 포함)은 47.2 s, 44.6 s로 비슷하므로 회차 지연 중앙값은 63.0 s 대 115.1 s이다.",
+   "kind": "inconsistent",
+   "evidence": "값은 모두 재현되나, 행마다 집계 대상 회차가 달라 표만 보고는 확인할 수 없다. cap8/*_turns.json 2–8회차로 다시 계산하면 생성 중앙값은 GPU 39회차 15.5 s, NPU 42회차 65.15 s(트랙 B 포함)이다. 물리 실행과 회차 지연은 정적 실격을 뺀 GPU 35·NPU 39회차 기준으로 47.2/44.6 s, 회차별 (생성+물리) 합의 중앙값 63.0/115.1 s이다. 두 중앙값을 더하면 62.7/109.8 s, 정적 실격 회차를 물리 0으로 넣으면 61.8/110.35 s가 된다. 또 표 6 주와 저자 확인 사항은 T0를 '표 4와 같은 정의(2–8회차 35건)'라 하지만 표 4 NPU는 42회차(트랙 B 7 포함)이며, 그래서 T0 64.3 s와 65.2 s가 다르다.",
+   "fix": "표 4 주에 다음을 추가한다: '생성 시간은 2–8회차 전체(GPU 39, NPU 42회차, 트랙 B 포함)의 중앙값이다. 물리 실행 시간과 회차 지연은 정적 실격을 뺀 회차(GPU 35, NPU 39)의 중앙값이며, 회차 지연은 회차별 (생성+물리 실행) 합의 중앙값이라 두 중앙값의 합과 다르다.'",
+   "verifier": "수치는 모두 재현된다. cap8/*_turns.json 2–8회차 기준으로 생성 시간 중앙값은 GPU 39회차 15.5 s, NPU 42회차 65.15 s다. 물리 실행과 회차 지연은 정적 실격을 뺀 GPU 35·NPU 39회차 기준으로 47.2/44.6 s, 63.0/115.1 s다. 그러나 표 4 NPU 65.2 s는 트랙 B 7회차를 포함해 표 6 T0 64.3 s(트랙 A 35회차)와 값이 다르다. 회차 지연도 두 중앙값의 합(62.7/109.8)이 아닌데 주에 집계 대상이 없다. 저자 확인 사항 281행의 '표 4와 같은 정의(2–8회차 35건)'도 틀렸다.",
+   "final_fix": "표 4 주에 '생성 시간은 2–8회차 전체(GPU 39·NPU 42회차, 트랙 B 포함)의 중앙값이고, 물리 실행 시간과 회차 지연은 정적 실격을 뺀 회차(GPU 35·NPU 39)의 중앙값이며, 회차 지연은 회차별 (생성+물리 실행) 합의 중앙값이다.'를 넣는다. 저자 확인 사항의 '표 4와 같은 정의(2–8회차 35건)'는 'NPU 트랙 A 2–8회차 35건(표 4 NPU는 트랙 B 포함 42회차)'으로 고친다."
+  },
+  {
+   "id": "sec4-37",
+   "part": "sec4",
+   "location": "4.3 마지막 해석 문단 첫 문장 (draft L203)",
+   "draft_text": "두 실행 계열을 단계별로 맞대면, 차이는 단계의 유무보다 단계의 내용에 있었다.",
+   "kind": "inconsistent",
+   "evidence": "초안 표 5 오른쪽 열(L177–178)에 이미 ④ '시험 묶음 0', ⑤ '재현 기록 0'이 적혀 있다. REPORT.md:1534는 \"Claude 절차의 핵심인 '시뮬레이터에서 주행 → 시험 묶음 → 실패 분석' 은 일어나지 않았다\"라고 쓴다. 원자료 results/turns/transfer_t2p/npu_gpt_oss_120b_t2p_a{0,1,2}_turns.json의 tools 기록을 보면 394개 셀 가운데 0.5 s 넘게 돈 셀은 a1 t6 cell78(37.5 s)과 a2 t1 cell18(34.0 s) 2개뿐이다. 단계 ④·⑤는 내용을 따지기 전에 아예 없었다.",
+   "fix": "두 실행 계열을 단계별로 맞대면, T2P에서는 단계 ④·⑤가 일어나지 않았고(시험 묶음 0, 재현 기록 0) 단계 ③의 시뮬레이터도 높이를 버린 2D였다. 차이는 단계의 유무와 내용 양쪽에 있었다.",
+   "verifier": "표 5 오른쪽 열에 이미 ④ '시험 묶음 0', ⑤ '재현 기록 0'이 있다. transfer_t2p의 394셀 가운데 0.5 s 넘게 돈 셀도 a1 t6 cell78(37.5 s)과 a2 t1 cell18(34.0 s) 둘뿐이다. REPORT.md:1534도 '시뮬레이터에서 주행 → 시험 묶음 → 실패 분석은 일어나지 않았다'고 적는다. 단계 ④·⑤는 내용 이전에 아예 없었으므로 '유무보다 내용'은 데이터와 어긋난다.",
+   "final_fix": "두 실행 계열을 단계별로 맞대면, T2P에서는 단계 ④·⑤가 일어나지 않았고(시험 묶음 0, 재현 기록 0) 단계 ③의 시뮬레이터도 높이를 버린 2D였다. 차이는 단계의 유무와 내용 모두에 있었다."
+  },
+  {
+   "id": "sec4-38",
+   "part": "sec4",
+   "location": "4.3 마지막 해석 문단 둘째 문장 (L203)",
+   "draft_text": "에이전트의 자기 검증이 효과를 낸 것은 시뮬레이터가 단계 ②에서 읽어 낸 명세(상자 높이와 스캔 높이)를 담았기 때문이다.",
+   "kind": "unsupported",
+   "evidence": "첫 초안 region.py(+20:11, claude_eq_a0_timeline.md:14)에 이미 저평면 판단과 상자 14개 지도가 있었고, mock_sim.py는 그 뒤(+21:17, timeline.md:15)에 만들어졌다. 전사(claude_eq_a0_transcripts/projects/-home-jun-workspace/04cfd954-….jsonl)에서 자기 시험의 FAIL·CONTACT 33줄을 모두 확인했다. 접촉 상대는 지어낸 shelf_w_beam·shelf_w_load·pallet뿐이고 box04·05·06·13 접촉은 0건이다(box06은 seed45·82의 좁은 틈 시간 초과에서 최소 여유 0.296 m로만 나온다). 표본이 1건이고 대조 실행도 없으므로 '효과를 낸 것은 …때문'이라는 인과는 기록으로 뒷받침되지 않는다.",
+   "fix": "에이전트의 시뮬레이터는 단계 ②에서 읽어 낸 명세(상자 높이와 스캔 높이)를 담고 있었다. 다만 자기 시험에서 드러난 실패는 지어낸 선반 하단 빔·팔레트·지게차와 관련된 것이었고 MISSION 저평면 상자와의 접촉은 없었으므로, 이 검증이 통과에 얼마나 기여했는지는 1건으로 가릴 수 없다.",
+   "verifier": "저평면 판단과 상자 14개 지도는 시뮬레이터(mock_sim.py, +21:17)보다 앞선 첫 초안(+20:11)에 이미 있었다. 전사 tool_result를 집계하면 자기 시험의 접촉은 모두 지어낸 물체(shelf_w_beam·pallet·shelf_w_load)와의 접촉이고, MISSION 저평면 상자와의 접촉은 0건이다. 다만 auditor의 지적보다 사정은 좀 더 복잡하다. mock_sim은 z 범위를 가진 물체와 높이별 광선을 구현했고, 지어낸 낮은 팔레트(0–0.14 m)와 선반 하단 빔(0.10–0.20 m) 충돌을 실제로 드러냈다. 그래도 표본 1건에 대조 조건이 없으므로 '효과를 낸 것은 … 때문'이라는 인과는 기록으로 뒷받침되지 않는다.",
+   "final_fix": "에이전트의 시뮬레이터는 단계 ②에서 읽어 낸 명세(상자 높이와 스캔 높이)를 담아, 스캔 평면 아래 물체(지어낸 낮은 팔레트·선반 하단 빔)와의 충돌을 실패로 드러낼 수 있었다. 다만 저평면 상자 처리는 시뮬레이터 이전의 첫 초안에 이미 있었고 표본이 1건이어서, 이 검증이 통과에 얼마나 기여했는지는 가릴 수 없다."
+  },
+  {
+   "id": "sec4-39",
+   "part": "sec4",
+   "location": "4.3 T2P 문단 (L201) 및 표 5 ④행 T2P 칸 '시뮬레이터 실행 셀 3' (L177), ③행 '2/3'",
+   "draft_text": "시뮬레이터는 작성 직후 한 번씩(셀 3개) 실행되었을 뿐, 고정·무작위 시험 묶음은 만들어지지 않았다.",
+   "kind": "incorrect",
+   "evidence": "원자료(transfer_t2p의 callNN_raw.json에 있는 tool_calls 코드와 *_turns.json의 tools)로 확인했다. scratch/sim.py는 2회 실행되었고 둘 다 실패했다. ① a1 t1 cell4: base 경로 오류로 실패, test_log.txt 0 B, 다음 호출 추론에 'sim.py fails to locate base_carter_run.py'(npu_gpt_oss_120b_t2p_a1_call06_raw.json). ② a2 t2 cell40: 작성한 1회차가 아니라 다음 회차에 실행되었고 'importlib has no attribute util' 오류가 났다(…_a2_t2_call13_raw.json). a1 t6 cell76이 쓴 sim.py 두 번째 판과 run_test.py는 한 번도 실행되지 않았다. 전체 주행을 끝까지 돈 것은 셀 안에 따로 쓴 2D 시뮬레이션 2개(a2 t1 cell18 34.0 s, a1 t6 cell78 37.5 s)뿐이다. 그 밖의 시뮬레이션 시도 약 10셀(a0 t3 c41·t5 c82, a1 t2 c38·39·41, t4 c56·63, a2 t1 c8, t2 c50·51, t3 c64)은 종료 코드 1로 끝났다. a0도 t5 cell82에서 상자 14개를 넣은 2D 시뮬레이터를 셀 안에 썼으나 파일로 저장하지는 않았다. REPORT.md:1500의 'a1 2개, a2 1개(작성 직후 한 번)'는 실패한 sim.py 실행 1회와 셀 안 시뮬레이션 2회를 섞어 센 값이고, a2 cell40은 빠져 있다.",
+   "fix": "4.3: '시뮬레이터 파일(scratch/sim.py)은 두 실행만 만들었고 둘 다 상자를 높이 없는 2D 사각형으로 넣었다. sim.py를 실행한 2회는 모두 오류로 끝났고, 전체 주행을 끝까지 돌린 것은 셀 안에 새로 쓴 2D 시뮬레이션 2회(a1·a2 각 1회)뿐이었다. 고정·무작위 시험 묶음은 만들어지지 않았다.' 표 5 ④ 오른쪽 칸: '전체 주행 시뮬레이션 2회(sim.py 실행 2회는 오류), 시험 묶음 0'.",
+   "verifier": "callNN_raw.json의 tool_calls 코드와 *_turns.json의 tools로 확인했다. scratch/sim.py는 2회 실행되었고 둘 다 오류였다. a1 t1 cell4는 작성 직후 실행했으나 base 경로 오류로 끝났다(a1_call06 추론 'sim.py fails to locate base_carter_run.py'). a2 t2 cell40은 작성한 다음 회차에 실행했고 'importlib has no attribute util' 오류였다(a2_t2_call13). a1 t6 cell76이 쓴 두 번째 sim.py와 run_test.py는 한 번도 실행되지 않았다. 처음부터 끝까지 주행을 돌린 것은 셀 안에 따로 쓴 2D 시뮬레이션 2회(a2 t1 cell18 34.0 s, a1 t6 cell78 37.5 s)뿐이다. REPORT.md:1500의 'a1 2개, a2 1개(작성 직후 한 번)'는 이 둘을 섞어 센 값이다.",
+   "final_fix": "4.3: '시뮬레이터 파일(scratch/sim.py)은 두 실행만 만들었고 둘 다 상자를 높이 없는 2D 사각형으로 넣었다. … sim.py를 실행한 2회는 모두 오류로 끝났고, 출발부터 끝까지 주행을 돌린 것은 셀 안에 따로 쓴 2D 시뮬레이션 2회(a1·a2 각 1회)뿐이었다. 고정·무작위 시험 묶음은 만들어지지 않았다.' 표 5 ④ 오른쪽 칸: '전체 주행 시뮬레이션 2회(sim.py 실행 2회는 오류), 시험 묶음 0'."
+  },
+  {
+   "id": "sec4-41",
+   "part": "sec4",
+   "location": "표 5 ③행 '에이전트가 한 일' 칸 (L176)",
+   "draft_text": "상자 높이 범위와 스캔 높이를 반영, 궤적 그림 확인(12장)",
+   "kind": "incorrect",
+   "evidence": "claude_eq_a0_timeline.md:32–126에 PNG Read가 12회 있다: +23:53, +24:12, +26:31(basic.png 3회), +28:03, +28:40, +28:41, +35:55×2, +64:34, +65:42, +78:39, +79:24. ③ 구간(20–28분)에 든 것은 3회뿐이고 나머지 9회는 ④·⑤ 구간이다. 파일은 10개이며 basic.png는 다시 렌더링해 3번 열었다. CLAUDE_VS_NPU.md §10.3의 'Read 20 (PNG 그림 12 · 자기 코드 8)'은 1회차 전체 합계다.",
+   "fix": "③ 칸은 '상자 높이 범위와 스캔 높이를 반영, numpy PNG 렌더러로 궤적 그림 확인'으로 바꾼다. 표 주에는 '궤적 그림(PNG)은 1회차 동안 12회 열었다(23–80분, 파일 10개)'를 넣는다.",
+   "verifier": "claude_eq_a0_timeline.md에서 PNG를 연 기록은 12회다(+23:53, +24:12, +26:31, +28:03, +28:40, +28:41, +35:55×2, +64:34, +65:42, +78:39, +79:24). 파일은 10개다(basic.png를 3회 엶). ③ 구간(20–28분)에 든 것은 3회뿐이고 나머지는 ④·⑤ 구간이다. '12장'은 1회차 전체 합계(REPORT.md:1183)를 ③ 행에 넣은 것이다(경미).",
+   "final_fix": "③ 칸을 '상자 높이 범위와 스캔 높이를 반영, numpy PNG 렌더러로 궤적 그림 확인'으로 바꾼다. 표 5 주에 '궤적 그림(PNG)은 1회차 동안 12회 열었다(23–80분, 파일 10개)'를 넣는다."
+  },
+  {
+   "id": "sec4-42",
+   "part": "sec4",
+   "location": "4.2 T2P 항목 (L189)",
+   "draft_text": "작업 폴더에 base 원문을 두고 회차당 도구 28회·6시간·출력 24,576 토큰을 허용하며",
+   "kind": "incorrect",
+   "evidence": "npu_tool_loop.py chat()는 요청마다 payload에 'max_tokens': a.max_tokens를 넣는다. prompts_t2p/t2p.args는 '--max-tokens 24576'이고, REPORT.md:1419는 '호출당 max_tokens | 16,384 | 24,576'이다. T2P 회차별 출력 합계(…_t2p_a*_turns.json completion_tokens)는 최대 96,229(a2 1회차)이고, 24회차 중 16회차가 24,576을 넘는다.",
+   "fix": "작업 폴더에 base 원문을 두고 회차당 도구 28회·6시간, 호출당 출력 24,576 토큰(T2는 16,384)을 허용하며",
+   "verifier": "npu_tool_loop.py의 chat()은 요청마다 max_tokens를 넣는다. prompts_t2p/t2p.args는 '--max-tokens 24576'이고, REPORT.md:1419도 '호출당 max_tokens 16,384 → 24,576'이다. T2P 회차별 출력 합(…_t2p_a*_turns.json의 completion_tokens)은 최대 96,229이고, 24회차 중 16회차가 24,576을 넘는다. 따라서 '회차당 … 출력 24,576 토큰'은 틀렸다.",
+   "final_fix": "작업 폴더에 base 원문을 두고 회차당 도구 28회·6시간, 호출당 출력 24,576 토큰(T2는 16,384)을 허용하며"
+  },
+  {
+   "id": "sec4-43",
+   "part": "sec4",
+   "location": "표 6 '회차당 도구 호출' 열과 표 6 주 (L212–216); 표 5 주·4.3 T2P 문단과 대조",
+   "draft_text": "| T2P 작업 순서 지시 | 0/3 | — | 1,460.4 (327.4~3,723.3) | 16.4 (1~28) |",
+   "kind": "inconsistent",
+   "evidence": "transfer_summary.json의 tool_calls_per_turn_mean은 T2 0.33, T2P 16.42다(8/24, 394/24, 평균). 회차별 도구 수의 중앙값은 T2 0, T2P 15다(T2P 회차값: a0 7,18,28,28,23,13,10,10 / a1 28,20,6,13,6,14,1,2 / a2 28,28,28,28,16,25,9,5). 표 6 주는 '시간은 중앙값(최소~최대)'이라고만 적어 같은 형식인 도구 열도 중앙값으로 읽히고, 본문과 표 5 주의 '회차당 중앙값 15회'와 어긋난다.",
+   "fix": "열 제목을 '회차당 도구 호출 평균(최소~최대)'로 바꾸고 주에 '도구 호출은 평균이다(T2P 중앙값 15)'를 넣는다. 또는 값을 중앙값으로 바꾼다: T2 0 (0~3), T2P 15 (1~28).",
+   "verifier": "회차별 도구 호출 수로 다시 셌다. T2는 0회 19회차, 1회 3회차, 2회 1회차, 3회 1회차여서 평균 0.33, 중앙값 0, 최대 3이다. T2P는 합 394, 평균 16.42, 중앙값 15, 범위 1~28이다. 즉 표 6의 값은 평균이다. 그런데 같은 '값 (최소~최대)' 형식인 시간 열은 주에서 중앙값으로 정의되어 있고, 본문과 표 5 주는 T2P를 '회차당 중앙값 15회'로 적어 서로 어긋난다.",
+   "final_fix": "표 6 도구 열을 중앙값으로 바꾼다. T2는 '0 (0~3)', T2P는 '15 (1~28)'이다. 평균을 유지하려면 열 제목을 '회차당 도구 호출 평균(최소~최대)'으로 하고 주에 'T2P 중앙값 15'를 적는다."
+  },
+  {
+   "id": "sec4-44",
+   "part": "sec4",
+   "location": "4.3 T3 문단 첫 문장 (L197)",
+   "draft_text": "숙고는 회차당 추론 토큰 중앙값을 541에서 7,213으로 약 13배 늘렸으나",
+   "kind": "inconsistent",
+   "evidence": "transfer_summary.json에서 T0의 reasoning_tokens는 1회차가 null(1회차 재사용)이어서 541은 2–8회차 35건의 중앙값이다. 7,213은 T3 1–8회차 33건의 중앙값이다. 같은 2–8회차(28건)로 T3를 다시 계산하면 7,431이고 541의 13.7배다. 표 6 주는 'T0는 2–8회차' 정의를 시간에 대해서만 밝힌다.",
+   "fix": "숙고는 회차당 추론 토큰 중앙값을 541(T0, 2–8회차)에서 7,431(T3, 같은 2–8회차; 1회차를 넣으면 7,213)로 약 14배 늘렸으나. 표 6 주에는 'T3·T2·T2P는 1–8회차 전체 기준이다'를 덧붙인다.",
+   "verifier": "T0의 541은 1회차(재사용)를 뺀 2–8회차 35건의 중앙값이다(cap8 npu a0–a4). T3의 7,213은 1–8회차 33건의 중앙값이다(transfer_t3). 같은 2–8회차 28건으로 T3를 다시 계산하면 7,431이고, 541의 13.7배다. 집계 대상이 다른 두 중앙값을 맞댄 것이며, 기준을 맞추면 약 14배다(경미).",
+   "final_fix": "숙고는 회차당 추론 토큰 중앙값을 541에서 7,431로(둘 다 2–8회차) 약 14배 늘렸으나"
+  },
+  {
+   "id": "sec4-45",
+   "part": "sec4",
+   "location": "4.2 마지막 문단 (L191)",
+   "draft_text": "판정 전이던 두 실행은 1회차부터 다시 시작하였으며, 판정이 끝난 회차는 버리지 않았다.",
+   "kind": "incorrect",
+   "evidence": "REPORT.md:1468–1475에 따르면 13:50에 실행 스크립트 결함(carter-run 직렬 가드)으로 채점이 무한 대기에 빠졌고, 판정 전이던 a0 2회차와 a1·a2 1회차를 회차 시작 상태에서 다시 생성했다. results/turns/transfer_t2p/_restart_guard_20261007/README에 따르면 a0 2회차와 a2 1회차는 도구 28회와 강제 최종 답까지 끝난 생성물을 버렸다. *_turns.json의 resumed_at_turn은 a0 [2], a1 [1], a2 [1]이다. 초안의 '두 실행'은 실험 8(T3 a1, T2 a1)만 센 것이고, T2P 재생성은 본문 어디에도 없다.",
+   "fix": "판정 전이던 생성은 회차 시작 상태에서 다시 생성하였다(실험 8의 두 실행은 1회차부터). T2P에서는 실행 스크립트 결함으로 채점이 대기 상태에 빠져, 판정 전이던 a0 2회차와 a1·a2 1회차를 다시 생성하였다(버린 생성물은 보관하고 결과로 세지 않음). 판정이 끝난 회차는 버리지 않았다.",
+   "verifier": "이 문장은 실험 8(T3 a1, T2 a1)만 다룬다. 실험 9 T2P에서는 13:50에 실행 스크립트 결함(carter-run 직렬 가드)으로 채점이 무한 대기에 빠졌다. 그래서 판정 전이던 a0 2회차와 a1·a2 1회차를 회차 시작 상태에서 다시 생성했다(REPORT.md:1468–1475, _restart_guard_20261007/README.md). 이때 a0 2회차와 a2 1회차는 도구 28회와 강제 최종 답까지 끝난 생성물을 버렸다. *_turns.json의 resumed_at_turn도 a0 [2], a1 [1], a2 [1]이다.",
+   "final_fix": "판정 전이던 실험 8의 두 실행(T3 a1, T2 a1)은 1회차부터 다시 시작하였다. T2P에서는 실행 스크립트 결함으로 채점이 대기 상태에 빠져, 판정 전이던 a0 2회차와 a1·a2 1회차를 회차 시작 상태에서 다시 생성하였다(버린 생성물은 보관하고 결과로 세지 않았다). 판정이 끝난 회차는 버리지 않았다."
+  },
+  {
+   "id": "sec4-47",
+   "part": "sec4",
+   "location": "4.2 T2 항목 (L188)",
+   "draft_text": "T2(자기 검증 도구, 단계 ③~⑥의 수단): T3에 Python 실행 도구 하나를 더한다.",
+   "kind": "overstated",
+   "evidence": "REPORT.md 실험 8 설계표는 T2를 'T3 + Python 실행 도구 (…) + 아래 안내 문구'로 정의한다. npu_tool_loop.py에는 SYSTEM 시스템 메시지 292자가 있고, budget_chars는 300,000이다(T3는 turn_loop.py의 6만 자 절단). 제출 경로도 작업 폴더 파일이 우선이다. REPORT.md:1418의 T2 대비 표도 '시스템 메시지 | 안내 1문단(292자)'이다. 같은 문단의 '입력…은 T0와 같다'도 첫 메시지에만 해당한다.",
+   "fix": "T2(자기 검증 도구, 단계 ③~⑥의 수단): T3에 Python 실행 도구와 그 사용을 알리는 시스템 안내 1문단(292자)을 더한다(대화 절단 기준 30만 자). 앞 문장은 '입력(첫 메시지)·정적 검증…은 T0와 같다'로 고친다.",
+   "verifier": "REPORT.md:1176의 설계는 T2를 'T3 + Python 실행 도구 + 안내 문구'로 정의한다. npu_tool_loop.py는 292자 SYSTEM 메시지를 첫 메시지 앞에 넣고(239행), 대화는 6만 자 절단 대신 compress()로 30만 자 기준을 쓴다(transfer_t2/*_turns.json의 budget_chars 300000). '도구 하나를 더한다'는 이 처치 내용을 빠뜨린다.",
+   "final_fix": "T2(자기 검증 도구, 단계 ③~⑥의 수단): T3에 Python 실행 도구와 그 사용을 알리는 시스템 안내 1문단(292자)을 더한다(대화는 6만 자 절단 대신 오래된 도구 출력을 줄여 30만 자 안에 맞춘다)."
+  },
+  {
+   "id": "sec4-48",
+   "part": "sec4",
+   "location": "4.2 T3 항목 (L187)",
+   "draft_text": "T3(숙고, 단계 ①): T0에 요청 필드 reasoning_effort=high만 더한다.",
+   "kind": "overstated",
+   "evidence": "results/turns/cap8/npu_gpt_oss_120b_a0_turns.json 1회차는 'reused': True로, 1회차 실험 응답을 재사용했다(표 2: 1회차 출력 한도 24,576). 반면 transfer_t3/npu_gpt_oss_120b_t3_a0_request.json 1회차는 max_tokens 16384, reasoning_effort high로 새로 생성되었다. T3는 1회차 생성 자체와 그 출력 한도도 T0와 다르다.",
+   "fix": "T3(숙고, 단계 ①): T0의 회차 루프 설정에 요청 필드 reasoning_effort=high를 더한다. 다만 T0의 1회차는 1회차 실험의 응답(출력 한도 24,576)을 재사용했고, T3는 1회차부터 새로 생성하였다(호출당 16,384).",
+   "verifier": "T0의 1회차는 1회차 실험의 응답을 재사용했다(cap8 'reused': true, 요청 max_tokens 24,576). T3는 1회차부터 reasoning_effort=high, max_tokens 16,384로 새로 생성했다(transfer_t3 요청 33건 모두 16,384/high). T3 1회차 출력은 최대 11,666 토큰이어서 한도 차이가 결과에 걸리지는 않았다. 그래도 '만 더한다'와 표 2의 '1회차 24,576'은 T3 1회차에 맞지 않는다(경미).",
+   "final_fix": "T3(숙고, 단계 ①): T0에 요청 필드 reasoning_effort=high를 더한다(T0의 1회차는 1회차 실험의 응답을 재사용했고, T3는 1회차부터 호출당 16,384 토큰 한도로 새로 생성하였다)."
+  }
+ ],
+ "rejected": [
+  {
+   "id": "front-back-11",
+   "draft_text": "작업 순서를 지시하자 도구 사용은 크게 늘었으나, 시뮬레이터는 높이를 버린 2D였고 시험 묶음은 만들어지지 않았다.",
+   "reason": "문장의 사실은 원자료와 맞다. 도구는 8회에서 394회로 늘었고, 만든 시뮬레이터 2개는 모두 높이 없는 2D였으며, 시험 묶음은 0이다. '시뮬레이터는 2D였다'는 만든 시뮬레이터에 대한 서술이지 3/3을 주장하지 않는다. 묶음 조건이라는 단서는 4.2와 결론 셋째 문단(front-back-12 수정 반영)에 있다."
+  },
+  {
+   "id": "front-back-13",
+   "draft_text": "그 판단을 담은 자작 시뮬레이터와 108개 상황 시험이 코드를 다듬었다.",
+   "reason": "'108개 상황'은 고정 28개와 무작위 80개로 된 시험 묶음의 이름이다. 그 묶음을 여러 차례 돌린 결과로 코드가 고쳐졌다(전사 tool_result 기준). 예를 들어 fl_goal 실패(19/20, 23/24)를 고쳤고, 이후 실패 시드 45·53·82·319를 분석했다. 지어낸 낮은 팔레트·선반 빔 접촉도 수정을 이끌었다. 108/108 실행 한 번이 수정을 낳지 않은 것은 맞지만, 문장은 시험 과정 전체의 요약으로 읽혀 사실과 어긋나지 않는다."
+  },
+  {
+   "id": "front-back-16",
+   "draft_text": "Claude 실행은 입력만 같을 뿐 시스템 프롬프트·도구·사고 예산이 다르므로 모델 단독 비교로 해석하지 않는다.",
+   "reason": "결론의 목록은 대표적인 차이를 든 것이고, 2.4나 표 3 주와 모순되지 않는다. '입력만 같을 뿐'이 이미 나머지 조건이 다르다는 것을 알리므로, 샘플링과 대화 절단이 빠진 것은 사실 오류가 아니다."
+  },
+  {
+   "id": "front-back-17",
+   "draft_text": "같은 모델을 GPU에서는 vLLM[3]으로, NPU인 RNGD[4]에서는 전용 서빙 스택 furiosa-llm으로 운용할 수 있다.",
+   "reason": "서론 문장은 공개 가중치 모델을 두 서빙 스택에서 운용할 수 있다는 일반적인 서술이다. 이번 실험의 가중치나 ID가 같다는 주장이 아니다. 실험 쪽 표현(2.2, 3.3)은 sec1-2-19와 sec3-32의 수정으로 처리된다."
+  },
+  {
+   "id": "front-back-18",
+   "draft_text": "로봇·임베디드 현장에서는 데이터를 외부로 보내지 않으려고 공개 가중치 모델을 온프레미스 가속기에서 서빙하려는 수요가 있다.",
+   "reason": "연구 데이터로 검증할 대상이 아닌 배경 동기 문장이고, 데이터와 어긋나지도 않는다. 참고문헌 한도(4편) 안에서 근거 문헌을 붙일지는 저자가 정할 일이며, 사실 오류로 볼 근거는 없다."
+  },
+  {
+   "id": "sec3-36",
+   "draft_text": "**표 3. 모델·가속기별 코딩 성공률**",
+   "reason": "표의 칸은 모두 n/k 통과 수와 실패 유형 수이고 백분율은 없으므로 보고 규칙(통과 수는 n/k, 백분율 금지)을 어기지 않는다. 국문 제목의 '성공률'은 용어 선택의 문제다."
+  },
+  {
+   "id": "sec4-40",
+   "draft_text": "T2P의 시뮬레이터는 같은 순서의 지시 아래 만들어졌으나 높이를 단순화하여 버렸으므로, 그 위에서는 시험을 몇 번 돌려도 저평면 충돌이 재현될 수 없었다.",
+   "reason": "이 문장은 시뮬레이터가 무엇을 할 수 있는지에 대한 반사실 서술이다. 상자를 모두 스캔에 보이는 2D로 넣은 시뮬레이터(a2 sim.py의 'ignore z', a1 sim.py의 높이 없는 BOXES)에서는 '스캔이 낮은 상자를 놓쳐 생기는 충돌'이 일어날 수 없다는 뜻으로 정확하다. '몇 번 돌려도'는 양보 표현이지 반복 실행이 있었다는 주장이 아니다. T2P의 실패 분포는 표 6 주에 이미 있다."
+  },
+  {
+   "id": "sec4-46",
+   "draft_text": "메모·조립·도구 호출 같은 절차의 형식은 지시로 옮겨졌지만, 명세를 담은 검증 환경은 명세를 읽어 낸 판단 없이 만들어지지 않았다.",
+   "reason": "이 문장의 '절차의 형식'은 '메모·조립·도구 호출 같은'으로 범위가 이미 좁혀져 있다. 높이별 센서 모델을 누설 감사로 뺐다는 사실도 4.2('정답에 해당하는 판단·지도 해법·높이별 센서 모델·벽 위치는 … 제외')와 결론 한계에 밝혀져 있다. 과거형으로 이번 표본의 관찰을 적은 것이고 실험 설계의 논리와도 맞으므로 과장으로 보기 어렵다."
+  }
+ ],
+ "_meta": {
+  "date": "2026-10-08",
+  "draft": "PAPER_IEMEK.md (title: LLM 로봇 제어 코드 생성의 물리 시뮬레이션과 코딩 에이전트 작업 절차 분석)",
+  "method": "4 section auditors (read-only) + 1 skeptical verifier; confirmed items all applied"
+ }
+}

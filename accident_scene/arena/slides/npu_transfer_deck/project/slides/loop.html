@@ -1,0 +1,35 @@
+<section id="loop" data-transition="fade" style="background:#F7F6F2;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">판정 방식</p>
+<h2 style="font-size:60px;font-weight:600;line-height:1.15">모든 조건이 같은 회차 루프로 판정받았다</h2>
+</div>
+<div style="display:flex;gap:14px;align-items:stretch">
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:26px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:30px;font-weight:600">생성</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">NPU의 gpt-oss-120b가 답을 낸다. T2·T2P는 그 사이 도구를 쓸 수 있다.</p>
+</div>
+<x-shape kind="arrow-right" style="width:40px;height:24px;background:#C4501F;align-self:center"></x-shape>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:26px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:30px;font-weight:600">제출 추출</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">작업 폴더에 새로 쓴 제출 파일, 없으면 답 텍스트의 코드.</p>
+</div>
+<x-shape kind="arrow-right" style="width:40px;height:24px;background:#C4501F;align-self:center"></x-shape>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:26px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:30px;font-weight:600">정적 검증</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">구문, 수정 허용 구역 밖 불변, def controller 유무.</p>
+</div>
+<x-shape kind="arrow-right" style="width:40px;height:24px;background:#C4501F;align-self:center"></x-shape>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:26px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:30px;font-weight:600">Isaac 채점</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">Nova Carter 60 Hz, 한 번에 하나씩(직렬). 0.75 m · 0.26 rad · 충돌 0 · 120 s.</p>
+</div>
+<x-shape kind="arrow-right" style="width:40px;height:24px;background:#C4501F;align-self:center"></x-shape>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:26px;display:flex;flex-direction:column;gap:10px">
+<h3 style="font-size:30px;font-weight:600">피드백</h3>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">판정 JSON(장애물 블록 제외) 또는 실격 사유를 다음 회차에 준다.</p>
+</div>
+</div>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">통과하거나 8회차가 끝날 때까지 되풀이한다. 피드백 문구, 입력 6,961자, temperature 0.7 · top_p 0.95는 모든 조건이 같다. 피드백에는 충돌 상대 이름(예: box_04)이 들어 있다.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 11 / 27 · turn_loop.py (T0 · T3), npu_tool_loop.py (T2 · T2P)</p>
+<aside>모든 조건은 같은 회차 루프로 판정했습니다. 모델이 답을 내면 코드를 뽑아 정적 검증을 하고, 통과하면 Isaac Sim에서 실제로 로봇을 돌려 판정합니다. 실패하면 판정 결과를 다음 회차에 그대로 돌려줍니다. 이 피드백에는 무엇에 부딪혔는지, 상자 이름이 들어 있다는 점을 기억해 주세요. 뒤에서 통과 경로를 설명할 때 이 점이 중요합니다.</aside>
+</section>

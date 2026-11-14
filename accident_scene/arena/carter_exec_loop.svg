@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Carter 미션 실행 경로 2 - 60 Hz 미션 루프 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 542" role="img" aria-label="60 Hz 미션 루프: 컨트롤러의 v, w 명령은 ROS 2 cmd_vel 과 OmniGraph 를 거쳐 바퀴로 가고, 자세와 거리는 PhysX 에서 ROS 를 거치지 않고 직접 돌아온다">
+        <rect x="0" y="0" width="880" height="542" fill="#ffffff"/>
+          <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <polygon points="0,0 10,5 0,10" fill="#1f6fb8"></polygon>
+          </marker>
+          <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <polygon points="0,0 10,5 0,10" fill="#157f49"></polygon>
+          </marker>
+          <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+            <polygon points="0,0 10,5 0,10" fill="#101820"></polygon>
+          </marker>
+        </defs>
+
+        <rect x="40" y="24" width="800" height="330" rx="10" fill="none" stroke="#c7d2dc" stroke-width="1" stroke-dasharray="4 4"></rect>
+        <text x="62" y="18" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#5a6a79">05 · 60 Hz 미션 루프 — 매 1/60 s</text>
+
+        <!-- controller -->
+        <rect x="64" y="86" width="198" height="82" rx="8" fill="#f8e7ba" stroke="#9a6807" stroke-width="1.2"></rect>
+        <text x="163" y="116" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="12" fill="#101820" text-anchor="middle">controller()</text>
+        <text x="163" y="138" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">모델이 쓴 코드</text>
+        <text x="163" y="156" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">math 만, 결정론</text>
+
+        <!-- cmd_vel -->
+        <rect x="308" y="86" width="172" height="82" rx="8" fill="#dceaf8" stroke="#1f6fb8" stroke-width="1"></rect>
+        <text x="394" y="116" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="12" fill="#101820" text-anchor="middle">rclpy /cmd_vel</text>
+        <text x="394" y="138" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">하네스가 발행</text>
+        <text x="394" y="156" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">geometry_msgs/Twist</text>
+
+        <!-- omnigraph -->
+        <rect x="526" y="86" width="290" height="82" rx="8" fill="#dceaf8" stroke="#1f6fb8" stroke-width="1"></rect>
+        <text x="671" y="116" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="14" font-weight="600" fill="#101820" text-anchor="middle">씬 OmniGraph</text>
+        <text x="671" y="138" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">DifferentialController</text>
+        <text x="671" y="156" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">바퀴 반경 0.14 m · 트랙 0.413 m</text>
+
+        <!-- physx -->
+        <rect x="526" y="238" width="290" height="82" rx="8" fill="#f6f8fa" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="671" y="268" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="14" font-weight="600" fill="#101820" text-anchor="middle">PhysX</text>
+        <text x="671" y="290" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">좌/우 바퀴 관절 · 접촉 리포트</text>
+        <text x="671" y="308" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">바퀴 축 결함도 여기에 반영</text>
+
+        <!-- sensing -->
+        <rect x="64" y="238" width="416" height="82" rx="8" fill="#d6eee1" stroke="#157f49" stroke-width="1"></rect>
+        <text x="272" y="268" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="14" font-weight="600" fill="#101820" text-anchor="middle">감각 — ROS 를 거치지 않는다</text>
+        <text x="272" y="290" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">gt_pose() · raycast_scan(61빔, z=0.35 m)</text>
+        <text x="272" y="308" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79" text-anchor="middle">강체 자세는 참값, 거리는 PhysX 광선</text>
+
+        <!-- arrows -->
+        <line x1="262" y1="127" x2="302" y2="127" fill="none" stroke="#1f6fb8" stroke-width="1.6" marker-end="url(#a2)"></line>
+        <text x="282" y="116" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">v, w</text>
+        <line x1="480" y1="127" x2="520" y2="127" fill="none" stroke="#1f6fb8" stroke-width="1.6" marker-end="url(#a2)"></line>
+        <text x="500" y="116" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79" text-anchor="middle">DDS</text>
+        <line x1="671" y1="168" x2="671" y2="232" fill="none" stroke="#1f6fb8" stroke-width="1.6" marker-end="url(#a2)"></line>
+        <text x="683" y="204" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">바퀴 속도</text>
+        <line x1="526" y1="279" x2="486" y2="279" fill="none" stroke="#157f49" stroke-width="1.6" marker-end="url(#a3)"></line>
+        <line x1="163" y1="238" x2="163" y2="174" fill="none" stroke="#157f49" stroke-width="1.6" marker-end="url(#a3)"></line>
+        <text x="175" y="206" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">pose · scan</text>
+
+        <!-- legend -->
+        <circle cx="70" cy="382" r="5" fill="#1f6fb8"></circle>
+        <text x="84" y="386" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">구동 — ROS 2 경유</text>
+        <circle cx="240" cy="382" r="5" fill="#157f49"></circle>
+        <text x="254" y="386" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">감각 — 시뮬레이터 직결</text>
+        <circle cx="440" cy="382" r="5" fill="#9a6807"></circle>
+        <text x="454" y="386" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">모델이 쓴 코드</text>
+
+        <line x1="440" y1="400" x2="440" y2="432" fill="none" stroke="#101820" stroke-width="1.4" marker-end="url(#a4)"></line>
+        <text x="452" y="422" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">미션 종료 · 오라클 평가</text>
+
+        <!-- outputs -->
+        <rect x="40" y="440" width="800" height="86" rx="8" fill="#f6f8fa" stroke="#c7d2dc" stroke-width="1"></rect>
+        <text x="62" y="466" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="11" letter-spacing="1.1" fill="#5a6a79">06 · 판정 · 출력</text>
+        <text x="62" y="490" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">reached_goal · no_collision · timeout</text>
+        <text x="62" y="512" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79">results/claude_b_result.json · claude_b_trajectory.csv</text>
+        <text x="470" y="490" font-family="&apos;IBM Plex Sans KR&apos;,&apos;Malgun Gothic&apos;,sans-serif" font-size="11" fill="#5a6a79">CARTER_RECORD=1 이면</text>
+        <text x="470" y="512" font-family="&apos;IBM Plex Mono&apos;,Consolas,monospace" font-size="10.5" fill="#5a6a79">PNG 프레임 → annotate_video.py → mp4</text>
+      </svg>

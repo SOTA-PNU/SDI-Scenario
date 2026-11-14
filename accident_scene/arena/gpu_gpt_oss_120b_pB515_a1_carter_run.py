@@ -1,0 +1,922 @@
+"""Mission runner - ACCIDENT ARENA (levels_zero2level-style base).
+
+The givens are in the MISSION table below (from
+accident_scene/arena/nova_carter_warehouse_arena.yaml): the whole warehouse is
+the arena; the robot starts in one corner at START and must reach GOAL in the
+opposite corner; static boxes stand in between.
+
+PASS criteria are evaluated by the fixed harness (levels/common/carter_env.py):
+  reached_goal      final distance <= position tolerance
+                    (and |yaw error| <= yaw tolerance when it is set)
+  no_collision      zero chassis contact events (when collision is scored)
+  max_time_to_goal  first entry into the goal disc within the bound (when set)
+  timeout_s         run cutoff in sim time - a safety stop so a run cannot go on
+                    forever, not a pass criterion (there is no time limit)
+
+ROBOT API available to the controller:
+  choose_command(v_follow, w_follow, target_xy, horizon_s=3.0) returns
+  (v, w, info) after checking all named candidate commands and applying
+  the fixed safety/progress priority; use its returned command every step.
+
+  check_motion(v, w, horizon_s=3.0, dt=0.1, margin_m=0.2) checks the robot body
+  along a constant command against tracked lidar surface points and the static map;
+  it returns minimum gaps, first hit times relative to now, and the end pose.
+
+  controller(t, pose, env) is called once per 1/60 s sim step and must
+  return (v, w, done):
+    t     sim seconds since mission start
+    pose  (x, y, yaw) ground-truth world pose of the chassis
+    env   None - the controller gets no harness handle; it reads the robot's
+          own sensors with the functions above the [EDIT REGION]
+    v     forward velocity command [m/s] on /cmd_vel
+    w     yaw rate command [rad/s] on /cmd_vel
+    done  True ends the mission (harness then stops the robot and evaluates)
+
+The ONLY part meant to be modified is the block marked [EDIT REGION].  It
+starts as the levels_zero2level default - no control code, the robot never
+moves.  Everything outside it is fixed plumbing.
+"""
+
+import math  # noqa: F401  (available to the controller)
+import os
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parents[1] / "levels" / "common"))
+sys.path.insert(0, str(HERE))
+from arena_harness import (  # noqa: E402
+    ArenaHarness,
+    apply_record_quality,
+    follow_camera,
+    recording,
+    setup_topdown_camera,
+)
+
+VARIANT = Path(__file__).stem.replace("_carter_run", "")  # "base" | <model name>
+OUT = str(HERE / "results")
+
+# scenario givens (from accident_scene/arena/nova_carter_warehouse_arena.yaml - not part of the answer)
+# boxes: x, y = centre; width along X, depth along Y; resting on the floor
+MISSION = dict(start_xy_yaw=(-9.0, -10.8, 1.0138),
+               goal_xy_yaw=(8.0, 16.5, 1.0138), timeout_s=600.0,
+               position_tolerance_m=0.75, yaw_tolerance_rad=0.26,
+               max_time_to_goal_s=None, check_collision=True,
+               boxes=[
+                   {"x": -6.96, "y": -6.77, "width": 1.0, "depth": 1.0, "height": 1.0},  # 00
+                   {"x": -2.35, "y": -2.57, "width": 1.0, "depth": 1.0, "height": 1.0},  # 01
+                   {"x": -2.29, "y": 0.92, "width": 1.0, "depth": 1.0, "height": 1.0},  # 02
+                   {"x": 0.5, "y": 4.2, "width": 5.0, "depth": 0.8, "height": 1.0},  # 03
+                   {"x": 2.5, "y": 3.0, "width": 1.0, "depth": 1.6, "height": 0.6},  # 04
+                   {"x": 3.9, "y": 4.2, "width": 1.8, "depth": 0.8, "height": 0.6},  # 05
+                   {"x": 7.625, "y": 13.4, "width": 3.25, "depth": 1.0, "height": 0.6},  # 06
+                   {"x": 1.8, "y": 9.0, "width": 1.0, "depth": 1.0, "height": 1.0},  # 07
+                   {"x": 3.4, "y": 13.0, "width": 1.0, "depth": 1.0, "height": 1.0},  # 08
+                   {"x": -4.5, "y": 7.5, "width": 1.2, "depth": 1.0, "height": 1.0},  # 09
+                   {"x": -1.5, "y": 11.5, "width": 1.0, "depth": 1.2, "height": 1.0},  # 10
+                   {"x": 3.0, "y": -7.6, "width": 1.2, "depth": 1.0, "height": 1.0},  # 11
+                   {"x": 6.6, "y": -9.4, "width": 1.0, "depth": 1.0, "height": 1.0},  # 12
+                   {"x": 0.2, "y": -9.6, "width": 1.2, "depth": 0.8, "height": 0.6},  # 13
+               ])
+START = MISSION["start_xy_yaw"]  # (x, y, yaw) - available to the controller
+GOAL = MISSION["goal_xy_yaw"]    # (x, y, yaw) - available to the controller
+
+# ---- Carter 센서 기본 코드 ----
+# 좌표는 로봇 기준 x 앞, y 왼쪽, z 바닥에서의 높이 (m) 입니다. 장착값은 /tf 의 base_link -> 센서 프레임 값입니다.
+import numpy as np
+
+_LIDAR2D = {"front": ("/front_2d_lidar/scan", (0.026, 0.0, math.pi)),
+            "back": ("/back_2d_lidar/scan", (-0.489, 0.0, 0.0))}
+_LIDAR3D = ("/front_3d_lidar/lidar_points", (-0.232, 0.0, 0.526))
+_CAMERA_TOPIC = "/front_stereo_camera/left/image_raw"
+_CAMERA_POS = (0.100, 0.075, 0.346)
+_CAMERA_K = (957.81, 957.81, 960.0, 600.0)
+_CAMERA_D = (0.147811, -0.032313, -0.000194, -0.000035,
+             0.008823, 0.517913, -0.06708, 0.01695)
+_CAMERA_R = np.array([[0.0, -1.0, 0.0],
+                     [0.0, 0.0, -1.0],
+                     [1.0, 0.0, 0.0]])
+_BASE_SELF_BOX = (-0.70, 0.25, -0.34, 0.34)
+
+_BASE_SENSOR_STATE = {"node": None, "rclpy": None, "subs": set(),
+                     "count": 0, "scan": {}, "cloud": [], "image": None}
+
+
+def _subscribe(key, msg_type, topic, callback):
+    """센서 하나를 처음 쓸 때 한 번만 구독합니다. rclpy 는 여기서 가져옵니다
+    (모듈 맨 위에서 가져오면 Isaac Sim 이 켜지기 전이라 실패합니다)."""
+    if key in _BASE_SENSOR_STATE["subs"]:
+        return
+    if _BASE_SENSOR_STATE["node"] is None:
+        import rclpy
+        _BASE_SENSOR_STATE["rclpy"] = rclpy
+        _BASE_SENSOR_STATE["node"] = rclpy.create_node("b2_sensor_reader")
+    from rclpy.qos import qos_profile_sensor_data
+    _BASE_SENSOR_STATE["node"].create_subscription(msg_type, topic, callback,
+                                                   qos_profile_sensor_data)
+    _BASE_SENSOR_STATE["subs"].add(key)
+
+
+def _spin():
+    """쌓여 있는 센서 메시지를 모두 처리합니다. 아래 센서 함수들이 부릅니다."""
+    for _ in range(20):
+        n = _BASE_SENSOR_STATE["count"]
+        _BASE_SENSOR_STATE["rclpy"].spin_once(_BASE_SENSOR_STATE["node"],
+                                              timeout_sec=0.0)
+        if _BASE_SENSOR_STATE["count"] == n:
+            break
+
+
+def _drop_body(p):
+    """로봇 자신의 몸체에 맞은 점을 뺍니다."""
+    body = (p[:, 0] >= _BASE_SELF_BOX[0]) & (p[:, 0] <= _BASE_SELF_BOX[1]) & \
+           (p[:, 1] >= _BASE_SELF_BOX[2]) & (p[:, 1] <= _BASE_SELF_BOX[3])
+    return p[~body]
+
+
+def _on_scan(which, msg):
+    mx, my, myaw = _LIDAR2D[which][1]
+    r = np.asarray(msg.ranges, dtype=np.float64)
+    a = msg.angle_min + np.arange(r.size) * msg.angle_increment + myaw
+    ok = np.isfinite(r) & (r >= msg.range_min) & (r <= msg.range_max)
+    pts = np.stack([mx + r[ok] * np.cos(a[ok]),
+                    my + r[ok] * np.sin(a[ok])], axis=1)
+    _BASE_SENSOR_STATE["scan"][which] = _drop_body(pts)
+    _BASE_SENSOR_STATE["count"] += 1
+
+
+def _on_cloud(msg):
+    raw = np.frombuffer(msg.data, dtype=np.uint8).reshape(-1, msg.point_step)
+    off = {f.name: f.offset for f in msg.fields}
+    xyz = np.stack([raw[:, off[c]:off[c] + 4].copy().view(np.float32)[:, 0]
+                    for c in "xyz"], axis=1)
+    pts = xyz.astype(np.float64) + np.array(_LIDAR3D[1])
+    _BASE_SENSOR_STATE["cloud"] = (_BASE_SENSOR_STATE["cloud"] +
+                                   [_drop_body(pts)])[-6:]
+    _BASE_SENSOR_STATE["count"] += 1
+
+
+def _on_image(msg):
+    img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.step)
+    _BASE_SENSOR_STATE["image"] = img[:, :msg.width * 3].reshape(msg.height,
+                                                                msg.width, 3)
+    _BASE_SENSOR_STATE["count"] += 1
+
+
+def lidar2d_points(which="front"):
+    """2D 라이다 which ("front" 앞쪽, "back" 뒤쪽) 의 가장 최근 스캔을 로봇 기준 점 배열 (N, 2) [x, y] 로 돌려줍니다."""
+    from sensor_msgs.msg import LaserScan
+    _subscribe("lidar2d_" + which, LaserScan, _LIDAR2D[which][0],
+               lambda m: _on_scan(which, m))
+    _spin()
+    return _BASE_SENSOR_STATE["scan"].get(which, np.zeros((0, 2)))
+
+
+def lidar3d_points():
+    """3D 라이다 (Hesai XT-32, 바닥 위 0.53 m, 32채널) 의 최근 한 바퀴를 로봇 기준 점 배열 (N, 3) [x, y, z] 로 돌려줍니다."""
+    from sensor_msgs.msg import PointCloud2
+    _subscribe("lidar3d", PointCloud2, _LIDAR3D[0], _on_cloud)
+    _spin()
+    return np.concatenate(_BASE_SENSOR_STATE["cloud"]) if _BASE_SENSOR_STATE["cloud"] else np.zeros((0, 3))
+
+
+def camera_image():
+    """앞쪽 스테레오 카메라의 왼쪽 카메라 영상을 배열 (1200, 1920, 3) uint8 [RGB] 로 돌려줍니다."""
+    from sensor_msgs.msg import Image
+    _subscribe("camera", Image, _CAMERA_TOPIC, _on_image)
+    _spin()
+    return _BASE_SENSOR_STATE["image"]
+
+
+def camera_project(points):
+    """로봇 기준 점 (N, 3) [x, y, z] 를 영상 픽셀 좌표 (N, 2) [u 오른쪽, v 아래] 로 바꿉니다."""
+    p = (np.asarray(points, dtype=np.float64).reshape(-1, 3) -
+         np.array(_CAMERA_POS)) @ _CAMERA_R.T
+    z = p[:, 2]
+    zs = np.where(z > 1e-6, z, 1e-6)
+    x, y = p[:, 0] / zs, p[:, 1] / zs
+    k1, k2, p1, p2, k3, k4, k5, k6 = _CAMERA_D
+    r2 = x * x + y * y
+    rad = (1 + k1 * r2 + k2 * r2 ** 2 + k3 * r2 ** 3) / \
+          (1 + k4 * r2 + k5 * r2 ** 2 + k6 * r2 ** 3)
+    xd = x * rad + 2 * p1 * x * y + p2 * (r2 + 2 * x * x)
+    yd = y * rad + p1 * (r2 + 2 * y * y) + 2 * p2 * x * y
+    fx, fy, cx, cy = _CAMERA_K
+    uv = np.stack([fx * xd + cx, fy * yd + cy], axis=1)
+    ok = (z > 0.05) & (r2 < 9.0) & (uv[:, 0] >= 0) & (uv[:, 0] < 1920) & \
+         (uv[:, 1] >= 0) & (uv[:, 1] < 1200)
+    return uv, ok
+
+
+def camera_ray(uv):
+    """영상 픽셀 좌표 (N, 2) [u, v] 를 로봇 기준 단위 방향 (N, 3) 으로 바꿉니다."""
+    uv = np.asarray(uv, dtype=np.float64).reshape(-1, 2)
+    fx, fy, cx, cy = _CAMERA_K
+    k1, k2, p1, p2, k3, k4, k5, k6 = _CAMERA_D
+    xd, yd = (uv[:, 0] - cx) / fx, (uv[:, 1] - cy) / fy
+    x, y = xd.copy(), yd.copy()
+    for _ in range(20):
+        r2 = x * x + y * y
+        ic = (1 + k4 * r2 + k5 * r2 ** 2 + k6 * r2 ** 3) / \
+             (1 + k1 * r2 + k2 * r2 ** 2 + k3 * r2 ** 3)
+        dx = 2 * p1 * x * y + p2 * (r2 + 2 * x * x)
+        dy = p1 * (r2 + 2 * y * y) + 2 * p2 * x * y
+        x, y = (xd - dx) * ic, (yd - dy) * ic
+    d = np.stack([x, y, np.ones_like(x)], axis=1) @ _CAMERA_R
+    return d / np.linalg.norm(d, axis=1, keepdims=True)
+
+
+def to_world(points, pose):
+    """로봇 기준 점 (N, 2) 또는 (N, 3) 을 월드 좌표로 바꿉니다(z 는 그대로)."""
+    p = np.array(points, dtype=np.float64)
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    wx = x + c * p[:, 0] - s * p[:, 1]
+    wy = y + s * p[:, 0] + c * p[:, 1]
+    p[:, 0], p[:, 1] = wx, wy
+    return p
+
+
+# ---- 지도 기본 코드 ----
+import collections  # noqa: E402,F401
+import heapq  # noqa: E402,F401
+from collections import deque  # noqa: E402,F401
+
+WALLS = (-10.30, 9.35, -12.15, 17.95)
+
+FIXED_OBSTACLES = [
+    ("SM_PillarPartA_9M3_1445", -10.45, -10.00, -9.25, -8.80),
+    ("SM_PillarPartA_9M4_1446", 9.10, 9.55, -9.20, -8.75),
+    ("SM_Rackshield_43", -9.95, -8.70, -3.80, -3.40),
+    ("SM_RackFrame_167", -9.85, -8.80, -3.80, -3.60),
+    ("SM_PaletteA_357", -9.90, -8.80, -3.45, -2.20),
+    ("Forklift_01", -9.60, -6.05, -3.45, -2.25),
+    ("Forklift", 1.85, 5.30, -3.45, -0.70),
+    ("Extras_BoxSetA", -9.60, -8.85, -3.35, -1.05),
+    ("SM_PillarPartA_9M5_1454", -10.45, -10.00, -3.25, -2.80),
+    ("SM_PillarPartA_9M6_1455", 9.10, 9.55, -3.20, -2.75),
+    ("SM_PaletteA_358", -9.85, -8.80, -2.25, -0.95),
+    ("SM_PaletteA_359", -9.90, -8.80, -1.00, 0.25),
+    ("Extras_BoxSetA", -9.60, -8.85, -0.90, 0.20),
+    ("SM_RackFrame_159", -9.85, -8.80, 0.20, 0.40),
+    ("SM_PaletteA_11", -9.85, -8.80, 0.45, 1.70),
+    ("Extras_BoxSetB", -9.85, -8.75, 0.60, 4.05),
+    ("SM_PaletteA_12", -9.85, -8.80, 1.65, 2.95),
+    ("SM_PillarPartA_9M7_1463", -10.45, -10.00, 2.75, 3.20),
+    ("SM_PillarPartA_9M8_1464", 9.10, 9.55, 2.80, 3.25),
+    ("SM_PaletteA_319", -9.85, -8.80, 2.90, 4.15),
+    ("SM_RackFrame_161", -9.85, -8.80, 4.20, 4.40),
+    ("SM_PaletteA_5", -9.75, -8.70, 4.45, 5.70),
+    ("Extras_Misc", -9.35, -8.70, 4.75, 5.40),
+    ("SM_PaletteA_6", -9.75, -8.70, 5.65, 6.95),
+    ("Extras_Misc", -9.70, -8.75, 5.65, 8.25),
+    ("SM_PaletteA_318", -9.75, -8.70, 6.90, 8.15),
+    ("SM_RackFrame_163", -9.85, -8.80, 8.20, 8.40),
+    ("SM_PaletteA_78", -9.75, -8.70, 8.45, 9.70),
+    ("KLT_Bins", -9.75, -9.00, 8.70, 9.65),
+    ("SM_PillarPartA_9M9_1472", -10.45, -10.00, 8.75, 9.20),
+    ("SM_PillarPartA_9M10_1473", 9.10, 9.55, 8.80, 9.25),
+    ("SM_PaletteA_77", -9.75, -8.70, 9.65, 10.90),
+    ("KLT_Bins", -9.75, -9.00, 9.85, 10.80),
+    ("SM_PaletteA_76", -9.75, -8.70, 10.85, 12.15),
+    ("KLT_Bins", -9.75, -9.00, 11.15, 12.10),
+    ("SM_Rackshield_50", -9.95, -8.70, 12.10, 12.50),
+    ("SM_RackFrame_165", -9.85, -8.80, 12.20, 12.40),
+    ("SM_PushcartA_02_22", -7.05, -5.20, 12.90, 14.35),
+    ("SM_PaletteA_360", -6.85, -5.35, 13.00, 14.40),
+    ("KLT_Bins", -6.60, -5.50, 13.20, 14.15),
+    ("SM_PillarPartA_9M11_1481", -10.45, -10.00, 14.75, 15.20),
+    ("SM_PillarPartA_9M12_1482", 9.10, 9.55, 14.80, 15.25),
+    ("SM_FuseBox_24", -4.15, -4.05, 17.75, 18.00),
+]
+
+_MAP_RECTS = []
+
+
+def _map_rects():
+    if not _MAP_RECTS:
+        boxes = [(b["x"] - b["width"] / 2.0,
+                  b["x"] + b["width"] / 2.0,
+                  b["y"] - b["depth"] / 2.0,
+                  b["y"] + b["depth"] / 2.0) for b in MISSION["boxes"]]
+        _MAP_RECTS.append(np.array(boxes + [r[1:] for r in FIXED_OBSTACLES],
+                                   dtype=np.float64))
+    return _MAP_RECTS[0]
+
+
+def map_rects():
+    """지도 물체의 직사각형 배열 (K, 4): MISSION 상자와 FIXED_OBSTACLES."""
+    return _map_rects().copy()
+
+
+def map_clearance(x, y):
+    """월드 좌표 (x, y) 에서 가장 가까운 지도 물체(상자, 고정물, 벽 안쪽 면)까지의 거리 [m]."""
+    r = _map_rects()
+    x, y = np.broadcast_arrays(np.asarray(x, dtype=np.float64),
+                               np.asarray(y, dtype=np.float64))
+    wx0, wx1, wy0, wy1 = WALLS
+    wall_gap = np.maximum(np.minimum(np.minimum(x - wx0, wx1 - x),
+                                    np.minimum(y - wy0, wy1 - y)), 0.0)
+    if x.ndim and x.size:
+        x0, x1, y0, y1 = float(x.min()), float(x.max()), float(y.min()), float(y.max())
+        cx, cy = (x0 + x1) * 0.5, (y0 + y1) * 0.5
+        dx = np.maximum(np.maximum(r[:, 0] - cx, cx - r[:, 1]), 0.0)
+        dy = np.maximum(np.maximum(r[:, 2] - cy, cy - r[:, 3]), 0.0)
+        upper = min(float(wall_gap.max()),
+                    float(np.hypot(dx, dy).min()) + math.hypot(x1 - x0, y1 - y0) * 0.5)
+        bx = np.maximum(np.maximum(r[:, 0] - x1, x0 - r[:, 1]), 0.0)
+        by = np.maximum(np.maximum(r[:, 2] - y1, y0 - r[:, 3]), 0.0)
+        r = r[bx * bx + by * by <= upper * upper + 1e-12]
+    if len(r) == 0 or x.size == 0:
+        return float(wall_gap) if wall_gap.ndim == 0 else wall_gap
+    dx = np.maximum(np.maximum(r[:, 0] - x[..., None],
+                               x[..., None] - r[:, 1]), 0.0)
+    dy = np.maximum(np.maximum(r[:, 2] - y[..., None],
+                               y[..., None] - r[:, 3]), 0.0)
+    gap = np.minimum(np.hypot(dx, dy).min(axis=-1), wall_gap)
+    return float(gap) if gap.ndim == 0 else gap
+
+
+def segment_clearance(p, q):
+    """점 p=(x, y) 에서 q 까지 곧게 갈 때 map_clearance 의 최솟값 [m] 입니다."""
+    n = max(1, int(math.ceil(math.hypot(q[0] - p[0], q[1] - p[1]) / 0.05)))
+    k = np.arange(n + 1, dtype=np.float64)
+    xs, ys = p[0] + (q[0] - p[0]) * k / n, p[1] + (q[1] - p[1]) * k / n
+    r = _map_rects()
+    dx = np.maximum(np.maximum(r[None, :, 0] - xs[:, None],
+                               xs[:, None] - r[None, :, 1]), 0.0)
+    dy = np.maximum(np.maximum(r[None, :, 2] - ys[:, None],
+                               ys[:, None] - r[None, :, 3]), 0.0)
+    wx0, wx1, wy0, wy1 = WALLS
+    d = np.minimum(np.hypot(dx, dy).min(axis=1),
+                   np.minimum(np.minimum(xs - wx0, wx1 - xs),
+                              np.minimum(ys - wy0, wy1 - ys)))
+    return float(max(0.0, float(d.min())))
+
+
+def unmapped_points(points_world, margin):
+    """월드 좌표 점 (N, 2) 또는 (N, 3) 가운데 지도에 없는 물체의 점만 돌려줍니다."""
+    p = np.asarray(points_world, dtype=np.float64)
+    if len(p) == 0:
+        return p
+    r = map_rects()
+    px, py = p[:, 0:1], p[:, 1:2]
+    near = ((px >= r[:, 0] - margin) & (px <= r[:, 1] + margin) &
+            (py >= r[:, 2] - margin) & (py <= r[:, 3] + margin)).any(axis=1)
+    wx0, wx1, wy0, wy1 = WALLS
+    inside = (p[:, 0] > wx0 + margin) & (p[:, 0] < wx1 - margin) & \
+             (p[:, 1] > wy0 + margin) & (p[:, 1] < wy1 - margin)
+    return p[~near & inside]
+
+
+# ---- 감지 기본 코드 (물체 추적) ----
+_BASE_OBJ_CFG = dict(age=0.1, near=8.0, margin=0.25, voxel=0.1, gap=0.45,
+                     gate=1.0, vwin=0.8, vmin_n=4, vmin_span=0.3,
+                     vmax=2.0, keep=1.0, stale=0.3, frag_n=3, frag_join=0.6)
+_BASE_POSES = []  # (t, x, y, yaw), 최근 1 s
+_BASE_OBJ_ST = {"prev": {"front": None, "back": None},
+                "pts": {"front": None, "back": None},
+                "pts_t": {"front": None, "back": None},
+                "tracks": [], "nid": 0, "error": None}
+
+
+def _base_obj_pose_at(t):
+    h = _BASE_POSES
+    if not h:
+        return None
+    if t <= h[0][0]:
+        return h[0][1:]
+    for (ta, xa, ya, wa), (tb, xb, yb, wb) in zip(reversed(h[:-1]), reversed(h[1:])):
+        if ta <= t:
+            f = 0.0 if tb == ta else (t - ta) / (tb - ta)
+            dw = math.atan2(math.sin(wb - wa), math.cos(wb - wa))
+            return xa + f * (xb - xa), ya + f * (yb - ya), wa + f * dw
+    return h[-1][1:]
+
+
+def _base_obj_cluster(P):
+    n = len(P)
+    if n == 0:
+        return []
+    d = np.hypot(P[:, None, 0] - P[None, :, 0],
+                 P[:, None, 1] - P[None, :, 1]) <= _BASE_OBJ_CFG["gap"]
+    label = -np.ones(n, dtype=int)
+    groups = []
+    for i in range(n):
+        if label[i] >= 0:
+            continue
+        label[i] = len(groups)
+        stack, members = [i], []
+        while stack:
+            k = stack.pop()
+            members.append(k)
+            for m in np.nonzero(d[k] & (label < 0))[0]:
+                label[m] = label[i]
+                stack.append(m)
+        groups.append(P[members])
+    return groups
+
+
+def _base_obj_velocity(hist):
+    cfg = _BASE_OBJ_CFG
+    t_end = hist[-1][0]
+    h = np.array([q for q in hist if t_end - q[0] <= cfg["vwin"]])
+    if len(h) < cfg["vmin_n"] or h[-1, 0] - h[0, 0] < cfg["vmin_span"]:
+        return 0.0, 0.0, False
+    tt = h[:, 0] - h[:, 0].mean()
+    den = float((tt * tt).sum())
+    vx = float((tt * (h[:, 1] - h[:, 1].mean())).sum() / den)
+    vy = float((tt * (h[:, 2] - h[:, 2].mean())).sum() / den)
+    sp = math.hypot(vx, vy)
+    if sp > cfg["vmax"]:
+        vx, vy = vx * cfg["vmax"] / sp, vy * cfg["vmax"] / sp
+    return vx, vy, True
+
+
+def _base_track_step(t):
+    st, cfg = _BASE_OBJ_ST, _BASE_OBJ_CFG
+    t_scan = t - cfg["age"]
+    new = False
+    for which in ("front", "back"):
+        p = lidar2d_points(which)
+        q = st["prev"][which]
+        if q is not None and p.shape == q.shape and np.array_equal(p, q):
+            continue
+        st["prev"][which] = np.array(p, copy=True)
+        pose = _base_obj_pose_at(t_scan)
+        st["pts"][which] = to_world(p, pose)[:, :2] if len(p) and pose is not None else np.zeros((0, 2))
+        st["pts_t"][which] = t_scan
+        new = True
+    tracks = st["tracks"]
+    if new and _BASE_POSES:
+        x0, y0 = _BASE_POSES[-1][1], _BASE_POSES[-1][2]
+        parts = [P for w, P in st["pts"].items()
+                 if P is not None and len(P) and t_scan - st["pts_t"][w] <= cfg["stale"]]
+        P = np.concatenate(parts) if parts else np.zeros((0, 2))
+        if len(P):
+            P = P[np.hypot(P[:, 0] - x0, P[:, 1] - y0) < cfg["near"]]
+        if len(P):
+            P = unmapped_points(P, cfg["margin"])
+        if len(P):
+            _, keep = np.unique(np.floor(P / cfg["voxel"]).astype(np.int64),
+                               axis=0, return_index=True)
+            P = P[keep]
+        groups = _base_obj_cluster(P)
+        big = [g for g in groups if len(g) >= cfg["frag_n"]]
+        for g in (g for g in groups if len(g) < cfg["frag_n"]):
+            if big:
+                dmin = [float(np.hypot(B[:, None, 0] - g[None, :, 0],
+                                       B[:, None, 1] - g[None, :, 1]).min())
+                        for B in big]
+                k = int(np.argmin(dmin))
+                if dmin[k] <= cfg["frag_join"]:
+                    big[k] = np.concatenate([big[k], g])
+                    continue
+            big.append(g)
+        for tr in tracks:
+            tr["hit"] = False
+        for grp in big:
+            c = grp.mean(axis=0)
+            best, bd = None, cfg["gate"]
+            for tr in tracks:
+                if tr["hit"]:
+                    continue
+                lt, lx, ly = tr["hist"][-1]
+                dd = math.hypot(c[0] - (lx + tr["vx"] * (t_scan - lt)),
+                                c[1] - (ly + tr["vy"] * (t_scan - lt)))
+                if dd < bd:
+                    best, bd = tr, dd
+            if best is None:
+                best = {"id": st["nid"], "hist": [], "vx": 0.0, "vy": 0.0,
+                        "vel_ok": False, "born_t": t_scan}
+                st["nid"] += 1
+                tracks.append(best)
+            best["hit"], best["seen_t"] = True, t_scan
+            best["radius"] = float(np.hypot(grp[:, 0] - c[0],
+                                            grp[:, 1] - c[1]).max())
+            best["points"] = grp.tolist()
+            best["n_points"] = int(len(grp))
+            best["hist"] = [h for h in best["hist"]
+                            if t_scan - h[0] <= 2.0] + [(t_scan, float(c[0]), float(c[1]))]
+            best["vx"], best["vy"], best["vel_ok"] = _base_obj_velocity(best["hist"])
+    st["tracks"] = [tr for tr in tracks if t_scan - tr["seen_t"] <= cfg["keep"]]
+
+
+def observed_objects():
+    if not _BASE_POSES:
+        return []
+    t_now, x0, y0, _ = _BASE_POSES[-1]
+    out = []
+    for tr in _BASE_OBJ_ST["tracks"]:
+        lt, lx, ly = tr["hist"][-1]
+        out.append({"id": tr["id"], "x": lx, "y": ly,
+                    "vx": tr["vx"], "vy": tr["vy"],
+                    "speed": math.hypot(tr["vx"], tr["vy"]),
+                    "vel_ok": tr["vel_ok"], "radius": tr["radius"],
+                    "n_points": tr["n_points"], "seen_t": lt,
+                    "age_s": t_now - lt,
+                    "track_age_s": lt - tr["born_t"],
+                    "dist": math.hypot(lx - x0, ly - y0),
+                    "points": [list(p) for p in tr["points"]]})
+    out.sort(key=lambda o: o["dist"])
+    return out
+
+
+# ---- 몸체 검사 ----
+_BASE_BODY_BOX = (-0.59, 0.13, -0.25, 0.25)
+
+
+def _base_body_perimeter():
+    x0, x1, y0, y1 = _BASE_BODY_BOX
+    xx = np.linspace(x0, x1, int(math.ceil((x1 - x0) / 0.1)) + 1)
+    yy = np.linspace(y0, y1, int(math.ceil((y1 - y0) / 0.1)) + 1)
+    return np.concatenate((np.column_stack((xx, np.full_like(xx, y0))),
+                           np.column_stack((xx, np.full_like(xx, y1))),
+                           np.column_stack((np.full_like(yy[1:-1], x0), yy[1:-1])),
+                           np.column_stack((np.full_like(yy[1:-1], x1), yy[1:-1]))))
+
+
+_BASE_BODY_PERIMETER = _base_body_perimeter()
+
+_BASE_MOTION_UNCERTAINTY = {'dynamic_margin': 0.15,
+                           'uncertainty_gain': 1.0,
+                           'uncertainty_cap': 1.0,
+                           'response_window': 1.2,
+                           'unknown_margin': 0.15,
+                           'fast_preference': True,
+                           'fast_scale': 2.0,
+                           'fast_min': 1.0,
+                           'emergency_gap_first': True}
+
+
+def check_motion(v, w, horizon_s=3.0, dt=0.1, margin_m=0.2) -> dict:
+    v, w, horizon_s, dt, margin_m = map(float,
+                                        (v, w, horizon_s, dt, margin_m))
+    if not all(math.isfinite(q) for q in (v, w, horizon_s, dt, margin_m)):
+        raise ValueError("check_motion requires finite inputs")
+    if horizon_s < 0.0 or dt <= 0.0 or margin_m < 0.0:
+        raise ValueError("check_motion requires horizon_s >= 0, dt > 0, margin_m >= 0")
+    if not _BASE_POSES:
+        raise RuntimeError("check_motion requires the current controller pose")
+    t_now, x0, y0, yaw0 = _BASE_POSES[-1]
+    if not all(math.isfinite(q) for q in (t_now, x0, y0, yaw0)):
+        raise ValueError("check_motion requires a finite current pose and timestamp")
+    tt = np.minimum(np.arange(int(math.ceil(horizon_s / dt)) + 1,
+                              dtype=np.float64) * dt, horizon_s)
+    half_turn = 0.5 * w * tt
+    travel = v * tt * np.sinc(half_turn / math.pi)
+    xx, yy = x0 + travel * np.cos(yaw0 + half_turn), y0 + travel * np.sin(yaw0 + half_turn)
+    yaw = yaw0 + w * tt
+    cc, ss = np.cos(yaw), np.sin(yaw)
+    objects = observed_objects()
+    min_gap_obj, t_hit_obj, hit_obj_id = math.inf, None, None
+    raw_t_hit_obj, robust_min_gap_obj = None, math.inf
+    end_gap_obj = robust_end_gap_obj = future_min_gap_obj = math.inf
+    if objects:
+        if not all(math.isfinite(o[key]) for o in objects
+                   for key in ("vx", "vy", "seen_t")):
+            raise ValueError("check_motion requires finite observed velocities and timestamps")
+        groups = [np.asarray(o["points"], dtype=np.float64).reshape(-1, 2)
+                  for o in objects]
+        if any(len(p) == 0 or not np.isfinite(p).all() for p in groups):
+            raise ValueError("check_motion requires nonempty finite observed points")
+        which = np.repeat(np.arange(len(objects)), [len(p) for p in groups])
+        points = np.concatenate(groups, axis=0)
+        vel_ok = np.array([bool(o["vel_ok"]) for o in objects])
+        ovx = np.array([o["vx"] if o["vel_ok"] else 0.0 for o in objects])
+        ovy = np.array([o["vy"] if o["vel_ok"] else 0.0 for o in objects])
+        seen = np.array([o["seen_t"] for o in objects])
+        age = t_now + tt[:, None] - seen[which]
+        dx = points[:, 0] + age * ovx[which] - xx[:, None]
+        dy = points[:, 1] + age * ovy[which] - yy[:, None]
+        bx = cc[:, None] * dx + ss[:, None] * dy
+        by = -ss[:, None] * dx + cc[:, None] * dy
+        xmin, xmax, ymin, ymax = _BASE_BODY_BOX
+        qx = np.maximum(xmin - bx, bx - xmax)
+        qy = np.maximum(ymin - by, by - ymax)
+        gaps = np.hypot(np.maximum(qx, 0.0), np.maximum(qy, 0.0)) + \
+               np.minimum(np.maximum(qx, qy), 0.0)
+        min_gap_obj, end_gap_obj = float(gaps.min()), float(gaps[-1].min())
+        raw_hit = np.flatnonzero(np.any(gaps <= margin_m + 1e-12, axis=1))
+        raw_t_hit_obj = float(tt[int(raw_hit[0])]) if raw_hit.size else None
+        cfg = _BASE_MOTION_UNCERTAINTY
+        speed = np.hypot(ovx, ovy)
+        moving = vel_ok & (speed > 0.05)
+        elapsed = np.maximum(t_now - seen, 0.0)[None, :] + \
+                  np.minimum(tt[:, None], cfg["response_window"])
+        extra = cfg["dynamic_margin"] + np.minimum(cfg["uncertainty_cap"],
+                                                   cfg["uncertainty_gain"] *
+                                                   elapsed * speed)
+        extra = np.where(moving[None, :], extra,
+                         np.where(vel_ok[None, :], 0.0, cfg["unknown_margin"]))
+        robust = gaps - extra[:, which]
+        robust_min_gap_obj = float(robust.min())
+        robust_end_gap_obj = float(robust[-1].min())
+        future_min_gap_obj = float(robust[1:].min()) if len(tt) > 1 else robust_min_gap_obj
+        hit = np.flatnonzero(np.any(robust <= margin_m + 1e-12, axis=1))
+        if hit.size:
+            i = int(hit[0])
+            j = int(np.flatnonzero(robust[i] <= margin_m + 1e-12)[0])
+            t_hit_obj, hit_obj_id = float(tt[i]), objects[int(which[j])]["id"]
+    perimeter = _BASE_BODY_PERIMETER
+    px = xx[:, None] + cc[:, None] * perimeter[:, 0] - ss[:, None] * perimeter[:, 1]
+    py = yy[:, None] + ss[:, None] * perimeter[:, 0] + cc[:, None] * perimeter[:, 1]
+    map_gaps = map_clearance(px, py).min(axis=1)
+    min_gap_map = float(map_gaps.min())
+    hit_map = np.flatnonzero(map_gaps <= margin_m + 1e-12)
+    t_hit_map = float(tt[int(hit_map[0])]) if hit_map.size else None
+    hits = [q for q in (t_hit_obj, t_hit_map) if q is not None]
+    raw_hits = [q for q in (raw_t_hit_obj, t_hit_map) if q is not None]
+    return {"min_gap_obj": min_gap_obj, "t_hit_obj": t_hit_obj,
+            "hit_obj_id": hit_obj_id, "min_gap_map": min_gap_map,
+            "t_hit_map": t_hit_map, "t_hit": min(hits) if hits else None,
+            "end_pose": (float(xx[-1]), float(yy[-1]), float(yaw[-1])),
+            "raw_t_hit_obj": raw_t_hit_obj,
+            "raw_t_hit": min(raw_hits) if raw_hits else None,
+            "robust_min_gap_obj": robust_min_gap_obj,
+            "end_gap_obj": end_gap_obj,
+            "robust_end_gap_obj": robust_end_gap_obj,
+            "future_min_gap_obj": future_min_gap_obj}
+
+
+# ---- 후보 명령 평가와 선택 ----
+_BASE_CHOOSE_DBG_WINDOW = None
+
+
+def _base_command_candidates(v_follow, w_follow):
+    candidates = [("follow", v_follow, w_follow),
+                  ("slow", 0.5 * v_follow, w_follow),
+                  ("stop", 0.0, 0.0)]
+    if v_follow > 0.0:
+        cfg = _BASE_MOTION_UNCERTAINTY
+        candidates.append(("fast", min(max(cfg["fast_scale"] * v_follow,
+                                          cfg["fast_min"]), 1.0), w_follow))
+    candidates.extend((("turn_l", 0.0, 0.4),
+                      ("turn_r", 0.0, -0.4),
+                      ("back", -0.2, 0.0)))
+    return candidates
+
+
+def _base_choose_rank(candidates, target_xy):
+    def distance(name):
+        p = candidates[name]["end_pose"]
+        return math.hypot(p[0] - target_xy[0], p[1] - target_xy[1])
+    if _BASE_MOTION_UNCERTAINTY["fast_preference"] and "fast" in candidates \
+            and candidates["fast"]["t_hit"] is None:
+        other = [n for n in ("follow", "slow") if candidates[n]["t_hit"] is None]
+        current = _BASE_POSES[-1]
+        reference = min((distance(n) for n in other),
+                        default=math.hypot(current[1] - target_xy[0],
+                                          current[2] - target_xy[1]))
+        if distance("fast") + 1e-9 < reference:
+            return "fast", "fast_progress"
+    for name in ("follow", "slow", "stop"):
+        if candidates[name]["t_hit"] is None:
+            return name, name + "_safe"
+    safe = [name for name, item in candidates.items()
+            if item["t_hit"] is None]
+    if safe:
+        return min(safe,
+                   key=lambda n: (distance(n), -candidates[n]["min_gap"], n)), \
+               "safe_progress"
+    if _BASE_MOTION_UNCERTAINTY["emergency_gap_first"]:
+        return min(candidates,
+                   key=lambda n: (-candidates[n]["min_gap"],
+                                  -candidates[n]["t_hit"], n)), "largest_gap"
+    return min(candidates,
+               key=lambda n: (-candidates[n]["t_hit"],
+                              -candidates[n]["min_gap"], n)), "latest_hit"
+
+
+def choose_command(v_follow, w_follow, target_xy, horizon_s=3.0):
+    v_follow, w_follow, horizon_s = map(float,
+                                        (v_follow, w_follow, horizon_s))
+    target_xy = tuple(float(p) for p in target_xy)
+    if len(target_xy) != 2 or not all(math.isfinite(q)
+                                      for q in (*target_xy, v_follow,
+                                                w_follow, horizon_s)):
+        raise ValueError("choose_command requires finite commands and a target (x,y)")
+    if horizon_s < 0.0:
+        raise ValueError("choose_command requires horizon_s >= 0")
+    candidates = {}
+    for name, v, w in _base_command_candidates(v_follow, w_follow):
+        result = check_motion(v, w, horizon_s)
+        candidates[name] = {"v": v, "w": w, "t_hit": result["t_hit"],
+                            "min_gap": min(result["robust_min_gap_obj"],
+                                           result["min_gap_map"]),
+                            "min_gap_obj": result["min_gap_obj"],
+                            "min_gap_map": result["min_gap_map"],
+                            "end_pose": result["end_pose"],
+                            "raw_t_hit": result["raw_t_hit"],
+                            "raw_t_hit_obj": result["raw_t_hit_obj"],
+                            "t_hit_obj": result["t_hit_obj"],
+                            "t_hit_map": result["t_hit_map"],
+                            "robust_min_gap_obj": result["robust_min_gap_obj"],
+                            "future_min_gap_obj": result["future_min_gap_obj"],
+                            "robust_end_gap_obj": result["robust_end_gap_obj"]}
+    chosen, reason = _base_choose_rank(candidates, target_xy)
+    pick = candidates[chosen]
+    info = {"chosen": chosen, "reason": reason,
+            "candidates": candidates,
+            "min_gap_obj": pick["min_gap_obj"],
+            "robust_min_gap_obj": pick["robust_min_gap_obj"]}
+    global _BASE_CHOOSE_DBG_WINDOW
+    t = _BASE_POSES[-1][0]
+    window = int(t // 0.5)
+    if window != _BASE_CHOOSE_DBG_WINDOW:
+        _BASE_CHOOSE_DBG_WINDOW = window
+        fh, sh = candidates["follow"]["t_hit"], candidates["stop"]["t_hit"]
+        fhs = ("-" if fh is None else f"{fh:.1f}")
+        shs = ("-" if sh is None else f"{sh:.1f}")
+        builtins.print(f"DBG choose t={t:.2f} pick={chosen} why={reason} "
+                       f"f={fhs} s={shs} obj_min={pick['min_gap_obj']:.2f} "
+                       f"rob={pick['robust_min_gap_obj']:.2f}")
+    return pick["v"], pick["w"], info
+
+
+# ---- DBG 기록 ----
+import builtins  # noqa: E402
+
+_BASE_DBG_WINDOW_S, _BASE_DBG_FIRST_WINDOW_LINES = 0.5, 10
+_BASE_DBG_STATE = {"t": 0.0, "window": None, "kept": 0, "dropped": 0}
+
+
+def print(*args, **kwargs):  # noqa: A001
+    if args and str(args[0]).startswith("DBG"):
+        s = _BASE_DBG_STATE
+        w = int(s["t"] // _BASE_DBG_WINDOW_S)
+        if w != s["window"]:
+            s["window"], s["kept"] = w, 0
+        if s["kept"] >= (_BASE_DBG_FIRST_WINDOW_LINES if w == 0 else 1):
+            s["dropped"] += 1
+            return
+        s["kept"] += 1
+    builtins.print(*args, **kwargs)
+
+
+# [EDIT REGION] mission controller - modify ONLY this block
+# ===========================================================================
+
+# Global storage for the planned path and current waypoint index.
+_PATH = None          # List of (x, y) waypoints including START and GOAL
+_PATH_IDX = 0         # Index of the next waypoint to head for
+_CLEARANCE_MARGIN = 0.6  # Minimum clearance (m) required for path segments
+
+
+def _build_visibility_graph():
+    """Create a visibility graph using obstacle corners expanded by the clearance margin."""
+    nodes = []
+    # start and goal
+    nodes.append((START[0], START[1]))
+    nodes.append((GOAL[0], GOAL[1]))
+    # corners of all map rectangles (expanded)
+    for (xmin, xmax, ymin, ymax) in map_rects():
+        xm0, xm1 = xmin - _CLEARANCE_MARGIN, xmax + _CLEARANCE_MARGIN
+        ym0, ym1 = ymin - _CLEARANCE_MARGIN, ymax + _CLEARANCE_MARGIN
+        nodes.extend([(xm0, ym0), (xm0, ym1), (xm1, ym0), (xm1, ym1)])
+    # wall corners
+    wx0, wx1, wy0, wy1 = WALLS
+    nodes.extend([(wx0, wy0), (wx0, wy1), (wx1, wy0), (wx1, wy1)])
+    # deduplicate
+    uniq = []
+    eps = 1e-3
+    for p in nodes:
+        if not any(abs(p[0] - q[0]) < eps and abs(p[1] - q[1]) < eps for q in uniq):
+            uniq.append(p)
+    nodes = uniq
+    # adjacency
+    adj = {i: [] for i in range(len(nodes))}
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            if segment_clearance(nodes[i], nodes[j]) >= _CLEARANCE_MARGIN:
+                d = math.hypot(nodes[j][0] - nodes[i][0],
+                               nodes[j][1] - nodes[i][1])
+                adj[i].append((j, d))
+                adj[j].append((i, d))
+    return nodes, adj
+
+
+def _shortest_path(nodes, adj, start_idx, goal_idx):
+    """Dijkstra shortest path."""
+    dist = [float('inf')] * len(nodes)
+    prev = [None] * len(nodes)
+    dist[start_idx] = 0.0
+    heap = [(0.0, start_idx)]
+    while heap:
+        d, u = heapq.heappop(heap)
+        if d > dist[u]:
+            continue
+        if u == goal_idx:
+            break
+        for v, w in adj[u]:
+            nd = d + w
+            if nd < dist[v]:
+                dist[v] = nd
+                prev[v] = u
+                heapq.heappush(heap, (nd, v))
+    if dist[goal_idx] == float('inf'):
+        return []
+    path_idx = []
+    cur = goal_idx
+    while cur is not None:
+        path_idx.append(cur)
+        cur = prev[cur]
+    path_idx.reverse()
+    return [nodes[i] for i in path_idx]
+
+
+def _plan_path():
+    """Compute a safe path using a visibility graph."""
+    nodes, adj = _build_visibility_graph()
+    path = _shortest_path(nodes, adj, 0, 1)  # start is index 0, goal is 1
+    if not path:
+        # fallback straight line
+        return [(START[0], START[1]), (GOAL[0], GOAL[1])]
+    return path
+
+
+def controller(t, pose, env):
+    """Main controller – follows the planned path while respecting safety."""
+    global _PATH, _PATH_IDX
+    # Initialise path once
+    if _PATH is None:
+        _PATH = _plan_path()
+        _PATH_IDX = 1  # first waypoint after the start point
+        print(f"DBG path points={len(_PATH)} clearance={_CLEARANCE_MARGIN}")
+        if len(_PATH) > 1:
+            min_seg = min(segment_clearance(_PATH[i], _PATH[i + 1])
+                         for i in range(len(_PATH) - 1))
+            print(f"DBG path min_seg_clearance={min_seg:.2f}")
+
+    # Goal handling
+    if _PATH_IDX >= len(_PATH):
+        # Align to final yaw
+        e = math.atan2(math.sin(GOAL[2] - pose[2]),
+                       math.cos(GOAL[2] - pose[2]))
+        if abs(e) < 0.05:
+            v, w, _ = choose_command(0.0, 0.0, (GOAL[0], GOAL[1]))
+            done = (v == 0.0 and w == 0.0)
+            return v, w, done
+        else:
+            v, w, _ = choose_command(0.0, 0.4 if e > 0 else -0.4,
+                                     (GOAL[0], GOAL[1]))
+            return v, w, False
+
+    # Current waypoint
+    target = _PATH[_PATH_IDX]
+    dx, dy = target[0] - pose[0], target[1] - pose[1]
+    dist = math.hypot(dx, dy)
+    angle_to_target = math.atan2(dy, dx)
+    e = math.atan2(math.sin(angle_to_target - pose[2]),
+                   math.cos(angle_to_target - pose[2]))
+
+    # Advance waypoint if close enough
+    if dist < 0.35:
+        _PATH_IDX += 1
+        return 0.0, 0.0, False
+
+    # Pure‑pursuit style nominal command
+    if abs(e) > 0.35:
+        v_follow = 0.0
+        w_follow = max(min(1.5 * e, 0.4), -0.4)
+    else:
+        v_follow = min(0.3, 0.5 * dist + 0.1)
+        w_follow = max(min(1.5 * e, 0.4), -0.4)
+
+    # Let choose_command apply safety checks
+    v, w, _ = choose_command(v_follow, w_follow, target)
+    return v, w, False
+
+# ========================= [END EDIT REGION] ===============================
+
+h = ArenaHarness(level="accident_arena", variant=VARIANT,
+                 out_dir=OUT, **MISSION).boot()
+
+
+def _robot_only(t, pose, env):
+    """Controller wrapper – supplies sensor updates and pose history."""
+    _BASE_DBG_STATE["t"] = t
+    _BASE_POSES.append((t, pose[0], pose[1], pose[2]))
+    while _BASE_POSES and t - _BASE_POSES[0][0] > 1.0:
+        _BASE_POSES.pop(0)
+    try:
+        _base_track_step(t)
+    except Exception as e:
+        if _BASE_OBJ_ST["error"] is None:
+            _BASE_OBJ_ST["error"] = repr(e)
+            print("DBG [base] observed_objects() 갱신 오류:", repr(e))
+    return controller(t, pose, None)
+
+
+ctrl = _robot_only
+if recording():
+    apply_record_quality()
+    if os.environ.get("CARTER_RECORD_VIEW", "topdown") == "follow":
+        ctrl = follow_camera(ctrl, h)
+    else:
+        setup_topdown_camera(h, center_xy=(-0.45, 2.85),
+                            view_w=36.4, view_h=20.5)
+
+result = h.run_mission(ctrl, abort_after_collision_s=5.0)
+h.close()
+sys.exit(0 if result["verdict"] == "pass" else 1)

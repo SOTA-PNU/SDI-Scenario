@@ -1,0 +1,200 @@
+"""Read-only B521 a0 source/log/map analysis; never inspects a1 or launches Isaac."""
+import ast
+import collections
+import copy
+import csv
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+
+from b514_build_base import archive_before_write
+from b515_check_offline import load_ns, safe_json, seed
+import b521_reference_sim as REF
+
+ARENA=Path(__file__).resolve().parents[1]
+LOGS=ARENA/'results/turns/prompt_b5_21/isaac_logs'
+OUT=ARENA/'results/analysis/b521_a0_evidence.json'
+BASE=REF.BASE
+TAGS=['gpu_gpt_oss_120b_pB521_a0','gpu_gpt_oss_120b_pB521_a0_t2']
+
+
+def source_namespace(tag):
+    path=LOGS/(tag+'_carter_run.py');source=path.read_text()
+    begin=source.index('# [EDIT REGION] mission controller')
+    end=source.index('# ========================= [END EDIT REGION]')
+    region=source[begin:end]
+    ns=load_ns(path);ns['START']=ns['MISSION']['start_xy_yaw'];ns['GOAL']=ns['MISSION']['goal_xy_yaw']
+    exec(compile(region,str(path),'exec'),ns)
+    return ns,source,region
+
+
+def coordinates(path):
+    return [{k:float(v) for k,v in r.items()} for r in csv.DictReader(path.open())]
+
+
+def planning_record(ns,pose,margin):
+    ns['_PLAN_POSE']=pose;ns['_PLAN_CLEARANCE']=margin
+    path=ns['plan_path']();wx0,_,wy0,_=ns['WALLS'];origin=(wx0+margin,wy0+margin)
+    snap=lambda p:tuple(origin[i]+round((p[i]-origin[i])/.5)*.5 for i in range(2))
+    start,goal=snap(pose),snap(ns['GOAL'])
+    return {'requested_center_clearance_m':margin,'start_pose':pose,'actual_start_clearance_m':ns['map_clearance'](*pose[:2]),
+        'start_anchor':start,'start_anchor_clearance_m':ns['map_clearance'](*start),
+        'start_connector_clearance_m':ns['segment_clearance'](pose[:2],start),
+        'goal_anchor':goal,'goal_anchor_clearance_m':ns['map_clearance'](*goal),
+        'goal_connector_clearance_m':ns['segment_clearance'](goal,ns['GOAL'][:2]),
+        'actual_goal_clearance_m':ns['map_clearance'](*ns['GOAL'][:2]),
+        'path':path,'path_points':None if path is None else len(path),
+        'check_path':None if path is None else ns['check_path'](path),
+        'includes_actual_start':path is not None and tuple(path[0])==tuple(pose[:2]),
+        'includes_actual_goal':path is not None and tuple(path[-1])==tuple(ns['GOAL'][:2])}
+
+
+def manual_zero_fixture(tag,pose):
+    ns,_,region=source_namespace(tag)
+    center=(pose[0]+1.7*math.cos(pose[2]),pose[1]+1.7*math.sin(pose[2]))
+    obj=dict(id=8,x=center[0],y=center[1],vx=0.,vy=0.,vel_ok=True,radius=.1,
+             points=[[center[0]+.1*math.cos(i*math.pi/10),center[1]+.1*math.sin(i*math.pi/10)] for i in range(20)])
+    seed(ns,[obj],pose=pose,now=0.)
+    original=ns['choose_command'];calls=[]
+    def choose(v,w,target):
+        value=original(v,w,target);calls.append({'nominal':[v,w],'target':target,'command':value[:2],
+            'chosen':value[2]['chosen'],'reason':value[2]['reason'],
+            'follow_t_hit':value[2]['candidates']['follow']['t_hit'],
+            'follow_min_gap_map':value[2]['candidates']['follow']['min_gap_map'],
+            'follow_robust_min_gap_obj':value[2]['candidates']['follow']['robust_min_gap_obj']})
+        return value
+    ns['choose_command']=choose
+    saved_return=ns['controller'](0.,pose,{})
+    saved_call=calls[-1]
+    class RemoveManual(ast.NodeTransformer):
+        def visit_If(self,node):
+            if any(isinstance(n,ast.Call) and isinstance(n.func,ast.Name) and n.func.id=='observed_objects'
+                   for n in ast.walk(node.test)):
+                return node.orelse
+            return self.generic_visit(node)
+    tree=RemoveManual().visit(ast.parse(region))
+    exec(compile(ast.fix_missing_locations(tree),'<analysis-only-manual-zero-ablation>','exec'),ns)
+    ablated_return=ns['controller'](0.,pose,{})
+    return {'kind':'Synthetic sensor fixture and in-memory single-branch ablation; not recorded-sensor replay',
+        'sensor_fixture':obj,'observed_dist':ns['observed_objects']()[0]['dist'],
+        'saved_controller_return':saved_return,'saved_call':saved_call,
+        'only_manual_zero_branch_removed_return':ablated_return,'ablated_call':calls[-1],
+        'pass':saved_return==(0.,0.,False) and ablated_return[:2]!=(0.,0.) and calls[-1]['follow_t_hit'] is None}
+
+
+def main():
+    checks={};submissions=[]
+    base_nodes={n.name:n for n in ast.parse(BASE.read_text()).body if isinstance(n,ast.FunctionDef)}
+    for tag in TAGS:
+        ns,source,region=source_namespace(tag)
+        traj=coordinates(LOGS/(tag+'_trajectory.csv'))
+        pose=tuple(traj[0][k] for k in ('x','y','yaw'))
+        metrics=json.loads((LOGS/(tag+'_result.json')).read_text())['metrics']
+        log=(LOGS/(tag+'.carter-run.stdout.log')).read_text().splitlines()
+        choices=[];plans=[]
+        pattern=re.compile(r'DBG choose t=(\S+) pick=(\S+) why=(\S+) f=(\S+) s=(\S+) obj_min=(\S+) rob=(\S+) map=(\S+)')
+        for number,line in enumerate(log,1):
+            match=pattern.search(line)
+            if match:
+                t,pick,why,f,stop,obj,rob,mg=match.groups()
+                choices.append({'line':number,'t':float(t),'pick':pick,'why':why,'follow_t_hit':f,
+                                'stop_t_hit':stop,'min_gap_obj':obj,'robust_min_gap_obj':rob,'min_gap_map':mg})
+            if line.startswith('DBG plan_path'):
+                plans.append({'line':number,'text':line})
+        nodes={n.name:n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef)}
+        controller=nodes['controller']
+        controller_calls=collections.Counter(n.func.id for n in ast.walk(controller)
+            if isinstance(n,ast.Call) and isinstance(n.func,ast.Name))
+        planner=[planning_record(ns,pose,m) for m in (1.,.9,.8,.7,.6,.5)]
+        sampled=[]
+        for t in (5.1,100.2,300.,599.7):
+            row=min(traj,key=lambda r:abs(r['t']-t));p=tuple(row[k] for k in ('x','y','yaw'))
+            q=planning_record(ns,p,1.);q.pop('path');q['trajectory_t']=row['t'];sampled.append(q)
+        displacements=[math.hypot(r['x']-pose[0],r['y']-pose[1]) for r in traj]
+        helpers_same=all(ast.dump(nodes[n])==ast.dump(base_nodes[n]) for n in ('choose_command','check_motion','_base_choose_rank','_base_command_candidates'))
+        fixture=manual_zero_fixture(tag,pose)
+        initial0=planner[0]
+        checks[tag+'_initial_plan_succeeds_without_reducing_margin']=initial0['path'] is not None and initial0['check_path']['first_bad_segment'] is None
+        checks[tag+'_unchanged_v8_helpers']=helpers_same
+        checks[tag+'_manual_zero_is_sufficient_to_hold_safe_follow']=fixture['pass']
+        submissions.append({'tag':tag,'source':str(LOGS/(tag+'_carter_run.py')),
+            'source_sha256':hashlib.sha256(source.encode()).hexdigest(),
+            'source_lines':{n:[nodes[n].lineno,nodes[n].end_lineno] for n in ('plan_path','follow_cmd','controller')},
+            'top_functions_in_edit':[n.name for n in ast.parse(region).body if isinstance(n,ast.FunctionDef)],
+            'controller_calls':dict(controller_calls),'v8_helper_ast_unchanged':helpers_same,
+            'metrics':metrics,'initial_trajectory_pose':pose,'final_trajectory_pose':traj[-1],
+            'max_start_displacement_m':max(displacements),'final_start_displacement_m':displacements[-1],
+            'trajectory_path_length_m':sum(math.hypot(b['x']-a['x'],b['y']-a['y']) for a,b in zip(traj,traj[1:])),
+            'chooser_log_rows':len(choices),'chooser_counts':dict(collections.Counter(r['pick'] for r in choices)),
+            'chooser_reason_counts':dict(collections.Counter(r['why'] for r in choices)),
+            'first_chooser_rows':choices[:24],'last_chooser_rows':choices[-10:],
+            'planner_log_count':len(plans),'planner_success_count':sum(' success ' in r['text'] for r in plans),
+            'planner_failure_count':sum('success' not in r['text'] for r in plans),
+            'planner_clearances_logged':sorted(set(re.search(r'clearance=(\S+)',r['text']).group(1) for r in plans)),
+            'planner_log_first':plans[:3],'planner_log_last':plans[-3:],
+            'map_block_warning_count':sum('DBG map_blocked' in line or 'DBG map-stop' in line for line in log),
+            'initial_map_and_margin_reproductions':planner,'sampled_saved_pose_planner_reproductions':sampled,
+            'manual_zero_synthetic_fixture':fixture})
+
+    # Demonstrate the latent .5-floor loop using a bounded spy, never running an
+    # uncontrolled loop or interpreting it as the cause of the completed grading.
+    ns,_,_=source_namespace(TAGS[0]);attempts=[];choose_calls=[]
+    class StopFixture(Exception):pass
+    def fail_plan():
+        attempts.append(ns['_PLAN_CLEARANCE'])
+        if len(attempts)>=10:raise StopFixture()
+        return None
+    ns['plan_path']=fail_plan;ns['choose_command']=lambda *a:choose_calls.append(a)
+    try:ns['controller'](0.,ns['START'],{})
+    except StopFixture:pass
+    checks['latent_retry_loop_reaches_floor_and_never_reaches_chooser']=len(attempts)==10 and attempts[-3:]==[.5]*3 and not choose_calls
+    latent={'kind':'Forced planning-failure state fixture, not observed grading failure',
+            'attempted_clearances':attempts,'chooser_calls_before_guard_abort':len(choose_calls),
+            'reason':'while clearance>=.5 with max(.5,clearance-.1) cannot terminate after a .5 failure'}
+
+    # An already-passed point is selected by the actual first four test functions.
+    lookahead=[]
+    for i in range(1,6):
+        tag=f'gpu_gpt_oss_120b_pB521_a0_t1_test{i:02}'
+        ns,source,_=source_namespace(tag)
+        path=[(0.,0.),(1.,0.),(2.,0.)];pose=(1.1,0.,0.)
+        target=ns['lookahead_target'](path,pose)
+        lookahead.append({'test':i,'source':str(LOGS/(tag+'_carter_run.py')),
+            'synthetic_path':path,'synthetic_pose':pose,'returned_target':target,
+            'forward_dot':target[0]-pose[0],'actual_runtime_target_recorded':False})
+    checks['first_four_lookahead_functions_can_select_passed_point']=all(r['forward_dot']<0 for r in lookahead[:4])
+    checks['test05_forward_dot_fixture_distinguishes_revision']=lookahead[4]['forward_dot']>0
+
+    ref=REF.load_reference();ref['_PLAN_POSE']=submissions[0]['initial_trajectory_pose'];refpath=ref['plan_path']()
+    refcheck=ref['check_path'](refpath)
+    checks['reference_includes_actual_endpoints_and_simplifies_valid_path']=(refpath[0]==ref['_PLAN_POSE'][:2]
+        and refpath[-1]==ref['GOAL'][:2] and refcheck['first_bad_segment'] is None and len(refpath)<64)
+    reference={'file':str(REF.REFERENCE),'sha256':REF.digest(REF.REFERENCE),'actual_start_path':refpath,
+               'check_path':refcheck,'path_points':len(refpath),
+               'differences':['Actual current pose and GOAL endpoints/connectors checked.',
+                   'Blocked containing cells may connect through another checked grid anchor.',
+                   'Finite margins down to .5, then None; elapsed-time failure retry.',
+                   'Greedy segment-checked simplification and forward projected target.',
+                   'Valid cached path reused; replan only failure/pending map-stop, no fixed 5 s restart.',
+                   'No observed_objects distance override; exactly one common chooser.']}
+    report={'verdict':'pass' if all(checks.values()) else 'fail','checks':checks,
+            'passed':sum(checks.values()),'total':len(checks),'submissions':submissions,
+            'latent_retry_loop':latent,'lookahead_structural_fixtures':lookahead,'b521_reference':reference,
+            'conclusions':['The initial actual pose, rounded start cell and GOAL connectors all exceed 1 m at the model initial margin; .5 m is not the observed starting failure.',
+                'Turn 1 logged 119 successful plans at margin1.0; turn2 does not call plan_path at all.',
+                'Both controllers impose nominal zero when any observed dist<2. The unchanged chooser preserves a safe zero-follow command; a controlled same-sensor ablation demonstrates its effect.',
+                'The robots moved less than 1 m from start, rather than remaining numerically motionless.',
+                'The retry-floor loop and missing endpoint validation are real code defects, but the saved completed grading does not show those causing planner failure.'],
+            'limitations':['Saved grading lacks per-tick observed_objects, nominal commands and target. Exact manual-stop intervals cannot be replayed from these logs.',
+                'Synthetic fixtures establish code mechanisms, not the identity or precise distance of a real observed mover.',
+                'No B521 a1 files, running processes, GPU or HTTP were inspected.']}
+    archive_before_write(OUT);OUT.write_text(json.dumps(safe_json(report),ensure_ascii=False,indent=2,allow_nan=False)+'\n')
+    print('EVIDENCE',report['verdict'],report['passed'],report['total'])
+    for s in submissions:print(s['tag'],'max_displacement',s['max_start_displacement_m'],'choices',s['chooser_counts'],'reasons',s['chooser_reason_counts'])
+    return report
+
+
+if __name__=='__main__':
+    raise SystemExit(0 if main()['verdict']=='pass' else 1)

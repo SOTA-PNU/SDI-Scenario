@@ -1,0 +1,175 @@
+"""Read completed B519 a2 evidence; no Isaac, HTTP, processes, or a3 reads."""
+import ast
+from collections import Counter
+import csv
+from datetime import datetime
+import difflib
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import shutil
+import sys
+from types import SimpleNamespace
+
+import numpy as np
+
+ARENA = Path(__file__).resolve().parents[1]
+DATA = ARENA / "results/turns/prompt_b5_19"
+LOGS = DATA / "isaac_logs"
+STEM = "gpu_gpt_oss_120b_pB519_a2"
+OUT = ARENA / "results/analysis/b519_a2_submission_evidence.json"
+
+
+def sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def rel(path):
+    return str(path.relative_to(ARENA))
+
+
+def ref(path, number):
+    return {"file": rel(path), "line": number, "text": path.read_text().splitlines()[number - 1]}
+
+
+def matching(path, needle):
+    return [ref(path, i) for i, line in enumerate(path.read_text().splitlines(), 1) if needle in line]
+
+
+def command_audit(path):
+    source = path.read_text()
+    controller = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == "controller")
+    writes, returns, calls = [], [], []
+    for n in ast.walk(controller):
+        if isinstance(n, ast.Assign):
+            targets = {k.id for target in n.targets for k in ast.walk(target) if isinstance(k, ast.Name)}
+            if targets & {"v", "w"}:
+                is_choose = isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name) and n.value.func.id == "choose_command"
+                writes.append({**ref(path, n.lineno), "both_v_w_written": {"v", "w"} <= targets, "rhs_is_choose_command": is_choose})
+        if isinstance(n, (ast.AnnAssign, ast.AugAssign)):
+            assert not any(isinstance(k, ast.Name) and k.id in ("v", "w") for k in ast.walk(n.target))
+        if isinstance(n, ast.Return):
+            values = n.value.elts if isinstance(n.value, ast.Tuple) else []
+            returns.append({**ref(path, n.lineno), "returns_v_w": len(values) == 3 and [ast.dump(v) for v in values[:2]] == [ast.dump(ast.Name(id=x, ctx=ast.Load())) for x in ("v", "w")]})
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "choose_command":
+            calls.append({**ref(path, n.lineno), "v_follow": ast.unparse(n.args[0]), "w_follow": ast.unparse(n.args[1]), "target_xy": ast.unparse(n.args[2]), "horizon_explicit": len(n.args) > 3 or bool(n.keywords)})
+    assert writes and returns and all(x["both_v_w_written"] and x["rhs_is_choose_command"] for x in writes) and all(x["returns_v_w"] for x in returns)
+    return {"method": "AST over controller only: every write to returned v/w is a joint choose_command assignment; every return is v,w,done. No AugAssign/AnnAssign write to v/w.", "all_motion_returns_are_chooser_outputs": True, "velocity_writes": sorted(writes, key=lambda x: x["line"]), "returns": sorted(returns, key=lambda x: x["line"]), "calls": sorted(calls, key=lambda x: x["line"])}
+
+
+def debug_rows(path):
+    result = []
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if line.startswith("DBG choose "):
+            fields = dict(re.findall(r"(\w+)=([^ ]+)", line))
+            parsed = {}
+            for key, value in fields.items():
+                parsed[key] = value if key in ("pick", "why") else None if value == "-" else value if value in ("inf", "-inf") else float(value)
+            result.append({**ref(path, number), **parsed})
+    return result
+
+
+def main():
+    sys.path.insert(0, str(ARENA))
+    import agent_loop as A
+    base_path = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v8.py"
+    base = base_path.read_text()
+    A.BASE = A.SP.BASE = base
+    A.A21 = A.A22 = A.A23 = A.A4T = False
+    A.B_MODE = "b5"
+    turns_path = DATA / f"{STEM}_turns.json"
+    turns = json.loads(turns_path.read_text())
+    events_path = DATA / f"{STEM}_events.jsonl"
+    events = [{**json.loads(line), "source_line": i} for i, line in enumerate(events_path.read_text().splitlines(), 1)]
+    records = []
+    for index in range(7):
+        suffix = f"_t2_test{index:02d}" if index else ""
+        source_path = LOGS / f"{STEM}{suffix}_carter_run.py"
+        result_path = LOGS / f"{STEM}{suffix}_result.json"
+        stdout_path = LOGS / f"{STEM}{suffix}.carter-run.stdout.log"
+        trajectory_path = LOGS / f"{STEM}{suffix}_trajectory.csv"
+        source, result = source_path.read_text(), json.loads(result_path.read_text())
+        dbg = debug_rows(stdout_path)
+        assert A.TL._outside(source) == A.TL._outside(base)
+        record = {"label": f"t2_test{index:02d}" if index else "t1_grading", "source_file": rel(source_path), "source_sha256": sha(source), "edit_sha256": sha(A.region_of(source)), "outside_edit_matches_base": True, "static_check": A.static_check(source), "result_file": rel(result_path), "verdict": result["verdict"], "criteria": result["criteria"], "metrics": result["metrics"], "oracles": result["oracles"], "command_audit": command_audit(source_path), "choose_debug_count": len(dbg), "choose_pick_reason_counts": dict(Counter(f'{row["pick"]}/{row["why"]}' for row in dbg)), "path_debug": matching(stdout_path, "DBG path points="), "map_stop_warnings": matching(stdout_path, "DBG follow 가 지도에 막힘"), "last_choose_debug": dbg[-6:]}
+        if index:
+            call = index + 1
+            raw_path = DATA / f"{STEM}_c{call:02d}_raw.json"
+            raw = json.loads(raw_path.read_text())
+            args = json.loads(raw["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"])
+            assert A.build(args["code"]) == source
+            record.update(tool_raw_file=rel(raw_path), tool_argument_keys=sorted(args), sim_seconds_explicit="sim_seconds" in args, actual_harness_build_matches_saved_executable=True, test_record=turns["turns"][1]["tests"][index - 1])
+            contact = result["metrics"]["first_collision_t"]
+            record["precontact_5s_debug"] = [row for row in dbg if contact - 5 <= row["t"] < contact]
+            with trajectory_path.open() as handle:
+                trajectory = [{k: float(v) for k, v in row.items()} for row in csv.DictReader(handle)]
+            record["precontact_5s_trajectory"] = {"file": rel(trajectory_path), "rows": [row for row in trajectory if contact - 5 <= row["t"] <= contact]}
+        else:
+            reply_path = DATA / f"{STEM}_reply.md"
+            assert A.build(A.TL.extract(reply_path.read_text())) == source
+            record["actual_harness_build_matches_saved_executable"] = True
+        records.append(record)
+
+    # Re-execute only existing map/planning helpers at the rounded, saved final pose.
+    # This is a static geometry reproduction; no tracker or motion simulation.
+    ns = {"math": math, "np": np, "builtins": SimpleNamespace(print=lambda *a, **k: None), "print": lambda *a, **k: None}
+    exec(base[base.index("MISSION = dict("):base.index("\nSTART = ")], ns)
+    ns["START"], ns["GOAL"] = ns["MISSION"]["start_xy_yaw"], ns["MISSION"]["goal_xy_yaw"]
+    exec(base[base.index("def to_world("):base.index("# ---- 지도 기본 코드 ----")], ns)
+    exec(base[base.index("# ---- 지도 기본 코드 ----"):base.index("# ---- DBG 기록 ----")], ns)
+    t1_path = LOGS / f"{STEM}_carter_run.py"
+    exec(A.region_of(t1_path.read_text()), ns)
+    pose = records[0]["metrics"]["final_pose"]
+    sx, sy = pose[:2]
+    wx0, _, wy0, _ = ns["WALLS"]
+    snap = (wx0 + round((sx - wx0) / .2) * .2, wy0 + round((sy - wy0) / .2) * .2)
+    planner_reproduction = {"method": "Execute saved _plan_path and base map/check_path at result.final_pose rounded to4decimals. No Isaac, movement, sensor replay, or hidden mover geometry.", "pose": pose, "current_center_map_clearance_m": ns["map_clearance"](sx, sy), "snapped_start_xy": snap, "snapped_center_map_clearance_m": ns["map_clearance"](*snap), "requested_center_clearance_m": .7, "plan_returns_none": ns["_plan_path"]((sx, sy), ns["GOAL"][:2], .7) is None, "direct_fallback_check_path": ns["check_path"]([(sx, sy), ns["GOAL"][:2]]), "source_refs": [ref(t1_path, i) for i in (912, 913, 1015, 1018, 1022, 1024, 1025, 1026, 1095, 1097)]}
+    assert planner_reproduction["plan_returns_none"] and planner_reproduction["direct_fallback_check_path"]["first_bad_segment"] == 0
+
+    reply_path = DATA / f"{STEM}_t2_reply.md"
+    reply = reply_path.read_text()
+    extracted = A.TL.extract(reply)
+    built = A.build(extracted)
+    retained_path = ARENA / f"{STEM}_t2_carter_run.py"
+    assert retained_path.read_text() == built
+    payload_code = json.loads(reply)["code"]
+    decoded_build = A.build(payload_code)
+    last_test = (LOGS / f"{STEM}_t2_test06_carter_run.py").read_text()
+    final = {"reply_file": rel(reply_path), "reply_physical_line_count": len(reply.splitlines()), "actual_retained_file": rel(retained_path), "actual_harness_build_matches_retained": True, "spliced": A.SP.splice(extracted) is not None, "static_check": A.static_check(built), "actual_retained_sha256": sha(built), "second_isaac_grading_performed": any(e["type"] == "grading" and e["turn"] == 2 for e in events), "format": "Final answer is a one-physical-line JSON wrapper with a code string; EDIT markers and newlines are literal JSON escapes inside the string, so actual extract/splice does not produce a Python EDIT block and static check rejects it.", "decoded_payload_hypothetical_static_check": A.static_check(decoded_build), "decoded_payload_was_not_executed": True, "decoded_payload_matches_any_test": any(A.region_of(decoded_build) == A.region_of((LOGS / f"{STEM}_t2_test{i:02d}_carter_run.py").read_text()) for i in range(1, 7)), "decoded_payload_vs_test06_diff": "\n".join(difflib.unified_diff(A.region_of(last_test).splitlines(), A.region_of(decoded_build).splitlines(), fromfile="saved_test06", tofile="unexecuted_decoded_final")), "submission_event": next(e for e in events if e["type"] == "submission" and e["turn"] == 2)}
+    assert not final["spliced"] and not final["static_check"][0] and not final["second_isaac_grading_performed"] and not final["decoded_payload_matches_any_test"]
+
+    test06_path = LOGS / f"{STEM}_t2_test06_carter_run.py"
+    core = [ref(t1_path, i) for i in (1018, 1025, 1026)] + [ref(test06_path, i) for i in (912, 914, 920, 931, 936, 937, 944)]
+    evidence = {
+        "scope": "Only completed B519 a2 materials and static v8/harness; no a3, processes, HTTP, GPU, or motion simulation. New analysis script and evidence JSON only.",
+        "base_sha256": sha(base), "turns_file": rel(turns_path), "events_file": rel(events_path),
+        "summary": {"t1": "No tests; Isaac grading FAIL after601.0s, collision0, final distance13.2842m. Initial6point path followed by18 two-point replans at.70m. Planner rejects current snapped start and falls back to an unchecked straight path; final static reproduction confirms that path is invalid.", "t2": "Six tests FAIL with arena_mover_00 contact; first contact simulation8.700–8.867s, tool wall36.1–38.1s. Final one-line JSON answer is static_dq, so there is no second Isaac grading.", "filtered_commands": "Every motion return in all7 executed controllers uses choose_command outputs. No literal unfiltered velocity return or malformed target/degree-vs-radian argument was found.", "risk_cause": "t2 removes route planning and targets GOAL directly; test02–06 add manual sensor-based reverse overrides. All share stop→second chooser rotation without checking t_hit_map. Logs establish risk already present before contact, but not raw sensor error or all60Hz decisions.", "test_time_limit": "All6 test tool calls omit top-level sim_seconds and execute with600s; their early collision failures do not test the200s instruction."},
+        "executed_records": records,
+        "t1_planner_reproduction": planner_reproduction,
+        "final_submission": final,
+        "manual_branches": [
+            {"test": 1, "sensor_override": None, "target": "GOAL world xy directly; no route planner", "second_chooser_condition": "chosen==stop and returned v==w==0, without t_hit_map check", "refs": [ref(LOGS / f"{STEM}_t2_test01_carter_run.py", i) for i in (901, 913, 919, 925, 932)]},
+            {"test": 2, "sensor_override": "Centroid projected.5s if vel_ok; distance to robot→GOAL line segment<.5m. robot_on_line=True for every nonzero segment, so interferer branch chooses reverse rather than the alternative stop branch away from goal.", "refs": [ref(LOGS / f"{STEM}_t2_test02_carter_run.py", i) for i in (930, 942, 945, 949, 966, 973)]},
+            {"test": 3, "sensor_override": "Centroid projected.5s; within.8m→choose(-.2,0,GOALxy).", "refs": [ref(LOGS / f"{STEM}_t2_test03_carter_run.py", i) for i in (906, 909, 926, 932)]},
+            {"test": 4, "sensor_override": "Centroid projected.5s; within.5m of2m heading segment→reverse chooser. Helper target_xy parameter is not used to form the segment.", "refs": [ref(LOGS / f"{STEM}_t2_test04_carter_run.py", i) for i in (882, 883, 923, 926, 943, 949)]},
+            {"test": 5, "sensor_override": "Observed centroid within3m and wrapped bearing<.7rad→reverse chooser.", "refs": [ref(LOGS / f"{STEM}_t2_test05_carter_run.py", i) for i in (912, 914, 931, 937)]},
+            {"test": 6, "sensor_override": "Observed centroid within2.5m and wrapped bearing<.5rad→reverse chooser.", "refs": [ref(test06_path, i) for i in (912, 914, 931, 936, 937)]},
+        ],
+        "argument_audit": {"target_xy": "Every executed choose call uses a finite two-coordinate world-map waypoint or GOAL[:2]/(GOAL[0],GOAL[1]); no angle or robot-local tuple is supplied. t2 lack of route target is a navigation-policy defect, not an API shape/unit error.", "angles": "Yaw/bearing use atan2 and wrapped radians; angular command is1.5*error clamped±.4rad/s. Linear commands use m/s including-.2 reverse. No degree conversion or wrong target angle detected.", "horizon": "All choose calls omit horizon_s, using base default3s object horizon and candidate-dependent map horizon.", "stop_recall": "All t2 tests recall chooser on any chosenstop+zero output. The condition does not inspect candidate follow.t_hit_map, hence can also override an object-related stop. Return is still the second chooser output.", "hidden_mover_specific_branch": False},
+        "diagnostic_limits": ["Automatic choose DBG logs only the first call in each0.5s window. A second call after stop can be suppressed; these logs are not complete60Hz commands or actual returned motor commands.", "No displayed precontact5s sample chooses stop, so that sampled call does not enter the stop-recall branch. Unsampled control calls may differ.", "map_clearance_object_gap is the all-unsafe fallback: no candidate is jointly safe, and the selected candidate has no predicted map hit but does have predicted object risk. It does not mean successful avoidance.", "obj_min/rob are selected candidate future-horizon minima; negative values are not evidence of current overlap. TTC0 at t8 means robust threshold is already violated, not proof of physical contact at t8.", "Map DBG values rounded to2decimals can show.20 while still satisfying the strict base threshold. Raw lidar points, object ids, velocities, seen_t and actual targets are not logged, so actual tracking error and exact candidate reconstruction cannot be established here.", "t1 final-pose planner calculation uses saved rounded coordinates; it demonstrates the failure branch and invalid fallback, not replay of every earlier replan or its exact sensor state."],
+        "essential_code_lines_total": len(core), "essential_code_lines": core,
+        "harness_refs": {"splice_json_escaped_line_rejection": matching(ARENA / "splice.py", 'if "\\n" not in body:'), "static_marker_failure": matching(ARENA / "agent_loop.py", 'return False, "EDIT REGION 표시가 없거나 깨졌습니다."')},
+        "tool_call_events": [e for e in events if e["type"] == "tool_call"],
+        "proposal_candidates_for_parent": ["Require every replanned path to pass check_path before use; if the present pose is outside the enlarged grid clearance, construct and validate a map-derived connection to a feasible grid cell instead of an unchecked straight fallback.", "Keep map-derived route following as chooser input and remove sensor-based manual reverse/stop-recall branches; record the final returned command and target along with chooser info to distinguish first and last choices.", "Treat outer chooser reapplication as a hypothesis to test, not a guarantee: these collisions already occur after chooser filtering and all-unsafe fallback. Enforce valid EDIT output and explicit200s tool input separately."],
+    }
+    assert len(core) == 10 and len(records) == 7 and all(r["command_audit"]["all_motion_returns_are_chooser_outputs"] for r in records)
+    if OUT.exists():
+        shutil.copy2(OUT, ARENA / "results" / f"archive_{OUT.name}_before_task16_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    OUT.write_text(json.dumps(evidence, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    print(json.dumps({"written": rel(OUT), "executed_controllers": len(records), "all_returns_filtered": True, "tests": len(records) - 1, "test_first_collision_s": [r["metrics"]["first_collision_t"] for r in records[1:]], "second_grading": final["second_isaac_grading_performed"], "core_lines": len(core)}, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()

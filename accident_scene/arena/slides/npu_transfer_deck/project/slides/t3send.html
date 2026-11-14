@@ -1,0 +1,26 @@
+<section id="t3send" data-transition="fade" style="background:#EEF1F5;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">1단계 · T3 숙고 — Claude ①을 옮김</p>
+<h2 style="font-size:60px;font-weight:600;line-height:1.15">요청에 필드 하나만 더했다</h2>
+</div>
+<div style="display:flex;gap:40px;align-items:start">
+<div style="width:820px;background:#14213D;border-radius:16px;padding:36px 40px;display:flex;flex-direction:column;gap:6px">
+<p style="font-family:'JetBrains Mono', 'Courier New', monospace;font-size:26px;line-height:1.55;color:#F4F2EC">{"model": "gpt-oss-120b",<br> "messages": [{"role": "user",<br>   "content": "PROMPT.md + base (6,961자)"}],<br> "max_tokens": 16384,<br> "temperature": 0.7, "top_p": 0.95,<br> <span style="color:#F07A4A">"reasoning_effort": "high"</span>}</p>
+<p style="font-size:24px;line-height:1.45;color:#B9C3D3">주황 한 줄만 T0와 다르다. 시스템 메시지·도구는 없다.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:20px">
+<h3 style="font-size:32px;font-weight:600">먼저 반영되는지 확인했다</h3>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:24px;color:#14213D">
+<tr style="background:#14213D"><th style="width:52%;color:#F4F2EC;text-align:left">같은 짧은 문제, 방식</th><th style="width:48%;color:#F4F2EC;text-align:left">추론 토큰</th></tr>
+<tr><td>지정 없음</td><td>282 · 456 · 444</td></tr>
+<tr style="background:#E3E8EF"><td><b>요청 필드 high</b></td><td><b>1,163 · 774 · 1,034</b></td></tr>
+<tr><td>요청 필드 low</td><td>241</td></tr>
+<tr style="background:#E3E8EF"><td>시스템 메시지 "Reasoning: high"</td><td>381 · 547 (효과 없음)</td></tr>
+</table>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">furiosa-llm은 요청 필드를 반영하고, 시스템 메시지로 쓴 지시는 일반 문장으로 받는다. 그래서 요청 필드로 적용했다.</p>
+</div>
+</div>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">그 밖은 T0와 같다: 같은 입력, 같은 피드백 문구, 상한 8회차. 표본 5 (a0–a4).</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 8 / 27 · 사전 점검: REPORT.md 정정 기록 2026-10-06 23:20 · 실행: turn_loop.py</p>
+<aside>첫 단계는 Claude가 코드를 쓰기 전에 오래 생각한 것을 옮기는 일이었습니다. gpt-oss에는 추론 강도를 정하는 요청 필드가 있어서 그것만 high로 바꿨습니다. 처음에는 시스템 메시지로 알려 주는 방법도 시험했는데 효과가 없었고, 요청 필드로 보내야 추론 토큰이 2.5배 정도 늘었습니다. 나머지 조건은 기준선과 완전히 같습니다.</aside>
+</section>

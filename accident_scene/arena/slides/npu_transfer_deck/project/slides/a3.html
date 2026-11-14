@@ -1,0 +1,20 @@
+<section id="a3" data-transition="fade" style="background:#F7F6F2;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:28px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">부록 A3 · Claude가 스스로 한 일 → T2P 지시 · 시험 묶음 (5–6단계)</p>
+<h2 style="font-size:52px;font-weight:600;line-height:1.15">108개 시험의 구조를 범주로 옮겼다</h2>
+</div>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:24px;color:#14213D">
+<tr style="background:#14213D"><th style="width:44%;color:#F4F2EC;text-align:left">Claude가 한 것</th><th style="width:42%;color:#F4F2EC;text-align:left">T2P 지시</th><th style="width:14%;color:#F4F2EC;text-align:left">옮긴 방식</th></tr>
+<tr><td>첫 시험: 벽과 상자만 둔 'basic' 전체 임무 (21분)</td><td>5단계: 가장 단순한 세계에서 전체 임무 첫 주행. 가짜 센서값 한 번 호출은 주행 시험이 아님</td><td>그대로</td></tr>
+<tr style="background:#EFEDE6"><td>고정 묶음 suite.py: 20 → 24 → 28 → 34개</td><td>6①: 범주를 고루 (장애물 배치 · 센서 규약 · 로봇 · 환경 가정)</td><td>일반화</td></tr>
+<tr><td>무작위 묶음 rand_suite.py: 시드로 지게차 · 선반 · 기둥 · 팔레트</td><td>6②: 언급된 구조물과 있을 법한 물체를 시드로 배치, 출발 · 목표 간격 유지</td><td>일반화</td></tr>
+<tr style="background:#EFEDE6"><td>고장 시험: 센서 예외 · 이상값 · NaN 자세</td><td>6③: 예외가 밖으로 안 나오고 충돌 없이 멈추는지</td><td>일반화</td></tr>
+<tr><td>결정성: 같은 시나리오 2번, 2,944스텝 동일</td><td>6④: 매 주기 출력 비교, 호출 시간 측정</td><td>그대로</td></tr>
+<tr style="background:#EFEDE6"><td>자작 정적 점검 (AST: 미정의 · 미사용 이름)</td><td>6⑤: 같은 점검</td><td>그대로</td></tr>
+<tr><td>결과를 파일에 누적</td><td>6⑥: test_log에 후보 sha와 통과/전체를 누적</td><td>그대로</td></tr>
+<tr style="background:#EFEDE6"><td>108/108 뒤에도 새 범주를 더함 (출발 근접 등)</td><td>6 끝: 다 통과해도 시험하지 않은 범주를 더함</td><td>일반화</td></tr>
+</table>
+<p style="font-size:24px;line-height:1.45;color:#3B4556">구체 시나리오(선반 빔 0.42–0.48 m, 낮은 팔레트 줄, 시야 180° 묶음 등)는 '스캔 높이 밖 장애물'을 암시하거나 해법 선택에 묶여 있어 범주만 남겼다.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 부록 A3 / A6 · Claude 시험 파일: results/turns/claude_eq/claude_eq_a0_files/…/arena_scratch/</p>
+<aside>Claude의 108개 시험은 개수나 구체적인 배치가 아니라 구조로 옮겼습니다. 가장 단순한 세계에서 전체 임무를 먼저 돌려 보는 것, 고정 묶음과 무작위 묶음, 고장 시험, 결정성과 정적 점검, 결과 기록, 그리고 다 통과해도 새 범주를 더하는 습관입니다. 다만 낮은 팔레트나 선반 빔처럼 낮은 장애물을 암시하는 시나리오는 범주로만 남겼습니다.</aside>
+</section>

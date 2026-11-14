@@ -1,0 +1,101 @@
+"""Minimal B524 -> B525 planner-first debugging and complete batch diagnostics."""
+from datetime import datetime
+import hashlib
+from pathlib import Path
+import shutil
+
+import b524_build_prompt as PREV
+
+ARENA = Path(__file__).resolve().parents[1]
+SRC = ARENA / "PROMPT_B5_24.md"
+SRC_SHA16 = "c22072174af079ac"
+OUT = ARENA / "PROMPT_B5_25.md"
+BASE = ARENA / "base_carter_run_ros_map_lidartime_objects_check_v13.py"
+BASE_SHA16 = "a4d0ad5ffcbb5ece"
+TITLE = "# ARENA 미션 프롬프트 B-5-25 (B-5-24 에 경로 연결 검사 지시와 계획 채택 요약을 더함)"
+FIRST_ACTION, CALL_EXAMPLE = PREV.FIRST_ACTION, PREV.CALL_EXAMPLE
+SCENE_SENTENCE = PREV.SCENE_SENTENCE
+SCAFFOLD = PREV.SCAFFOLD.replace(
+    "# TODO: 지도 격자 A*, 유효 연결, 직선 단순화, 요청한 중심 여유 검사.",
+    "# TODO: 지도 격자 A*, 모든 연결 검사, 직선 단순화, validate_plan 승인 확인.")
+
+VALIDATE_DOC = '''- 반환하기 전에 `validate_plan(path)`를 호출하여 `accepted`를 확인합니다. `plan_path` 안에서는 현재 호출의
+  실제 출발점·GOAL·요청 중심 여유로 검사합니다. 각 끝점 오차가0.5m 이하이면 실제 양끝을 연결하고,
+  추가한 연결도 포함하여 전체 `check_path`를 검사합니다. 더 먼 끝점, 빈 경로, 비유한 값이나 지도 검사 실패는 거부합니다.
+  승인된 `path`를 반환하고, 거부되면 해당 경로를 고쳐 다시 검사하거나 찾지 못한 경우 None 또는 []를 반환합니다.
+  `reason`, 끝점 거리, `check_path`의 `first_bad_segment`, `min_location`, 실제 간격과 요구 margin을 확인합니다.
+  `first_bad_segment_points`는 실제 양끝 연결 후 불량 구간의 두 점입니다. 이 점과0부터 센 구간 번호를 짧은 DBG로 확인해 고칩니다.
+  `min_location`은 경로 전체의 최소 간격 위치이므로 첫 불량 구간과 다를 수 있습니다.
+  함수 밖에서는 최신 pose와 채택 여유(없으면0.5m), pose 전에는 MISSION의 START를 쓰며 `start_source`로 구분합니다.
+  이 검사는 경로를 찾거나 제어 상태를 바꾸지 않습니다. base는 반환된 경로를 같은 기준으로 다시 검사합니다.
+
+'''
+
+CHANGES = (
+    "Selected v13 and B525 title; preserved exact same-scene preflight sentence and all shared harness files.",
+    "Clarified cell-center checks do not validate edges; every neighbor, endpoint connector and shortcut needs the requested segment clearance.",
+    "Replaced duplicate path prose with public validate_plan acceptance before return and failed-segment endpoint/minimum-location diagnosis.",
+    "Added batch-summary interpretation: explicit adoption/no_path state, no inference of lower-clearance acceptance from a throttled rejection line.",
+    "Required planner repair first while no path is adopted; retained three empty hook stubs, margins, targets, goal/chooser ownership and200s trials.",
+)
+SHORTENINGS = CHANGES
+
+
+def replace_once(text, old, new):
+    assert text.count(old) == 1, old
+    return text.replace(old, new, 1)
+
+
+def build(src, base=None):
+    assert hashlib.sha256(src.encode()).hexdigest()[:16] == SRC_SHA16
+    base = BASE.read_text() if base is None else base
+    assert BASE_SHA16 is not None, "v13 source must be frozen before generation"
+    assert hashlib.sha256(base.encode()).hexdigest()[:16] == BASE_SHA16
+    text = replace_once(src, src.splitlines()[0], TITLE)
+    text = replace_once(text, PREV.SCAFFOLD, SCAFFOLD)
+    text = replace_once(text,
+        "계획의 빈 경로·끝점 거리·지도 검사 실패·예외는 이유별10초에 한 줄 DBG로 알리고 다음 여유를 시도합니다.",
+        "계획 거부는 이유별10초에 한 줄 DBG로 알립니다. 별도 `DBG plan_summary`는10초 간격으로 시도한 모든 여유의 결과와 상태를 요약합니다.\n"
+        "`status=accepted/no_path/retained`는 새 경로 채택/경로 없음/이전 경로 유지를 뜻합니다. `no_path`이면 계획부터 고칩니다. 한 여유의 거부 줄만 보고 다른 여유가 승인됐다고 추정하지 않습니다.")
+    text = replace_once(text,
+        "- 출발/목표 좌표를 격자로 옮길 때 실제 좌표와 격자 칸의 연결을 검사합니다. 가까운 칸이 막히면 다른 유효 칸과 연결을\n"
+        "  유한 탐색합니다. 각 이웃 연결도 요청 여유를 만족해야 합니다. 실제 출발점을 검사에서 빼지 않습니다.\n"
+        "- A* 경로는 기준점(anchor)을 유지하며 연결 가능한 가장 먼 점을 추가하는 방식으로 직선 단순화합니다.\n"
+        "  마지막 점을 계속 덮어써 시작점과 중간 경로를 지우지 않습니다. 모든 연결과 양 끝점을 다시 검사합니다.\n"
+        "  촘촘한 격자점을 그대로 따라가지 말고, 통과 반경0.35m보다 충분히 긴 구간으로 묶되 코너의 지도 여유를 지킵니다.",
+        "- 격자 칸 중심이 유효해도 두 칸 사이 선분은 장애물을 가로지를 수 있습니다. A*의 모든8방향 이웃 연결,\n"
+        "  실제 출발/목표 좌표와 격자 칸의 연결, 단순화의 모든 지름길을 `segment_clearance(p,q) >= clearance_m`로 검사합니다.\n"
+        "  가까운 칸이 막히면 다른 유효 칸과 연결을 유한 탐색합니다. 실제 출발점을 검사에서 빼지 않습니다.\n"
+        "  지도 직사각형의 원래 모서리는 지도 여유가0이므로 양의 여유를 만족하는 경유점으로 쓸 수 없습니다.\n"
+        "- 기준점(anchor)에서 검사를 통과한 가장 먼 점을 추가하여 직선 단순화합니다. 시작점을 보존하고 모든 연결과 양 끝점을\n"
+        "  다시 검사합니다. 점-직선 편차만으로 중간점을 삭제하지 않습니다. 코너 여유를 지키며0.35m보다 충분히 긴 구간으로 묶습니다.")
+    text = replace_once(text, PREV.VALIDATE_DOC, VALIDATE_DOC)
+    text = replace_once(text,
+        "- 실패 결과에서 `collision_partners`, `first_collision_t`, `final_pose`, `final_dist_m`와 해당 시각 trajectory·DBG를 추립니다.\n"
+        "  계획 함수에서 점 수·요청 여유·check_path 결과를, target/follow 함수에서 목표와 추종 입력을 짧은 DBG로 찍을 수 있습니다.\n"
+        "  chooser는 선택과 예측 간격을 자동 기록합니다. 예측 최소간격은 현재의 실제 접촉 측정값이 아닙니다.",
+        "- 먼저 `plan_summary`의 채택 결과를 확인합니다. `no_path`이면 `plan_path`의 불량 연결을 고치고,\n"
+        "  경로 채택을 확인하기 전에는 정체를 lookahead/follow 문제로 추정해 그 함수를 바꾸지 않습니다.\n"
+        "  채택 뒤에는 `collision_partners`, `first_collision_t`, `final_pose`, 거리와 trajectory·DBG로 원인을 좁힙니다.\n"
+        "  chooser의 예측 최소간격은 현재의 실제 접촉 측정값이 아닙니다.")
+    text = replace_once(text,
+        "계획 거부와 목표 보정 DBG는 각각 이유별10초 간격이며, 계획 이외의 hook 예외 DBG는 해당 틱마다 별도 한 줄입니다.",
+        "계획 거부와 목표 보정 DBG는 각각 이유별10초 간격입니다. 계획 묶음 요약은10초 간격으로 모든 시도 여유와 승인/거부 이유를 앞부분에 보여줍니다. `details` 상세JSON은240자 제한으로 잘릴 수 있으며,\n"
+        "계획 이외의 hook 예외 DBG는 해당 틱마다 별도 한 줄입니다.")
+    text = replace_once(text, "2. 결과와 DBG로 원인을 확인하고 세 함수만 고쳐 다시 시험합니다.",
+                        "2. plan_summary의 채택 여부부터 확인하고 해당 함수만 고쳐 다시 시험합니다.")
+    assert text.count(SCENE_SENTENCE) == 1
+    return text
+
+
+def archive_write(path, text):
+    if path.exists():
+        if path.read_text() == text:
+            return
+        shutil.copy2(path, ARENA / "results" / f"archive_{path.name}_before_b525_{datetime.now():%Y%m%d_%H%M%S_%f}")
+    path.write_text(text)
+
+
+if __name__ == "__main__":
+    archive_write(OUT, build(SRC.read_text()))
+    print("wrote", OUT, "chars", len(OUT.read_text()))

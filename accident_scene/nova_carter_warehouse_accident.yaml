@@ -1,0 +1,163 @@
+# nova_carter_warehouse_accident.yaml — ACCIDENT SCENE: 인지 실패로 인한 충돌
+#
+# 레벨 사다리(L0-L3)가 아니다. 사다리는 "무엇을 할 줄 알아야 통과하는가"를 쌓아 올리지만,
+# 이 시나리오는 반대로 **회피를 할 줄 아는 컨트롤러도 사고를 내는 세계** 하나만 둔 단일 장면이다.
+# base 러너는 levels_zero2level 의 디폴트(빈 컨트롤러)로 시작한다 (EXPECTED = fail).
+#
+# ---------------------------------------------------------------------------
+# 1. 왜 이 장면이 필요한가
+# ---------------------------------------------------------------------------
+# README와 scenarios/LEVELS.md는 L2를 상류 정본의 nova_carter_warehouse_obstacle_fail.yaml
+# (height 0.15 m 저상 박스를 nav이 *못 보고* 긁고 지나가는 의도적 fail) 의 **반대 짝**으로
+# 설명한다. 두 파일을 같이 돌려야 "인지 실패"와 "회피 실패"가 분리 진단된다고 적혀 있는데,
+# 정작 그 negative control 은 이 저장소에 없다. 이 파일이 그 빈자리다.
+#
+#   L2 / L3      : 장애물이 **보인다**. 실패하면 그건 *회피* 능력의 문제다.
+#   accident     : 장애물이 **안 보인다**. 회피 능력이 멀쩡해도 사고가 난다.
+#
+# ---------------------------------------------------------------------------
+# 2. 사고 메커니즘 — 센서 평면 아래의 위험물
+# ---------------------------------------------------------------------------
+# 컨트롤러가 쓸 수 있는 유일한 외부 감각은 levels/common/carter_env.py 의
+#
+#     env.raycast_scan(n_beams=61, fov_deg=180.0, z=0.35, max_range=6.0)
+#
+# 이고, 이름 그대로 **고정 높이 z 의 평면 광선 부채꼴**이다. 기본값 z=0.35 m.
+# 그 평면보다 낮은 물체는 원리적으로 한 빔도 맞지 않는다. 레벨 러너들은 씬의 ROS 2 lidar
+# 토픽을 구독하지 않으므로 대체 감각도 없다.
+#
+# 그래서 높이 0.25 m 박스를 주행 회랑 한가운데 놓는다:
+#   - 기본 스캔 평면(0.35)보다 0.10 m 낮다  -> 컨트롤러에게 **완전히 투명**
+#   - 그러면서 섀시를 확실히 막을 만큼 높다 -> 접촉 리포트가 잡는다
+#
+# ---------------------------------------------------------------------------
+# 3. 실측 (fractal 호스트)
+# ---------------------------------------------------------------------------
+#   base (levels_zero2level 디폴트 [EDIT REGION] — 제어 코드 없음, 2026-09-11):
+#     verdict=fail (TIMEOUT 120 s), collision_count=0, final_dist=6.001 m
+#     로봇이 스폰 자리에서 주행하지 않는다(0 명령 크리프 1.06 mm/s, 120 s 에 0.127 m). 출발점이다.
+#
+#   스캔 평면별 전방 원뿔 최소 판독 (이 장면 그대로 측정, 2026-09-10)
+#
+#     로봇 y   박스 앞면까지   z <= 0.25      z = 0.30 / 0.35 (기본값)
+#     +1.01    2.49 m         2.49 m         5.53 m   <- 안 보임
+#     +2.01    1.49 m         1.49 m         5.33 m   <- 안 보임
+#     +2.50    1.00 m         1.00 m           -
+#
+#   z=0.02 부터 0.25 까지 모든 평면이 박스를 **정확한 거리로** 잡고, 바닥에 포화된 빔은
+#   61개 중 0개다. 반면 기본 평면 0.35 는 5.3~5.5 m, 즉 먼 벽만 본다 — 박스가 아예 없는
+#   경우와 구별이 불가능하다.
+#
+#   설계 검증 — 기본 스캔만 쓰는 반응형 회피 컨트롤러(levels/level3/solution_carter_run.py 의
+#   컨트롤러, L2·L3 통과)를 이 장면에 넣으면 (2회 반복, 0.001 m 이내로 동일):
+#     verdict=fail, collision_count=360, partner=/World/debug_obstacle,
+#     final_dist=1.662 m  (박스에 막혀 정지)
+#   회피를 구현해도 결정론적으로 사고가 난다. 이 장면이 "쉽게 부딪히는" 근거다.
+#
+# ---------------------------------------------------------------------------
+# 4. 값의 출처
+# ---------------------------------------------------------------------------
+# 주행선 x=-6.0, y=-1.0 -> 5.0 과 goal / tolerance / timeout 은 L1-L3 와 동일하다.
+# 새로 정한 것은 debug_obstacle 세 값뿐이고, 셋 다 실측 스윕으로 골랐다.
+#
+#   height 0.25  기본 스캔 평면 0.35 아래여야 하고(투명), 섀시를 막을 만큼 높아야 한다.
+#                높이 스윕 실측:
+#                  0.05 -> 로봇이 타고 넘어가며 긁는다 (충돌 87~166, 목표는 도달)
+#                  0.10 / 0.15 / 0.30 -> 걸려서 정지
+#                0.25 를 고른 이유는 **풀 수 있기 때문**이다. z<=0.25 인 평면에서는
+#                박스가 정확한 거리로 보이므로 여유 구간이 넓다. 0.05 는 z<=0.05 에서만
+#                보여서 여유가 거의 없다.
+#                ⚠ 0.30 이상으로 올리면 기본 평면에 걸려 **보이기 시작**하고, 그 순간
+#                  이 시나리오는 그냥 L2 의 변형이 된다. 0.35 가 경계다.
+#   y 3.8        목표(y=5.0) 1.2 m 앞. 박스는 y in [3.5, 4.1] 을 덮는다.
+#                위치 스윕 실측 (스캔 평면을 낮춘 컨트롤러 기준):
+#                  y=3.5 -> 충돌 0 (PASS)      y=3.8 -> 충돌 0 (PASS)
+#                  y=4.1 -> 충돌 102 (FAIL)    y=4.5 -> 충돌 170 (FAIL)
+#                4.1 이상은 박스와 목표 사이 간격이 너무 좁아 **우회 후 목표 중심으로
+#                복귀하는 것 자체가 불가능**해진다. 그건 인지 문제가 아니라 기하 문제이므로
+#                이 장면이 시험하려는 능력이 흐려진다. 3.8 은 최종 접근 구간이면서
+#                복귀 여유(0.9 m)가 남는 최대값이다.
+#   width 1.2    회랑 x in [-6.3,-5.7] 을 완전히 덮는다(박스는 x in [-6.6,-5.4]).
+#                우연히 옆으로 비켜가는 경우를 없애기 위해 L2 의 0.8 보다 넓혔다.
+#   depth 0.6    L2 / L3 와 동일.
+#
+# ---------------------------------------------------------------------------
+# 5. 이 장면을 어떻게 통과하는가 (= 벤치마크로서의 정답 방향)
+# ---------------------------------------------------------------------------
+# 함정이 아니다. 정보는 환경에 존재하고, 컨트롤러가 안 보고 있을 뿐이다.
+# raycast_scan 의 z 는 인자다. 3절의 참조 회피 컨트롤러 기준으로 검증된 수정은 세 줄이다:
+#   scan 을 z=0.15 에서 쏘고, 넓어진 박스에 맞춰 BLOCK_RANGE 2.2 -> 3.0,
+#   SIDE_MARGIN 0.55 -> 0.95.
+# 실측: verdict=PASS, collision_count=0, time_to_goal=11.783 s, final_dist=0.276 m.
+# "센서가 못 보는 영역이 있다"를 인지하고 감각을 바꾸는 것이 이 장면이 요구하는 능력이다.
+#
+# EXPECTED = fail, exit 1  (base = 빈 컨트롤러라 TIMEOUT 으로 실패. 실측 확인)
+
+apiVersion: cv-infra/v1
+
+scenario:
+  scene: nova_carter_warehouse
+  robot: nova_carter
+  goal:                                  # L1-L3 와 동일 (통과 실적 있는 lane 끝점)
+    x: -6.0
+    y: 5.0
+    yaw: 1.5708
+    frame: map
+  seed: 42
+  timeout_s: 120
+  debug_obstacle:                        # 핵심: 기본 스캔 평면(z=0.35) 아래의 위험물
+    x: -6.0                              # 회랑 정중앙
+    y: 3.8                               # 목표 1.2 m 앞 = 최종 접근 구간
+    height: 0.25                         # < 0.35 이므로 raycast_scan 기본값에 안 잡힌다
+    width: 1.2                           # 회랑을 완전히 덮어 우연한 회피를 막는다
+    depth: 0.6
+
+sut:
+  image_ref: carter-sut:p2
+
+interface:
+  type: ros2
+  adapter_config:                        # 정본과 완전히 동일
+    ros_distro: jazzy
+    rmw: rmw_fastrtps_cpp
+    use_sim_time: true
+    goal_interface:
+      kind: action
+      name: /navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    cmd_vel:
+      topic: /cmd_vel
+      type: geometry_msgs/msg/Twist
+    clock_topic: /clock
+    odom_topics:
+      - /odom
+      - /chassis/odom
+    sensors:
+      - topic: /front_3d_lidar/lidar_points
+        type: sensor_msgs/msg/PointCloud2
+        frame: front_3d_lidar
+      - topic: /front_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: front_2d_lidar
+      - topic: /back_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: back_2d_lidar
+    frames:
+      map: map
+      odom: odom
+      base_link: base_link
+    readiness:
+      is_active_service: /lifecycle_manager_navigation/is_active
+
+acceptance_criteria:                     # L1-L3 와 동일한 판정식. 난이도는 전적으로 세계에서 온다
+  - oracle: reached_goal
+    params:
+      position_tolerance_m: 0.75
+      yaw_tolerance_rad: 0.26
+      goal_orientation_wxyz: [0.7071068, 0.0, 0.0, 0.7071068]
+  - oracle: no_collision                 # 주입된 박스는 excluded 목록에 없다 = 접촉하면 즉시 fail
+    params:
+      chassis_path: /World/Nova_Carter_ROS/chassis_link
+      collision_excluded_paths:
+        - /World/Nova_Carter_ROS
+        - /World/warehouse_with_forklifts/GroundPlane

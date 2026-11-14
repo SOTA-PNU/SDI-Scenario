@@ -1,0 +1,17 @@
+<section id="controller" data-transition="fade" style="background:#EEF1F5;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">최종 컨트롤러</p>
+<h2 style="font-size:64px;font-weight:600;line-height:1.15">표로 막고, 스캔으로 배우고, 미리 보고 움직인다</h2>
+</div>
+<table style="font-family:'IBM Plex Sans KR', Arial, sans-serif;font-size:28px;color:#14213D">
+<tr style="background:#14213D"><th style="width:14%;color:#F4F2EC;text-align:left">부분</th><th style="width:86%;color:#F4F2EC;text-align:left">하는 일</th></tr>
+<tr><td><b>지도</b></td><td>0.1 m 격자에 벽(카메라 주석)과 상자 14개(MISSION)를 미리 기입</td></tr>
+<tr style="background:#E3E8EF"><td><b>감지</b></td><td>9개 높이(0.025–0.65 m)로 스캔, 360° 우선 · 180° 후퇴 — 표에 없는 벽 · 기둥 · 선반 · 지게차 포크를 실시간 기입</td></tr>
+<tr><td><b>계획</b></td><td>장애물 근처 비용을 둔 최단 경로 + 경로 당기기, 서쪽 선반 기피(x &lt; −7), 새 장애물이면 재계획</td></tr>
+<tr style="background:#E3E8EF"><td><b>안전</b></td><td>0.6 s 앞 움직임 예측(회전 시 차체 꼬리 포함), 앞부분 띠 · 제자리 회전 범위 검사</td></tr>
+<tr><td><b>종료</b></td><td>목표 진입 → 목표 yaw 정렬 → 정지 확인 후 done, 117.5 s 전에는 반드시 정지</td></tr>
+</table>
+<p style="font-size:28px;line-height:1.45;color:#3B4556">제출 파일 36,952 B — base 고정부는 그대로, 수정 구역만 교체(스크립트로 대조). import 추가 없음(math만) · 난수 · 시계 · 파일 입출력 · 스레드 없음 · 같은 입력이면 같은 궤적.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">Claude 동일 조건 실험 · 19 / 29</p>
+<aside>최종 컨트롤러의 구조입니다. 낮은 상자는 표로 지도에 미리 넣어 막고, 표에 없는 구조물은 여러 높이의 스캔으로 실시간으로 배우며, 0.6초 앞을 예측해 충돌을 피합니다. 목표에서는 자세를 맞추고 정지를 확인한 뒤 끝냅니다. 프롬프트 규칙(추가 import 금지, 결정론적 동작)도 지켰습니다.</aside>
+</section>

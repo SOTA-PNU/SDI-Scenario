@@ -1,0 +1,224 @@
+"""B524 v12: connected plan validation, rejection diagnostics and no-path retry."""
+import hashlib
+from pathlib import Path
+from b514_build_base import archive_before_write
+
+ARENA = Path(__file__).resolve().parents[1]
+SRC = ARENA / 'base_carter_run_ros_map_lidartime_objects_check_v11.py'
+OUT = ARENA / 'base_carter_run_ros_map_lidartime_objects_check_v12.py'
+SOURCE_SHA256 = 'c63241d9879de29c0afb4532cb7aa6a62cea9aa295d9c87d9a286649d55adc2c'
+
+PLAN_HELPERS = r'''def _base_plan_result(clearance_m):
+    return {"accepted": False, "path": None, "reason": None,
+            "start_gap_m": None, "goal_gap_m": None, "check_path": None,
+            "clearance_m": float(clearance_m), "endpoint_limit_m": _BASE_LOOP_CFG["plan_endpoint_limit_m"],
+            "connected_start": False, "connected_goal": False, "start_source": None, "error": None}
+
+
+def _base_plan_exception(clearance_m, error):
+    result = _base_plan_result(clearance_m)
+    result.update(reason="exception", error={"type": type(error).__name__, "message": str(error)[:160]})
+    return result
+
+
+def _base_validate_plan(value, start_xy, goal_xy, clearance_m):
+    """The single pure plan acceptance rule, including exact endpoint connectors."""
+    result = _base_plan_result(clearance_m)
+    if value is None:
+        result["reason"] = "empty_path"
+        return result
+    try:
+        path = np.asarray(value, dtype=np.float64)
+        if path.size == 0:
+            result["reason"] = "empty_path"
+            return result
+        if path.ndim != 2 or path.shape[1] != 2 or len(path) < 2 or not np.isfinite(path).all():
+            result["reason"] = "invalid_path"
+            return result
+        start_xy, goal_xy = tuple(map(float, start_xy)), tuple(map(float, goal_xy))
+        start_gap, goal_gap = math.dist(path[0], start_xy), math.dist(path[-1], goal_xy)
+        result.update(start_gap_m=start_gap, goal_gap_m=goal_gap)
+        if max(start_gap, goal_gap) > result["endpoint_limit_m"] + 1e-12:
+            result["reason"] = "endpoint_distance"
+            return result
+        connected = [(float(p[0]), float(p[1])) for p in path]
+        # Preserve exact reference paths without duplicate endpoint vertices.
+        if start_gap > 1e-12:
+            connected.insert(0, start_xy)
+            result["connected_start"] = True
+        else:
+            connected[0] = start_xy
+        if goal_gap > 1e-12:
+            connected.append(goal_xy)
+            result["connected_goal"] = True
+        else:
+            connected[-1] = goal_xy
+        margin = max(0.0, float(clearance_m)-0.25)
+        checked = check_path(connected, margin_m=margin)
+        result["check_path"] = checked
+        if checked["first_bad_segment"] is not None or checked["min_gap_map"] < margin - 1e-12:
+            result["reason"] = "check_path"
+            return result
+        result.update(accepted=True, path=connected)
+        return result
+    except Exception as error:  # noqa: BLE001 - public validation reports malformed input
+        result.update(reason="exception", error={"type": type(error).__name__, "message": str(error)[:160]})
+        return result
+
+
+def validate_plan(path):
+    """Return the same acceptance result used by the base, without logs or state changes.
+
+    During plan_path this uses that call's actual start, GOAL and clearance.
+    Otherwise it uses the latest robot pose and adopted clearance (default 0.5 m).
+    Before the first pose it uses MISSION start; start_source identifies this.
+    path is the connected path on success, or None on rejection. check_path
+    segment indices refer to the connected path, including endpoint connectors.
+    """
+    context = _BASE_LOOP_ST["plan_context"]
+    if context is not None:
+        start_xy, goal_xy, clearance = context
+        start_source = "plan_context"
+    else:
+        clearance = _BASE_LOOP_ST["clearance_m"]
+        clearance = _BASE_LOOP_CFG["clearances_m"][0] if clearance is None else clearance
+        if _BASE_POSES:
+            start_xy, start_source = tuple(_BASE_POSES[-1][1:3]), "latest_pose"
+        else:
+            start_xy, start_source = tuple(MISSION["start_xy_yaw"][:2]), "mission_start"
+        goal_xy = tuple(GOAL[:2])
+    result = _base_validate_plan(path, start_xy, goal_xy, clearance)
+    result["start_source"] = start_source
+    return result
+
+
+def _base_loop_valid_path(value, start_xy, goal_xy, clearance_m):
+    result = _base_validate_plan(value, start_xy, goal_xy, clearance_m)
+    return tuple(result["path"]) if result["accepted"] else None
+
+
+def _base_loop_note_plan(t, result):
+    reason = result["reason"]
+    previous = _BASE_LOOP_ST["plan_note_t"].get(reason)
+    if previous is not None and t >= previous and t-previous < _BASE_LOOP_CFG["plan_note_s"]:
+        return
+    checked = result["check_path"] or {}
+    error = result["error"]
+    builtins.print(f"DBG plan_reject t={t:.2f} reason={reason} clearance={result['clearance_m']:.2f} "
+                   f"start_gap={result['start_gap_m']} goal_gap={result['goal_gap_m']} "
+                   f"segment={checked.get('first_bad_segment')} min_gap={checked.get('min_gap_map')} "
+                   f"margin={checked.get('margin_m')} error={error}")
+    _BASE_LOOP_ST["plan_note_t"][reason] = t
+
+
+'''
+
+OLD_PLAN = '''            if state["replan_pending"]:
+                state["replan_pending"], state["block_since"] = False, None
+                stage = "plan_path"
+                for clearance in cfg["clearances_m"]:
+                    attempt = {"clearance_m": clearance, "accepted": False}
+                    detail["plan_attempts"].append(attempt)
+                    proposed = _base_loop_hook("plan_path", pose[:2], tuple(GOAL[:2]), clearance)
+                    checked_path = _base_loop_valid_path(proposed, pose[:2], tuple(GOAL[:2]), clearance)
+                    if checked_path is not None:
+                        state["path"], state["clearance_m"] = checked_path, clearance
+                        state["path_progress_s"] = None
+                        attempt.update(accepted=True, points=len(checked_path))
+                        break
+                if not any(a["accepted"] for a in detail["plan_attempts"]) and state["path"] is not None:
+                    detail["phase"] = "old_path_after_plan_failure"
+'''
+NEW_PLAN = '''            if (state["path"] is None and state["next_plan_t"] is not None
+                    and t >= state["next_plan_t"]):
+                state["replan_pending"] = True
+            if state["replan_pending"]:
+                state["replan_pending"], state["block_since"] = False, None
+                state["next_plan_t"] = None
+                stage = "plan_path"
+                for clearance in cfg["clearances_m"]:
+                    attempt = {"clearance_m": clearance, "accepted": False}
+                    detail["plan_attempts"].append(attempt)
+                    state["plan_context"] = (pose[:2], tuple(GOAL[:2]), clearance)
+                    try:
+                        proposed = _base_loop_hook("plan_path", pose[:2], tuple(GOAL[:2]), clearance)
+                        validation = validate_plan(proposed)
+                    except Exception as error:  # noqa: BLE001 - one rejected clearance, then try the next
+                        validation = _base_plan_exception(clearance, error)
+                        validation["start_source"] = "plan_context"
+                    finally:
+                        state["plan_context"] = None
+                    attempt.update({key: value for key, value in validation.items() if key != "path"})
+                    if validation["accepted"]:
+                        checked_path = tuple(validation["path"])
+                        state["path"], state["clearance_m"] = checked_path, clearance
+                        state["path_progress_s"] = None
+                        attempt["points"] = len(checked_path)
+                        break
+                    detail["plan_rejection_count"] += 1
+                    if validation["error"] is not None:
+                        detail["plan_error_count"] += 1
+                        detail["plan_errors"].append({"clearance_m": clearance, **validation["error"]})
+                    _base_loop_note_plan(t, validation)
+                if not any(a["accepted"] for a in detail["plan_attempts"]):
+                    if state["path"] is not None:
+                        detail["phase"] = "old_path_after_plan_failure"
+                    else:
+                        state["next_plan_t"] = t + cfg["plan_retry_s"]
+'''
+
+
+def build(source):
+    assert hashlib.sha256(source.encode()).hexdigest() == SOURCE_SHA256, 'v11 source changed'
+    source = source.replace('"goal_distance_m": 0.5, "goal_yaw_rad": 0.15, "map_stop_s": 10.0}',
+        '"goal_distance_m": 0.5, "goal_yaw_rad": 0.15, "map_stop_s": 10.0,\n'
+        '                  "plan_endpoint_limit_m": 0.5, "plan_retry_s": 10.0, "plan_note_s": 10.0}', 1)
+    source = source.replace('"path_progress_s": None, "target_note_t": {}}',
+        '"path_progress_s": None, "target_note_t": {}, "plan_context": None,\n'
+        '                 "plan_note_t": {}, "next_plan_t": None}', 1)
+    start = source.index('def _base_loop_valid_path(')
+    end = source.index('def _base_loop_path_distance(', start)
+    source = source[:start] + PLAN_HELPERS + source[end:]
+    source = source.replace('block_since=None, fault_key=None, last=None, path_progress_s=None, target_note_t={})',
+        'block_since=None, fault_key=None, last=None, path_progress_s=None, target_note_t={},\n'
+        '                     plan_context=None, plan_note_t={}, next_plan_t=None)', 1)
+    assert source.count(OLD_PLAN) == 1
+    source = source.replace(OLD_PLAN, NEW_PLAN, 1)
+    source = source.replace('"robot_path_s": None, "target_path_s": None, "error": None}',
+        '"robot_path_s": None, "target_path_s": None, "error": None,\n'
+        '              "plan_rejection_count": 0, "plan_error_count": 0, "plan_errors": []}', 1)
+    source = source.replace('command=(v, w), info=info, done=done, replan_pending=state["replan_pending"])',
+        'command=(v, w), info=info, done=done, replan_pending=state["replan_pending"],\n'
+        '                  next_plan_t=state["next_plan_t"])', 1)
+    source = source.replace('''    All four failed paths preserve a previous valid path; an initial failure waits
+    with a checked stop. There is no periodic or automatic failure retry.
+    Hook exceptions/nonfinite outputs request a checked stop for that tick.''',
+        '''    All rejected attempts preserve a previous valid path. Without a path,
+    checked zero is requested and planning retries after 10 s. A planning hook
+    exception rejects that clearance and tries the next one. Other hook faults
+    retain checked-zero behavior. validate_plan uses the same adoption rule.''', 1)
+    source = source.replace('''  Failed replanning preserves the previous valid path; initial failure requests
+  checked zero input. There is no periodic failure retry. A target is used only''',
+        '''  Endpoint gaps up to 0.5 m are connected to the actual current start and
+  GOAL before check_path validates the entire path, including both connectors.
+  validate_plan(path) returns the same accepted/path/reason, endpoint gaps and
+  check_path result without state changes or logs. During plan_path it uses that
+  attempt's start/GOAL/clearance; otherwise the latest pose and adopted clearance
+  (default 0.5 m) are used. Before the first pose, the MISSION start is used;
+  start_source reports plan_context, latest_pose or mission_start.
+  Exact endpoint paths are retained without duplicate endpoint vertices.
+  Rejections log DBG plan_reject, at most once per reason per 10 s. A planning
+  exception rejects only that clearance and the next clearance is attempted.
+  Failed replanning preserves a previous valid path; with no path, checked zero
+  input is requested and planning retries every 10 s. A target is used only''', 1)
+    source = source.replace('  Hook exceptions or nonfinite outputs request a checked zero command and DBG.',
+        '  Non-planning hook exceptions or nonfinite outputs request checked zero and DBG.', 1)
+    return source
+
+
+if __name__ == '__main__':
+    source = build(SRC.read_text())
+    compile(source, str(OUT), 'exec')
+    archive_before_write(OUT)
+    OUT.write_text(source)
+    print(OUT.name, hashlib.sha256(source.encode()).hexdigest())

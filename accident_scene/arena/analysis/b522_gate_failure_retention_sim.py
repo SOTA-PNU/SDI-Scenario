@@ -1,0 +1,93 @@
+"""One-variable analysis: track retention 1 -> 3 s; no operational base writes."""
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import hashlib
+import json
+from pathlib import Path
+import time
+
+import b515_chooser_sim as SIM
+import b522_gate_failure_cpu as GATE
+import b522_reference_sim as REF
+from b514_build_base import archive_before_write
+
+ARENA=Path(__file__).resolve().parents[1]
+V8_BASE=ARENA/'base_carter_run_ros_map_lidartime_objects_check_v8.py'
+V8_SHA='d92eed48917989427e226befd9db5c213e5ba2a3d3a8c1110304a0d525716fb6'
+ROOT=ARENA/'results/analysis/b522_gate_failure_retention_sim'
+OUT=ARENA/'results/analysis/b522_gate_failure_retention_sim.json'
+
+
+def save(path,data):
+    path.parent.mkdir(parents=True,exist_ok=True);archive_before_write(path)
+    path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+
+
+def work(job):
+    kind,label,movers,seed,reference=job
+    trace=ROOT/kind/'traces'/(label+'.jsonl')
+    if kind=='gate':
+        row=GATE.run_saved(522,movers=movers,sensor_seed=seed,run_label=label,trace_path=trace,
+                          result_path=ROOT/kind/'runs'/(label+'.json'),keep_s=3.)
+    else:
+        original=SIM.load_base
+        def patched_load(base):
+            ns=original(base);ns['_BASE_OBJ_CFG']['keep']=3.;return ns
+        try:
+            SIM.load_base=patched_load
+            row=REF.work((label,str(V8_BASE),reference,movers,seed,200.,str(trace)))
+        finally:SIM.load_base=original
+        save(ROOT/kind/'runs'/(label+'.json'),row)
+    row['controller_kind']=kind;row['retention_override_s']=3.
+    return row
+
+
+def main():
+    assert REF.digest(V8_BASE)==V8_SHA and REF.digest(SIM.__file__)==REF.ENGINE_SHA
+    ROOT.mkdir(parents=True,exist_ok=True)
+    reference=ROOT/'reference_snapshot.py';archive_before_write(reference);reference.write_text(REF.REFERENCE.read_text())
+    reference_sha=REF.digest(reference)
+    phases=SIM.phase_sets('standard61')
+    jobs=[(kind,label,movers,515+i,str(reference)) for i,(label,movers) in enumerate(phases) for kind in ('gate','reference')]
+    baseline_files={'gate':ARENA/'results/analysis/b519_chooser_sim.json',
+                    'reference':ARENA/'results/analysis/b522_reference_sim.json'}
+    baselines={kind:json.loads(path.read_text()) for kind,path in baseline_files.items()}
+    invocation={'complete':False,'runs':len(jobs),'base_sha256':V8_SHA,'engine_sha256':REF.ENGINE_SHA,
+        'reference_sha256':reference_sha,'retention_s':3.,'change':'Only namespace _BASE_OBJ_CFG[keep] is set from 1 to 3.',
+        'phase_seeds':[1,2],'sensor_seed_rule':'515 + standard61 index','t_max':200.,
+        'baseline_files':{k:{'path':str(p),'sha256':REF.digest(p)} for k,p in baseline_files.items()}}
+    save(ROOT/'invocation.json',invocation);started=time.perf_counter();rows=[]
+    with ProcessPoolExecutor(max_workers=4) as pool:
+        for f in as_completed([pool.submit(work,j) for j in jobs]):
+            row=f.result();rows.append(row)
+            save(ROOT/row['controller_kind']/'runs'/(row['label']+'.json'),row)
+            print(row['controller_kind'],row['label'],row['verdict'],f"t={row['t']:.3f}",row.get('hit'),flush=True)
+    summaries={}
+    for kind in ('gate','reference'):
+        part=sorted([r for r in rows if r['controller_kind']==kind],key=lambda r:[p[0] for p in phases].index(r['label']))
+        rnd=[r for r in part if r['label']!='v1'];v1=next(r for r in part if r['label']=='v1')
+        old={r['label']:r for r in baselines[kind]['results']}
+        old_ok=lambda r:r.get('mission',{}).get('verdict',r['verdict'])=='pass'
+        new_ok=lambda r:r['mission']['verdict']=='pass'
+        summaries[kind]={'random_passed':sum(new_ok(r) for r in rnd),'random_total':len(rnd),
+            'v1_pass':new_ok(v1),'v1_seconds':v1['t'],'timeouts':sum(r['verdict']=='timeout' for r in part),
+            'runtime_errors':sum(r['verdict']=='error' for r in part),
+            'baseline_random_passed':sum(old_ok(old[r['label']]) for r in rnd),'baseline_v1_pass':old_ok(old['v1']),
+            'new_failures':[r['label'] for r in part if old_ok(old[r['label']]) and not new_ok(r)],
+            'recovered_failures':[r['label'] for r in part if not old_ok(old[r['label']]) and new_ok(r)],
+            'failure_cases':[{k:r.get(k) for k in ('label','verdict','t','hit','final_goal_distance','trace')}
+                             for r in part if not new_ok(r)],'results':part}
+    complete=len(rows)==122 and all(s['runtime_errors']==0 for s in summaries.values())
+    unchanged=REF.digest(V8_BASE)==V8_SHA and REF.digest(SIM.__file__)==REF.ENGINE_SHA and REF.digest(REF.REFERENCE)==reference_sha
+    result={'verdict':'complete' if complete and unchanged else 'fail','complete':complete,'unchanged_operational_sources':unchanged,
+        **{k:invocation[k] for k in ('base_sha256','engine_sha256','reference_sha256','retention_s','change','phase_seeds','sensor_seed_rule','t_max','baseline_files')},
+        'configuration':'Same fixed 60Hz acceleration/physics, 10Hz scans, .1s sensor age, .01m noise. Only track expiry changes.',
+        'summaries':summaries,'wall_s':time.perf_counter()-started,
+        'limitations':['CPU sensor/physics approximation does not reproduce the actual Isaac dropout.',
+            'One retention variable only; no rank, geometry, uncertainty or follower change.',
+            'No operational source was changed; final adoption is a separate decision.']}
+    save(OUT,result);invocation.update(complete=complete,result_file=str(OUT));save(ROOT/'invocation.json',invocation)
+    for kind,s in summaries.items():print(kind,s['random_passed'],s['v1_pass'],'new_failures',s['new_failures'],flush=True)
+    return result
+
+
+if __name__=='__main__':raise SystemExit(0 if main()['verdict']=='complete' else 1)

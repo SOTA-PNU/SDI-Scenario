@@ -1,0 +1,597 @@
+# ARENA 미션 프롬프트 B-5-22 (B-5-21 에 제어 흐름 고정과 유한 재시도를 더함)
+
+이 파일 전문이 모델 입력입니다. 이 프롬프트는 앞선 실험에서 얻은 정보를 바탕으로 미션
+통과를 돕도록 만든 안내판입니다. 다만 경로는 당신이 직접 설계해야 합니다.
+
+---
+
+## 지시
+
+당신은 모바일 로봇 제어 코드를 작성하는 엔지니어입니다. 이 프롬프트와 함께
+`base_carter_run.py` 전문이 주어집니다. 그 파일은 수정하지 말고, 사본으로
+`<모델 본인 이름>_carter_run.py` 를 만들어 사본의 `[EDIT REGION]` ~
+`[END EDIT REGION]` 블록만 수정해 미션을 통과시키십시오.
+`<모델 본인 이름>` 에는 당신의 실제 모델 이름을 넣습니다(예: `claude`, `qwen3_4b`).
+**시험의 `code` 와 최종 답에는 수정한 `[EDIT REGION]` 블록만 넣으십시오.** 시작 주석과 끝 주석을 포함한 블록을
+넣으면 하네스가 그 안의 코드를 base 와 합칩니다. base 전문은 반복하지 마십시오. 블록 밖은 하네스가 그대로 보존합니다.
+설명만 낸 답은 실격입니다.
+최종 답은 ```python 으로 여는 코드 펜스 하나에 수정 블록만 담으십시오. JSON 문자열이나 설명문으로 내지 말고,
+펜스 밖 설명도 넣지 않습니다. 시험 도구의 JSON 인자 형식은 그대로이며, 아래 뼈대와 '제출' 절의 형식을 따릅니다.
+머리 주석을 쓸 때는 `# [EDIT REGION] mission controller - modify ONLY this block` 처럼 맨 앞의 `#` 까지 쓰십시오.
+`#` 없는 `[EDIT REGION]` 줄이나, 코드 블록 없이 코드와 섞어 쓴 설명 문장은 구문 오류가 되어 실격됩니다.
+
+이번 과제는 **출발점에서 목표까지 장애물을 피해 가는 경로를 지도로 계산하는 알고리즘**과,
+아래 **추종 방법으로 그 경로를 따라가는 제어기**를 작성하는 것입니다. 추종 방법은 이 서버의
+Isaac Sim 에서 장애물과 충분히 떨어진 경유점 경로를 따라 충돌 없이 목표에 도착해 통과하는
+것을 미리 확인했습니다. **이번에는 로봇(NVIDIA Nova Carter)에 탑재된 센서를 활용하는 코드를
+작성하십시오.** 시험 주행(`run_isaac_sim`)과 최종 채점은 같은 장면에서 돕니다. 그 장면에는 상자와 고정
+구조물 말고도 물체가 더 있고, 그 가운데 일부는 로봇이 지나갈 길을 가로질러 움직입니다. 그 위치와 움직임은 알려 드리지 않습니다. 이 물체는 로봇에게 길을 비켜 주지 않고, 앞뿐 아니라 옆이나 뒤에서도
+다가올 수 있으며, 로봇이 멈춰 있어도 닿으면 충돌로 집계됩니다. 경로만
+따라가는 코드는 이 물체와 부딪힐 수 있습니다. 그래서 이번 코드는 다음 규칙을 지켜 구현하십시오.
+
+- 센서 처리는 base 의 chooser 가 수행합니다. 모델은 아래 허용 TODO 에 지도 경로와 추종 계산만 구현합니다.
+- 예상치 못한 장애물이 나타날 것에 대비해, 장애물을 만나면 우회해서 목표로 가는 알고리즘으로 구현합니다.
+- 움직이는 물체가 경로를 가로질러 오가는 곳에서는, 옆으로 비켜 돌아가기보다 그 물체가 지나다니는 길 밖에서 기다렸다가
+  물체가 지나간 뒤 건너도록 구현합니다. 기다리는 동안 로봇 몸체 전체가 그 길 밖에 있어야 합니다(몸체는 `pose` 의
+  점에서 뒤로 0.59 m 까지 있습니다). 물체는 비켜 주지 않으므로, 길에 걸친 채 멈추면 멈춰 있어도 부딪힙니다.
+  이때도 기다림과 이동의 판단은 아래 `choose_command()` 에 맡기고 별도 대기 분기를 만들지 않습니다.
+- 움직이는 물체에 대한 판단은 base 의 `choose_command(v, w, target_xy)` 가 합니다. 매 제어 주기에 정확히 한 번만 부릅니다.
+  아래 추종 방법으로
+  경로를 따르는 명령 `(v, w)` 와 경로 위 앞쪽 목표점 `target_xy` 를 계산해 이 함수에 넘기고, 돌려받은 `(v, w)` 를 그대로
+  반환하십시오. 이 함수를 거치지 않은 명령은 반환하지 마십시오. 예를 들어 물체가 보이면 무조건 서는 분기, 검사 결과를
+  출력만 하는 분기, 손으로 정한 멈춤 시간은 넣지 않습니다. 이 함수는 경로를 따르는 명령, 그보다 느린 명령, 멈춤, 빠른
+  전진, 제자리 회전, 뒤로 물러나기를 `check_motion()` 과 같은 몸체 기하로 재되, 물체와 지도에는 아래의 서로 다른
+  검사 시간을 적용합니다. 그 결과로 아래에 설명한 안전·진전 규칙에 따라 고릅니다.
+- 추종 입력과 target 은 지도 경로·현재 pose·목표 상태로만 계산합니다. EDIT 안의 `observed_objects()` 호출은
+  진단 용도도 금지합니다. 물체 대응은 base chooser 가 수행하며 선택한 속도는 그대로 반환합니다.
+- 지도에 있는 물체(벽, `MISSION` 상자, 고정물)는 계산한 경로로 피하고, 센서 반응은 지도에 없는 물체에만 하도록
+  구현합니다. 라이다 점을 그 스캔을 잰 때의 로봇 자세로 `to_world()` 해 월드 좌표로 바꾼 뒤 `unmapped_points()` 로
+  거르면 지도에 있는 물체의 점이 빠집니다(아래 '라이다 점의 시점' 과 '지도 기본 코드'). 지금 `pose` 로 바꾸면 로봇이
+  움직이는 동안 지도에 있는 물체의 점도 남습니다. base 의 `observed_objects()` 는 이 변환과 거르기를 이미 합니다(아래
+  '감지 기본 코드').
+- **경유점이나 경로의 x, y 좌표를 손으로 골라 코드에 적지 않습니다.** 경로는 `controller()` 가 실행 중에 지도
+  기본 코드의 지도와 함수로 계산합니다. 코드에 들어가는 좌표는 `START`, `GOAL`, `MISSION` 과 지도 기본 코드에서
+  읽은 값, 그리고 그 값으로 계산한 값뿐이어야 합니다.
+
+다음 순서로 작업하십시오.
+
+1. 아래 '지도 기본 코드' 의 지도(벽, `MISSION` 상자, 고정물)와 함수로 출발점에서 목표까지 장애물을 피해 가는
+   경로를 계산하는 알고리즘을 작성합니다. 계산한 경로의 각 구간은 `segment_clearance()` 로 재서 여유를 확인합니다.
+2. 허용된 경로·앞점·추종 TODO 를 채웁니다. 고정 controller 는 변경하지 않습니다. 물체 대응과 최종 명령은 chooser 에 맡깁니다.
+3. `run_isaac_sim` 으로 주행시켜 결과를 확인합니다. **첫 응답은 반드시 `run_isaac_sim` 호출이어야 합니다.**
+4. 시험이 실패하면 아래 '시험 뒤 작업 방법' 의 세 단계로 결과와 DBG 에서 필요한 정보를 추려 원인을 정하고,
+   그 원인을 고친 코드로 다시 주행시킵니다.
+   **시험 주행에서 `"verdict": "pass"` 를 확인하기 전에는 제출하지 마십시오.** 통과할 때까지
+   계속 고쳐서 시험하십시오.
+5. pass 가 나온 그 코드를 그대로 최종 답으로 제출합니다.
+
+## 시험 뒤 작업 방법
+
+시험 결과에는 원시 센서 값이 없습니다. chooser 의 자동 DBG 와 허용 TODO 몸통에서 찍는 경로·target·추종 입력 DBG 를
+비교해 원인을 정합니다. 진단을 위해 고정 controller 를 바꾸거나 EDIT 에서 observed_objects 를 호출하지 않습니다.
+
+1. **추리기**: 결과에서 원인을 가르는 데 필요한 정보만 골라냅니다.
+   - `result` 의 `verdict`, `collision_partners`, `first_collision_t`, `final_pose`, `final_dist_m`
+   - `trajectory` 에서 `first_collision_t` 앞뒤 몇 초의 행. 충돌이 없으면 마지막 몇 행
+   - `controller_output` 에서 같은 시각 앞뒤의 DBG 줄
+2. **원인 정하기**: 추린 정보로 실패 원인을 한두 문장으로 정합니다. 추린 정보에 원인을 가를 값이 없으면 짐작으로
+   고치지 말고, 그 값을 찍는 DBG 를 더해 다시 시험해서 먼저 확인하십시오.
+3. **반영하기**: 정한 원인을 고치는 변경을 넣어 다음 코드를 만들고, 그 코드의 `[EDIT REGION]` 블록 맨 위, 머리 주석
+   두 줄 바로 아래에 다음 형식의 주석으로 기록을 남깁니다. 앞선 시험의 기록은 지우지 말고 그 아래에 이어 적어,
+   지난 원인과 변경을 보면서 다음 코드를 만드십시오.
+
+       # [시험 N] 결과: <verdict>, 충돌 <상대 또는 없음>, 첫 충돌 <t> s, 그때 위치 (<x>, <y>)
+       # [시험 N] 추린 DBG: <원인을 가르는 DBG 값>
+       # [시험 N] 원인: <한두 문장>
+       # [시험 N] 이번 변경: <무엇을 어떻게 바꿨는지>
+
+**DBG 찍는 법.** `controller_output` 은 처음 40줄과 마지막 40줄만 돌아오고(생략된 줄 수는
+`controller_output_omitted_lines`), 한 줄은 240자에서 잘립니다. 그리고 `base_carter_run.py` 의 `[EDIT REGION]` 바로
+위 'DBG 기록' 코드는 모델이 추가한 DBG 를 줄여서 내보냅니다. 시뮬레이션 시각 0.5 s 구간마다 첫 추가 DBG 줄만
+남기고 나머지는 버립니다(처음 0.5 s 구간만 열 줄까지). `choose_command()` 의 자동 DBG 는 이 제한과 별도로
+0.5 s 에 한 줄씩 남고, 지도 막힘이 10 s 넘게 이어지는 경고는 10 s 마다 별도로 남습니다.
+합친 출력의 처음 40줄과 마지막 40줄만 돌아오므로, 볼 수 있는 시간 폭은 추가 줄 수에 따라 달라집니다.
+
+- 첫 호출에서 계산한 경로를 몇 줄로 줄여 찍습니다. 점 수, 전체 길이, 구간 여유(`segment_clearance()`)의 최솟값과
+  그 구간의 두 끝점과 `check_path()` 의 `min_gap_map`, `min_location`, `first_bad_segment` 를 넣습니다.
+  경로를 찾지 못했으면 그 사실과 이유를 찍습니다. 첫 0.5 s 에는 추가 DBG 열 줄까지 남습니다.
+- 그 뒤에는 `choose_command()` 가 시각, 고른 후보, 이유, follow/stop 의 충돌 예측 시각, 물체 간격을 0.5 s 마다
+  자동으로 기록합니다. 이 자동 줄은 모델의 추가 DBG 와 별도로 남습니다. 명령 선택 기록을 중복해서 찍지 않습니다.
+
+**채점에서 실패했을 때.** 채점 결과에는 `trajectory` 와 `controller_output` 이 없습니다. 실패한 코드에 위 방법대로
+DBG 를 넣어 먼저 시험 주행하고, 그 결과로 세 단계를 거치십시오. 시험 주행은 최종 채점과 같은 장면에서 돌므로 DBG 만
+더한 코드는 채점 때와 거의 같은 주행을 다시 보여 줍니다.
+
+**움직이는 물체와 부딪혔을 때.** chooser 자동 DBG 와 같은 시각의 경로 목표·추종 입력을 비교합니다.
+보이지 않은 센서 상태를 추측해 거리 정지나 특정 시각 대기를 넣지 않습니다. 수정은 허용 TODO 안에서 하고 다시 시험합니다.
+
+## 규칙
+
+1. `[EDIT REGION]` 블록 밖은 한 글자도 바꾸지 마십시오. docstring, `MISSION`,
+   `START`, `GOAL`, 마지막 3줄 모두 그대로 둡니다.
+2. `controller(t, pose, env) -> (v, w, done)` 계약을 지키십시오. 매 1/60 s 호출되며
+   `pose` 는 (x, y, yaw) 월드 좌표, `v` 는 전진 속도 [m/s], `w` 는 yaw 각속도 [rad/s],
+   `done=True` 면 미션을 종료하고 채점받습니다.
+3. 센서는 base 가 ROS 2 토픽으로 읽어 chooser 에 제공합니다. EDIT 에 새 센서 정책을 넣지 않습니다.
+4. import 는 이미 import 된 `math` 와, 센서를 쓰기 위한 `numpy`, `rclpy` 및 ROS 2 메시지 패키지(`sensor_msgs`,
+   `nav_msgs` 등), 경로 계산에 쓸 표준 라이브러리 `heapq`, `collections` 만 허용합니다. `heapq`, `collections`, `deque` 는
+   base 에서 이미 import 해 두었습니다.
+5. 난수·벽시계·파일 입출력·스레드에 의존하지 말고 결정론적으로 제어하십시오.
+   같은 입력에 항상 같은 출력이어야 합니다. 몇 번째 경유점을 향하는지 같은 상태는
+   `[EDIT REGION]` 안의 전역 변수나 함수 속성에 저장해도 됩니다.
+6. 참고할 수 있는 것은 **이 프롬프트와 `base_carter_run.py` 두 개뿐**입니다.
+7. 시뮬레이터는 아래 `run_isaac_sim` 도구로만 실행합니다. 최종 채점은 채점자가 같은
+   하네스로 따로 합니다.
+8. 결과물은 파일 하나입니다.
+
+## EDIT REGION 뼈대
+
+**네 함수의 이름·순서·입출력과 전역 상태를 유지합니다. `controller()` 본문과 `plan_path()` 의 재시도·검사 틀은 고정이며 바꾸지 않습니다.**
+채울 곳은 TODO 가 있는 세 몸통: `plan_path()` 안 `_search_path(center_clearance)`, `lookahead_target(path, pose)`,
+`follow_cmd(pose, target)` 뿐입니다. 보조 함수는 이 몸통 안에 둡니다. TODO 를 채우기 전에는 시험·제출하지 않습니다.
+`plan_path()` 는 인자 없이 `_PLAN_POSE` 와 `_PLAN_CLEARANCE` 를 읽습니다. 탐색 여유는 초기 1.0 m, 최소 0.5 m 이며,
+하한 시도도 한 번뿐입니다. 경로·재계획 상태는 고정 controller 가 관리합니다.
+접근 시 필요한 계획 → 경로 앞점 → 추종 명령 → 공통 chooser 한 번의 순서를 우회하지 않습니다.
+EDIT 안에서는 `observed_objects()` 를 호출하지 않습니다. 센서별 거리 정지·후진 분기를 넣지 말고 물체 판단은 chooser 에 맡깁니다.
+
+```python
+# [EDIT REGION] mission controller - modify ONLY this block
+# ===========================================================================
+_PLAN_POSE = None
+_PLAN_CLEARANCE = 1.0  # 탐색 중심 여유(m); 검사 최소 기준은 0.5 m
+_PATH = None
+_REPLAN_PENDING = True
+_PLAN_FAILED = True
+_BLOCK_SINCE = None
+_LAST_T = None
+_NEXT_PLAN_T = 0.0
+
+def plan_path():
+    global _PLAN_CLEARANCE
+    if _PLAN_POSE is None or len(_PLAN_POSE) != 3 or not all(math.isfinite(float(q)) for q in _PLAN_POSE):
+        return None
+    start_xy, goal_xy = tuple(_PLAN_POSE[:2]), tuple(GOAL[:2])
+    if min(map_clearance(*start_xy), map_clearance(*goal_xy)) < 0.5 - 1e-12:
+        return None
+    def _search_path(center_clearance):
+        # TODO: 결정론적 격자 A*. 구현은 이 함수의 몸통에만 작성.
+        # TODO: 현재/목표 위치와 유효 격자 칸의 연결 및 모든 이웃 연결을 검사.
+        # TODO: 기준점 고정 직선 단순화 후 start_xy~goal_xy 점 목록, 실패하면 None.
+        # TODO: 막힌 최근접 칸 대신 다른 칸/연결을 유한 탐색. 수동 좌표/직선 대체 금지.
+        raise NotImplementedError
+    requested = min(2.0, max(0.5, float(_PLAN_CLEARANCE)))
+    needs = [max(0.5, round(requested - 0.1 * i, 10)) for i in range(int(math.ceil((requested - 0.5) / 0.1)) + 1)]
+    if needs[-1] != 0.5:
+        needs.append(0.5)
+    for need in dict.fromkeys(needs):  # 0.5 m 시도도 한 번뿐; 끝나면 반드시 반환
+        if min(map_clearance(*start_xy), map_clearance(*goal_xy)) < need - 1e-12:
+            continue
+        candidate = _search_path(need)
+        if candidate is None:
+            continue
+        try:
+            path = [tuple(float(q) for q in point) for point in candidate]
+            if len(path) < 2 or any(len(point) != 2 or not all(math.isfinite(q) for q in point) for point in path):
+                continue
+            if math.dist(path[0], start_xy) > 1e-9 or math.dist(path[-1], goal_xy) > 1e-9:
+                continue
+            checked = check_path(path)
+            if (checked['first_bad_segment'] is None and checked['min_gap_map'] >= 0.25 - 1e-12
+                    and all(segment_clearance(p, q) >= need - 1e-12 for p, q in zip(path, path[1:]))):
+                _PLAN_CLEARANCE = need
+                return path
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return None
+
+def lookahead_target(path, pose):
+    # TODO: 현재 pose의 최근접 경로 투영점 뒤 양의 앞점. 현재 선분 끝까지만 전진.
+    # TODO: 코너 통과 때 다음 선분으로 전환; pose~target 지도 중심 여유 >=0.5 m.
+    # TODO: 경로 처음부터 거리>0.2 첫점 선택 금지; 실패 None, 마지막 구간만 경로 끝점.
+    raise NotImplementedError
+
+def follow_cmd(pose, target):
+    # TODO: 지도 경로 목표와 pose만 사용. wrap 오차 abs(e)>.35면 v=0,
+    # 아니면 v=min(.3,.5*dist+.1), 항상 w=clamp(1.5*e,-.4,.4). (v,w) 반환.
+    raise NotImplementedError
+
+def controller(t, pose, env):
+    global _PLAN_POSE, _PLAN_CLEARANCE, _PATH, _REPLAN_PENDING, _PLAN_FAILED
+    global _BLOCK_SINCE, _LAST_T, _NEXT_PLAN_T
+    _PLAN_POSE = tuple(pose)
+    if _LAST_T is not None and t < _LAST_T:
+        _PATH, _REPLAN_PENDING, _PLAN_FAILED = None, True, True
+        _BLOCK_SINCE, _NEXT_PLAN_T = None, t
+    _LAST_T = t
+    distance = math.hypot(pose[0]-GOAL[0], pose[1]-GOAL[1])
+    yaw_error = math.atan2(math.sin(GOAL[2]-pose[2]), math.cos(GOAL[2]-pose[2]))
+    goal_mode = distance <= 0.5
+    goal_stop = goal_mode and abs(yaw_error) <= 0.15
+    replan_now = (_REPLAN_PENDING or _PLAN_FAILED or _PATH is None) and t >= _NEXT_PLAN_T
+    if goal_mode:
+        v_follow = 0.0
+        w_follow = 0.0 if goal_stop else max(-0.4, min(0.4, 1.5*yaw_error))
+        target = GOAL[:2]
+    else:
+        if replan_now:
+            candidate_path = plan_path()
+            checked = None if candidate_path is None else check_path(candidate_path)
+            accepted = (checked is not None and checked['first_bad_segment'] is None
+                        and checked['min_gap_map'] >= 0.25 - 1e-12
+                        and math.dist(candidate_path[0], pose[:2]) <= 1e-9
+                        and math.dist(candidate_path[-1], GOAL[:2]) <= 1e-9)
+            _PATH = candidate_path if accepted else None
+            _PLAN_FAILED, _REPLAN_PENDING = not accepted, not accepted
+            _NEXT_PLAN_T = t + 1.0 if not accepted else t
+            _BLOCK_SINCE = None
+        target = None if _PLAN_FAILED else lookahead_target(_PATH, pose)
+        if target is None:
+            _PATH, _PLAN_FAILED, _REPLAN_PENDING = None, True, True
+            _NEXT_PLAN_T = max(_NEXT_PLAN_T, t + 1.0) if replan_now else _NEXT_PLAN_T
+            v_follow, w_follow, target = 0.0, 0.0, GOAL[:2]
+        else:
+            v_follow, w_follow = follow_cmd(pose, target)
+    v, w, info = choose_command(v_follow, w_follow, target)
+    blocked = (info['chosen'] == 'stop' and v == 0.0 and w == 0.0
+               and info['candidates']['follow']['t_hit_map'] is not None)
+    if blocked:
+        if _BLOCK_SINCE is None:
+            _BLOCK_SINCE = t
+        elif t - _BLOCK_SINCE > 10.0:
+            _REPLAN_PENDING = True
+            _PLAN_CLEARANCE = min(2.0, _PLAN_CLEARANCE + 0.1)
+            _NEXT_PLAN_T = t
+            _BLOCK_SINCE = None
+    else:
+        _BLOCK_SINCE = None
+    done = goal_stop and v == 0.0 and w == 0.0
+    return v, w, done
+# ========================= [END EDIT REGION] ===============================
+```
+
+## 경로 계산
+
+- `_search_path(center_clearance)` 에 결정론적 격자 A* 를 구현합니다. 같은 지도·현재 시작 pose·GOAL·여유에는 같은 경로가
+  나오도록 이웃 방문과 동점 순서를 고정합니다. 무작위 RRT, 난수·벽시계 의존, 수동 경유점 좌표를 쓰지 않습니다.
+- 현재/목표 pose를 격자 칸으로 반올림한 뒤 그 칸이 막혔다고 끝내지 말고, 다른 유효 칸과 안전한 연결을 유한 탐색합니다.
+  실제 현재 위치-출발 칸, 모든 이웃 연결, 목표 칸-GOAL 을 요청 여유로 확인합니다. 실제 위치를 검사에서 빼거나 0.5 m 하한을 낮추지 않습니다.
+- 완성 경로는 실제 현재 위치부터 GOAL 까지입니다. 고정 틀은 `check_path` 의 `min_gap_map >= 0.25`
+  (몸체 반폭 0.25 m 보정 전 중심 여유 0.5 m), `first_bad_segment is None`, 양 끝점 및 모든 연결을 재검사합니다.
+  경로가 없으면 None 을 반환합니다. 검증되지 않은 직선이나 손으로 만든 중간점으로 대체하지 않습니다.
+- 직선 단순화는 현재 기준점(anchor)을 보존하고 그곳에서 가장 먼 연결 가능한 점을 추가한 뒤 기준점을 옮깁니다.
+  기존 마지막 점을 계속 덮어쓰지 않습니다. 경유점 간격은 통과 반경 0.35 m 보다 충분히 길게 하되 코너 연결 여유를 지킵니다.
+- `lookahead_target` 은 현재 pose의 경로 투영점보다 양의 거리 앞을 연속 추종합니다. 현재 선분 끝을 넘겨 코너를 가로지르지
+  말고 통과 반경 0.35 m 안에서 다음 선분으로 전환합니다. pose-target 연결도 중심 여유 0.5 m 를 검사합니다.
+  경로 처음부터 거리 0.2 m 초과인 첫 점을 고르면 지나온 점을 다시 쫓을 수 있으므로 금지합니다.
+  GOAL 직접 추종은 금지하며 마지막 구간에서만 경로 끝점을 target 으로 쓸 수 있습니다. 유효 앞점이 없으면 None 입니다.
+- 고정 controller 는 유효 경로를 유지합니다. 5초마다 재계산하거나 진행 인덱스를 초기화하지 않습니다.
+  계획/앞점 실패와 연속 지도 막힘 정지 >10 s 때만 다음 계획을 예약하고, 실패 재시도는 제어시각 t 로 간격을 둡니다.
+  실패 시 chooser 에 정지 입력을 요청하지만 선택된 탈출 명령도 그대로 반환합니다. DBG 문자열로 상태를 판단하지 않습니다.
+- 경로 계산은 매 틱 하지 않습니다. 1/60 s 제어 주기에 과한 탐색을 반복하면 벽시계 1,700 s 제한으로 시험이 중단됩니다.
+  충돌 뒤에는 좌표를 손으로 고치지 말고 지도 여유·경로 진행·chooser 자동 DBG 를 확인해 허용 TODO 만 고칩니다.
+
+## 추종 방법과 목표 마무리
+
+`follow_cmd` 는 경로 target 과 pose 로 `dist`, `e=wrap(atan2(ty-y,tx-x)-yaw)` 를 계산합니다.
+`wrap(a)=atan2(sin(a),cos(a))` 이고, `|e|>0.35` 면 v=0, 아니면 `v=min(0.3,0.5*dist+0.1)` 입니다.
+항상 `w=clamp(1.5*e,-0.4,0.4)` 를 사용합니다. 센서 조건으로 이 추종 입력을 덮어쓰지 않습니다.
+목표 0.5 m 안에서 방향을 맞추고 오차 0.15 rad 안이면 정지를 요청하는 처리는 고정 controller 에 있습니다.
+최종 v,w 는 매 틱 chooser 반환 그대로이며, 목표 정지 상태에서 반환 둘 다 0일 때만 done=True 입니다.
+계획 실패는 완료가 아닙니다. 위치가 다시 0.5 m 밖이면 접근으로 돌아갑니다. 성공 조건은 기존 0.75 m / 0.26 rad 입니다.
+
+## 센서 기본 코드
+
+로봇(NVIDIA Nova Carter)에 탑재된 라이다와 카메라 가운데 메시지가 나오는 것은 앞쪽 2D 라이다, 뒤쪽 2D 라이다, 3D 라이다, 앞쪽 카메라 넷입니다. 이 네 센서를 읽는 기본 코드는 `base_carter_run.py` 의 `[EDIT REGION]` 위에 들어 있습니다. 그 부분은 `[EDIT REGION]` 밖이므로 고치지 마십시오. 센서 읽기와 관측 물체 처리는 base chooser 가 담당하며, 아래 표는 그 입력에 대한 설명입니다.
+
+| 센서 | 토픽 (메시지) | 장착 위치 (로봇 기준 x 앞, y 왼쪽, 높이 m) | 함수 |
+|---|---|---|---|
+| 앞쪽 2D 라이다 | `/front_2d_lidar/scan` (LaserScan) | (0.026, 0, 0.42), 방향 180° | `lidar2d_points("front")` |
+| 뒤쪽 2D 라이다 | `/back_2d_lidar/scan` (LaserScan) | (−0.489, 0, 0.42), 방향 0° | `lidar2d_points("back")` |
+| 3D 라이다 | `/front_3d_lidar/lidar_points` (PointCloud2) | (−0.232, 0, 0.526) | `lidar3d_points()` |
+| 앞쪽 카메라 (스테레오 카메라의 왼쪽) | `/front_stereo_camera/left/image_raw` (Image, 1920×1200 RGB) | (0.100, 0.075, 0.346), 정면 | `camera_image()`, `camera_project()`, `camera_ray()` |
+
+- 로봇 기준 좌표의 원점은 `controller()` 가 받는 `pose` 의 점이고, z 는 바닥에서의 높이입니다. `to_world()` 로 월드 좌표로 바꿀 수 있습니다. 라이다 점을 바꿀 때 넣을 자세는 아래 '라이다 점의 시점' 을 보십시오.
+- 이 넷 밖에 바퀴 주행 거리계 `/chassis/odom` 과 `/tf` 도 발행됩니다. IMU 토픽은 이름만 있고 메시지가 나오지 않습니다.
+
+**각 센서가 보는 범위** (이 서버의 Isaac Sim 에서 측정한 값입니다. 방향은 로봇 기준으로 0° 가 정면, +90° 가 왼쪽, ±180° 가 뒤이고, 라이다는 각자 장착된 자리에서 본 방향입니다)
+
+| 센서 | 보는 범위 | 보지 못하는 곳 | 갱신 |
+|---|---|---|---|
+| 앞쪽 2D 라이다 | 높이 0.42 m 의 수평면에서 −140° ~ +140° (앞과 양옆 약 280°), 0.05–30 m | 뒤쪽 약 80° (±140° ~ ±180°): 로봇 몸체에 막힙니다 | 0.1 s 마다 새 스캔 |
+| 뒤쪽 2D 라이다 | 같은 높이에서 +40° ~ ±180° ~ −40° (뒤와 양옆 약 280°), 0.05–30 m | 정면 약 80° (−40° ~ +40°): 로봇 몸체에 막힙니다 | 0.1 s 마다 새 스캔 |
+| 3D 라이다 | 수평 360°, 위아래 −11° ~ +13°, 35 m 까지 | 로봇 가까이의 낮은 곳: 가장 아래 빔이 1 m 앞에서 바닥 위 약 0.33 m, 2 m 앞에서 약 0.14 m 를 지납니다 | 한 메시지에 약 60° 조각, 여섯 조각이 한 바퀴(0.1 s) |
+| 앞쪽 카메라 | 정면 기준 좌우 ±60°, 위아래 ±36° | 그 밖 전부. 영상만 주고 거리는 주지 않습니다 | 60 Hz |
+
+- 두 2D 라이다는 모두 360° 로 쏘지만, 각자 로봇 몸체에 가려진 쪽에서는 점이 나오지 않습니다(기본 코드가 몸체에 맞은 점을 지우고 돌려줍니다). 두 라이다를 합쳐야 로봇 둘레 360° 를 봅니다.
+- 2D 라이다는 높이 0.42 m 의 평면을 지나는 물체만 봅니다. `lidar3d_points()` 는 마지막 여섯 조각, 곧 한 바퀴를 돌려줍니다.
+
+**라이다 점의 시점** (이 서버의 Isaac Sim 에서 움직이는 물체 없이 경로를 주행하며 잰 값입니다. 한 스텝은 1/60 s 입니다)
+
+- 두 2D 라이다는 0.1 s(6 스텝)마다 새 스캔을 내고, 둘이 같은 스텝에 바뀝니다.
+- 새 스캔은 `controller()` 에 처음 들어올 때 이미 약 0.1 s(6 스텝) 전에 잰 것입니다.
+- 한쪽 라이다는 같은 스캔을 매 스텝 다시 보내기도 합니다. 그때 `lidar2d_points()` 는 새 배열을 돌려주지만 내용은 직전과
+  같고, 다시 올 때마다 한 스텝씩 더 오래된 스캔입니다. 그러는 라이다는 실행마다 달랐고, 둘 다 그러지 않은 실행도 있었습니다.
+- 그래서 지금 `pose` 로 `to_world()` 하면, 로봇이 움직이는 동안 지도에 있는 물체의 점이 실제 자리에서 벗어나 지도에
+  없는 점으로 남습니다. 새 스캔 하나에서 0–9 m 안의 점을 `margin` 0.1 m 로 걸렀을 때 남은 점의 수는 다음과 같습니다.
+
+| 로봇 상태 | 지금 `pose` 로 바꿈 (앞 / 뒤) | 6 스텝 전 `pose` 로 바꿈 (앞 / 뒤) |
+|---|---|---|
+| 멈춤 | 0 / 0 | 0 / 0 |
+| 곧게 달림 (0.4 m/s 넘게, 0.2 rad/s 아래) | 2.1 / 4.9 | 0 / 0 |
+| 돎 (0.5 rad/s 넘게) | 156 / 262 | 13 / 45 |
+
+- 같은 스캔이 다시 온 것을 지금 `pose` 로 바꾸면 더 많이 남습니다. 앞쪽 라이다에서 다섯 번째로 다시 온 스캔은 곧게
+  달릴 때 80개, 돌 때 300개가 남았습니다.
+- 3D 라이다와 카메라의 시점은 재지 않았습니다.
+
+## 지도 기본 코드
+
+`base_carter_run.py` 의 센서 기본 코드 아래에 지도와 지도 함수가 들어 있습니다. 지도는 이 장면에서 자리가 변하지 않는 물체이고, 시험 주행과 최종 채점에서 같습니다. 움직이는 물체는 지도에 없습니다. 이 부분도 `[EDIT REGION]` 밖이므로 고치지 마십시오.
+
+| 이름 | 내용 |
+|---|---|
+| `WALLS` | 벽 안쪽 면 (x 최소, x 최대, y 최소, y 최대) = (−10.30, 9.35, −12.15, 17.95) |
+| `FIXED_OBSTACLES` | `MISSION` 상자 말고 바닥에 놓인 고정물 43개: 기둥, 선반과 그 위의 물건, 팔레트, 지게차 두 대, 손수레, 상자 통, 두꺼비집 (이름, x 최소, x 최대, y 최소, y 최대) |
+| `map_rects()` | 지도 물체의 직사각형 배열 (K, 4): `MISSION` 상자와 고정물. 상자는 실행할 때 `MISSION` 에서 읽습니다 |
+| `map_clearance(x, y)` | 월드 좌표의 한 점에서 가장 가까운 지도 물체(벽 포함)까지의 거리 [m]. 물체 안이면 0 |
+| `segment_clearance(p, q)` | 두 점 사이 직선 구간에서 `map_clearance` 의 최솟값 [m] |
+| `check_path(points, margin_m=0.25)` | 꺾은선의 몸체 반폭 보정 지도 간격 최솟값, 그 위치, 여유가 부족한 첫 구간 |
+| `unmapped_points(points_world, margin)` | 월드 좌표 점 가운데 지도 물체와 벽에서 `margin` [m] 넘게 떨어진 점, 곧 지도에 없는 물체의 점만 돌려줍니다 |
+
+- 경로 검사 함수 `check_path(points, margin_m=0.25)` 는 2차원 꺾은선 경로를 각 구간의 끝점을 포함해
+  0.1 m 이하 간격으로 검사합니다. 반환은 `min_gap_map`(중심의 지도 거리에서 몸체 반폭 0.25 m 를 뺀 최솟값),
+  `min_location`(그 최솟값의 월드 좌표), `first_bad_segment`(간격이 `margin_m` 보다 작은 첫 구간의 0부터 센 번호,
+  없으면 None), `margin_m`, `sampling_step_m=0.1` 입니다. 경계 비교에는 1e-12 m 의 수치 오차를 허용합니다.
+  기본 `margin_m=0.25` 는 검사 여유 0.2 m 에 0.05 m 를 더한 값입니다. `points` 는 유한한 (x, y) 점이 둘 이상인
+  배열이며 중복점도 검사합니다. 잘못된 점이나 음수·비유한 여유는 ValueError 입니다.
+  이것은 지도 경로의 폭을 검사하는 함수입니다. 실제 방향에 따른 몸체 앞뒤와 회전, 관측 물체의 위험은 매 제어 주기에
+  `choose_command()` 가 검사하므로, 경로 검사가 통과해도 명령 선택을 건너뛰지 않습니다.
+
+- 이 서버에서 출발 자리에서 잰 라이다 점은 모두 지도에 있는 물체의 점으로 빠졌습니다. 앞쪽 2D 2,123개와 뒤쪽 2D 2,152개는 `margin` 0.1 m 에서, 3D 의 높이 0.1–2.0 m 점 33,833개는 `margin` 0.15 m 에서 남는 점이 없었습니다(3D 는 0.1 m 에서 1점이 남음). 멈춰 있을 때는 움직이는 물체가 없는 곳에서 지도에 없는 점이 거의 나오지 않는다는 뜻입니다. 움직이는 동안은 위 '라이다 점의 시점' 을 보십시오.
+- 3D 라이다 점은 바닥이나 높은 곳의 점을 먼저 높이(z)로 거른 뒤 넘기십시오.
+- 로봇 몸체는 `pose` 의 점을 원점으로 앞뒤 x −0.59 ~ 0.13 m, 좌우 y −0.18 ~ 0.18 m 이고, 바퀴가 x −0.14 ~ 0.14 m 에서 좌우 ±0.25 m 까지 나옵니다. `map_clearance()` 와 `segment_clearance()` 는 `pose` 의 점에서 잰 거리이므로, 몸체가 차지하는 만큼 여유를 더 두십시오.
+
+## 감지 기본 코드
+
+`base_carter_run.py` 의 지도 기본 코드 아래에 물체 추적 함수 `observed_objects()`, 몸체 검사 함수 `check_motion()`, 명령 선택 함수 `choose_command()` 가 들어 있습니다. 이 부분도 `[EDIT REGION]`
+밖이므로 고치지 마십시오.
+
+- 추적은 base 가 매 제어 직전에 갱신해 chooser 에 제공합니다. EDIT 직접 호출은 금지합니다.
+- 갱신: 앞뒤 2D 라이다에 새 스캔이 오면(내용이 직전과 다를 때만), 그 스캔을 잰 때(받기 0.1 s 전)의 로봇 자세로 점을 월드
+  좌표로 바꿉니다. 로봇에서 8 m 안이면서 지도 물체와 벽에서 0.25 m 넘게 떨어진 점만 남겨 0.1 m 칸으로 솎고, 0.45 m 이하로
+  떨어진 점끼리 물체 하나로 묶습니다(점이 3개보다 적은 조각은 0.6 m 안의 큰 묶음에 합칩니다). 묶음은 직전 물체의 예측
+  위치에서 1.0 m 안이면 같은 물체로 이어 붙이고, 최근 0.8 s 의 중심 위치를 직선으로 맞춰 속도를 구합니다.
+- 돌려주는 값은 가까운 것부터 정렬한 리스트입니다. 물체마다 `id`, `x`, `y`(보인 점들의 중심, 월드 좌표 [m]), `vx`, `vy`,
+  `speed` [m/s], `vel_ok`(속도를 맞출 자료가 충분했는지), `radius`(중심에서 가장 먼 점까지 [m]), `n_points`, `seen_t`(마지막으로
+  본 스캔의 시각 [s]), `age_s`(지금 시각 - `seen_t`), `track_age_s`(처음 본 스캔부터 `seen_t` 까지 [s]), `dist`(지금 `pose` 의
+  점에서 중심까지 [m]) 를 담은 dict 입니다. `x`, `y`, `vx`, `vy` 는 `seen_t` 때의 값이므로, 앞으로의 위치는 `seen_t` 부터
+  셉니다. 스캔 기준(t−0.1 s)으로 3.0 s 넘게 보이지 않으면 빠집니다. 현재 age_s는 약3.1 s까지 남을 수 있습니다.
+- `vel_ok` 는 최근 0.8 s 안에 4번 넘게, 0.3 s 넘게 보였을 때 True 입니다. 처음 잡힌 직후나 가려졌다 다시 잡힌 직후에는
+  False 이고 `vx`, `vy` 가 0 으로 나오지만, 멈춰 있다는 뜻이 아닙니다.
+- 라이다는 로봇 쪽을 향한 면만 보므로 중심은 물체의 실제 중심과 다르고, 보이는 면이 바뀌면 중심이 옮겨 가 속도에 잡음이
+  섞입니다. 속도는 최근 0.8 s 위치의 직선 맞춤이라 실제 변화보다 늦게 따라갑니다. 지도에 없는 정지 물체도 나오고, 보이는
+  면이 바뀌면 잠깐 속도가 붙어 나올 수 있습니다.
+- 이 서버에서 움직이는 물체 없이 경로를 주행하며 녹화한 실제 스캔 4,338 호출(회전 0.9 rad/s 이하)에 이 함수를 돌렸을 때
+  나온 물체는 없었습니다. 움직이는 물체 하나를 2–3.5 m 거리에서 볼 때 위치 오차는 중앙값 약 0.22 m, 속도 오차는 중앙값
+  0.04–0.08 m/s, 95 % 가 0.5–0.65 m/s 였습니다(로봇이 멈춰 있을 때와 0.4 rad/s 로 돌 때).
+
+- 몸체 검사 함수 `check_motion(v, w, horizon_s=3.0, dt=0.1, margin_m=0.2)` 는 가장 최근 `pose` 와 시각에서
+  일정한 `(v, w)` 를 낸다고 보고 차동구동 모형으로 `dt` 간격의 자세를 계산합니다. 멈춤 `(0, 0)` 도 같은 방식으로 잽니다.
+  `_BASE_BODY_BOX` 는 `pose` 의 점에서 앞 0.13 m, 뒤 0.59 m, 좌우 0.25 m 인 몸체 상자입니다. 물체의 위치는
+  `seen_t` 부터 `vel_ok` 가 True 이면 그 속도로 직선 예측하고, False 이면 제자리에 둡니다. `observed_objects()` 의
+  추가 필드 `points` 는 `seen_t` 때 물체에서 보인 라이다 점들의 월드 좌표입니다. 이 점들을 예측 속도만큼 옮긴 뒤 몸체
+  사각형과의 가장 가까운 간격을 잽니다. 점이 몸체 안에 있으면 간격은 음수입니다. `radius` 는 추적 자료로만 남기고
+  간격 계산에는 쓰지 않습니다. 지도 여유는 몸체 둘레를 0.1 m 이하 간격으로 찍은 점의 `map_clearance()` 최솟값입니다.
+  `min_gap_obj`, `min_gap_map` 은 예측 구간 전체의 원래 기하 간격입니다. `end_gap_obj` 는 예측 끝의 원래 물체 간격입니다.
+  움직임이 확인된 물체(`vel_ok=True`, 관측 속력 `speed > 0.05`)에는 속도와 관측 나이에 따른 추가 여유를 둡니다.
+  `age=max(현재 시각-seen_t, 0)`, `future` 를 지금부터의 예측 시간으로 놓으면, 추가 여유 [m] 는
+  `0.15 + min(1, 1 * speed * (age + min(future, 1.2)))` 입니다.
+  속도가 아직 확인되지 않은 물체(`vel_ok=False`)에는 0.15 m 를 더하고, 확인된 정지 물체에는 더하지 않습니다.
+  `robust_min_gap_obj` 는 원래 물체 간격에서 이 추가 여유를 뺀 예측 구간 최솟값입니다. `robust_end_gap_obj` 는 그 끝값,
+  `future_min_gap_obj` 는 현재 표본을 뺀 이후 표본의 최솟값입니다(예측 시간이 0 이면 현재값).
+  `raw_t_hit_obj` 는 원래 물체 간격이 `margin_m` 이하가 되는 첫 상대 시각 [s], `t_hit_obj` 는 추가 여유를 뺀 물체 간격이
+  `margin_m` 이하가 되는 첫 상대 시각입니다. 지도에는 이 추가 여유를 적용하지 않으며 `t_hit_map` 은 지도 간격이
+  `margin_m` 이하가 되는 첫 상대 시각입니다. 조건을 만족하는 표본이 없으면 각 시각은 None 입니다.
+  `raw_t_hit` 은 `raw_t_hit_obj` 와 `t_hit_map` 중 이른 것, `t_hit` 은 `t_hit_obj` 와 `t_hit_map` 중 이른 것(둘 다 없으면 None)입니다.
+  `hit_obj_id` 는 추가 여유를 둔 판정에서 처음 조건을 만족하는 물체 id, `end_pose` 는 예측 끝의 (x, y, yaw) 입니다.
+  이 값은 관측 점의 직선 예측에 따른 조건부 계산이며 실제 충돌 시각을 보장하지 않습니다. 자세·시각·관측 속도가 유한하지
+  않거나 관측 점이 비어 있거나 유한하지 않으면 ValueError 를 내며 안전하다고 처리하지 않습니다.
+
+- 명령 선택 함수 `choose_command(v_follow, w_follow, target_xy, horizon_s=3.0)` 는 매 제어 주기에 정확히 한 번 부릅니다.
+  경로 추종에서는 검증한 경로 위 앞쪽 목표점의 (x, y), 목표 정렬·정지와 경로 실패 요청에서는 `GOAL[:2]` 를
+  `target_xy` 로 넘깁니다. 반환은 `(v, w, info)` 이고 반환한 속도를 그대로 씁니다. 같은 주기에 다시 호출하지 않습니다.
+  기본 후보는 `follow=(v_follow, w_follow)`, `slow=(0.5*v_follow, w_follow)`, `stop=(0, 0)`,
+  `turn_l=(0, 0.4)`, `turn_r=(0, -0.4)`, `back=(-0.2, 0)` 입니다. `v_follow > 0` 이면
+  `fast=(min(max(2*v_follow, 1), 1.0), w_follow)` 도 넣습니다.
+  `v_follow == 0` 이어도 전진으로 빠져나갈 수 있도록 `forward_slow=(0.15, 0)`,
+  `forward_fast=(1, 0)`, `toward=(1, clamp(1.5*e_target, -0.4, 0.4))` 를 추가합니다.
+  `e_target` 은 현재 자세에서 `target_xy` 로 향하는 각도 오차를 [-π, π] 로 접은 값입니다. 추가 후보도 모두 같은 몸체
+  검사로 비교하되 물체와 지도의 검사 시간을 나눕니다. 물체와 추가 불확실성 여유는 `horizon_s`(기본 3 s) 전체를
+  검사하며, 각 후보의 `end_pose` 도 그 전체 시간 끝 자세입니다. 후보 명령 `(v, w)` 의 지도 검사 시간은
+  `min(horizon_s, max(0.8, 0.5 + max(abs(v)/2, abs(w)/2.68)))` s 입니다.
+  통상 0.8–1.0 s 이며, 완충 시간과 감속 시간에 기반한 휴리스틱입니다. 실제 제동이나 충돌 회피를 보장하는 값은 아닙니다.
+  모퉁이에서 현재 명령을 3 s 고정했을 때 경로 바깥 지도에 닿는 것만으로 정지하지 않도록 지도 쪽 시간을 줄인 것입니다.
+  공개 함수 `check_motion()` 을 직접 부르면 물체와 지도 모두 지정한 `horizon_s` 전체를 검사하는 기존 동작을 유지합니다.
+  안전은 각각의 검사 시간에서 추가 여유를 적용한 물체와 지도를 합친 `t_hit` 이 None 인 것입니다.
+  요청한 follow 가 `v_follow == 0` 이고 안전하면 그 회전 또는 정지를 유지합니다.
+  안전한 `fast` 의 끝 자세가 안전한 follow/slow 중 목표점에 더 가까운 후보의 끝 자세보다 엄격히 가까우면
+  fast 를 먼저 고릅니다. 안전한 follow/slow 가 없으면 현재 위치보다 목표점에 가까워야 합니다. 이 조건이 아니면
+  안전한 follow, slow, stop 순으로 고릅니다. 셋 다 위험하면 나머지 안전 후보 중 끝 자세가 `target_xy` 에 가장 가까운
+  후보를 고릅니다. 거리가 같으면 `robust_min_gap_obj`, 그다음 `min_gap_map` 이 큰 후보를 고릅니다.
+  모든 후보가 위험할 때는 먼저 각 후보의 짧은 지도 검사 구간 전체에서 지도 여유 조건을 지키는 `t_hit_map is None` 후보만 남깁니다.
+  그런 후보가 없을 때만 `min_gap_map > 0` 인 후보를 남겨 0 이하인 후보를 제외하고, 그것도 없으면 전체 후보를 씁니다.
+  따라서 지도 간격이 양수라도 기본 여유 0.2 m 안에 들어가는 후보는 지도 여유를 지키는 대안보다 앞세우지 않습니다.
+  남은 후보는 `robust_min_gap_obj` 가 큰 순서, 물체의 `t_hit_obj` 가 늦은 순서, `min_gap_map` 이 큰 순서,
+  지도의 `t_hit_map` 이 늦은 순서로 비교합니다. 충돌 예측 시각 None 은 무한대로 취급하고, 마지막 동률은 후보 이름순입니다.
+  지도 간격과 물체 간격을 하나의 `min_gap` 으로 합쳐 경쟁시키지 않습니다. 모든 후보가 위험한 상태에서의 선택은
+  위 순위로 피해를 줄이려는 것이며 충돌 회피를 보장하지는 않습니다.
+  `info` 는 `chosen`, `reason`, `candidates`, 고른 후보의 `min_gap_obj`, `robust_min_gap_obj`, `min_gap_map`,
+  `object_horizon_s`(물체 검사 시간), `map_horizon_s`(지도 검사 시간),
+  `map_filter`(모두 위험한 분기의 지도 기준: clearance, positive, none), `map_filtered`(실제 제외한 후보가 있는지),
+  `excluded_map_names`(실제로 제외한 이름 목록)를 담습니다. clearance 는 지도 여유 조건, positive 는 양수 간격 기준입니다.
+  clearance 기준이어도 모든 후보가 그 기준을 만족하면 제외 목록은 비고 `map_filtered=False` 일 수 있습니다.
+  none 은 안전한 후보를 고른 분기 또는 양수 간격 기준에서 실제로 제외한 후보가 없는 경우도 포함합니다.
+  `reason` 은 follow_safe, slow_safe, stop_safe, fast_progress, safe_progress, map_clearance_object_gap,
+  map_filtered_object_gap, emergency_object_gap 중 하나입니다. `candidates` 에는 이름별 `v`, `w`, `t_hit`, `min_gap_obj`, `min_gap_map`,
+  `end_pose`, `raw_t_hit`, `raw_t_hit_obj`, `t_hit_obj`, `t_hit_map`, `robust_min_gap_obj`, `future_min_gap_obj`,
+  `robust_end_gap_obj`, `object_horizon_s`, `map_horizon_s` 를 담고, 결합된 `min_gap` 필드는 없습니다.
+  base 는 0.5 s 마다 시각, 선택, 이유, follow/stop 의
+  `t_hit`, 선택한 후보의 원래/추가 여유 적용 물체 간격과 지도 간격을 DBG 한 줄로 기록합니다. 물체는 전체 물체 검사 시간,
+  지도는 해당 후보의 짧은 지도 검사 시간에서 각각 얻은 최솟값이며
+  현재 자세에서의 간격과 다릅니다. 이 자동 줄은 모델의 추가 DBG 줄 제한과 별도로 0.5 s 에 한 줄씩 남습니다.
+  follow 가 지도 여유를 지키지 못하고 stop 을 10 s 넘게 연속 선택하면, base 는 10 s 마다 별도 DBG 한 줄
+  `follow 가 지도에 막힘: 경로 여유 부족` 을 남깁니다. 이 줄은 '경로 계산' 절의 재계획 조건이 이어지고 있다는 진단입니다.
+  실제 재계획 조건은 위 `info` 의 follow 지도 TTC와 stop 선택으로 추적하고, DBG 문자열을 파싱하지 않습니다.
+  이 경고도 모델의 추가 DBG 제한과 별도로 남습니다.
+
+## 지금까지의 주행에서 알게 된 것
+
+- 출발점에서 목표 쪽으로 곧장 가면 상자 00, 01, 02 에 부딪힙니다.
+- 상자 표에 없는 고정물과 벽은 모두 '지도 기본 코드' 에 있습니다. 다만 지도 물체(벽, 상자, 고정물)의 실제 면은 지도 값과
+  최대 0.21 m 다릅니다. 움직이는 물체 없이 주행하며 잰 2D 라이다 점을 6 스텝 전 `pose` 로 바꿨을 때, `margin` 0.1 m
+  에서는 몇 곳(가장 큰 곳은 상자 08 둘레)에서 점이 남았고 0.25 m 에서는 남는 점이 없었습니다. 양쪽 벽에는 안쪽으로
+  0.25–0.30 m 튀어나온 기둥이 있고, 서쪽 선반은 y −3.80 ~ 12.50 까지 이어집니다.
+- 앞선 실험에서 모델이 직접 찍은 경유점 경로 8개 가운데 7개는 경유점 사이의 직선이 상자나
+  고정 구조물을 그대로 지나갔고, 나머지 1개도 상자 모서리에서 0.1 m 였습니다. 지나간 것은
+  상자 01, 03, 05, 06 과 지게차 `Forklift_01`, 서쪽 선반이었습니다. 직전 실험에서도 손으로 고른 경로에
+  여유가 0 m 인 구간이 있었습니다. 동쪽 벽 속에 찍은 경유점과, 지게차 둘과 상자 03, 04, 06 을 지나는 구간 때문에
+  같은 자리에서 거듭 실패했습니다. 그래서 이번에는 경로를 손으로 고르지 않고 지도로 계산합니다.
+- 앞선 실험의 모델은 시험 주행에서 실패를 보고도 다시 시험하지 않고 바로 제출해 실패했습니다.
+  pass 를 확인하기 전에는 제출하지 마십시오.
+- 앞선 실험(B-5 계열)에서 채점에 실패한 7번 가운데 3번은 센서 반응이 지도에 있는 상자나 고정물에 걸려,
+  그 옆에서 멈추고 돌기를 600초까지 되풀이했습니다. 3번은 출발 구역에서 움직이는 물체에, 1번은 상자에
+  부딪혔습니다.
+- 앞선 실험의 1회차 답 20개 가운데 19개는 시험 주행 없이 제출됐습니다.
+- 정적 실격 7번 가운데 6번은 파일 전문을 내면서 `[EDIT REGION]` 밖의 글자(설명문, 하이픈, 따옴표)가 바뀐
+  것이었고, 1번은 구문 오류였습니다.
+- DBG 는 처음 40줄과 마지막 40줄만 돌아옵니다. 앞선 실험에서는 매 단계(1/60 s) 찍어 15,000줄 가운데 첫 1초와
+  마지막 1초만 돌아가 실패한 순간을 보지 못했습니다. 그래서 base 는 추가 DBG 를 0.5 s 에 한 줄로 줄이고,
+  `choose_command()` 자동 DBG 는 별도로 0.5 s 에 한 줄, 10 s 넘게 이어지는 지도 막힘 경고는 10 s 마다 남깁니다.
+- 경로를 지도로 계산하게 한 앞선 실험 B-5-6, B-5-7 에서, 주행한 채점 다섯 번 모두 지도 물체에서 0.8 m 넘게 떨어져 갔습니다. 대신
+  네 번은 출발 뒤 6–34 s 에 출발 구역에서 움직이는 물체와 부딪혔고, 출발 구역을 지난 한 번은 더 가서 다른 움직이는
+  물체와 부딪혔습니다. 한 번은 멈춰 서서 제자리 회전하던 중이었습니다. 제자리 회전에서는 몸체 뒤쪽 끝(`pose` 의 점에서
+  약 0.6 m)이 원을 그리며 지나갑니다.
+- B-5-7 에서 멈춰 기다리기만 한 시험은 움직이는 물체와 부딪히지 않았지만, 600 s 안에 목표로 가지 못했습니다.
+- 앞선 실험 B-5-5 ~ B-5-7 의 채점 12번 가운데 8번은 그 회차에 시험 주행을 한 번도 하지 않은 답이었고, 나머지 4번도 시험에서
+  pass 를 받지 못한 코드를 고쳐 바로 낸 것이었습니다. 12번 모두 실패했습니다.
+- B-5-6, B-5-7 에서 1회차 채점 두 번이 `heapq` 를 import 하지 않아 `NameError` 로 끝났습니다. 그 뒤로는 base 가 `heapq`,
+  `collections`, `deque` 를 import 해 둡니다.
+- 직전 실험 B-5-8 의 실행 네 번은 모두 1회차 첫 응답으로 시험했고, 한 번은 첫 시험에서 pass 를 받아 통과했습니다. 그러나
+  채점 여덟 번 가운데 네 번은 답 형식 때문에 실격됐습니다. 세 번은 첫 줄에 `#` 없이 `[EDIT REGION] ...` 을 썼고, 한 번은
+  코드 블록 없이 코드 앞에 설명 문장을 붙였습니다. 이때 하네스가 알려 준 'line 362' 는 그때 base 와 합친 파일의 줄 번호로,
+  답의 첫 줄이었습니다. 오류 줄 번호는 수정 블록을 base 와 합친 실행 파일 기준입니다. base 의 `[EDIT REGION]` 시작 줄과 함께 확인하십시오.
+- B-5-8 에서 움직이는 물체와 부딪힌 뒤 반응을 바꾼 코드들은, 멈춰 기다리다 다시 움직이지 못하거나 움직이자마자 다시
+  부딪히기를 되풀이했습니다.
+- 앞선 실험에서 도구 호출의 `arguments` JSON 이 깨져 실행되지 못한 일이 있었습니다(문자열 끝에
+  `]` 가 하나 더 붙음). `code` 에는 시작·끝 주석을 포함한 수정 영역만 넣고, JSON 문자열 안의 줄바꿈과
+  따옴표가 올바르게 escape 되었는지 확인하십시오.
+
+- 물체의 몇 초 뒤를 예측했지만 `pose` 의 점 하나에 반지름을 더해 거리를 잰 코드는, 몸체의 뒤쪽이나 옆이 물체에 닿았습니다.
+- 멈춤을 늘 안전하다고 본 코드는 움직이는 물체가 지나는 길 안에 멈춰 있다가 받혔습니다.
+- 예측을 길게 보고 물체 둘레를 크게 잡은 코드는 움직이는 물체를 늘 막힘으로 보아, 600 s 내내 출발하지 못했습니다.
+
+## Isaac Sim 검증 도구 `run_isaac_sim`
+
+이 대화에서 당신은 `run_isaac_sim` 도구를 호출할 수 있습니다. 호출하면 최종 채점과 같은
+서버와 같은 하네스에서, 아래 장면으로 코드를 실제로 주행시키고 그 결과를 돌려줍니다.
+
+**실행 환경**
+
+- 실행 위치는 이 실험을 운영하는 GPU 서버(NVIDIA RTX PRO 6000 1장)입니다. Isaac Sim
+  4.5.0 을 화면 없이 실행하며, 물리 엔진은 PhysX, 시뮬레이션 간격은 1/60 s 입니다.
+- 장면은 NVIDIA 창고에 `MISSION["boxes"]` 의 상자 14개를 놓고 Nova Carter 를 `START`
+  자세에 세운 것으로, 최종 채점 장면과 같습니다. 위 지시에서 말한 움직이는 물체도 있습니다.
+- `controller()` 가 돌려준 `(v, w)` 는 ROS 2 `/cmd_vel` 로 로봇에 전달되므로 반영까지
+  약간의 지연이 있습니다. `pose` 는 Isaac Sim 이 매 단계 알려 주는 정확한 값입니다.
+- 도구는 받은 코드를 `base_carter_run.py` 의 `[EDIT REGION]` 에 넣어 실행 파일을 만들고,
+  서버에서 `carter-run accident_scene/arena/<실행 파일>` 로 실행합니다. 한 번 실행에 부팅을
+  포함해 30초에서 몇 분이 걸립니다.
+- 같은 코드라도 실행마다 주행이 조금씩 다를 수 있습니다. 센서 메시지가 들어오는 시점도 실행마다 조금씩 다릅니다. 같은
+  코드를 같은 장면에서 두 번 돌린 네 쌍 가운데 두 쌍은 끝난 위치나 시각, 충돌 횟수가 달랐고, 판정은 네 쌍 모두
+  같았습니다. 시험 주행은 모두 기록되지만 판정에는 들어가지 않습니다.
+
+**입력**
+
+- `code` (필수): 시작 주석 `# [EDIT REGION] mission controller - modify ONLY this block` 부터
+  끝 주석 `# ========================= [END EDIT REGION] ===============================` 까지의 수정 블록만 넣습니다.
+  JSON 문자열에는 코드만 넣고 Markdown 코드 펜스는 넣지 않습니다. 하네스가 블록 안을 base 와 합쳐 실행합니다.
+- `sim_seconds` (매 호출 필수): 도구 호출 JSON 의 최상위에 `"sim_seconds": 200` 을 반드시 넣으십시오.
+  `code` 문자열 안의 주석이나 변수로 적는 것은 도구 인자를 지정한 것이 아닙니다. 허용 범위는 10–600 s 입니다.
+  생략하면 도구 기본값 600 s 가 적용되므로 생략하지 마십시오.
+  시험 주행은 매번 최상위 도구 인자에 `sim_seconds=200` 을 명시해 부르십시오.
+
+답을 내기 전에 반드시 `run_isaac_sim` 으로 시험하십시오. 호출 예시: `{"code": "...", "sim_seconds": 200}`.
+`...` 자리에 시작·끝 주석을 포함한 수정 영역만 넣습니다. 최종 답도 같은 블록만 내며 설명만 낸 답은 실격입니다.
+
+**돌려받는 결과 (JSON)**
+
+- `static_check`: 실행 전 정적 검사 결과입니다. 규칙 1 위반이나 문법 오류가 있으면 실행하지
+  않고 이유를 알려 줍니다.
+- `result`: 판정 결과로, 최종 채점 피드백과 형식이 같습니다. `verdict`, 판정 항목별 결과,
+  `final_pose`, `final_dist_m`, `final_yaw_err_rad`, `collision_count`, `collision_partners`
+  (부딪힌 물체의 prim 경로), `first_collision_t`, `time_to_goal_s` 등이 들어 있습니다.
+- `trajectory`: 실제 주행 궤적에서 고르게 뽑은 `[t, x, y, yaw]` 최대 80개입니다.
+- `harness_events`: 목표 원 진입, 충돌 뒤 중단, 시간 종료 같은 하네스 기록입니다.
+- `controller_output`: 허용 TODO 구역의 추가 DBG 와 chooser 자동 DBG 를 합친 출력입니다.
+  추가 DBG 는 일반 기록 제한으로 0.5 s 에 한 줄, 자동 선택 DBG 는 그 제한과 별도로 0.5 s 에 한 줄을 남깁니다.
+  지도 막힘이 10 s 넘게 이어지면 그 경고도 10 s 마다 별도로 남깁니다.
+  합친 출력의 처음 40줄과 마지막 40줄만 돌려줍니다. 최종 제출 코드에 남아 있어도 판정에는 영향이 없습니다. 시험 결과에서
+  센서 값을 볼 수 있는 곳은 이 출력뿐입니다.
+- `runtime_error`: `controller()` 가 예외를 던졌으면 그 내용입니다.
+
+**한도**: 시험 주행 횟수에는 한도가 없습니다.
+
+## 제출
+
+시험 주행에서 pass 를 확인했으면 그 시험의 `code` 에 보낸 수정 영역을 한 글자도 바꾸지 않고
+이를 Python 코드 블록 하나에 담아 답하십시오. 설명, 주석, 정리 작업을 이유로도 코드를 다시 쓰지 않습니다.
+통과 뒤 코드를 고치고 싶으면 바꾼 코드를 다시 시험하여 pass 를 확인한 것만 제출하십시오.
+base 전문이나 설명만 낸 답은 요구 형식이 아닙니다.
+
+최종 답은 위 뼈대의 **허용된 세 TODO 몸통만 채워** pass 를 받은 EDIT REGION 을 python 코드 펜스 하나에 담습니다.
+고정 controller 와 planner 검사 틀을 보존하고, pass 뒤 코드가 바뀌면 다시 시험합니다.
+도구 인자는 매번 `{"code": "...", "sim_seconds": 200}` 이며 최상위 sim_seconds 를 빠뜨리지 않습니다.
+도구 code 에는 펜스 없이 실제 EDIT 코드를 넣습니다. 최종 답은 실제 줄바꿈을 쓴 코드 펜스이며 JSON 객체/문자열이나 설명이 아닙니다.
+도구 호출 없이 낸 답이 그 회차의 제출이며, 채점자가 같은 하네스로 실행해 판정합니다.
+통과하지 못하면 판정 결과를 받고 다음 회차에서 고쳐 다시 제출합니다.
+
+## 미션
+
+창고 전체가 실험장입니다. 로봇은 남서쪽 모서리 `START` 자세로 스폰되고, 반대편
+북동쪽 모서리의 `GOAL` 까지 약 34 m 를 주행해야 합니다. 사이에는 바닥에 놓인
+정적 박스 14개가 있고, 그 위치·크기·높이는 base 의 `MISSION["boxes"]` 에
+주어집니다(x, y = 중심, width = X 방향, depth = Y 방향, height = 높이, 단위 m).
+창고에는 벽·기둥·선반·지게차 같은 고정 구조물도 있습니다.
+
+목표 위치에 도달해 `GOAL` 의 yaw 로 정렬한 뒤 정지하십시오.
+
+## 성공 조건 (고정 하네스가 판정)
+
+base 의 `MISSION` 에 적힌 값으로 판정합니다.
+
+| 항목 | 기준 |
+|---|---|
+| 최종 위치 | `GOAL` 에서 `position_tolerance_m` (0.75 m) 이내 |
+| 최종 yaw | \|yaw 오차\| ≤ `yaw_tolerance_rad` (0.26 rad) |
+| 충돌 | 0회 — 박스, 지게차, 서쪽 선반, 움직이는 물체 모두 집계됩니다 |
+
+시간 제한은 없습니다. 빨리 도착할 필요가 없으니 충돌하지 않는 속도로 천천히 주행해도
+됩니다. 다만 실행이 끝없이 이어지지 않도록 하네스가 시뮬레이션 시각 `timeout_s`
+(600 s)에서 실행을 멈추므로, 그 전에 목표에 도착해 정렬하고 `done=True` 를 돌려주십시오.
+
+충돌이 시작되면 하네스가 5초 뒤 실행을 중단합니다.
+실행 속도(벽시계)·코드 길이·주석 언어는 판정에 쓰지 않습니다. 다만 한 번 실행이 벽시계 1,700 s 를 넘으면 하네스가
+멈추고 실패로 처리합니다.
+
+## 지금 할 일
+
+첫 응답에서 바로 `run_isaac_sim` 을 호출하십시오. 시험하기 전에 최종 답을 내지 마십시오.
+
+1. 매 호출의 최상위 JSON 에 `code` 와 `sim_seconds` 두 키를 모두 넣습니다. 예시: `{"code": "...", "sim_seconds": 200}`.
+   보내기 전에 `sim_seconds` 값이 200 인지 확인하십시오. `code` 에는 시작·끝 주석을 포함한 수정 영역만 넣고,
+   base 전문과 Markdown 코드 펜스는 도구 인자에 넣지 않습니다.
+2. 결과를 '시험 뒤 작업 방법' 대로 읽고 고쳐서 다시 시험하십시오. 시험 횟수에는 한도가 없고, 대화가 길어지면
+   오래된 시험 기록부터 정리되므로 계속 시험할 수 있습니다.
+3. 시험에서 `"verdict": "pass"` 를 받으면 그 시험의 `code` 에 보낸 수정 영역을 한 글자도 바꾸지 말고
+   Python 코드 블록 하나에 담아 답하십시오. 통과 뒤 바꾸려면 다시 시험해 통과한 코드만 제출합니다.
+   pass 를 받기 전에는 답을 내지 말고 계속 시험하십시오.

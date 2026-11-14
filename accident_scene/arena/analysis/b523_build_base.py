@@ -1,0 +1,251 @@
+"""B523 v10: base-owned control loop; model supplies exactly three algorithm hooks."""
+import hashlib
+from pathlib import Path
+from b514_build_base import archive_before_write
+
+ARENA=Path(__file__).resolve().parents[1]
+SRC=ARENA/'base_carter_run_ros_map_lidartime_objects_check_v9.py'
+OUT=ARENA/'base_carter_run_ros_map_lidartime_objects_check_v10.py'
+SOURCE_SHA256='45b6b77cd2fa8cf0122cfd652e45e7106fc6f21dcaffcdd79944edac18e0a9cb'
+BEGIN='# [EDIT REGION] mission controller - modify ONLY this block\n'
+END='# ========================= [END EDIT REGION]'
+
+LOOP=r'''# ---- base 제어 루프: EDIT REGION 의 세 함수만 사용 ----
+_BASE_LOOP_CFG = {"clearances_m": (0.5, 0.45, 0.4, 0.35), "target_path_limit_m": 1.0,
+                  "forward_lookahead_m": 3.0, "corner_switch_m": 0.35,
+                  "v_min": 0.0, "v_max": 0.3, "w_max": 0.4,
+                  "goal_distance_m": 0.5, "goal_yaw_rad": 0.15, "map_stop_s": 10.0}
+_BASE_LOOP_ST = {"path": None, "clearance_m": None, "replan_pending": True,
+                 "block_since": None, "last_t": None, "fault_key": None, "last": None}
+
+
+def _base_loop_pair(value, name):
+    values = np.asarray(value, dtype=np.float64)
+    if values.shape != (2,) or not np.isfinite(values).all():
+        raise ValueError(name + " must return two finite numbers")
+    return float(values[0]), float(values[1])
+
+
+def _base_loop_hook(name, *args):
+    function = globals().get(name)
+    if not callable(function):
+        raise TypeError(name + " is missing or not callable")
+    return function(*args)
+
+
+def _base_loop_note_fault(t, stage, error):
+    key = (stage, type(error).__name__, str(error)[:160])
+    builtins.print(f"DBG base_loop t={t:.2f} hook={stage} error={key[1]}: {key[2]}; checked stop requested")
+    _BASE_LOOP_ST["fault_key"] = key
+
+
+def _base_loop_valid_path(value, start_xy, goal_xy, clearance_m):
+    if value is None:
+        return None
+    path = np.asarray(value, dtype=np.float64)
+    if path.size == 0:
+        return None
+    if path.ndim != 2 or path.shape[1] != 2 or not np.isfinite(path).all():
+        raise ValueError("plan_path must return a finite (N,2) path")
+    if len(path) < 2:
+        return None
+    if math.dist(path[0], start_xy) > 1e-6 or math.dist(path[-1], goal_xy) > 1e-6:
+        return None
+    # clearance_m is a centre-to-map distance; check_path subtracts half-width.
+    margin = max(0.0, float(clearance_m) - 0.25)
+    checked = check_path(path, margin_m=margin)
+    if checked["first_bad_segment"] is not None or checked["min_gap_map"] < margin - 1e-12:
+        return None
+    return tuple((float(point[0]), float(point[1])) for point in path)
+
+
+def _base_loop_path_distance(target, path):
+    closest = float("inf")
+    for p, q in zip(path, path[1:]):
+        dx, dy = q[0]-p[0], q[1]-p[1]
+        length2 = dx*dx + dy*dy
+        fraction = 0.0 if length2 <= 1e-18 else max(0.0, min(1.0,
+            ((target[0]-p[0])*dx + (target[1]-p[1])*dy) / length2))
+        closest = min(closest, math.hypot(target[0]-p[0]-fraction*dx,
+                                         target[1]-p[1]-fraction*dy))
+    return closest
+
+
+def _base_loop_forward_target(path, pose):
+    """Geometric projection on the supplied path, not a path planner."""
+    projections = []
+    for index, (p, q) in enumerate(zip(path, path[1:])):
+        dx, dy = q[0]-p[0], q[1]-p[1]
+        length2 = dx*dx + dy*dy
+        if length2 <= 1e-18:
+            continue
+        fraction = max(0.0, min(1.0, ((pose[0]-p[0])*dx + (pose[1]-p[1])*dy) / length2))
+        distance = math.hypot(pose[0]-p[0]-fraction*dx, pose[1]-p[1]-fraction*dy)
+        projections.append((distance, -index, index, fraction))
+    if not projections:
+        return tuple(path[-1])
+    _, _, index, fraction = min(projections)
+    if index < len(path)-2 and math.dist(pose[:2], path[index+1]) < _BASE_LOOP_CFG["corner_switch_m"]:
+        index, fraction = index+1, 0.0
+    p, q = path[index], path[index+1]
+    length = math.dist(p, q)
+    fraction = min(1.0, fraction + _BASE_LOOP_CFG["forward_lookahead_m"] / max(length, 1e-12))
+    return (p[0] + fraction*(q[0]-p[0]), p[1] + fraction*(q[1]-p[1]))
+
+
+def _base_control_loop(t, pose, env=None):
+    """Own the loop; call model plan/target/follow hooks, then one common chooser.
+
+    Planning occurs initially and on the tick after continuous map stop >10 s.
+    All four failed paths preserve a previous valid path; an initial failure waits
+    with a checked stop. There is no periodic or automatic failure retry.
+    Hook exceptions/nonfinite outputs request a checked stop for that tick.
+    """
+    state, cfg = _BASE_LOOP_ST, _BASE_LOOP_CFG
+    t = float(t)
+    pose = tuple(float(q) for q in pose)
+    if len(pose) != 3 or not math.isfinite(t) or not all(math.isfinite(q) for q in pose):
+        raise ValueError("base loop requires a finite simulation time and pose")
+    if state["last_t"] is not None and t < state["last_t"]:
+        state.update(path=None, clearance_m=None, replan_pending=True,
+                     block_since=None, fault_key=None, last=None)
+    state["last_t"] = t
+    target, nominal = tuple(GOAL[:2]), (0.0, 0.0)
+    distance = math.dist(pose[:2], GOAL[:2])
+    yaw_error = math.atan2(math.sin(GOAL[2]-pose[2]), math.cos(GOAL[2]-pose[2]))
+    goal_mode = distance <= cfg["goal_distance_m"]
+    goal_stop = goal_mode and abs(yaw_error) <= cfg["goal_yaw_rad"]
+    detail = {"t": t, "pose": pose, "phase": "waiting_for_path", "plan_attempts": [],
+              "clearance_m": state["clearance_m"], "target_requested": None,
+              "target_corrected": False, "error": None}
+    stage = "base"
+    try:
+        if goal_mode:
+            detail["phase"] = "goal_stop" if goal_stop else "goal_align"
+            nominal = (0.0, 0.0 if goal_stop else max(-cfg["w_max"], min(cfg["w_max"], 1.5*yaw_error)))
+        else:
+            if state["replan_pending"]:
+                state["replan_pending"], state["block_since"] = False, None
+                stage = "plan_path"
+                for clearance in cfg["clearances_m"]:
+                    attempt = {"clearance_m": clearance, "accepted": False}
+                    detail["plan_attempts"].append(attempt)
+                    proposed = _base_loop_hook("plan_path", pose[:2], tuple(GOAL[:2]), clearance)
+                    checked_path = _base_loop_valid_path(proposed, pose[:2], tuple(GOAL[:2]), clearance)
+                    if checked_path is not None:
+                        state["path"], state["clearance_m"] = checked_path, clearance
+                        attempt.update(accepted=True, points=len(checked_path))
+                        break
+                if not any(a["accepted"] for a in detail["plan_attempts"]) and state["path"] is not None:
+                    detail["phase"] = "old_path_after_plan_failure"
+            if state["path"] is not None:
+                stage = "lookahead_target"
+                # A fresh list protects the cached path from accidental hook mutation.
+                requested = _base_loop_hook("lookahead_target", list(state["path"]), pose)
+                target = _base_loop_pair(requested, "lookahead_target")
+                detail["target_requested"] = target
+                path_distance = _base_loop_path_distance(target, state["path"])
+                detail["target_path_distance_m"] = path_distance
+                if path_distance > cfg["target_path_limit_m"]:
+                    target = _base_loop_forward_target(state["path"], pose)
+                    detail["target_corrected"] = True
+                stage = "follow_cmd"
+                raw_v, raw_w = _base_loop_pair(_base_loop_hook("follow_cmd", pose, target), "follow_cmd")
+                nominal = (max(cfg["v_min"], min(cfg["v_max"], raw_v)),
+                           max(-cfg["w_max"], min(cfg["w_max"], raw_w)))
+                if detail["phase"] != "old_path_after_plan_failure":
+                    detail["phase"] = "path_follow"
+        state["fault_key"] = None
+    except Exception as error:  # noqa: BLE001 - model hook faults cannot bypass the common chooser
+        nominal = (0.0, 0.0)
+        detail["phase"], detail["error"] = "hook_error", {"hook": stage, "type": type(error).__name__, "message": str(error)[:160]}
+        _base_loop_note_fault(t, stage, error)
+    v, w, info = choose_command(nominal[0], nominal[1], target)
+    blocked = (info["chosen"] == "stop" and v == 0.0 and w == 0.0
+               and info["candidates"]["follow"]["t_hit_map"] is not None)
+    if blocked:
+        if state["block_since"] is None:
+            state["block_since"] = t
+        elif t - state["block_since"] > cfg["map_stop_s"]:
+            state["replan_pending"], state["block_since"] = True, None
+    else:
+        state["block_since"] = None
+    done = goal_stop and v == 0.0 and w == 0.0
+    detail.update(clearance_m=state["clearance_m"], target_xy=target, nominal=nominal,
+                  command=(v, w), info=info, done=done, replan_pending=state["replan_pending"])
+    state["last"] = detail
+    return v, w, done
+
+
+'''
+
+PLACEHOLDERS='''# [EDIT REGION] mission controller - modify ONLY this block
+# ===========================================================================
+
+
+def plan_path(start_xy, goal_xy, clearance_m):
+    raise NotImplementedError("fill the model path-planning hook")
+
+
+def lookahead_target(path, pose):
+    raise NotImplementedError("fill the model lookahead hook")
+
+
+def follow_cmd(pose, target_xy):
+    raise NotImplementedError("fill the model following hook")
+
+
+def controller(t, pose, env):
+    return _base_control_loop(t, pose, env)
+
+
+'''
+
+API='''ROBOT API available to the model's three hooks:
+  plan_path(start_xy, goal_xy, clearance_m) -> [(x,y), ...]
+  lookahead_target(path, pose) -> (x,y)
+  follow_cmd(pose, target_xy) -> (v,w)
+
+  The base owns each 1/60 s control step, goal alignment, planning triggers,
+  path validation, command clipping and the single choose_command call.
+  The EDIT controller is a compatibility stub; _robot_only dispatches directly
+  to _base_control_loop and does not call the model's controller implementation.
+  The base has no path planner: plan_path is supplied by the model.
+
+  Planning tries centre clearances 0.5, 0.45, 0.4, 0.35 m in order, initially
+  and after continuous map stop longer than 10 s. check_path subtracts robot
+  half-width 0.25 m, so the corresponding margin is clearance_m - 0.25 m.
+  Failed replanning preserves the previous valid path; initial failure requests
+  checked zero input. There is no periodic failure retry. A target farther than
+  1 m from the whole path is replaced by a projected forward path point.
+  Nominal commands are clipped to v in [0,0.3], w in [-0.4,0.4]; the unchanged
+  chooser may select its fast/backward escape candidates. Hooks do not choose.
+  Hook exceptions or nonfinite outputs request a checked zero command and DBG.
+
+  choose_command retains the v9 geometry, candidates and priority; object
+  prediction/end_pose use 3 s by default and map prediction uses a short horizon.
+  Public check_motion(v,w,horizon_s=3.0,dt=0.1,margin_m=0.2) remains unchanged.
+  check_path(points,margin_m=0.25) checks polyline centre clearance minus 0.25 m.
+
+'''
+
+
+def build(source):
+    assert hashlib.sha256(source.encode()).hexdigest()==SOURCE_SHA256,'v9 source changed'
+    old_start=source.index('ROBOT API available to the controller:')
+    old_end=source.index('The ONLY part meant to be modified',old_start)
+    source=source[:old_start]+API+source[old_end:]
+    source=source.replace('starts as the levels_zero2level default - no control code, the robot never\nmoves.  Everything outside it is fixed plumbing.',
+                          'contains three empty model hooks and a compatibility controller stub.\nEverything outside it is fixed base control and plumbing.')
+    source=source.replace('# ---- DBG 기록 ----\n',LOOP+'# ---- DBG 기록 ----\n',1)
+    begin,end=source.index(BEGIN),source.index(END)
+    source=source[:begin]+PLACEHOLDERS+source[end:]
+    assert source.count('    return controller(t, pose, None)')==1
+    source=source.replace('    return controller(t, pose, None)','    return _base_control_loop(t, pose, None)',1)
+    return source
+
+
+if __name__=='__main__':
+    source=build(SRC.read_text());compile(source,str(OUT),'exec')
+    archive_before_write(OUT);OUT.write_text(source)
+    print(OUT.name,hashlib.sha256(source.encode()).hexdigest())

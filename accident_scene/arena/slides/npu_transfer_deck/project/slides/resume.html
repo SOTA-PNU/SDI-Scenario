@@ -1,0 +1,23 @@
+<section id="resume" data-transition="fade" style="background:#EEF1F5;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">중단을 다룬 원칙</p>
+<h2 style="font-size:60px;font-weight:600;line-height:1.15">판정이 끝난 회차는 하나도 버리지 않았다</h2>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px">
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<h3 style="font-size:32px;font-weight:600">끊긴 생성만 다시</h3>
+<p style="font-size:24px;line-height:1.5;color:#3B4556">답이 오지 않은 요청만 같은 대화 상태에서 다시 보냈다. T3 4개는 저장된 요청·응답·결과로 대화를 재구성했고, 재구성한 요청이 실제 요청과 메시지 목록 전체에서 같음을 확인했다.</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<h3 style="font-size:32px;font-weight:600">옛 코드 실행의 상태 재구성</h3>
+<p style="font-size:24px;line-height:1.5;color:#3B4556">T2 a0·a2는 상태를 저장하기 전 코드로 돌던 실행이다. 1회차에 도구를 쓰지 않아 대화가 저장 파일만으로 정해진다. 지시문·첫 메시지 해시, 응답 원문, 결과 수치, 작업 폴더를 대조한 뒤 2회차부터 이었다.</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:32px;display:flex;flex-direction:column;gap:12px">
+<h3 style="font-size:32px;font-weight:600">판정 전이던 둘은 처음부터</h3>
+<p style="font-size:24px;line-height:1.5;color:#3B4556">T3 a1(요청 제한 초과)과 T2 a1(1회차 도중 끊김)은 판정된 회차가 없어 1회차부터 다시 시작했다. 부분 산출물은 _interrupted 폴더에 보관했다.</p>
+</div>
+</div>
+<p style="font-size:26px;line-height:1.45;color:#3B4556"><b style="color:#14213D">재시도 방식도 바꿨다</b> — 연결이 끊기면 서버가 다시 응답할 때까지 30초 간격으로 최대 12시간 기다렸다가 같은 요청을 보낸다. 가짜 서버(연결 끊김 → 503 → 정상)로 시험해 통과했다.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">NPU 이식 실험 · 14 / 27 · analysis/rebuild_t2_state.py · resume_transfer.sh · turn_loop.wait_for_server</p>
+<aside>중단을 다룰 때 지킨 원칙은 하나입니다. 이미 판정이 끝난 회차는 결과가 좋든 나쁘든 하나도 버리지 않고, 응답을 받지 못한 생성만 같은 대화 상태에서 다시 요청했습니다. 옛 코드로 돌던 T2 두 실행은 저장 파일로 상태를 다시 만들었고, 실제 요청과 같은지 대조한 뒤 이어 갔습니다. 판정 전이던 두 실행은 처음부터 다시 시작했습니다.</aside>
+</section>

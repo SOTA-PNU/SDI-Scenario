@@ -1,0 +1,88 @@
+"""Focused B528 diagnostics checks; preserve motion, grid, and acceptance rules."""
+import ast,copy,hashlib,json,math
+from pathlib import Path
+from types import SimpleNamespace
+import numpy as np
+import b528_build_base as B
+from b514_build_base import archive_before_write
+from b515_check_offline import load_ns,safe_json
+A=Path(__file__).resolve().parents[1];BASE=B.OUT;OUT=A/'results/analysis/b528_check_offline.json'
+
+
+def controlled(base=BASE):
+    ns=load_ns(base);ns.update(START=(0.,0.,0.),GOAL=(5.,0.,0.),WALLS=(-100.,100.,-100.,100.))
+    ns['_MAP_RECTS'][:]=[np.array([[50.,51.,50.,51.]])];logs=[]
+    ns['builtins']=SimpleNamespace(print=lambda *a,**k:logs.append(' '.join(map(str,a))))
+    ns['choose_command']=lambda *a:(0.,0.,{'chosen':'stop','candidates':{'follow':{'t_hit_map':None}}})
+    ns['lookahead_target']=lambda path,pose:(1.,0.);ns['follow_cmd']=lambda *a:(.2,0.)
+    return ns,logs
+
+
+def run():
+    checks={}
+    def record(name,passed,**details):checks[name]={'pass':bool(passed),**details}
+    src,old=BASE.read_text(),B.SRC.read_text();record('fixed_v15_builder_reproduces_v16',B.build(old)==src)
+    funcs=lambda s:{n.name:n for n in ast.parse(s).body if isinstance(n,ast.FunctionDef)}
+    of,nf=funcs(old),funcs(src);allowed={'_base_plan_result','_base_validate_plan','validate_plan','_base_loop_note_plan','_base_loop_note_plan_summary','_base_control_loop'}
+    changed={k for k in of if ast.dump(of[k])!=ast.dump(nf[k])}
+    record('only_diagnostic_functions_changed_and_one_marker_added',changed==allowed and set(nf)-set(of)=={'plan_stage'},changed=sorted(changed))
+    record('harness_geometry_grid_chooser_and_target_guard_ast_unchanged',all(ast.dump(of[k])==ast.dump(nf[k]) for k in ('_robot_only','check_path','check_motion','_base_check_motion','occupancy_grid','cell_of','xy_of','segment_free','_base_choose_rank','choose_command','_base_loop_guard_target')))
+    record('no_marker_path_search_or_simplification_calls',not any(isinstance(n,ast.Call) and ((isinstance(n.func,ast.Name) and n.func.id in ('check_path','occupancy_grid','segment_free','xy_of','cell_of')) or (isinstance(n.func,ast.Attribute) and n.func.attr in ('heappush','heappop'))) for n in ast.walk(nf['plan_stage'])))
+    # Preserve the acceptance decision and geometry over saved outputs and invalid shapes.
+    evidence=json.loads((A/'results/analysis/b527_a3_evidence.json').read_text());oldns,newns=load_ns(B.SRC),load_ns(BASE)
+    cases=[row['return'] for row in evidence['rows']]+[None,[],[0.,1.],[[0.,0.,0.],[1.,1.,1.]],[[0.,0.],[float('nan'),1.]],[[0.,0.],[1.]],[[0.,0.],[1.,1.]]]
+    same=True
+    for path in cases:
+        args=(path,oldns['MISSION']['start_xy_yaw'][:2],oldns['MISSION']['goal_xy_yaw'][:2],.5)
+        a,b=oldns['_base_validate_plan'](*args),newns['_base_validate_plan'](*args)
+        same &= all(a[k]==b[k] for k in ('accepted','reason','path','check_path','first_bad_segment_points','connected_start','connected_goal'))
+    record('saved_paths_and_malformed_inputs_same_acceptance_and_geometry',same,cases=len(cases))
+    a3=evidence['rows'][3];validation=newns['_base_validate_plan'](a3['return'],a3['pose'][:2],newns['MISSION']['goal_xy_yaw'][:2],.5)
+    record('a3_single_point_exposes_shape_count_both_endpoint_gaps_and_hint',validation['reason']=='invalid_path' and validation['input_shape']==[1,2] and validation['input_points']==1 and validation['input_issue']=='too_few_points' and validation['repair_hint']=='preserve_start_append' and validation['start_gap_m']>31. and validation['goal_gap_m']<.5,validation=validation)
+    ns,logs=controlled();ns['plan_path']=lambda *a:[a[1]]
+    ns['_base_control_loop'](0.,(0.,0.,0.));line=next(x for x in logs if x.startswith('DBG plan_reject'))
+    record('unmarked_model_single_point_actionable_within_240_chars',all(x in line[:240] for x in ('reason=invalid_path','issue=too_few_points','n=1','start_gap=5','goal_gap=0','fix=preserve_start_append','stage=unmarked')),prefix=line[:240])
+    ns,logs=controlled();ns['_MAP_RECTS'][:]=[np.array([[2.,3.,-1.,1.]])]
+    ns['plan_path']=lambda start,goal,c:[start,goal]
+    ns['_base_control_loop'](0.,(0.,0.,0.));geometry_line=next(x for x in logs if x.startswith('DBG plan_reject'))
+    record('geometry_rejection_keeps_segment_gap_margin_in_first_240',all(x in geometry_line[:240] for x in ('reason=check_path','segment=0','min_gap=-0.25','margin=0.25','start_gap=0','goal_gap=0')),prefix=geometry_line[:240])
+    ns,logs=controlled()
+    def marker_plan(start,goal,c):
+        returned=ns['plan_stage']('simplify',input_points=58,output_points=1)
+        returned['output_points']=999
+        return [goal]
+    ns['plan_path']=marker_plan
+    for t in (0.,10.,30.,70.,130.):ns['_base_control_loop'](t,(0.,0.,0.))
+    st=ns['_BASE_LOOP_ST'];attempts=st['last']['plan_attempts'];summary=st['last']['plan_summary'];rejects=[x for x in logs if x.startswith('DBG plan_reject')]
+    record('marker_is_copied_to_attempt_and_summary_with_no_alias',all(a['plan_stage']=={'stage':'simplify','input_points':58,'output_points':1} for a in attempts) and all(a['plan_stage']==attempts[i]['plan_stage'] for i,a in enumerate(summary['attempts'])))
+    record('marker_does_not_bypass_backoff_or_repeat_coalescing',st['next_plan_t']==190. and st['plan_fail_streak']==5 and summary['repeat_count']==5 and len(rejects)==1)
+    record('stage_and_raw_to_output_counts_survive_first_240',all(x in rejects[0][:240] for x in ('stage=simplify','counts=58->1','fix=preserve_start_append')),prefix=rejects[0][:240])
+    ns,logs=controlled()
+    def mixed(start,goal,c):
+        if c==.5:ns['plan_stage']('simplify',58,1);return [goal]
+        if c==.45:return []
+        if c==.4:ns['plan_stage']('grid');return None
+        ns['plan_stage']('search',58,0);raise ValueError('marked failure')
+    ns['plan_path']=mixed;ns['_base_control_loop'](0.,(0.,0.,0.));st=ns['_BASE_LOOP_ST'];attempts=st['last']['plan_attempts']
+    record('stage_reset_per_attempt_and_exception_capture_no_leak',attempts[0]['plan_stage']['stage']=='simplify' and attempts[1]['plan_stage'] is None and attempts[2]['plan_stage']['stage']=='grid' and attempts[3]['plan_stage']['stage']=='search' and attempts[3]['reason']=='exception' and st['plan_context'] is None and st['plan_stage'] is None)
+    record('none_and_empty_return_keep_reason_with_explicit_issue',attempts[1]['reason']==attempts[2]['reason']=='empty_path' and attempts[1]['input_issue']=='empty_return' and attempts[2]['input_issue']=='none_return')
+    exception_line=next(x for x in logs if x.startswith('DBG plan_reject') and 'reason=exception' in x)
+    record('exception_type_message_stage_clearance_survive_first_240',all(x in exception_line[:240] for x in ('reason=exception','error_type=ValueError','message=marked failure','stage=search','clearance=0.35')),prefix=exception_line[:240])
+    empty_lines=[x for x in logs if x.startswith('DBG plan_reject') and 'reason=empty_path' in x]
+    record('none_and_empty_diagnostics_keep_issue_count_stage_in_first_240',len(empty_lines)==2 and all('n=0' in x[:240] and 'fix=mark_grid_search_simplify_validate' in x[:240] and 'stage=' in x[:240] for x in empty_lines),prefixes=[x[:240] for x in empty_lines])
+
+    before=copy.deepcopy(st);length=len(logs);ns['validate_plan']([(0.,0.),(5.,0.)]);record('public_validate_plan_remains_pure',before==st and len(logs)==length)
+    raised=False
+    try:ns['plan_stage']('search')
+    except RuntimeError:raised=True
+    record('marker_outside_hook_rejected_without_state_change',raised and before==st)
+    st['plan_context']=((0.,0.),(5.,0.),.5);bad=[]
+    for args in (('other',),('search',-1),('search',1.5),('search',True),('search','2')):
+        snapshot=copy.deepcopy(st)
+        try:ns['plan_stage'](*args);bad.append(False)
+        except ValueError:bad.append(snapshot==st)
+    record('marker_stage_and_count_inputs_checked_before_mutation',all(bad),cases=len(bad))
+    st['plan_context']=None;ns['plan_path']=lambda start,goal,c:[start,goal];ns['_base_control_loop'](-1.,(0.,0.,0.));record('rewind_clears_markers_and_acceptance_resets_backoff',st['plan_stage'] is None and st['last']['plan_summary']['attempts'][0]['plan_stage'] is None and st['plan_fail_streak']==0 and st['last']['plan_summary']['status']=='accepted')
+    result={'verdict':'pass' if all(c['pass'] for c in checks.values()) else 'fail','passed':sum(c['pass'] for c in checks.values()),'total':len(checks),'base_sha256':hashlib.sha256(src.encode()).hexdigest(),'base_sha16':hashlib.sha256(src.encode()).hexdigest()[:16],'checks':checks,'limits':['Focused diagnostic checks and source invariants only; no extra large regression or timing bundle.','Marker counts are model-reported; the base only observes the returned path and does not infer that a marked stage was implemented correctly.']}
+    archive_before_write(OUT);OUT.write_text(json.dumps(safe_json(result),indent=2,ensure_ascii=False)+'\n');print(result['verdict'],result['passed'],result['total']);print('FAILED',[n for n,c in checks.items() if not c['pass']]);return result
+if __name__=='__main__':raise SystemExit(0 if run()['verdict']=='pass' else 1)

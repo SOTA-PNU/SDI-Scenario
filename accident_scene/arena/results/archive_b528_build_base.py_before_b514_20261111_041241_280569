@@ -1,0 +1,176 @@
+"""B528 v16: pure malformed-path diagnostics and explicit model-stage markers."""
+import hashlib
+from pathlib import Path
+from b514_build_base import archive_before_write
+A=Path(__file__).resolve().parents[1]
+SRC=A/'base_carter_run_ros_map_lidartime_objects_check_v15.py'
+OUT=A/'base_carter_run_ros_map_lidartime_objects_check_v16.py'
+SOURCE_SHA256='fc4f6d17c9423f383364423d4ea2f5e9da13c8376588b45400dd8850402f0924'
+
+
+def build(source):
+    assert hashlib.sha256(source.encode()).hexdigest()==SOURCE_SHA256,'v15 source changed'
+    def replace(old,new):
+        nonlocal source
+        assert source.count(old)==1,(old[:100],source.count(old))
+        source=source.replace(old,new,1)
+    replace('''"plan_fail_streak": 0, "plan_failure_signature": None, "plan_repeat_count": 0}''','''"plan_fail_streak": 0, "plan_failure_signature": None, "plan_repeat_count": 0,
+                 "plan_stage": None}''')
+    replace('''            "first_bad_segment_points": None}
+
+
+def _base_plan_exception''','''            "first_bad_segment_points": None, "input_shape": None, "input_points": None,
+            "input_issue": None, "repair_hint": None}
+
+
+def plan_stage(stage, input_points=None, output_points=None):
+    """Record the model's last planning stage, never generate or change a path.
+
+    Use only inside plan_path; stage is grid/search/simplify/validate. Optional
+    counts are nonnegative integers. Each attempt clears its previous marker;
+    the base captures a copy in plan_attempts/plan_summary and rejected-plan DBG.
+    Counts are model-reported diagnostics, not proof that a stage was correct.
+    """
+    if _BASE_LOOP_ST["plan_context"] is None:
+        raise RuntimeError("plan_stage is only available during plan_path")
+    if stage not in ("grid", "search", "simplify", "validate"):
+        raise ValueError("plan_stage requires grid/search/simplify/validate")
+    counts = []
+    for count in (input_points, output_points):
+        if count is None:
+            counts.append(None)
+            continue
+        if isinstance(count, (bool, np.bool_)) or not isinstance(count, (int, np.integer)) or count < 0:
+            raise ValueError("plan_stage counts must be nonnegative integers or None")
+        counts.append(int(count))
+    marker = {"stage": stage, "input_points": counts[0], "output_points": counts[1]}
+    _BASE_LOOP_ST["plan_stage"] = marker
+    return dict(marker)
+
+
+def _base_plan_exception''')
+    replace('''        result["reason"] = "empty_path"
+        return result
+    try:
+        path = np.asarray(value, dtype=np.float64)
+        if path.size == 0:
+            result["reason"] = "empty_path"
+            return result
+        if path.ndim != 2 or path.shape[1] != 2 or len(path) < 2 or not np.isfinite(path).all():
+            result["reason"] = "invalid_path"
+            return result
+        start_xy, goal_xy = tuple(map(float, start_xy)), tuple(map(float, goal_xy))
+        start_gap, goal_gap = math.dist(path[0], start_xy), math.dist(path[-1], goal_xy)
+        result.update(start_gap_m=start_gap, goal_gap_m=goal_gap)''','''        result.update(reason="empty_path", input_points=0, input_issue="none_return",
+                      repair_hint="mark_grid_search_simplify_validate")
+        return result
+    try:
+        path = np.asarray(value, dtype=np.float64)
+        result.update(input_shape=list(path.shape), input_points=int(path.shape[0]) if path.ndim else 0)
+        if path.size == 0:
+            result.update(reason="empty_path", input_issue="empty_return",
+                          repair_hint="mark_grid_search_simplify_validate")
+            return result
+        if path.ndim != 2 or path.shape[1] != 2:
+            result.update(reason="invalid_path", input_issue="wrong_shape",
+                          repair_hint="return_Nx2_world_points")
+            return result
+        if not np.isfinite(path).all():
+            result.update(reason="invalid_path", input_issue="nonfinite_points",
+                          repair_hint="return_finite_world_points")
+            return result
+        start_xy, goal_xy = tuple(map(float, start_xy)), tuple(map(float, goal_xy))
+        start_gap, goal_gap = math.dist(path[0], start_xy), math.dist(path[-1], goal_xy)
+        result.update(start_gap_m=start_gap, goal_gap_m=goal_gap)
+        if len(path) < 2:
+            result.update(reason="invalid_path", input_issue="too_few_points",
+                          repair_hint="preserve_start_append")
+            return result''')
+    replace('''            result["reason"] = "endpoint_distance"
+            return result''','''            result.update(reason="endpoint_distance", input_issue="endpoint_distance",
+                          repair_hint="check_start_goal_and_endpoint_connectors")
+            return result''')
+    replace('''            result["reason"] = "check_path"
+            return result''','''            result.update(reason="check_path", input_issue="blocked_segment",
+                          repair_hint="check_failed_segment_keep_last_visible_anchor")
+            return result''')
+    replace('''    first_bad_segment_points contains that segment's endpoints, or None. The
+    check_path min_location is the global minimum, not necessarily on that segment.''','''    first_bad_segment_points contains that segment's endpoints, or None. The
+    check_path min_location is the global minimum, not necessarily on that segment.
+    input_shape/input_points/input_issue/repair_hint explain malformed output.
+    A finite one-point Nx2 path still rejects as invalid_path, but both endpoint
+    gaps are reported; this exposes a simplifier overwriting its only anchor.
+    This checker never edits, simplifies or searches for a replacement path.''')
+    begin=source.index('def _base_loop_note_plan(t, result):');end=source.index('\n\ndef _base_loop_note_plan_summary',begin)
+    source=source[:begin]+'''def _base_loop_note_plan(t, result):
+    reason = result["reason"]
+    marker = result.get("plan_stage") or {}
+    key = (reason, result.get("input_issue"), result.get("input_points"), marker.get("stage"))
+    previous = _BASE_LOOP_ST["plan_note_t"].get(key)
+    if previous is not None and t >= previous and t-previous < _BASE_LOOP_CFG["plan_note_s"]:
+        return
+    checked = result["check_path"] or {}
+    error = result["error"]
+    def gap(value):
+        return "None" if value is None else f"{value:.4g}"
+    if reason == "check_path":
+        # Preserve the existing geometric cause in a 240-character tool excerpt.
+        builtins.print(f"DBG plan_reject t={t:.2f} reason={reason} clearance={result['clearance_m']:.2f} "
+                       f"segment={checked.get('first_bad_segment')} min_gap={gap(checked.get('min_gap_map'))} "
+                       f"margin={gap(checked.get('margin_m'))} "
+                       f"start_gap={gap(result['start_gap_m'])} goal_gap={gap(result['goal_gap_m'])} "
+                       f"fix={result.get('repair_hint')} stage={marker.get('stage', 'unmarked')} "
+                       f"counts={marker.get('input_points')}->{marker.get('output_points')} "
+                       f"segment_points={result['first_bad_segment_points']} error={error}")
+    else:
+        builtins.print(f"DBG plan_reject t={t:.2f} reason={reason} issue={result.get('input_issue')} "
+                       f"n={result.get('input_points')} start_gap={gap(result['start_gap_m'])} "
+                       f"goal_gap={gap(result['goal_gap_m'])} fix={result.get('repair_hint')} "
+                       f"stage={marker.get('stage', 'unmarked')} "
+                       f"counts={marker.get('input_points')}->{marker.get('output_points')} "
+                       f"clearance={result['clearance_m']:.2f} shape={result.get('input_shape')} "
+                       f"segment={checked.get('first_bad_segment')} min_gap={checked.get('min_gap_map')} "
+                       f"margin={checked.get('margin_m')} error={error}")
+    _BASE_LOOP_ST["plan_note_t"][key] = t
+''' + source[end:]
+    replace('''                     "segment_points": attempt["first_bad_segment_points"]})''','''                     "segment_points": attempt["first_bad_segment_points"],
+                     "input_shape": attempt.get("input_shape"), "input_points": attempt.get("input_points"),
+                     "input_issue": attempt.get("input_issue"), "repair_hint": attempt.get("repair_hint"),
+                     "start_gap_m": attempt["start_gap_m"], "goal_gap_m": attempt["goal_gap_m"],
+                     "plan_stage": attempt.get("plan_stage")})''')
+    replace('''    signature = (status, tuple((r["c"], r["accepted"], r["reason"]) for r in rows))''','''    signature = (status, tuple((r["c"], r["accepted"], r["reason"], r["input_issue"],
+                                r["input_points"], (r["plan_stage"] or {}).get("stage")) for r in rows))''')
+    replace('''                     plan_fail_streak=0, plan_failure_signature=None, plan_repeat_count=0)''','''                     plan_fail_streak=0, plan_failure_signature=None, plan_repeat_count=0, plan_stage=None)''')
+    replace('''                    state["plan_context"] = (pose[:2], tuple(GOAL[:2]), clearance)
+                    try:''','''                    state["plan_context"] = (pose[:2], tuple(GOAL[:2]), clearance)
+                    state["plan_stage"] = None
+                    try:''')
+    replace('''                    finally:
+                        state["plan_context"] = None
+                    attempt.update''','''                    finally:
+                        marker = state["plan_stage"]
+                        attempt["plan_stage"] = dict(marker) if marker is not None else None
+                        state["plan_stage"] = None
+                        state["plan_context"] = None
+                    attempt.update''')
+    at=source.index('"""')+3
+    doc='''
+B528 v16 additions: malformed plan diagnostics retain the same rejection rule
+and now include input shape/count, specific issue, endpoint gaps when measurable,
+and a repair hint. One-point output remains invalid_path; the first rejected-plan
+DBG line shows n/start_gap/goal_gap/fix before its detailed geometry. This catches
+the B527 a3 simplifier's 58-to-1 collapse without changing the supplied path.
+plan_stage(stage, input_points=None, output_points=None) marks grid/search/
+simplify/validate only during the current model plan_path call. The last marker
+is copied to diagnostics and cleared after each attempt; it never controls
+acceptance or commands. validate_plan remains pure. No search, endpoint selection
+or line-of-sight simplification is performed by these diagnostics.
+'''
+    source=source[:at]+doc+source[at:]
+    return source
+
+
+if __name__=='__main__':
+    source=build(SRC.read_text());compile(source,str(OUT),'exec')
+    archive_before_write(OUT);OUT.write_text(source)
+    print(OUT.name,hashlib.sha256(source.encode()).hexdigest())

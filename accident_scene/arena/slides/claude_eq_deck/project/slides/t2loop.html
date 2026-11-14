@@ -1,0 +1,29 @@
+<section id="t2loop" data-transition="fade" style="background:#EEF1F5;color:#14213D;font-family:'IBM Plex Sans KR', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:32px">
+<div style="display:flex;flex-direction:column;gap:12px">
+<p style="font-size:24px;font-weight:600;letter-spacing:2px;color:#C4501F">T2 구현 · npu_tool_loop.py</p>
+<h2 style="font-size:64px;font-weight:600;line-height:1.15">코드를 돌려 보고 고칠 수 있는 대화 루프</h2>
+</div>
+<div style="display:flex;gap:16px;align-items:stretch">
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:6px"><p style="font-size:24px;font-weight:700;color:#1F5FAE">① 입력</p><p style="font-size:24px;line-height:1.4;color:#3B4556">6,961자 + 도구 안내 문구</p></div>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:6px"><p style="font-size:24px;font-weight:700;color:#1F5FAE">② gpt-oss</p><p style="font-size:24px;line-height:1.4;color:#3B4556">추론 high로 생각 → 코드 실행 요청</p></div>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:6px"><p style="font-size:24px;font-weight:700;color:#1F5FAE">③ 격리 실행</p><p style="font-size:24px;line-height:1.4;color:#3B4556">네트워크 없음 · 빈 작업 폴더 · 300 s</p></div>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:6px"><p style="font-size:24px;font-weight:700;color:#1F5FAE">④ 결과 반환</p><p style="font-size:24px;line-height:1.4;color:#3B4556">출력 · 오류를 대화에 붙여 다시 ②로</p></div>
+<div style="flex:1;background:#FBFBF9;border:1px solid #D8DDE5;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:6px"><p style="font-size:24px;font-weight:700;color:#C4501F">⑤ 제출</p><p style="font-size:24px;line-height:1.4;color:#3B4556">최종 답 또는 저장 파일 → 정적 검사 → Isaac → 피드백</p></div>
+</div>
+<p style="font-size:26px;line-height:1.45;color:#3B4556">②~④를 회차당 최대 12번 · 60분까지 반복하고, 넘으면 최종 답을 요구한다. 첫 실행 전 격리 환경 자가 점검(python 3.12.3 · numpy 1.26.4).</p>
+<div style="display:grid;grid-template-columns:1.3fr 1fr;gap:28px">
+<div style="background:#14213D;border-radius:16px;padding:28px 32px;display:flex;flex-direction:column;gap:10px">
+<p style="font-size:24px;font-weight:600;color:#F07A4A">더한 안내 문구 (요지)</p>
+<p style="font-size:24px;line-height:1.5;color:#F4F2EC">python 도구로 직접 쓴 코드(컨트롤러 점검, 직접 만든 간단한 시뮬레이션)를 돌려 볼 수 있다 · 실제 Isaac은 없다 · 끝나면 파일로 저장하거나 전문을 출력하라.</p>
+<p style="font-size:24px;line-height:1.5;color:#B9C3D3">누설 감사: 높이 · 0.35 · 상자 번호 · 결론 · 해법 구조 — 모두 없음</p>
+</div>
+<div style="background:#FBFBF9;border:1px solid #D8DDE5;border-radius:16px;padding:28px 32px;display:flex;flex-direction:column;gap:10px">
+<p style="font-size:24px;font-weight:600;color:#14213D">Claude와 같지 않은 것</p>
+<p style="font-size:24px;line-height:1.5;color:#3B4556">그림을 볼 수 없다 (텍스트 결과만)</p>
+<p style="font-size:24px;line-height:1.5;color:#3B4556">예산 12회 · 60분 (Claude 98회 · 90분)</p>
+<p style="font-size:24px;line-height:1.5;color:#3B4556">도구는 Python 하나 (Claude Code 17종)</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B7280">Claude 동일 조건 실험 · 27 / 29 · T3: turn_loop.py --reasoning-effort high</p>
+<aside>T2가 실제로 어떻게 돌아가는지입니다. 모델이 생각하다가 코드를 실행해 달라고 하면, 네트워크가 없는 격리된 빈 폴더에서 그 코드를 돌리고 결과를 다시 대화에 넣어 줍니다. 이걸 회차당 최대 12번, 60분까지 반복한 뒤 답을 제출받습니다. 더한 안내 문구에는 정답 단서가 없습니다. Claude와 달리 그림은 볼 수 없고, NPU 속도 때문에 시도 횟수에도 상한이 있습니다.</aside>
+</section>
