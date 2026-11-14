@@ -1,0 +1,96 @@
+# nova_carter_warehouse_level2.yaml — LEVEL 2: 장애물 회피 주행 (perceive & avoid)
+#
+# L1 대비 누적되는 요구:  (d) 경로 위 정적 장애물을 *인지하고 우회*해서 도달  <-- L2 신규
+#   세계    : debug_obstacle 1개 (경로를 막는 인지 가능한 박스)
+#   요구 능력: 전진 + 회전 + 로컬 코스트맵 기반 회피 + 목표 자세 수렴
+#   판정    : reached_goal(위치+yaw) AND no_collision  (판정식은 L1과 동일, 세계가 어려워짐)
+#   실패모드: 장애물 충돌 / 회피 실패로 인한 타임아웃 / 자세 미정렬
+#
+# 장애물 설계 근거 (기존 nova_carter_warehouse_obstacle_fail.yaml 이 negative control):
+#   - obstacle_fail 은 height 0.15 m 저상 박스를 (-6.35, 2.0)에 두어 nav 이 "못 보고" 긁고
+#     지나가게 만든 *의도적 fail* 케이스(run7 실측 collision_count 3603, 도달은 성공).
+#   - L2는 그 반대다. 반드시 *보이는* 장애물이어야 회피 능력을 시험할 수 있으므로
+#     height 를 0.15 -> 1.0 m 로 올린다. 1.0 m 는 3D lidar 평면과 전/후방 2D scan 평면을
+#     모두 확실히 가로지르는 높이이며, "인지 실패로 인한 충돌"과 "회피 실패로 인한 충돌"을
+#     구분 가능하게 만든다.
+#   - 폭/위치: 시작 lane 중심은 x=-6.0, 섀시 폭 여유를 고려한 주행 회랑은 대략 x∈[-6.3,-5.7].
+#     width 0.8 을 x=-6.2 중심에 두면 박스는 x∈[-6.6,-5.8] 를 덮어 회랑 대부분을 막고,
+#     +x 쪽으로 비켜서 지나가야만 통과된다(= 실제 회피 기동 강제).
+#   - y=2.0 은 obstacle_fail 과 같은 위치. 주행 중반이라 회피 후 목표 재수렴 구간이 남는다.
+#
+# ⚠ 이 3개 값(height / width / x)은 *튜닝 파라미터*다. 첫 probe 결과에 따라:
+#     - 로봇이 전혀 비켜가지 않으면(회피 미발생)  -> width 를 1.0 으로 키운다
+#     - 도달 실패/타임아웃이면(통로가 막힘)        -> width 0.6, x 를 -6.5 로 밀어 틈을 넓힌다
+#     - 충돌이 나면                              -> 인지 문제인지 회피 문제인지 2D lidar flow 로 구분
+#   (LEVELS.md "튜닝 절차" 참고)
+#
+# EXPECTED = pass, exit 0 (ASSUMPTION — 회피 성공 여부 미실측. 위 튜닝 루프로 수렴시킬 것)
+
+apiVersion: cv-infra/v1
+
+scenario:
+  scene: nova_carter_warehouse
+  robot: nova_carter
+  goal:                                  # L1과 동일 (통과 실적 있는 lane 끝점)
+    x: -6.0
+    y: 5.0
+    yaw: 1.5708
+    frame: map
+  seed: 42
+  timeout_s: 120                         # 우회로 인해 주행이 길어져도(정본 8.4~10.5 s) 충분
+  debug_obstacle:                        # L2 신규 — D-2' 월드 상태 슬롯 (criteria 아님)
+    x: -6.2                              # 주행 회랑 x∈[-6.3,-5.7] 을 정면으로 가로막는 위치
+    y: 2.0                               # 주행 중반 (obstacle_fail 과 동일 y)
+    height: 1.0                          # 핵심 delta: 0.15(안 보임) -> 1.0(3D+2D 모두 인지)
+    width: 0.8
+    depth: 0.6
+
+sut:
+  image_ref: carter-sut:p2
+
+interface:
+  type: ros2
+  adapter_config:                        # 정본과 완전히 동일
+    ros_distro: jazzy
+    rmw: rmw_fastrtps_cpp
+    use_sim_time: true
+    goal_interface:
+      kind: action
+      name: /navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    cmd_vel:
+      topic: /cmd_vel
+      type: geometry_msgs/msg/Twist
+    clock_topic: /clock
+    odom_topics:
+      - /odom
+      - /chassis/odom
+    sensors:
+      - topic: /front_3d_lidar/lidar_points
+        type: sensor_msgs/msg/PointCloud2
+        frame: front_3d_lidar
+      - topic: /front_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: front_2d_lidar
+      - topic: /back_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: back_2d_lidar
+    frames:
+      map: map
+      odom: odom
+      base_link: base_link
+    readiness:
+      is_active_service: /lifecycle_manager_navigation/is_active
+
+acceptance_criteria:                     # 판정식은 L1과 동일 — 난이도는 세계(장애물)에서 온다
+  - oracle: reached_goal
+    params:
+      position_tolerance_m: 0.75
+      yaw_tolerance_rad: 0.26
+      goal_orientation_wxyz: [0.7071068, 0.0, 0.0, 0.7071068]
+  - oracle: no_collision                 # 주입된 박스는 excluded 목록에 없다 = 접촉하면 즉시 fail
+    params:
+      chassis_path: /World/Nova_Carter_ROS/chassis_link
+      collision_excluded_paths:
+        - /World/Nova_Carter_ROS
+        - /World/warehouse_with_forklifts/GroundPlane

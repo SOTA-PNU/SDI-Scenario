@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# carter-run — run one benchmark script the way the source host ran it.
+#
+#   carter-run levels/level0/solution_carter_run.py
+#   carter-run levels/common/probe_scene.py
+#
+# Wraps the repo's own levels/run_isaac.sh, adding only what a fresh host needs:
+#   * CARTER_WS / CARTER_REPO pointed at wherever you installed them
+#   * PYTHONNOUSERSITE=1 so ~/.local cannot shadow the Isaac env
+#   * a serial-execution guard (concurrent Isaac processes change the numbers)
+#   * verdict read from the result JSON, because Kit swallows exit codes
+#
+# It does NOT modify the harness. With CARTER_WS set correctly, the run is
+# byte-for-byte the same invocation the reference results came from.
+set -uo pipefail
+
+export CARTER_WS="${CARTER_WS:-$HOME/carter_ws}"
+export CARTER_REPO="${CARTER_REPO:-$HOME/carter-scenario-levels}"
+export MAMBA_ROOT_PREFIX="$CARTER_WS/mamba"
+export PYTHONNOUSERSITE=1
+
+# Pin one GPU. The source host pinned GPU 0 because its GPU 1 segfaulted during
+# Isaac boot (URDF importer extension) — that is a source-host quirk, not a
+# requirement. Override freely; just keep it to a single GPU.
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+
+# Isolate DDS traffic on a shared machine. The repo defaults to domain 0.
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+
+if [ $# -lt 1 ]; then
+  echo "usage: carter-run <script.py relative to \$CARTER_REPO> [args...]" >&2
+  exit 64
+fi
+
+RUNNER="$CARTER_REPO/levels/run_isaac.sh"
+[ -x "$RUNNER" ] || [ -r "$RUNNER" ] || { echo "carter-run: not found: $RUNNER" >&2; exit 66; }
+[ -x "$CARTER_WS/tools/bin/micromamba" ] || { echo "carter-run: no micromamba at $CARTER_WS/tools/bin/micromamba — run setup/10_install_env.sh" >&2; exit 66; }
+
+SCRIPT="$1"; shift
+[ -r "$CARTER_REPO/$SCRIPT" ] || { echo "carter-run: no such script: $CARTER_REPO/$SCRIPT" >&2; exit 66; }
+
+# --- serial guard -----------------------------------------------------------
+# Two Isaac processes share the GPU and the measured times change (9.2 -> 4.5
+# fps on the source host). Refuse rather than silently produce bad numbers.
+if [ "${CARTER_ALLOW_CONCURRENT:-0}" != "1" ]; then
+  # Match the actual simulator process, never a shell wrapper. A plain `pgrep -f`
+  # on the script name also matches this wrapper, any parent that invoked us, and
+  # any command line that merely mentions the pattern — all false positives we
+  # hit in practice. So require argv[0] to be micromamba/python AND the command
+  # line to name a benchmark script.
+  OTHERS=0
+  for _d in /proc/[0-9]*; do
+    _pid="${_d#/proc/}"
+    [ "$_pid" = "$$" ] && continue
+    _c="$(tr '\0' ' ' < "$_d/cmdline" 2>/dev/null)" || continue
+    [ -n "$_c" ] || continue
+    _a0="${_c%% *}"
+    case "${_a0##*/}" in
+      python|python3|python3.10|micromamba) ;;
+      *) continue ;;
+    esac
+    case "$_c" in
+      *carter_run.py*|*probe_scene.py*|*02_run_carter_sim.py*) OTHERS=$((OTHERS + 1)) ;;
+    esac
+  done
+  if [ "${OTHERS:-0}" -gt 0 ]; then
+    echo "carter-run: another Isaac benchmark process is already running." >&2
+    echo "            Only serial runs are supported — concurrent runs change the timings." >&2
+    echo "            Set CARTER_ALLOW_CONCURRENT=1 to override (results will not be comparable)." >&2
+    exit 75
+  fi
+fi
+
+# --- run --------------------------------------------------------------------
+cd "$CARTER_REPO" || exit 66
+echo "carter-run: $SCRIPT   (CARTER_WS=$CARTER_WS  GPU=$CUDA_VISIBLE_DEVICES  domain=$ROS_DOMAIN_ID)"
+START=$SECONDS
+START_EPOCH=$(date +%s)
+bash "$RUNNER" "$SCRIPT" "$@"
+RC=$?
+ELAPSED=$((SECONDS - START))
+
+# --- verdict ----------------------------------------------------------------
+# The result JSON is the ONLY reliable verdict. Measured on the source host: the
+# level runners end with sys.exit(0 if pass else 1), but SimulationApp.close()
+# tears Kit down and the process still exits 0 — a level3 base run whose verdict
+# was "fail" returned 0. (micromamba run propagates codes correctly; Kit forces
+# the 0.) So the exit code is re-derived from the JSON below. Exit 2 (ROS 2
+# bridge failed to start) is raised before Kit shutdown and does survive; it
+# means a broken environment, not a benchmark failure.
+# Utility scripts (probe_scene.py and friends) deliberately write no result
+# JSON. Only *_carter_run.py produces a verdict, so don't look for one otherwise
+# — reporting "the run did not complete" for a healthy probe is just confusing.
+case "$(basename "$SCRIPT")" in
+  *_carter_run.py) ;;
+  *)
+    echo "carter-run: $SCRIPT produces no result JSON (utility script) — exiting with its own code $RC  (wall ${ELAPSED}s)"
+    exit "$RC"
+    ;;
+esac
+
+LEVEL_DIR="$(dirname "$SCRIPT")"
+VARIANT="$(basename "$SCRIPT" .py)"; VARIANT="${VARIANT%_carter_run}"
+RESULT="$CARTER_REPO/$LEVEL_DIR/results/${VARIANT}_result.json"
+
+if [ "$RC" -eq 2 ]; then
+  echo "carter-run: EXIT 2 — the isaacsim.ros2.bridge extension failed to start." >&2
+  echo "            This is an environment fault. Check ROS_DISTRO/LD_LIBRARY_PATH and that no" >&2
+  echo "            system ROS or RoboStack env is sourced in this shell." >&2
+  exit 2
+fi
+
+if [ ! -r "$RESULT" ]; then
+  echo "carter-run: no result JSON at $RESULT — the run did not complete." >&2
+  exit "${RC:-1}"
+fi
+
+# Guard against a stale verdict: every run overwrites <variant>_result.json, so
+# a crash mid-run would otherwise leave the PREVIOUS run's file behind and we
+# would report its verdict as this run's. Require it to be newer than the start.
+MTIME=$(stat -c %Y "$RESULT" 2>/dev/null || echo 0)
+if [ "${MTIME:-0}" -lt "$START_EPOCH" ]; then
+  echo "carter-run: $RESULT was not rewritten by this run (stale from a previous one)." >&2
+  echo "            The run died before writing its result. Check the log above." >&2
+  exit 70
+fi
+
+python3 - "$RESULT" "$ELAPSED" <<'RESULT_PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+m = d.get("metrics", {})
+print(f"carter-run: {d['level']}/{d.get('variant')} -> {d['verdict'].upper()}"
+      f"  ttg={m.get('time_to_goal_s')}s  final_dist={m.get('final_dist_m')}m"
+      f"  collisions={m.get('collision_count')}  (wall {sys.argv[2]}s)")
+for o in d.get("oracles", []):
+    mark = "pass" if o["passed"] else "FAIL"
+    print(f"            [{mark}] {o['name']}: {o.get('detail')}")
+sys.exit(0 if d.get("verdict") == "pass" else 1)
+RESULT_PY
+VERDICT_RC=$?
+
+# The exit code comes from the verdict, not from the process: PASS=0, FAIL=1.
+# A base_* run legitimately exits 1 — that is the benchmark working correctly.
+exit "$VERDICT_RC"

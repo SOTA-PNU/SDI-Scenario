@@ -1,0 +1,83 @@
+# nova_carter_warehouse_level0.yaml — LEVEL 0: 직진 도달 (forward-only reach)
+#
+# 레벨 사다리(L0 -> L3)의 최하단. 요구 능력은 "전진 주행" 하나뿐이다.
+#   세계    : 빈 통로 (debug_obstacle 없음)
+#   경로    : 시작 헤딩 그대로 전방 2.0 m — 회전/조향/후진/우회 일절 불필요
+#   판정    : reached_goal 만 (자세 무관, 충돌 무관)
+#   실패모드: 미도달 / 타임아웃
+#
+# 기하 근거 (2026-08-03 워크스테이션 Isaac Sim 4.5 실측 — levels/common/probe_scene.py):
+#   - 스폰 pose = 월드 (-6.0, -1.0, yaw=pi). 월드 프레임 == 맵 프레임 (실측 일치).
+#   - 스폰 헤딩(-x) 전방 자유공간: 2.0 m 까지 FREE, 2.5 m 부터 팔레트
+#     (SM_PaletteA_358/359)가 통로를 막는다 (PhysX overlap 프로브 실측).
+#   - 따라서 goal (-8.0, -1.0) = 스폰 "바로 앞" 2.0 m, 순수 전진만으로 도달 가능.
+#     tolerance 1.0 이므로 로봇은 d<=1.0 지점(x>=-7.0)에서 멈춰도 통과 — 팔레트(2.5 m)
+#     까지 충분한 안전 여유.
+#   - 2.0 m @ 0.4 m/s ≈ 5 s. timeout_s 60 은 충분한 여유이면서 "무한 배회"는 잘라낸다.
+#
+# 초판(a07c868)과의 차이: goal (-6.0, 1.0, yaw=1.5708) -> (-8.0, -1.0, yaw=pi).
+#   초판은 통과 실적이 있는 +y lane 위의 점을 골라 "출발 시 제자리 회전 1회"를 허용하는
+#   절충이었다. 프로브 실측으로 전방(-x) 2.0 m 자유공간이 확정되어, 레벨 원 정의
+#   ("앞으로만 가서 바로 앞 목표 도달")를 문자 그대로 만족하는 목표로 되돌렸다.
+#
+# EXPECTED = pass, exit 0 (levels/level0/ 실측: solution 통과 — 상세는 REPORT.md)
+
+apiVersion: cv-infra/v1
+
+scenario:
+  scene: nova_carter_warehouse
+  robot: nova_carter
+  goal:
+    x: -8.0                              # L0 delta: 스폰 헤딩(-x) 정면 2.0 m (위 기하 근거 블록)
+    y: -1.0
+    yaw: 3.1416                          # 스폰 heading 그대로 (L0는 yaw 미채점 — 아래 참고)
+    frame: map
+  seed: 42                               # 결정성 고정 (REQ-EXEC-003, NFR-EXEC-001)
+  timeout_s: 60                          # L0 delta: 짧은 주행이므로 정본 120 -> 60
+
+sut:
+  image_ref: carter-sut:p2               # 정본과 동일 핀
+
+interface:
+  type: ros2
+  adapter_config:                        # 정본과 완전히 동일 (M1 canonical 키 + 실측값)
+    ros_distro: jazzy
+    rmw: rmw_fastrtps_cpp
+    use_sim_time: true
+    goal_interface:
+      kind: action
+      name: /navigate_to_pose
+      type: nav2_msgs/action/NavigateToPose
+    cmd_vel:
+      topic: /cmd_vel
+      type: geometry_msgs/msg/Twist
+    clock_topic: /clock
+    odom_topics:
+      - /odom
+      - /chassis/odom
+    sensors:
+      - topic: /front_3d_lidar/lidar_points
+        type: sensor_msgs/msg/PointCloud2
+        frame: front_3d_lidar
+      - topic: /front_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: front_2d_lidar
+      - topic: /back_2d_lidar/scan
+        type: sensor_msgs/msg/LaserScan
+        frame: back_2d_lidar
+    frames:
+      map: map
+      odom: odom
+      base_link: base_link
+    readiness:
+      is_active_service: /lifecycle_manager_navigation/is_active
+
+acceptance_criteria:                     # L0 = 도달만 본다
+  - oracle: reached_goal
+    params:
+      position_tolerance_m: 1.0          # goal_b와 같은 느슨한 값. 실측 GT 최근접오차 최대 0.709
+                                         #   (D-2 근거) 보다 크므로 AMCL+nav2 오차 스택에도 여유.
+      # yaw_tolerance_rad / goal_orientation_wxyz 를 의도적으로 두지 않는다
+      #   -> yaw 판정 비활성 = "도착 자세는 L0 채점 대상이 아님"
+  # no_collision 없음: L0는 빈 통로이며 충돌 회피 능력을 아직 요구하지 않는다.
+  #   (충돌 0 요구는 L1부터 누적)
