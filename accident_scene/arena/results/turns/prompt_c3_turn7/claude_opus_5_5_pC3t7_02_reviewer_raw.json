@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"boxes·FIXED_OBSTACLES 를 0.4 m 부풀린 _MOVER_MASK_RECTS 를 _STATIC_RECTS 와 같은 방식으로 만든다\", \"implemented\": true, \"note\": \"새 상수 _MOVER_MASK_RECTS 가 _STATIC_RECTS 와 같은 식에 0.4 를 써서 정의됨\"},\n  {\"instruction\": \"_track_movers 에서 물체 후보 점(keep)을 고를 때만 이 사각형을 쓴다\", \"implemented\": true, \"note\": \"keep = wall_ok & ~inside_m 로 바뀌었고 inside_m 은 _MOVER_MASK_RECTS 로 계산됨\"},\n  {\"instruction\": \"stat 점과 _static_ok 는 기존 0.2 m 사각형을 그대로 쓴다\", \"implemented\": true, \"note\": \"stat = wp[~(wall_ok & ~inside) & near] 는 기존 식과 같음. _static_ok 는 바뀌지 않았고 _STATIC_RECTS 를 씀\"},\n  {\"instruction\": \"미성숙 트랙 중심이 부풀리지 않은 정적 사각형에서 0.6 m 안이면 반경 증가율 0(반경 _MOVER_R, 속도 0)\", \"implemented\": true, \"note\": \"_STATIC_RAW_RECTS 와 _near_static 을 새로 둠. grow 가 0 이면 _clear_at 에서 m[8]>0 조건에 걸리지 않아 반경을 키우지 않음\"},\n  {\"instruction\": \"경유점·속도·_rollout·후보 목록·선택 규칙·성숙 기준·반사 예측은 바꾸지 않는다\", \"implemented\": true, \"note\": \"diff 에서 해당 정의와 상수가 바뀌지 않음\"},\n  {\"instruction\": \"DBG 줄은 유지하고, 끝에 누적 정지·후진 시간, path(<1.2) 시간, 그동안 최근접 트랙이 미성숙이었던 시간을 덧붙인다\", \"implemented\": true, \"note\": \"끝에 t_stop·t_slow·t_immat 를 붙임. nearest 안에 grow= 가 끼어 들어갔고, mature 를 age·nupd 기준으로 바꿈. grow=0 인 미성숙 트랙이 mature=1 로 잘못 찍히지 않게 하려는 변경이라 허용함\"},\n  {\"instruction\": \"물체 위치·구간·속도·시각 상수를 넣지 않는다\", \"implemented\": true, \"note\": \"새 상수는 부풀림 0.4 와 거리 0.6 뿐이며 모두 정적 지도에서 계산함\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"정적 사각형에서 0.2~0.4 m 사이에 찍힌 점은 stat 에도 물체 후보에도 들어가지 않습니다. 정적 물체에 붙어 지나는 실제 물체의 가까운 면이 rollout 과 _static_ok 양쪽에서 모두 빠질 수 있습니다.\",\n  \"정적 물체 0.6 m 안의 미성숙 트랙은 반경을 키우지 않습니다. 그래서 선반·박스 뒤에서 갑자기 나타나는 실제 물체도 반경을 키우는 보호를 받지 못합니다.\",\n  \"유령을 없애도 평균 76.7 s 가 60 s 아래로 내려간다는 근거는 약합니다. 고정 경로 약 45 s 는 그대로입니다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 48168,
+  "completion_tokens": 3416
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 31721,
+  "total_cost_usd": 0.453656,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3416,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 48166,
+    "webSearchRequests": 0,
+    "costUSD": 0.453656,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2095,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 48166,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "c0b54259-80be-4e28-b9a6-4ecf2a0895db"
+ }
+}

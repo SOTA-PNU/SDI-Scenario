@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따라 `_synthetic_tracks`가 미등록 라이다 점에 실제 속도를 붙이도록 바꿨습니다. 새 스캔마다 점을 0.25 m 셀로 줄이고 `st[\"um_prev\"]`에 쌓은 뒤, 약 0.15–0.45 s 전 프레임과 최근접 점을 짝지어 변위를 구합니다. 변위가 0.02 m 미만이거나 회전 잡음 한계 이하인 점은 속도 0으로 두고, 나머지는 0.5 m 이웃의 평균으로 속도를 다듬어 `(x, y, vx, vy, 0, 0)` 행을 만듭니다(지시 1–5). 반경 1.5 m가 늦다는 증거에 대응해 움직이는 점은 2.5 m부터 VO에 넣고, 정지한 미등록 점은 그대로 1.5 m 안에서만 넣습니다. 이렇게 해 멀리 있는 정지 잡음 때문에 생기는 불필요한 우회를 늘리지 않았습니다(지시 6, 가정 3).\n\n```python\n_SYN_MAX = 32\n\n\n_SYN_MOVE_RANGE = 2.5\n\n\n_SYN_MIN_DISP = 0.02\n\n\n_SYN_MIN_SPEED = 0.15\n\n\n_SYN_DT = (0.15, 0.45)\n\n\n_SYN_NBR = 0.5\n\n\n_SYN_CELLS_MAX = 200\n\n\ndef _synthetic_tracks(st, pose, M=None):\n    \"\"\"Velocity-aware synthetic tracks from unmapped raw lidar points (_unmapped_raw: walls, MISSION boxes and\n    FIXED_OBSTACLES removed).  On every new lidar frame (st[\"raw\"] changed) the points within _SYN_MOVE_RANGE of the\n    body (own body within _PX_SELF dropped) are reduced to one nearest point per _SYN_CELL cell holding\n    >= _SYN_MIN_PTS points, converted to world and stored in st[\"um_prev\"] (last 0.6 s).  Each point is matched to\n    its nearest point in the stored frame closest to 0.25 s old (age within _SYN_DT): displacement below\n    max(_SYN_MIN_DISP, _SYN_MIN_SPEED * dt) + rotation noise, or above the 2 m/s bound, -> zero velocity; otherwise\n    velocity = displacement / dt, averaged over the moving points within _SYN_NBR (at least 2 needed) and capped at\n    _MAX_OBJECT_SPEED.  Rows (x, y, vx, vy, 0, 0): moving points up to _SYN_MOVE_RANGE, stationary points only\n    within _SYN_RANGE; points within _RT_TRACK_R of a confirmed track are skipped; nearest first, at most _SYN_MAX.\"\"\"\n    empty = np.zeros((0, 6))\n    hist = st.setdefault(\"um_prev\", [])\n    U = _unmapped_raw(st, pose)\n    P = st[\"raw\"]\n    x, y, yaw = pose\n    c, s = math.cos(yaw), math.sin(yaw)\n\n    if st.get(\"syn_src\") is not P:\n        tf = float(st[\"p_t\"])\n        W = np.zeros((0, 2))\n        if len(U):\n            bx = np.maximum(np.maximum(_BODY[0] - U[:, 0], U[:, 0] - _BODY[1]), 0.0)\n            by = np.maximum(np.maximum(_BODY[2] - U[:, 1], U[:, 1] - _BODY[3]), 0.0)\n            da = np.hypot(bx, by)\n            k = (da > _PX_SELF) & (da < _SYN_MOVE_RANGE)\n            if k.any():\n                Wa = to_world(U[k], pose)[:, :2]\n                da = da[k]\n                key = np.floor(Wa / _SYN_CELL).astype(np.int64)\n                kid = (key[:, 0] + 2000) * 5000 + (key[:, 1] + 2000)\n                order = np.argsort(da, kind=\"stable\")\n                _, first, cnt = np.unique(kid[order], return_index=True, return_counts=True)\n                keep = cnt >= _SYN_MIN_PTS\n                if keep.any():\n                    idx = order[first[keep]]\n                    idx = idx[np.argsort(da[idx], kind=\"stable\")][:_SYN_CELLS_MAX]\n                    W = Wa[idx]\n        V = np.zeros_like(W)\n        ref = None\n        for th, Wh in hist:\n            dt = tf - th\n            if _SYN_DT[0] <= dt <= _SYN_DT[1] and len(Wh):\n                if ref is None or abs(dt - 0.25) < abs(tf - ref[0] - 0.25):\n                    ref = (th, Wh)\n        if ref is not None and len(W):\n            dt = tf - ref[0]\n            Wh = ref[1]\n            D = np.hypot(W[:, 0:1] - Wh[None, :, 0], W[:, 1:2] - Wh[None, :, 1])\n            j = np.argmin(D, axis=1)\n            disp = D[np.arange(len(W)), j]\n            r = np.hypot(W[:, 0] - x, W[:, 1] - y)\n            thr = max(_SYN_MIN_DISP, _SYN_MIN_SPEED * dt) + 0.1 * r * abs(st[\"wz\"])\n            mov = (disp >= thr) & (disp <= _MAX_OBJECT_SPEED * dt + 0.15)\n            if mov.any():\n                Vr = (W - Wh[j]) / dt\n                Nb = np.hypot(W[:, 0:1] - W[None, mov, 0], W[:, 1:2] - W[None, mov, 1]) < _SYN_NBR\n                nm = Nb.sum(axis=1)\n                sv = Nb.astype(np.float64) @ Vr[mov]\n                ok = mov & (nm >= 2)\n                if ok.any():\n                    V[ok] = sv[ok] / nm[ok][:, None]\n                    sp = np.hypot(V[:, 0], V[:, 1])\n                    big = sp > _MAX_OBJECT_SPEED\n                    if big.any():\n                        V[big] *= (_MAX_OBJECT_SPEED / sp[big])[:, None]\n        hist.append((tf, W.copy()))\n        st[\"um_prev\"] = [h for h in hist if tf - h[0] <= 0.6][-8:]\n        st[\"syn_src\"] = P\n        st[\"syn_W\"] = W\n        st[\"syn_V\"] = V\n\n    W = st.get(\"syn_W\")\n    V = st.get(\"syn_V\")\n    if W is None or len(W) == 0:\n        return empty\n    dxw, dyw = W[:, 0] - x, W[:, 1] - y\n    qx = c * dxw + s * dyw\n    qy = -s * dxw + c * dyw\n    bx = np.maximum(np.maximum(_BODY[0] - qx, qx - _BODY[1]), 0.0)\n    by = np.maximum(np.maximum(_BODY[2] - qy, qy - _BODY[3]), 0.0)\n    bd = np.hypot(bx, by)\n    moving = np.hypot(V[:, 0], V[:, 1]) > 1e-6\n    k = (bd > _PX_SELF) & ((bd < _SYN_RANGE) | (moving & (bd < _SYN_MOVE_RANGE)))\n    if not k.any():\n        return empty\n    Wk, Vk, dk = W[k], V[k], bd[k]\n    if M is not None and len(M):\n        mx = M[:, 0] + M[:, 2] * M[:, 4]\n        my = M[:, 1] + M[:, 3] * M[:, 4]\n        near = (np.hypot(Wk[:, 0:1] - mx[None, :], Wk[:, 1:2] - my[None, :]) < _RT_TRACK_R).any(axis=1)\n        Wk, Vk, dk = Wk[~near], Vk[~near], dk[~near]\n        if len(Wk) == 0:\n            return empty\n    o = np.argsort(dk, kind=\"stable\")[:_SYN_MAX]\n    rows = np.zeros((len(o), 6), dtype=np.float64)\n    rows[:, 0] = Wk[o, 0]\n    rows[:, 1] = Wk[o, 1]\n    rows[:, 2] = Vk[o, 0]\n    rows[:, 3] = Vk[o, 1]\n    return rows\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 69609,
+  "completion_tokens": 9449
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 87582,
+  "total_cost_usd": 0.7458440000000001,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 9449,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 69607,
+    "webSearchRequests": 0,
+    "costUSD": 0.7458440000000001,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 6471,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 69607,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "c12ad937-c318-4480-9a75-e5915da38419"
+ }
+}

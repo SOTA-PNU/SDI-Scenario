@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=check_path ... segment=1 min_gap=-0.1667 ... start_gap=0 goal_gap=0 fix=check_failed_segment_keep_last_visible_anchor",
+    "choose_command 매 선택에서 v=0, w=0 인 follow_safe 가 400번 연속 선택돼 로봇이 전혀 움직이지 않음 (stall_rule에 의해 정체 판단)",
+    "plan_path 에서 start와 첫 waypoint, 마지막 waypoint와 goal 사이의 segment_free 검사가 모두 실패해 None 반환, 따라서 base 가 경로를 채택하지 못함"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path 에서 시작·목표 연결 검사와 경로 단순화 단계를 제거한다. A* 로 찾은 raw_path 를 그대로 사용하고, 앞뒤에 정확히 start_xy 와 goal_xy 를 붙어 반환한다. 이렇게 하면 base 의 validate_plan 가 자체적으로 연결을 검사하고, 낮은 clearance(0.35 m)에서도 경로가 채택될 수 있다.",
+  "not_to_change": "lookahead_target 와 follow_cmd 함수 및 base 루프 로직은 건드리지 않는다.",
+  "confidence": "high"
+}

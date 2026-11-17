@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_perceive 와 M 계산 뒤 _raw_ttc_stop 을 부르고, pause 가 나오면 evade_mode=True, evade_until=t+0.5 로 둔다\", \"implemented\": true, \"note\": \"controller 1b 에서 구현. evade_until=max(evade_until, t+_EVADE_MIN_T=0.5). 다만 타임아웃 뒤 _EVADE_GRACE 0.5 s 동안은 pause 가 와도 evade 에 들어가지 않는다(추가 동작).\"},\n  {\"instruction\": \"evade_mode 동안 _evade_rotate 가 0.8 m 안의 가장 가까운 물체를 찾아 (v=0, w=±1.0) 으로 물체에서 멀어지게 돈다\", \"implemented\": true, \"note\": \"_EVADE_R=0.8, _EVADE_W=1.0 이고 v=0 회전이다. 방향은 회전 뒤 몸체-점 거리와 트랙 margin 점수로 고른다. 회전이 도움이 안 되고 물체가 다가오면 짧게 후진·전진(v≠0)하는 대안이 추가되어 있다.\"},\n  {\"instruction\": \"0.8 m 안이 비거나 3 s 타임아웃이 되면 evade_mode 를 끄고 일반 경유점/VO 로 돌아간다\", \"implemented\": true, \"note\": \"timed_out(_EVADE_MAX_T=3.0) 또는 danger>_EVADE_R 이면 해제한다. 단, 해제는 evade_until 과 pause_until 이 지난 뒤에만 한다.\"},\n  {\"instruction\": \"_evade_rotate 가 _map_free 와 _lidar_clear 로 벽 쪽 회전을 막는다\", \"implemented\": true, \"note\": \"_traj_static_ok 와 뒤쪽 원 _map_free 를 쓴다. _lidar_clear 는 v=0 이면 항상 True 라서 회전에는 _sweep_clear 를 쓰고, _lidar_clear 는 후진 대안에만 쓴다.\"},\n  {\"instruction\": \"_guard 가 _evade_rotate 의 속도 0 명령을 덮어쓰지 않는다\", \"implemented\": true, \"note\": \"_guard(evade=True) 에서 |v|<1e-3 이면 (0, w) 를 그대로 돌려준다.\"},\n  {\"instruction\": \"pause_until 은 회피가 끝난 뒤에만 초기화한다\", \"implemented\": true, \"note\": \"evade 해제 분기에서만 pause_until=-1 로 둔다. evade 중에는 return 하므로 VO 블록의 초기화에 닿지 않는다.\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"진단은 물체 점이 3개 미만이라 _raw_ttc_stop 이 걸리지 않았다고 보면서도, evade 진입을 같은 _raw_ttc_stop(_TTC_MIN_PTS=3) 에만 맡긴다. 그래서 감지 누락 문제는 그대로 남는다.\",\n  \"0.8 m 안에서 0.5 rad 제자리 회전으로 몸체가 비켜나는 거리는 작다. 0.4~2 m/s 로 옆에서 오는 물체를 피하기에는 부족할 수 있다.\",\n  \"evidence 의 충돌 위치 [-0.14, 0.57], [-0.89, 0.42] 는 로봇 기준 옆·뒤로 보이며, 이 경우 회전하면 몸체 뒤쪽이 물체 쪽으로 휩쓸 수 있다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 104596,
+  "completion_tokens": 4135
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 39776,
+  "total_cost_usd": 0.91946,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4135,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 104594,
+    "webSearchRequests": 0,
+    "costUSD": 0.91946,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2806,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 104594,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "7d1d009b-3173-43f4-a7fa-c6cf786113be"
+ }
+}

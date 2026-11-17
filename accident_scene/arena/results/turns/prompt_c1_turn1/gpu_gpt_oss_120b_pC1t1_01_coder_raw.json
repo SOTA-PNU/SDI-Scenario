@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-96723d52163d4e3e",
+ "object": "chat.completion",
+ "created": 1794723127,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유:  \n1️⃣ 기존 코드는 센서를 전혀 사용하지 않아 움직이는 물체를 감지하지 못하고 충돌했습니다.  \n2️⃣ 전방 2D 라이다 데이터를 이용해 지도에 없는(정적 박스에 포함되지 않는) 점들을 동적 장애물로 판단하고, 일정 거리 이하에서 회피 회전하도록 상태 플래그를 도입했습니다.  \n3️⃣ 회피 중에도 목표 정렬 단계에서 같은 로직을 적용해, 동적 물체가 사라질 때까지 정지·회전만 수행하고 이후 기존 웨이포인트 추종으로 복귀합니다.  \n\n```python\n# helper: check if a world‑frame point lies inside any static box from MISSION\ndef _is_static_world(pt):\n    x, y = pt[0], pt[1]\n    for b in MISSION[\"boxes\"]:\n        half_w, half_d = b[\"width\"] / 2.0, b[\"depth\"] / 2.0\n        if (b[\"x\"] - half_w <= x <= b[\"x\"] + half_w and\n                b[\"y\"] - half_d <= y <= b[\"y\"] + half_d):\n            return True\n    return False\n\n\n# helper: find nearest dynamic obstacle using front 2‑D lidar\ndef _nearest_dynamic(pose):\n    pts = lidar2d_points('front')          # robot‑frame (x, y)\n    if pts.shape[0] == 0:\n        return float('inf'), 0.0\n    # transform to world to test against static boxes\n    world_pts = to_world(pts, pose)\n    # mask out points that belong to static boxes\n    dynamic_mask = np.array([not _is_static_world(p) for p in world_pts])\n    dyn_pts = pts[dynamic_mask]\n    if dyn_pts.shape[0] == 0:\n        return float('inf'), 0.0\n    dists = np.hypot(dyn_pts[:, 0], dyn_pts[:, 1])\n    idx = np.argmin(dists)\n    bearing = math.atan2(dyn_pts[idx, 1], dyn_pts[idx, 0])  # robot‑frame angle\n    return dists[idx], bearing\n\n\n# safe distance before we start avoidance (m)\n_SAFE_DIST = 0.8\n# hysteresis distance to exit avoidance (m)\n_EXIT_DIST = 1.0\n\n\ndef controller(t, pose, env):\n    \"\"\"Follow way‑points while avoiding dynamically detected moving boxes.\"\"\"\n    # ---- one‑time state initialisation ---------------------------------\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0                 # current waypoint index\n        controller.avoid = False           # are we in avoidance mode?\n        controller.avoid_dir = 0.0         # rotation direction during avoidance\n        controller.align = False           # goal‑alignment phase flag\n\n    x, y, yaw = pose\n\n    # ---- sense dynamic obstacles ---------------------------------------\n    dyn_dist, dyn_bearing = _nearest_dynamic(pose)\n\n    # ---- avoidance logic ------------------------------------------------\n    if dyn_dist < _SAFE_DIST:\n        # enter/continue avoidance\n        controller.avoid = True\n        # choose turn direction: left (+) if obstacle on right side, and vice‑versa\n        controller.avoid_dir = 1.0 if dyn_bearing < 0 else -1.0\n    elif controller.avoid and dyn_dist > _EXIT_DIST:\n        # obstacle cleared, exit avoidance\n        controller.avoid = False\n        controller.avoid_dir = 0.0\n\n    if controller.avoid:\n        # stop forward motion, rotate away from the obstacle\n        v = 0.0\n        w = _clamp(1.2 * controller.avoid_dir, -0.8, 0.8)\n        return v, w, False\n\n    # ---- goal‑alignment phase -------------------------------------------\n    if controller.align:\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True          # finished\n        return 0.0, w, False\n\n    # ---- normal waypoint‑following --------------------------------------\n    tx, ty = _WAYPOINTS[controller.idx]\n\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # advance to next waypoint when close enough (except final goal)\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # control law (same proven law as before)\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # when the last waypoint (the goal) is reached, switch to alignment mode\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.align = True\n\n    return v, w, False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to output change reason and then code modifications only inside edit region: add lidar avoidance logic, possibly new state variables, modify controller function, maybe add helper functions. Must not modify outside. Provide only definitions changed/added. The existing edit region already defines _wrap_angle, _clamp, _WAYPOINTS, controller. We need to modify to incorporate sensor reading. We'll add a function to compute front obstacle distance and bearing. We'll add a state flag like controller.avoid = False and maybe avoid_dir. Use lidar2d_points('front'). Determine points not on map: we need to differentiate moving objects from static map. Use MISSION boxes to filter out static obstacles. We have MISSION variable accessible globally. Use boxes list of dicts with x,y,width,depth. We can transform lidar points to world using to_world and then check if point lies within any static box (with some tolerance). Points not within any box are dynamic. So compute min distance of dynamic points. If < safe_dist (0.8), set avoidance mode. Choose rotation direction based on bearing sign. While in avoidance, keep rotating until clear. Also need to handle goal alignment phase similarly.\n\nImplementation: add helper _is_static(pt_world): iterate boxes, check if within box extents (x +/- width/2, y +/- depth/2). Use tolerance maybe 0.1.\n\nAdd function _dynamic_obstacle(pose): returns (dist, bearing) of nearest dynamic point in robot frame. Use lidar2d_points('front'), get points array. If empty return (inf, 0). Compute distances sqrt(x^2+y^2). For each point, transform to world, test static. If not static, keep. Then find min distance and bearing = atan2(y, x). Return.\n\nIn controller: maintain state variables: controller.avoid = False, controller.avoid_dir = 0 (1 left, -1 right). At each call, get dyn_dist, dyn_bearing. If dyn_dist < 0.8: set avoid True, avoid_dir = 1 if dyn_bearing >0 else -1. Then set v=0, w = _clamp(1.0 * avoid_dir, -0.6,0.6) maybe larger. Continue avoidance until dyn_dist > 1.0 (hysteresis). Then clear avoid flag and resume waypoint logic.\n\nDuring goal alignment (after waypoint), also apply avoidance before aligning: if avoid True, rotate according to avoid_dir.\n\nNeed to adjust safe distances maybe 0.7.\n\nWe need to modify controller code accordingly, possibly replace existing logic.\n\nWe'll keep _wrap_angle, _clamp unchanged. Add _dynamic_obstacle and maybe _point_is_static.\n\nAdd new constants: _SAFE_DIST = 0.8\n\nImplement.\n\nNow produce output: first \"변경 이유:\" sentences.\n\nThen code fence with definitions: _WAYPOINTS maybe unchanged but we can keep same. But we need to add new helper functions and modify controller. So we need to output the whole updated controller definition (full function) and new helper definitions.\n\nWe must not include import statements or edit region comments.\n\nLet's craft final answer.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 6944,
+  "total_tokens": 8827,
+  "completion_tokens": 1883,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 650
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

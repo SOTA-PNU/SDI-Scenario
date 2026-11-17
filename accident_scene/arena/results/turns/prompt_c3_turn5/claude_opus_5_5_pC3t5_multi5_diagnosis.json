@@ -1,0 +1,192 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실패 3건 모두 1.2 m/s 주행 중 충돌입니다. 직전에 후보 cmin 이 전부 -0.80(바닥값)인데 path(1.2)를 골랐습니다: s1512410496 t=2.48·2.98, s1928274860 t=2.48·2.98, s1687697385 t=12.48·12.98. cmin 이 -0.80에서 잘려 모든 후보가 동점이 되고, 동점이면 목록 첫 후보인 path(1.2)가 뽑힙니다.",
+   "래치가 틀린 속도로 확정됐습니다. s1512410496 은 t=0.48 트랙 v=(0.48,0.13)으로 committed=1 이 됐지만, 충돌 때 물체 상대속도는 (0,-0.64)로 남쪽 이동이었습니다. t=0.98 에는 path(1.2)=-0.80, path(0.5)=0.16 인데도 래치 때문에 path(1.2)를 유지했습니다. s1928274860 의 t=0.98 도 같습니다.",
+   "s1687697385 는 t=9.2 에 4.37 m 거리에서 물체를 봤습니다. 그러나 t=11.48 트랙 속도가 v=(-0.04,-0.19)로 실제(서쪽 약 0.53 m/s)와 달랐습니다. t=11.98 에야 v=(-0.59,-0.23)이 됐고, 그때는 fix(0.0)까지 -0.80 이었습니다. t=10.98 에는 박스01 가장자리 (-2.85,-1.84)가 가짜 트랙으로 잡혔습니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "생긴 지 0.5 s 남짓인 트랙의 속도로 통과를 확정해도 된다",
+    "holds": false,
+    "why": "s1512410496 t=0.48, s1687697385 t=11.48 에서 속도 방향과 크기가 실제와 크게 달랐음"
+   },
+   {
+    "assumption": "래치 중 0.5 s 검사만으로 제때 빠져나올 수 있다",
+    "holds": false,
+    "why": "0.5 s 검사가 실패할 때는 이미 모든 후보가 -0.80 이었음(3건 모두)"
+   },
+   {
+    "assumption": "모두 위험하면 cmin 최대 후보가 가장 안전하다",
+    "holds": false,
+    "why": "간격이 0에서 잘려 -0.80 동점이 되고 첫 후보인 path(1.2)가 뽑힘"
+   },
+   {
+    "assumption": "회전하며 출발해도 추적이 정확하다",
+    "holds": false,
+    "why": "출발 직후 -1.6 rad/s 회전 중 t=0.98 에 기둥 옆 (-9.91,-9.35) 가짜 트랙이 3개 실행에서 보임"
+   },
+   {
+    "assumption": "물체 왕복 구간은 관측으로 알 수 있다",
+    "holds": true,
+    "why": "구간이 잡힌 뒤 pass 실행 2건은 GOAL 근처에서 정렬하며 회피에 성공함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "고정 경유점, 센서 없음",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "거리 임계값 정지·후진",
+    "turns": "1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙+등속 rollout, 안전한 가장 빠른 후보 선택",
+    "turns": "2,3",
+    "result": "6/7, 6/9 (가장 좋음)"
+   },
+   {
+    "family": "rollout+강제 통과(통로 판정·되돌아옴·래치·반사 예측)",
+    "turns": "4,5",
+    "result": "0/3 정지, 2/5 충돌. 실패가 쌓인 계열"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "래치를 지우고 후보 점수를 '첫 위반 시각(늦을수록 좋음)→잘리지 않는 간격→느린 속도' 순으로 매김. 미성숙 트랙은 속도를 믿지 않고 반경이 커지는 원으로 봄",
+    "new_family": true,
+    "for": "충돌 3건 모두 -0.80 동점에서 path(1.2)를 고른 것과 미성숙 속도로 확정한 것이 원인임. 통로 안 정지는 위반 시각이 이르므로 자연히 계속 주행이 선택됨",
+    "risk": "보수적 원 모델 때문에 출발 시 대기가 늘어 실행당 시간이 60 s 를 넘을 수 있음"
+   },
+   {
+    "idea": "통로 진입 게이트: 성숙 트랙의 이동선 앞 정지점에서 기다렸다가, 횡단 시간 전체가 비어 있을 때만 진입",
+    "new_family": true,
+    "for": "s1512410496·s1928274860 은 출발 직후 이동선 x≈-7 을 경주하듯 건너다 뒤쪽 왼편을 맞음",
+    "risk": "이동선 판정이 틀리면 턴 4처럼 정지(stall)로 이어짐. 규칙이 복잡함"
+   },
+   {
+    "idea": "래치 유지, 확정 조건만 강화(트랙 1 s 이상, 2.5 s cmin 여유 0.2)",
+    "new_family": false,
+    "for": "변경이 작음",
+    "risk": "실패가 쌓인 계열이고 동점 선택 결함은 그대로 남음"
+   }
+  ],
+  "chosen": "첫 후보를 고릅니다. 3건의 직접 원인(동점에서 최고속 선택, 미성숙 속도로 확정)을 모두 없애고, 성적이 가장 좋던 rollout 선택 구조로 돌아가기 때문입니다.",
+  "target": "controller 선택부, _rollout, _clear_at/_mover_pos, _update_tracks, 래치 함수 삭제",
+  "direction": "1) 통과 확정 래치(controller.latch, _crossing_line, _latch_done)를 지웁니다. 매 호출마다 모든 후보를 다시 평가합니다. 2) _rollout 은 cmin 과 함께 간격이 처음 0 미만이 되는 시각 t_hit(없으면 99)를 돌려줍니다. 간격 d 는 0에서 자르지 말고, 몸체 안에 들면 몸체 중심까지 거리의 음수로 계산해 동점을 없앱니다. 3) 선택 규칙은 이렇습니다. 2.5 s 동안 위반이 없는 후보 중 가장 빠른 것을 고르고, 없으면 t_hit 가 가장 늦은 후보, 같으면 cmin 이 큰 후보, 그래도 같으면 느린 후보를 고릅니다(후진 허용 조건은 지금대로). 4) _update_tracks 에서 트랙 생성 시각과 속도 갱신 횟수를 기록합니다. 생긴 지 1.0 s 미만이거나 갱신이 3회 미만인 트랙은 속도를 0으로 두고, 반경을 _MOVER_R+0.7·τ(최대 +1.2 m)로 키워 예측합니다. 5) 직전 pose 차이로 잰 회전 속도가 0.6 rad/s 를 넘는 스캔에서는 트랙 위치만 갱신하고 속도는 갱신하지 않습니다. 6) 물체 위치·속도·시각 상수는 넣지 않습니다. DBG 에는 후보별 (t_hit, cmin)과 가장 가까운 트랙의 나이·갱신 횟수를 더해 출력합니다.",
+  "confidence": "medium"
+ },
+ "raw": "{\"failure_mode\": \"collision\",\n \"evidence\": [\"실패 3건 모두 1.2 m/s 주행 중 충돌입니다. 직전에 후보 cmin 이 전부 -0.80(바닥값)인데 path(1.2)를 골랐습니다: s1512410496 t=2.48·2.98, s1928274860 t=2.48·2.98, s1687697385 t=12.48·12.98. cmin 이 -0.80에서 잘려 모든 후보가 동점이 되고, 동점이면 목록 첫 후보인 path(1.2)가 뽑힙니다.\", \"래치가 틀린 속도로 확정됐습니다. s1512410496 은 t=0.48 트랙 v=(0.48,0.13)으로 committed=1 이 됐지만, 충돌 때 물체 상대속도는 (0,-0.64)로 남쪽 이동이었습니다. t=0.98 에는 path(1.2)=-0.80, path(0.5)=0.16 인데도 래치 때문에 path(1.2)를 유지했습니다. s1928274860 의 t=0.98 도 같습니다.\", \"s1687697385 는 t=9.2 에 4.37 m 거리에서 물체를 봤습니다. 그러나 t=11.48 트랙 속도가 v=(-0.04,-0.19)로 실제(서쪽 약 0.53 m/s)와 달랐습니다. t=11.98 에야 v=(-0.59,-0.23)이 됐고, 그때는 fix(0.0)까지 -0.80 이었습니다. t=10.98 에는 박스01 가장자리 (-2.85,-1.84)가 가짜 트랙으로 잡혔습니다.\"],\n \"assumptions\": [{\"assumption\": \"생긴 지 0.5 s 남짓인 트랙의 속도로 통과를 확정해도 된다\", \"holds\": false, \"why\": \"s1512410496 t=0.48, s1687697385 t=11.48 에서 속도 방향과 크기가 실제와 크게 달랐음\"},\n  {\"assumption\": \"래치 중 0.5 s 검사만으로 제때 빠져나올 수 있다\", \"holds\": false, \"why\": \"0.5 s 검사가 실패할 때는 이미 모든 후보가 -0.80 이었음(3건 모두)\"},\n  {\"assumption\": \"모두 위험하면 cmin 최대 후보가 가장 안전하다\", \"holds\": false, \"why\": \"간격이 0에서 잘려 -0.80 동점이 되고 첫 후보인 path(1.2)가 뽑힘\"},\n  {\"assumption\": \"회전하며 출발해도 추적이 정확하다\", \"holds\": false, \"why\": \"출발 직후 -1.6 rad/s 회전 중 t=0.98 에 기둥 옆 (-9.91,-9.35) 가짜 트랙이 3개 실행에서 보임\"},\n  {\"assumption\": \"물체 왕복 구간은 관측으로 알 수 있다\", \"holds\": true, \"why\": \"구간이 잡힌 뒤 pass 실행 2건은 GOAL 근처에서 정렬하며 회피에 성공함\"}],\n \"approach_families\": [{\"family\": \"고정 경유점, 센서 없음\", \"turns\": \"0\", \"result\": \"0/3\"},\n  {\"family\": \"거리 임계값 정지·후진\", \"turns\": \"1\", \"result\": \"0/3\"},\n  {\"family\": \"트랙+등속 rollout, 안전한 가장 빠른 후보 선택\", \"turns\": \"2,3\", \"result\": \"6/7, 6/9 (가장 좋음)\"},\n  {\"family\": \"rollout+강제 통과(통로 판정·되돌아옴·래치·반사 예측)\", \"turns\": \"4,5\", \"result\": \"0/3 정지, 2/5 충돌. 실패가 쌓인 계열\"}],\n \"candidates\": [{\"idea\": \"래치를 지우고 후보 점수를 '첫 위반 시각(늦을수록 좋음)→잘리지 않는 간격→느린 속도' 순으로 매김. 미성숙 트랙은 속도를 믿지 않고 반경이 커지는 원으로 봄\", \"new_family\": true, \"for\": \"충돌 3건 모두 -0.80 동점에서 path(1.2)를 고른 것과 미성숙 속도로 확정한 것이 원인임. 통로 안 정지는 위반 시각이 이르므로 자연히 계속 주행이 선택됨\", \"risk\": \"보수적 원 모델 때문에 출발 시 대기가 늘어 실행당 시간이 60 s 를 넘을 수 있음\"},\n  {\"idea\": \"통로 진입 게이트: 성숙 트랙의 이동선 앞 정지점에서 기다렸다가, 횡단 시간 전체가 비어 있을 때만 진입\", \"new_family\": true, \"for\": \"s1512410496·s1928274860 은 출발 직후 이동선 x≈-7 을 경주하듯 건너다 뒤쪽 왼편을 맞음\", \"risk\": \"이동선 판정이 틀리면 턴 4처럼 정지(stall)로 이어짐. 규칙이 복잡함\"},\n  {\"idea\": \"래치 유지, 확정 조건만 강화(트랙 1 s 이상, 2.5 s cmin 여유 0.2)\", \"new_family\": false, \"for\": \"변경이 작음\", \"risk\": \"실패가 쌓인 계열이고 동점 선택 결함은 그대로 남음\"}],\n \"chosen\": \"첫 후보를 고릅니다. 3건의 직접 원인(동점에서 최고속 선택, 미성숙 속도로 확정)을 모두 없애고, 성적이 가장 좋던 rollout 선택 구조로 돌아가기 때문입니다.\",\n \"target\": \"controller 선택부, _rollout, _clear_at/_mover_pos, _update_tracks, 래치 함수 삭제\",\n \"direction\": \"1) 통과 확정 래치(controller.latch, _crossing_line, _latch_done)를 지웁니다. 매 호출마다 모든 후보를 다시 평가합니다. 2) _rollout 은 cmin 과 함께 간격이 처음 0 미만이 되는 시각 t_hit(없으면 99)를 돌려줍니다. 간격 d 는 0에서 자르지 말고, 몸체 안에 들면 몸체 중심까지 거리의 음수로 계산해 동점을 없앱니다. 3) 선택 규칙은 이렇습니다. 2.5 s 동안 위반이 없는 후보 중 가장 빠른 것을 고르고, 없으면 t_hit 가 가장 늦은 후보, 같으면 cmin 이 큰 후보, 그래도 같으면 느린 후보를 고릅니다(후진 허용 조건은 지금대로). 4) _update_tracks 에서 트랙 생성 시각과 속도 갱신 횟수를 기록합니다. 생긴 지 1.0 s 미만이거나 갱신이 3회 미만인 트랙은 속도를 0으로 두고, 반경을 _MOVER_R+0.7·τ(최대 +1.2 m)로 키워 예측합니다. 5) 직전 pose 차이로 잰 회전 속도가 0.6 rad/s 를 넘는 스캔에서는 트랙 위치만 갱신하고 속도는 갱신하지 않습니다. 6) 물체 위치·속도·시각 상수는 넣지 않습니다. DBG 에는 후보별 (t_hit, cmin)과 가장 가까운 트랙의 나이·갱신 횟수를 더해 출력합니다.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c3t5_s1073698905",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 52.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4426,
+   "time_to_goal_s": 46.3
+  },
+  {
+   "run": "c3t5_s167745022",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 547.7,
+   "sim_time_s": 52.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 46.35,
+   "goal_dist_m": 0.4408,
+   "time_to_goal_s": 49.417
+  },
+  {
+   "run": "c3t5_s1512410496",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 495.4,
+   "sim_time_s": 9.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.017,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.22m/s",
+   "partner_rel_xy": [
+    -0.66,
+    0.48
+   ],
+   "closing_m_s": 0.37,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 0.92,
+   "goal_dist_m": 28.6071,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t5_s1687697385",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 486.3,
+   "sim_time_s": 19.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.25,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.18m/s",
+   "partner_rel_xy": [
+    -0.05,
+    -0.55
+   ],
+   "closing_m_s": 0.52,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 11.58,
+   "goal_dist_m": 17.4803,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t5_s1928274860",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 467.1,
+   "sim_time_s": 8.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.733,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.21m/s 회전 -0.5",
+   "partner_rel_xy": [
+    -0.29,
+    0.57
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 0.92,
+   "goal_dist_m": 27.996,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,149 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t47_s1380008166: 68.833 s 충돌, 로봇 정지, 이동 물체 1.01 m 앞, TTC≈5.5 s, 로봇 속도 0.8 m/s 유지",
+   "c2t47_s1788244914: 94.98 s 진행 정체 abort, 35번 제자리 회전 후 목표까지 30 m 남음, 물체 1.37 m 거리 -136° 방향 감지",
+   "c2t47_s442367643: 49.5 s 충돌, 로봇 회전 중, 물체 0.86 m 거리, 닫히는 속도 0.3 m/s, 최초 감지 44.53 s에 1.09 m"
+  ],
+  "assumptions": [
+   {
+    "assumption": "이동 물체는 2 D 라이다 2 m 이내에 충분히 점을 제공한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 1.5 m 거리에서 물체가 감지됨"
+   },
+   {
+    "assumption": "TTC < 0.5·_TTC_THRESH (0.75 s)이면 정지하면 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "충돌이 TTC≈5 s일 때도 발생, 정지 기준이 너무 늦음"
+   },
+   {
+    "assumption": "repulsion_weight = 1.5 와 escape_weight = 0.8 은 충분히 경로를 바꾼다",
+    "holds": false,
+    "why": "여러 실행에서 repulsion·escape 가 waypoint 방향을 압도하지 못해 충돌"
+   },
+   {
+    "assumption": "critical_dist = 0.8 m 은 임박 충돌을 잡아낸다",
+    "holds": false,
+    "why": "충돌 시 물체 거리 0.86 m 로 임계값을 초과했으나 이미 회전 중이었음"
+   },
+   {
+    "assumption": "속도 스케일링 v = max(_LOW_SPEED_MIN, _MAX_SPEED·(ttc/_TTC_THRESH))·cos(yaw_err) 은 안전 속도를 제공한다",
+    "holds": false,
+    "why": "ttc 가 5 s 이상일 때도 v 가 _MAX_SPEED 로 유지돼 물체와 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "simple detection + stop/rotate",
+    "turns": "1,5,8,13,14,21,26,30,33,39",
+    "result": "10 attempts, 15 passes (~30% 성공)"
+   },
+   {
+    "family": "detection range expansion",
+    "turns": "4,6,9,10,16,17,20,23,24,25,27,28,31,34,35,36,37,38",
+    "result": "18 attempts, 0 passes"
+   },
+   {
+    "family": "state‑machine stop/back/rotate/bypass",
+    "turns": "5,6,8,14,19,24,25,27,30,31,33,34,35,36,37,38,41,42,43,44,45,46,47",
+    "result": "23 attempts, 13 passes (~30% 성공)"
+   },
+   {
+    "family": "repulsion + TTC scaling (current)",
+    "turns": "44,45,46,47",
+    "result": "4 attempts, 0 passes"
+   },
+   {
+    "family": "RVO / velocity sampling",
+    "turns": "42",
+    "result": "1 attempt, 0 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Dynamic Window Approach: 속도(v,w) 후보를 샘플링하고 짧은 horizon(0.5 s) 동안 시뮬레이션해 정적·동적 장애물과 충돌 여부를 검사, 가장 안전하고 목표 진행도가 높은 후보 선택",
+    "new_family": true,
+    "for": "직접 충돌 가능성을 평가하므로 TTC·repulsion 가중치에 의존하지 않음",
+    "risk": "샘플링 수가 많으면 연산량 증가, 안전 후보가 없을 경우 정지·대기 루프에 빠질 수 있음"
+   },
+   {
+    "idea": "critical_dist 를 1.5 m 로 확대하고, 물체가 감지되면 즉시 정지 후 1 s 대기, 대기 시간이 초과되면 좌·우 2 m 측면 우회점 생성 후 이동",
+    "new_family": false,
+    "for": "충돌 전 충분히 일찍 멈춰 물체가 지나가게 함",
+    "risk": "물체가 천천히 이동하면 지나치게 오래 대기해 정체가 발생"
+   },
+   {
+    "idea": "repulsion_weight 를 closing_speed / distance 로 동적으로 조정해 빠르게 접근하는 물체에 대해 강한 반발력 적용",
+    "new_family": false,
+    "for": "접근 속도가 큰 물체에 대해 더 큰 회피 유도",
+    "risk": "노이즈가 큰 라이다 점에 과도하게 반응해 진동·과도 회전 발생"
+   }
+  ],
+  "chosen": "Dynamic Window Approach 를 선택, 직접 충돌 가능성을 평가해 안전한 속도를 선택함으로써 현재 TTC·가중치 기반 회피의 근본적인 한계를 해결한다.",
+  "target": "controller (및 새 보조 함수 _sample_velocities, _simulate_trajectory, _is_safe)",
+  "direction": "1) controller 초기화 시 max_speed=0.8, max_rot=1.5 설정을 유지한다. 2) 매 프레임 _sample_velocities 로 v∈[0,_MAX_SPEED]를 5단계, w∈[-1.5,1.5]를 7단계 샘플링한다. 3) 각 (v,w) 에 대해 _simulate_trajectory 로 0.5 s 동안 로봇 궤적을 예측하고, moving_pts 와 추정 속도(moving_vels) 로 물체 위치를 선형 예측한다. 4) _is_safe 가 정적 장애물과 예측된 물체 위치와의 최소 거리 ≥ _SAFE_DIST(0.5 m) 를 만족하면 안전 후보로 간주한다. 5) 안전 후보 중 목표와의 진행 방향 점수와 속도 점수를 가중합해 최적 (v,w) 를 선택한다. 6) 선택된 (v,w) 를 반환하고, 안전 후보가 없을 경우 v=0, w=0 로 정지 후 1 s 대기 후 재시도한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c2t47_s1380008166: 68.833 s 충돌, 로봇 정지, 이동 물체 1.01 m 앞, TTC≈5.5 s, 로봇 속도 0.8 m/s 유지\",\n    \"c2t47_s1788244914: 94.98 s 진행 정체 abort, 35번 제자리 회전 후 목표까지 30 m 남음, 물체 1.37 m 거리 -136° 방향 감지\",\n    \"c2t47_s442367643: 49.5 s 충돌, 로봇 회전 중, 물체 0.86 m 거리, 닫히는 속도 0.3 m/s, 최초 감지 44.53 s에 1.09 m\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"이동 물체는 2 D 라이다 2 m 이내에 충분히 점을 제공한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 1.5 m 거리에서 물체가 감지됨\"\n    },\n    {\n      \"assumption\": \"TTC < 0.5·_TTC_THRESH (0.75 s)이면 정지하면 충돌을 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"충돌이 TTC≈5 s일 때도 발생, 정지 기준이 너무 늦음\"\n    },\n    {\n      \"assumption\": \"repulsion_weight = 1.5 와 escape_weight = 0.8 은 충분히 경로를 바꾼다\",\n      \"holds\": false,\n      \"why\": \"여러 실행에서 repulsion·escape 가 waypoint 방향을 압도하지 못해 충돌\"\n    },\n    {\n      \"assumption\": \"critical_dist = 0.8 m 은 임박 충돌을 잡아낸다\",\n      \"holds\": false,\n      \"why\": \"충돌 시 물체 거리 0.86 m 로 임계값을 초과했으나 이미 회전 중이었음\"\n    },\n    {\n      \"assumption\": \"속도 스케일링 v = max(_LOW_SPEED_MIN, _MAX_SPEED·(ttc/_TTC_THRESH))·cos(yaw_err) 은 안전 속도를 제공한다\",\n      \"holds\": false,\n      \"why\": \"ttc 가 5 s 이상일 때도 v 가 _MAX_SPEED 로 유지돼 물체와 충돌\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"simple detection + stop/rotate\",\n      \"turns\": \"1,5,8,13,14,21,26,30,33,39\",\n      \"result\": \"10 attempts, 15 passes (~30% 성공)\"\n    },\n    {\n      \"family\": \"detection range expansion\",\n      \"turns\": \"4,6,9,10,16,17,20,23,24,25,27,28,31,34,35,36,37,38\",\n      \"result\": \"18 attempts, 0 passes\"\n    },\n    {\n      \"family\": \"state‑machine stop/back/rotate/bypass\",\n      \"turns\": \"5,6,8,14,19,24,25,27,30,31,33,34,35,36,37,38,41,42,43,44,45,46,47\",\n      \"result\": \"23 attempts, 13 passes (~30% 성공)\"\n    },\n    {\n      \"family\": \"repulsion + TTC scaling (current)\",\n      \"turns\": \"44,45,46,47\",\n      \"result\": \"4 attempts, 0 passes\"\n    },\n    {\n      \"family\": \"RVO / velocity sampling\",\n      \"turns\": \"42\",\n      \"result\": \"1 attempt, 0 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Dynamic Window Approach: 속도(v,w) 후보를 샘플링하고 짧은 horizon(0.5 s) 동안 시뮬레이션해 정적·동적 장애물과 충돌 여부를 검사, 가장 안전하고 목표 진행도가 높은 후보 선택\",\n      \"new_family\": true,\n      \"for\": \"직접 충돌 가능성을 평가하므로 TTC·repulsion 가중치에 의존하지 않음\",\n      \"risk\": \"샘플링 수가 많으면 연산량 증가, 안전 후보가 없을 경우 정지·대기 루프에 빠질 수 있음\"\n    },\n    {\n      \"idea\": \"critical_dist 를 1.5 m 로 확대하고, 물체가 감지되면 즉시 정지 후 1 s 대기, 대기 시간이 초과되면 좌·우 2 m 측면 우회점 생성 후 이동\",\n      \"new_family\": false,\n      \"for\": \"충돌 전 충분히 일찍 멈춰 물체가 지나가게 함\",\n      \"risk\": \"물체가 천천히 이동하면 지나치게 오래 대기해 정체가 발생\"\n    },\n    {\n      \"idea\": \"repulsion_weight 를 closing_speed / distance 로 동적으로 조정해 빠르게 접근하는 물체에 대해 강한 반발력 적용\",\n      \"new_family\": false,\n      \"for\": \"접근 속도가 큰 물체에 대해 더 큰 회피 유도\",\n      \"risk\": \"노이즈가 큰 라이다 점에 과도하게 반응해 진동·과도 회전 발생\"\n    }\n  ],\n  \"chosen\": \"Dynamic Window Approach 를 선택, 직접 충돌 가능성을 평가해 안전한 속도를 선택함으로써 현재 TTC·가중치 기반 회피의 근본적인 한계를 해결한다.\",\n  \"target\": \"controller (및 새 보조 함수 _sample_velocities, _simulate_trajectory, _is_safe)\",\n  \"direction\": \"1) controller 초기화 시 max_speed=0.8, max_rot=1.5 설정을 유지한다. 2) 매 프레임 _sample_velocities 로 v∈[0,_MAX_SPEED]를 5단계, w∈[-1.5,1.5]를 7단계 샘플링한다. 3) 각 (v,w) 에 대해 _simulate_trajectory 로 0.5 s 동안 로봇 궤적을 예측하고, moving_pts 와 추정 속도(moving_vels) 로 물체 위치를 선형 예측한다. 4) _is_safe 가 정적 장애물과 예측된 물체 위치와의 최소 거리 ≥ _SAFE_DIST(0.5 m) 를 만족하면 안전 후보로 간주한다. 5) 안전 후보 중 목표와의 진행 방향 점수와 속도 점수를 가중합해 최적 (v,w) 를 선택한다. 6) 선택된 (v,w) 를 반환하고, 안전 후보가 없을 경우 v=0, w=0 로 정지 후 1 s 대기 후 재시도한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c2t47_s1380008166",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 68.833,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -1.01,
+    0.12
+   ],
+   "closing_m_s": 0.28,
+   "stop_turns": 36,
+   "first_seen_within_2m_t": 63.92,
+   "goal_dist_m": 30.0839,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t47_s1788244914",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 94.98,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": 90.08,
+   "goal_dist_m": 30.3207,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t47_s442367643",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 49.5,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +0.7rad/s",
+   "partner_rel_xy": [
+    -0.72,
+    0.49
+   ],
+   "closing_m_s": 0.3,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 44.53,
+   "goal_dist_m": 30.0714,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

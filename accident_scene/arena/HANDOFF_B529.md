@@ -180,3 +180,40 @@ cat results/turns/prompt_b5_29/sequential.log
 1. fast 후보 상한 5.0 m/s는 실질적으로 쓰이지 않는다. 탈출처럼 1.5로 맞출지.
 2. 라이다가 살아난 상태에서 1.5 m/s가 움직이는 장애물(0.5~0.6 m/s)에 대해 충분히 안전한지 — 4절 3단계로 판단.
 3. 감속 가정 `linear_decel_m_s2: 2.0`이 실제 Carter와 맞는지 — 4절 3단계 궤적에 급정거 구간이 있으면 잰다.
+
+## 6. fractal 결과 (2026-11-14, crojjang 계정, 드라이버 580.173.02)
+
+환경: 3절대로 구축. 차이점 — 첫 `install.sh`에서 스모크 테스트가 바로 통과했고(`cmd_vel drive WORKS, odom sub WORKS`)
+qdldl도 정상 로드돼(OSQP 풀이 확인) 재빌드·두 번째 실행은 하지 않았다. "viewport suppressed" 안내 없음.
+LLM은 jun의 vLLM(127.0.0.1:8420)을 사용자 허락 하에 썼다. `/tmp/carter_run_serial.lock`이 jun 소유(644)라
+`CARTER_LOCK=/tmp/carter_run_serial_crojjang.lock`, `ROS_DOMAIN_ID=37`.
+
+### 4절 1~3단계 (모두 `ARENA_MOVERS=v1 CARTER_CONTACT_ALL_LINKS=1`)
+
+| variant | 판정 | 도달 | 최종 거리 | 충돌 | 비고 |
+|---|---|---|---|---|---|
+| `probe_lidar_pB528_a1` | pass | 61.73 s | 0.462 | 0 | **라이다 정상**: front/back 약 2,170점, 추적 물체 0~3 |
+| `regrade_movers_pB528_a1` | pass | 61.67 s | 0.469 | 0 | 공식 기록 61.55 s / 0.467 과 일치 |
+| `speedx5t04_test_pB528_a1` (녹화 켬) | pass | **38.32 s** | 0.106 | 0 | 평균 0.97, 최고 1.51 m/s. 595 서버(라이다 없음) 25.2 s보다 느림 |
+
+- 3단계 chooser 선택: follow 50, stop 14, slow 8, back 5, turn_r 1. **fast는 0회**(5절 1번 그대로).
+- 움직이는 장애물 최소 거리 `obj_min` 0.57 m, 충돌 0 → 이 한 번의 실행에서는 1.5 m/s가 안전(5절 2번).
+- 급정거 2회(15.5 s, 20.5 s 부근): 0.5 s 창 기준 최대 감속 약 **2.0 m/s²** — 가정값 `linear_decel_m_s2: 2.0`과 일치(5절 3번).
+  다만 base가 이 가정으로 명령을 낸 결과일 수 있어 Carter의 물리적 한계를 잰 것은 아니다.
+- 궤적 영상 `results/speedx5t04_test_pB528_a1_topdown.mp4`, Isaac 프레임 `results/frames_speedx5t04_test_pB528_a1/`.
+  녹화는 타이밍을 약간 바꾸므로 판정은 참고용.
+
+### 4절 4단계: B-5-29 모델 실험 (`run_b529_sequential.sh`, 20:09~22:04)
+
+| 시료 | 턴 | 판정 | 최종 거리 | 충돌 | 시험 주행 | 비고 |
+|---|---|---|---|---|---|---|
+| a0 | t1 | **정적 실격** | — | — | 7회(전부 600 s 시간 초과, 21~32 m) | 제출 코드 1543행 구문 오류 |
+| a0 | t2 | fail | 15.75 | 0 | 1회(fail) | (2.99, 1.57)에서 정지, stop 1,143회 |
+| a1 | t1 | fail | 12.35 | 0 | 0회 | 57.9 s 이후 (5.28, 4.45)에서 정지, stop 1,139회 |
+| a1 | t2 | fail | 15.45 | 0 | 0회 | 53.7 s 이후 (3.05, 1.86) 부근 정체, stop 630 / follow 560 |
+
+- a0·a1 모두 fail → 규칙대로 a2·a3는 돌지 않았다. B-5-28(같은 프롬프트, 속도 1배)은 a0~a3 모두 pass였다.
+- 실패 양상은 모두 **충돌 없는 교착**: chooser가 `stop_safe`만 고르며 수백 초 정지. 같은 v17 base에 B-5-28 a1 코드를 넣은
+  `speedx5t04_test`는 pass이므로, 모델이 새로 쓴 코드와 5배 속도 조합에서 안전 판정이 막히는 것으로 보인다(원인 분석은 미착수).
+- a0 t1 시험 주행들도 같은 양상: 약 50 s에 (-9.05, -4.5) 부근에서 멈추고 지도 여유가 0.40→0.01 m로 줄며 벽 쪽으로 밀림.
+- 산출물: `results/turns/prompt_b5_29/`(대화·채점 기록, `isaac_logs/`), `results/gpu_gpt_oss_120b_pB529_*`.

@@ -1,0 +1,209 @@
+{
+ "turn": 9,
+ "started": "2026-11-15 19:21:22",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c2_turn8/gpu_gpt_oss_120b_pC2t8_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t8_s1902318549: 물체 상대 위치 (0.18, -0.66) → 베어링 -74° > ±45° 검출 각도, 감지 안 됨",
+   "c2t8_s1042624892: 물체 상대 위치 (0.39, 0.51) → 베어링 53° > ±45°, 감지 안 됨",
+   "c2t8_s1870013444: 물체 상대 위치 (0.23, 0.52) → 베어링 66° > ±45°, 감지 안 됨"
+  ],
+  "target": "detect_moving_any",
+  "direction": "detect_moving_any에서 사용되는 _DETECT_ANGLE를 ±90°(np.deg2rad(90)) 로 확대한다. _DETECT_DIST를 1.5 m(또는 2.0 m) 로 늘려 조기 감지를 확보한다. _MIN_MOVING_POINTS를 2로 낮춰 작은 물체도 감지한다. 이렇게 하면 측면·약간 뒤쪽 물체도 감지돼 회피 로직이 정상 작동한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 기존 탐지 각도가 ±45°에 머물러 측면·후방에서 접근하는 움직이는 물체를 놓치고 있었으며, 탐지 거리와 최소 점 개수도 너무 제한적이어서 빠른 회피가 불가능했습니다. _​DETECT_ANGLE 를 ±90°로 확대하고 _​DETECT_DIST 를 1.5 m 로 늘려 조기·전방·측면 감지를 확보했으며, _​MIN_MOVING_POINTS 를 2 로 낮춰 작은 물체도 인식하도록 하여 controller 의 회피 로직이 정상 작동하도록 수정했습니다.",
+   "changed": [
+    "_DETECT_ANGLE",
+    "_DETECT_DIST",
+    "_MIN_MOVING_POINTS"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "_DETECT_ANGLE를 ±90°로 확대",
+      "implemented": true,
+      "note": "코드에서 _DETECT_ANGLE = np.deg2rad(90.0) 로 정의됨"
+     },
+     {
+      "instruction": "_DETECT_DIST를 1.5 m 로 늘림",
+      "implemented": true,
+      "note": "코드에서 _DETECT_DIST = 1.5 로 정의됨"
+     },
+     {
+      "instruction": "_MIN_MOVING_POINTS를 2 로 낮춤",
+      "implemented": true,
+      "note": "코드에서 _MIN_MOVING_POINTS = 2 로 정의됨"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 기존 탐지 각도가 ±45°에 머물러 측면·후방에서 접근하는 움직이는 물체를 놓치고 있었으며, 탐지 거리와 최소 점 개수도 너무 제한적이어서 빠른 회피가 불가능했습니다. _​DETECT_ANGLE 를 ±90°로 확대하고 _​DETECT_DIST 를 1.5 m 로 늘려 조기·전방·측면 감지를 확보했으며, _​MIN_MOVING_POINTS 를 2 로 낮춰 작은 물체도 인식하도록 하여 controller 의 회피 로직이 정상 작동하도록 수정했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1161366290,
+  1390732864,
+  1665730499,
+  198415932,
+  1942017232,
+  1238596624,
+  1172799991
+ ],
+ "sim_used_s": 578.5,
+ "verdicts": {
+  "1161366290": "fail",
+  "1390732864": "fail",
+  "1665730499": "fail",
+  "198415932": "fail",
+  "1942017232": "fail",
+  "1238596624": "fail",
+  "1172799991": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 71068,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t9_s1161366290: 첫 번째 비지도 물체가 2 m 이내에 감지된 시점 t=23.55 s와 충돌 시점 t=28.517 s 사이에 17번의 정지·회전 시도가 있었지만 여전히 정지 상태에서 충돌함.",
+   "run c2t9_s1390732864: 2 m 이내 감지는 t=153.32 s에 발생했으며, 87번의 정지·회전 후 t=157.317 s에 0.25 m/s 속도로 이동 중 충돌함.",
+   "run c2t9_s1238596624: 비지도 물체가 5 m 이내에 처음 보인 t=166.65 s 이후 정지·회전 루프에 빠져 173.2 s에 진행이 멈추어 스톨(abort)됨."
+  ],
+  "target": "controller",
+  "direction": "Detect moving objects earlier by raising _DETECT_DIST to 2.5 m and expanding _DETECT_ANGLE to ±120°. Add an 'avoid_wait' state that keeps v=0 while any moving object remains in the detection zone and only resumes after the object disappears for ≥1 s. If avoidance attempts exceed _MAX_AVOID_COUNT, create a temporary lateral waypoint ≈2 m opposite the object's bearing and navigate to it before returning to the original path. Lower _MIN_MOVING_POINTS to 1 and increase _AVOID_DURATION to 1 s for more reaction time.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c2t9_s1161366290",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 28.517,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.44,
+    0.55
+   ],
+   "closing_m_s": 0.39,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 23.55,
+   "goal_dist_m": 31.5939,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t9_s1390732864",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 157.317,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.25m/s",
+   "partner_rel_xy": [
+    -0.96,
+    -0.13
+   ],
+   "closing_m_s": 0.14,
+   "stop_turns": 87,
+   "first_seen_within_2m_t": 153.32,
+   "goal_dist_m": 28.9688,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t9_s1665730499",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 75.4,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +0.6rad/s",
+   "partner_rel_xy": [
+    -0.87,
+    -0.43
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 41,
+   "first_seen_within_2m_t": 72.45,
+   "goal_dist_m": 28.6965,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t9_s198415932",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 26.433,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.61m/s",
+   "partner_rel_xy": [
+    0.49,
+    0.06
+   ],
+   "closing_m_s": 0.1,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 21.52,
+   "goal_dist_m": 31.6479,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t9_s1942017232",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 44.633,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.60m/s 회전 -0.4",
+   "partner_rel_xy": [
+    0.44,
+    0.31
+   ],
+   "closing_m_s": 0.36,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 39.65,
+   "goal_dist_m": 31.9269,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t9_s1238596624",
+   "verdict": "fail",
+   "stall_abort_t": 173.2,
+   "collision_t": 171.567,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.36m/s",
+   "partner_rel_xy": [
+    12.9,
+    4.96
+   ],
+   "closing_m_s": -0.6,
+   "stop_turns": 87,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.4124,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t9_s1172799991",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 35.933,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.61m/s 회전 -0.4",
+   "partner_rel_xy": [
+    0.46,
+    -0.24
+   ],
+   "closing_m_s": 0.11,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 32.85,
+   "goal_dist_m": 31.7493,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 10개 중 1개 pass, 9개 fail (시뮬 시간 합계 223 s / 한도 600 s)\n#1 이번 코드(진단 \"controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.\" 반영, 검토 통과): 새 배치 10개 중 2개 pass, 8개 fail (시뮬 시간 합계 200 s / 한도 600 s)\n#2 이번 코드(진단 \"바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다. 해당 if 문을 수정해 외부 영역을 wall 로 인식하도록 바꾸면 움직이는 물체가 static으로 오인되지 않아 감지가 가능해진다.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 525 s / 한도 600 s)\n#4 이번 코드(진단 \"1) 확대된 탐지 범위: 거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 바꾼다. 2) _detect_moving_any에서 앞·뒤 라이다를 모두 사용해 위 조건을 적용한다. 3) 감지 시 v를 0으로 하고, 평균 베어링의 부호에 따라 회전(w=±0.6 rad/s)하거나, 거리 비례 감속을 추가한다. 4) 기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체를 조기에 차단한다.\" 반영, 검토 통과): 새 배치 10개 중 0개 pass, 10개 fail (시뮬 시간 합계 523 s / 한도 600 s)\n#5 이번 코드(진단 \"1) _DETECT_DIST을 1.0 m로, _DETECT_ANGLE을 ±45°(np.deg2rad(45))로 줄여 불필요한 측면 감지를 억제한다. 2) controller에 회피 상태 타이머를 도입해 물체가 감지되면 v=0, w=0으로 최대 2 s 정지 후, 여전히 물체가 있으면 작은 좌측/우측 회피 회전(w=±0.4 rad/s) 후 전진을 재개한다. 3) 회피 후 1 m 이내에 물체가 남아 있으면 다시 정지·대기, 그렇지 않으면 waypoint 추적으로 복귀한다. 4) 기존 _detect_moving_any은 그대로 두고, 위 로직으로 과도한 제자리 회전을 방지한다.\" 반영, 검토 통과): 새 배치 10개 중 4개 pass, 6개 fail (시뮬 시간 합계 338 s / 한도 600 s)\n#6 이번 코드(진단 \"1) _DETECT_DIST 를 2.0 m 로 확대하고 _DETECT_ANGLE 을 ±90°(np.deg2rad(90)) 로 넓힌다. 2) 움직이는 물체가 감지되면 즉시 v=0, w=0 으로 정지하고 _AVOID_DURATION 를 3 s 로 늘려 충분히 물체가 지나가게 한다. 3) 정지 후 물체가 여전히 감지되면 회전(w=±0.6 rad/s)으로 방향을 바꾸고 1 s 뒤 다시 전진을 재개한다. 4) 이 로직을 controller 의 상태 머신에 적용해 waypoint 추적을 재개한다.\" 반영, 검토 통과): 새 배치 9개 중 0개 pass, 9개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#8 이번 코드(진단 \"거리 임계값을 1.0 m 로 축소하고 방위각을 ±45° 로 좁힌다. 움직이는 물체 감지 시 즉시 전진을 멈추고 0.5 s 동안 뒤로 물러난 뒤, 1 s 동안 회전하고 그 후 최소 속도 0.3 m/s 로 전진을 재개한다. 동일 물체가 연속 감지되면 최대 3번까지만 정지‑회전 루프를 수행하고, 그 이후에는 저속 전진으로 우회한다. _DETECT_DIST, _DETECT_ANGLE, _AVOID_DURATION 및 상태머신을 위와 같이 수정한다.\" 반영, 검토 통과): 새 배치 10개 중 6개 pass, 4개 fail (시뮬 시간 합계 484 s / 한도 600 s)\n#9 이번 코드(진단 \"detect_moving_any에서 사용되는 _DETECT_ANGLE를 ±90°(np.deg2rad(90)) 로 확대한다. _DETECT_DIST를 1.5 m(또는 2.0 m) 로 늘려 조기 감지를 확보한다. _MIN_MOVING_POINTS를 2로 낮춰 작은 물체도 감지한다. 이렇게 하면 측면·약간 뒤쪽 물체도 감지돼 회피 로직이 정상 작동한다.\" 반영, 검토 통과): 새 배치 7개 중 0개 pass, 7개 fail (시뮬 시간 합계 578 s / 한도 600 s)",
+ "ended": "2026-11-15 19:37:18"
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"새 함수 _track_movers(pose) 를 만들고 점 거리 제한을 6 m 로 늘림\", \"implemented\": true, \"note\": \"_track_movers 에서 rr < 6.0 으로 거릅니다. 3 m 안 점은 raw·stat 용으로 따로 둡니다.\"},\n  {\"instruction\": \"물체 점을 to_world 로 바꿔 0.5 m 연결로 덩어리를 나눔\", \"implemented\": true, \"note\": \"wp = to_world(rob, pose) 를 씁니다. adj = d2 < 0.25 를 _clusters 에 넘깁니다(0.3 m 밀도 필터를 먼저 거침).\"},\n  {\"instruction\": \"덩어리 중심을 직전 트랙 중 0.8 m 안 최근접과 짝지음\", \"implemented\": true, \"note\": \"_update_tracks 에서 d < 0.8 쌍을 거리순으로 정렬해 탐욕 매칭합니다. 직전 트랙 위치에 등속 예측을 더한 점과 비교합니다.\"},\n  {\"instruction\": \"스캔 점이 바뀐 호출에서만 경과 시간(호출 수×1/60, 0.08 s 이상)으로 속도 계산\", \"implemented\": true, \"note\": \"f/b 배열이 같은 객체인지 보고 갱신합니다. dt = (step - ref_step)/60 >= 0.08 일 때만 속도를 구합니다.\"},\n  {\"instruction\": \"지수평균 α=0.5, 1.5 m/s 로 자름\", \"implemented\": true, \"note\": \"0.5*v + 0.5*rv 로 평균하고 sp > 1.5 이면 크기를 1.5 로 줄입니다.\"},\n  {\"instruction\": \"1 s 넘게 안 보인 트랙은 버림\", \"implemented\": true, \"note\": \"step - seen <= 60 인 트랙만 남깁니다.\"},\n  {\"instruction\": \"경유점 추종으로 (v_wp, w) 를 구하고 후보 v∈{v_wp, 0.5, 0.3, 0, -0.3}\", \"implemented\": true, \"note\": \"후보는 path 0.8/0.5/0.3(_pursuit_cmd 의 vmax), fix 0, fix -0.3 입니다. v_wp 는 기존처럼 0.8 로 제한됩니다.\"},\n  {\"instruction\": \"제자리 회전이면 v=0 에 w 후보 {w, 0}\", \"implemented\": true, \"note\": \"|e| > 0.35 이면 path 후보가 (0, w) 가 되고 fix 0 후보가 (0, 0) 이 됩니다.\"},\n  {\"instruction\": \"0–2.5 s 를 0.1 s 간격으로 굴려 _BODY 와 물체(중심+속도×τ, 반경 0.45) 최소 간격 예측\", \"implemented\": true, \"note\": \"_rollout 은 k=1..25 를 돌고 _clear_at 은 _BODY 사각형과 원의 거리를 잽니다. τ=0 은 빠졌지만 τ=0.1 과 거의 같아 영향이 작습니다.\"},\n  {\"instruction\": \"간격 0.35 m 이상 후보 중 가장 빠른 전진, 없으면 최소 간격 최대 후보\", \"implemented\": true, \"note\": \"cmin(간격-0.45-0.35) >= 0 인 첫 후보를 고르고, 없으면 평가한 후보 전체에서 best 를 고릅니다.\"},\n  {\"instruction\": \"뒤 0.45 m 안에 점이 있으면 후진 후보 제외\", \"implemented\": true, \"note\": \"rear_blocked 이면 v < 0 후보를 건너뜁니다. 정적 검사 _static_ok 가 추가로 들어 있습니다.\"},\n  {\"instruction\": \"기존 retreat 상태와 |y|<0.6 d_front 감속 삭제\", \"implemented\": true, \"note\": \"controller.retreat, near_fs, d_front 가 모두 없어졌습니다.\"},\n  {\"instruction\": \"정렬 단계 회전에도 같은 검사 적용\", \"implemented\": true, \"note\": \"align 일 때 후보는 align 회전, 정지, 후진이고 같은 선택 루프를 씁니다. done 도 정지 rollout 의 cmin >= 0 을 요구합니다.\"},\n  {\"instruction\": \"물체 위치·속도·시각을 상수로 넣지 않음\", \"implemented\": true, \"note\": \"물체 관련 상수는 반경 0.45 와 간격 0.35 뿐이고, t 는 쓰지 않습니다.\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"반경 0.45 에 간격 0.35 를 더하면 몸체에서 0.8 m 를 요구합니다. 좁은 통로나 물체가 많은 곳에서는 모든 후보가 탈락해 fallback 이 잦을 수 있습니다.\",\n  \"보이는 면만으로 잡은 중심이 흔들리면 α=0.5 속도 추정에 잡음이 커서, 정지 중 물체를 움직인다고 볼 수 있습니다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 33389,
+  "completion_tokens": 4671
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 44460,
+  "total_cost_usd": 0.360524,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4671,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 33387,
+    "webSearchRequests": 0,
+    "costUSD": 0.360524,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2822,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 33387,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "8f0cb92e-88a8-4501-9d59-cd758b31f004"
+ }
+}

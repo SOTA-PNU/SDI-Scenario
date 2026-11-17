@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-b5ed7d35bc42de92",
+ "object": "chat.completion",
+ "created": 1794735039,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유:  \n1. 기존 탐지 거리 1 m·±45°가 움직이는 물체를 너무 늦게 포착해 충돌이 발생했으므로, 탐지 범위를 **거리 2 m·±60°** 로 확대했습니다.  \n2. 회피 로직을 간소화하여 “정지 → 재검사 → 필요 시 짧은 회전 → 다시 정지” 루프만 사용하고, 기존 `rotate` 상태에서 불필요하게 장시간 회전하거나 바로 전진하는 상황을 제거했습니다.  \n3. 회전 단계는 평균 베어링 부호에 따라 회전 방향을 정하고, 고정된 **회전 시간**(1 s)만 수행하도록 하여 반복적인 정지‑회전‑정지 루프가 안전하게 동작하도록 했습니다.  \n\n```python\n# ---- detection parameters (expanded for moving objects) ----\n_DETECT_DIST = 2.0                     # [m] consider points up to 2 m away\n_DETECT_ANGLE = np.deg2rad(60.0)       # [rad] half‑plane (±60°) in front/back of robot\n\n# ---- avoidance timing ----\n_AVOID_DURATION = 2.5                  # [s] stop time after detection\n_AVOID_ROT_TIME = 1.0                  # [s] duration of the corrective rotation\n_AVOID_ROT_SPEED = 0.5                 # [rad/s] rotation speed during avoidance\n\n\ndef controller(t, pose, env):\n    \"\"\"Waypoint‑following with simple stop‑rotate‑stop avoidance.\n\n    States:\n        \"normal\"      – follow way‑points.\n        \"stop\"        – stay stopped for _AVOID_DURATION after a detection.\n        \"rotate\"      – rotate away from the object for _AVOID_ROT_TIME.\n    \"\"\"\n    # ---- one‑time static initialisation ---------------------------------\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0                # current waypoint index\n        controller.state = \"normal\"       # avoidance state\n        controller.timer = 0.0            # generic timer for stop/rotate\n        controller.avoid_dir = 0.0        # rotation direction during rotate\n\n    # ---- helper: enter stop state ---------------------------------------\n    def _enter_stop(bearing):\n        controller.state = \"stop\"\n        controller.timer = t + _AVOID_DURATION\n        # bearing > 0 → object on left → rotate right (negative)\n        controller.avoid_dir = -np.sign(bearing) if bearing != 0 else 1.0\n\n    # ---- avoidance state machine -----------------------------------------\n    if controller.state == \"stop\":\n        # stay stopped until timer expires\n        if t < controller.timer:\n            return 0.0, 0.0, False\n        # timer elapsed → check again\n        moving, bearing = _detect_moving_any(pose)\n        if moving:\n            # still present → start rotating\n            controller.state = \"rotate\"\n            controller.timer = t + _AVOID_ROT_TIME\n        else:\n            controller.state = \"normal\"\n        # fall through to handle possible new state this call\n\n    if controller.state == \"rotate\":\n        # rotate for the prescribed interval\n        if t < controller.timer:\n            return 0.0, float(controller.avoid_dir * _AVOID_ROT_SPEED), False\n        # rotation finished → go back to stop to re‑evaluate\n        _enter_stop(0.0)          # bearing not needed; direction already set\n        return 0.0, 0.0, False\n\n    # ---- normal navigation ------------------------------------------------\n    # detect moving objects – if found, enter stop state\n    moving, bearing = _detect_moving_any(pose)\n    if moving:\n        _enter_stop(bearing)\n        return 0.0, 0.0, False\n\n    # ---- goal‑alignment phase (after last waypoint) -----------------------\n    x, y, yaw = pose\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # ---- waypoint‑following ------------------------------------------------\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # advance to next waypoint if close enough (except for the goal)\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # ---- control law (same as proven static version) --------------------\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # trigger alignment after reaching the final waypoint\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return float(v), float(w), False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to propose modifications to improve detection and avoidance. The diagnostic suggests expanding detection distance to 2.0 m and angle to ±60°, and simplifying avoidance: immediate stop, wait up to 3 s, then if still close rotate small amount, repeat. Also remove rotate state to avoid unnecessary rotation.\n\nCurrent code has states normal, stop_wait, rotate. The detection distance is 1.0m, angle 45°. Collisions happen because moving objects are detected later. So we should increase detection distance to 2.0 and angle to 60°. Also adjust logic: when detection occurs, go to stop_wait, after wait, check again; if still moving, do a small rotation (maybe 0.4 rad/s) for a short duration (e.g., 1 sec) then stop again, then repeat until clear.\n\nSimplify: keep stop_wait state with timer, and a rotate state that rotates for fixed duration (maybe 1.5 sec) rather than indefinite based on detection.\n\nBut diagnostic suggests removing rotate state entirely, just stop and wait, then if still moving, rotate a bit then stop again. Could implement rotate as a substate within stop_wait? Simpler: have state \"avoid\" with subphase timer and mode (0=stop,1=rotate). Or keep rotate but ensure after rotation we go back to stop_wait.\n\nImplementation: define constants: _DETECT_DIST=2.0, _DETECT_ANGLE=deg2rad(60). _AVOID_DURATION=2.5 sec stop, _AVOID_ROT_TIME=1.0 sec rotation, _AVOID_ROT_SPEED=0.5 rad/s.\n\nIn controller: if state==\"normal\": detect; if moving -> set state=\"avoid_stop\", timer=t+_AVOID_DURATION, store bearing.\n\nIf state==\"avoid_stop\": if t<timer: return 0,0. else: check detection again; if moving: set state=\"avoid_rotate\", rot_end=t+_AVOID_ROT_TIME, direction based on bearing sign (rotate away). else: state=\"normal\". return 0,0.\n\nIf state==\"avoid_rotate\": if t<rot_end: return 0, direction*_AVOID_ROT_SPEED; else: state=\"avoid_stop\", timer=t+_AVOID_DURATION (maybe short) to re-evaluate.\n\nThus loop until clear.\n\nAlso need to adjust detection to use both lidars and filter static obstacles.\n\nAlso ensure _in_static_obstacle wall logic is correct (already correct). But maybe earlier bug fixed.\n\nWe need to output changed definitions only: modify _DETECT_DIST, _DETECT_ANGLE, maybe add new constants _AVOID_ROT_TIME, adjust controller logic (replace existing). Also maybe adjust _detect_moving_any to use new constants (it already uses them). So we need to replace controller function entirely with new logic.\n\nThus list changes: update _DETECT_DIST, _DETECT_ANGLE, add _AVOID_ROT_TIME, maybe adjust _AVOID_ROT_SPEED remains.\n\nProvide changed reason.\n\nNow produce answer: first paragraph with 변경 이유, then code block with definitions: updated constants, new controller, maybe helper functions unchanged.\n\nWe need to include only changed or added top-level definitions. That includes updated _DETECT_DIST, _DETECT_ANGLE, new _AVOID_ROT_TIME, and new controller function (replace old). Also maybe adjust _enter_stop_wait logic not needed, can remove but not required. We'll replace entire controller.\n\nThus output: change reason, then code block with new definitions.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 11603,
+  "total_tokens": 13582,
+  "completion_tokens": 1979,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 725
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

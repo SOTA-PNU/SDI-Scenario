@@ -1,0 +1,148 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "first_not_on_map: t=55.02, dist=1.88m, bearing=-4° shows moving object detected early and robot stopped (stop_turns=0)",
+   "last_5s_every_0.25s shows robot status '정지' continuously from 55.0 to 60.0 s, never resumes motion",
+   "stall_abort at t=60.0 with pose [-8.815, -10.593, 0.643] and only 0.277 m moved indicates robot stalled"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Moving objects can be avoided by simply stopping and waiting for them to pass",
+    "holds": false,
+    "why": "Object stays within detection range >5 s causing stall"
+   },
+   {
+    "assumption": "Object will clear detection zone within _AVOID_DURATION+_WAIT_CLEAR_TIME",
+    "holds": false,
+    "why": "First_not_on_map shows object persists beyond 5 s"
+   },
+   {
+    "assumption": "Moving‑object detection is reliable and becomes false once object leaves range",
+    "holds": false,
+    "why": "Detection stays true until simulation end"
+   },
+   {
+    "assumption": "After cooldown robot can resume waypoint navigation without replanning",
+    "holds": false,
+    "why": "No clear period, robot never resumes"
+   },
+   {
+    "assumption": "Static‑obstacle filter correctly classifies all non‑moving points",
+    "holds": true,
+    "why": "No evidence of static mis‑classification causing false positives"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Wall detection fix only",
+    "turns": "2",
+    "result": "7/10 passes"
+   },
+   {
+    "family": "Stop‑wait detection (no bypass/repulsion)",
+    "turns": "4,5,6,8,9,10,11,12,13,14,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31,35,37",
+    "result": "15/27 passes (mostly stalls)"
+   },
+   {
+    "family": "Bypass waypoint generation",
+    "turns": "19,24,25,33,34,36",
+    "result": "0/6 passes"
+   },
+   {
+    "family": "Repulsion / potential‑field",
+    "turns": "31,33,34,35,36",
+    "result": "0/5 passes"
+   },
+   {
+    "family": "Consecutive detection counter",
+    "turns": "13,30",
+    "result": "2/5 passes"
+   },
+   {
+    "family": "Moving persistence time",
+    "turns": "37",
+    "result": "0/3 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Integrate repulsive vector from moving points into heading and speed, using _moving_points_repulsion and _repulsive_vector, while keeping waypoint navigation; add critical‑stop via _detect_critical for very close objects",
+    "new_family": true,
+    "for": "stops stall by steering around moving objects instead of waiting",
+    "risk": "repulsion may cause oscillations or collisions with static obstacles if weighting is wrong"
+   },
+   {
+    "idea": "When moving object detected for longer than _WAIT_CLEAR_TIME, compute a lateral bypass waypoint with _compute_bypass_target and insert it into the waypoint list, then navigate around the object",
+    "new_family": true,
+    "for": "provides explicit path around object, avoids long waiting",
+    "risk": "bypass point may be unreachable or cause detour into static obstacles"
+   },
+   {
+    "idea": "Add a backing‑and‑rotation maneuver after stop (v=0) for a fixed distance before resuming, similar to earlier attempts but with adaptive duration based on object distance",
+    "new_family": false,
+    "for": "clears object from path",
+    "risk": "may still stall if object follows robot or if backing collides with static obstacles"
+   }
+  ],
+  "chosen": "Repulsion‑based steering (candidate 1) because it directly addresses the stall by allowing continuous motion around moving objects without relying on waiting periods.",
+  "target": "controller logic (replace stop‑wait state with repulsion‑adjusted navigation and critical stop)",
+  "direction": "1. In controller, call _detect_critical(pose); if true, set v=0,w=0 and stay in a new 'critical_stop' state until clear. 2. Otherwise obtain moving points via _moving_points_repulsion(pose). 3. Compute repulsive unit vector with _repulsive_vector(pose, points). 4. Compute waypoint vector to current target. 5. Combine vectors: dir = waypoint_vec + _REPULSION_WEIGHT * repulsive_vec, then normalize. 6. Compute heading_error from dir, set v = _MAX_SPEED * max(0, cos(heading_error)) and w = _clamp(_KP_W * heading_error, -1.5, 1.5).",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"first_not_on_map: t=55.02, dist=1.88m, bearing=-4° shows moving object detected early and robot stopped (stop_turns=0)\",\n    \"last_5s_every_0.25s shows robot status '정지' continuously from 55.0 to 60.0 s, never resumes motion\",\n    \"stall_abort at t=60.0 with pose [-8.815, -10.593, 0.643] and only 0.277 m moved indicates robot stalled\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Moving objects can be avoided by simply stopping and waiting for them to pass\",\n      \"holds\": false,\n      \"why\": \"Object stays within detection range >5 s causing stall\"\n    },\n    {\n      \"assumption\": \"Object will clear detection zone within _AVOID_DURATION+_WAIT_CLEAR_TIME\",\n      \"holds\": false,\n      \"why\": \"First_not_on_map shows object persists beyond 5 s\"\n    },\n    {\n      \"assumption\": \"Moving‑object detection is reliable and becomes false once object leaves range\",\n      \"holds\": false,\n      \"why\": \"Detection stays true until simulation end\"\n    },\n    {\n      \"assumption\": \"After cooldown robot can resume waypoint navigation without replanning\",\n      \"holds\": false,\n      \"why\": \"No clear period, robot never resumes\"\n    },\n    {\n      \"assumption\": \"Static‑obstacle filter correctly classifies all non‑moving points\",\n      \"holds\": true,\n      \"why\": \"No evidence of static mis‑classification causing false positives\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"Wall detection fix only\",\n      \"turns\": \"2\",\n      \"result\": \"7/10 passes\"\n    },\n    {\n      \"family\": \"Stop‑wait detection (no bypass/repulsion)\",\n      \"turns\": \"4,5,6,8,9,10,11,12,13,14,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31,35,37\",\n      \"result\": \"15/27 passes (mostly stalls)\"\n    },\n    {\n      \"family\": \"Bypass waypoint generation\",\n      \"turns\": \"19,24,25,33,34,36\",\n      \"result\": \"0/6 passes\"\n    },\n    {\n      \"family\": \"Repulsion / potential‑field\",\n      \"turns\": \"31,33,34,35,36\",\n      \"result\": \"0/5 passes\"\n    },\n    {\n      \"family\": \"Consecutive detection counter\",\n      \"turns\": \"13,30\",\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"Moving persistence time\",\n      \"turns\": \"37\",\n      \"result\": \"0/3 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Integrate repulsive vector from moving points into heading and speed, using _moving_points_repulsion and _repulsive_vector, while keeping waypoint navigation; add critical‑stop via _detect_critical for very close objects\",\n      \"new_family\": true,\n      \"for\": \"stops stall by steering around moving objects instead of waiting\",\n      \"risk\": \"repulsion may cause oscillations or collisions with static obstacles if weighting is wrong\"\n    },\n    {\n      \"idea\": \"When moving object detected for longer than _WAIT_CLEAR_TIME, compute a lateral bypass waypoint with _compute_bypass_target and insert it into the waypoint list, then navigate around the object\",\n      \"new_family\": true,\n      \"for\": \"provides explicit path around object, avoids long waiting\",\n      \"risk\": \"bypass point may be unreachable or cause detour into static obstacles\"\n    },\n    {\n      \"idea\": \"Add a backing‑and‑rotation maneuver after stop (v=0) for a fixed distance before resuming, similar to earlier attempts but with adaptive duration based on object distance\",\n      \"new_family\": false,\n      \"for\": \"clears object from path\",\n      \"risk\": \"may still stall if object follows robot or if backing collides with static obstacles\"\n    }\n  ],\n  \"chosen\": \"Repulsion‑based steering (candidate 1) because it directly addresses the stall by allowing continuous motion around moving objects without relying on waiting periods.\",\n  \"target\": \"controller logic (replace stop‑wait state with repulsion‑adjusted navigation and critical stop)\",\n  \"direction\": \"1. In controller, call _detect_critical(pose); if true, set v=0,w=0 and stay in a new 'critical_stop' state until clear. 2. Otherwise obtain moving points via _moving_points_repulsion(pose). 3. Compute repulsive unit vector with _repulsive_vector(pose, points). 4. Compute waypoint vector to current target. 5. Combine vectors: dir = waypoint_vec + _REPULSION_WEIGHT * repulsive_vec, then normalize. 6. Compute heading_error from dir, set v = _MAX_SPEED * max(0, cos(heading_error)) and w = _clamp(_KP_W * heading_error, -1.5, 1.5).\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c2t38_s434350356",
+   "verdict": "fail",
+   "stall_abort_t": 60.0,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 55.02,
+   "goal_dist_m": 31.8857,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t38_s428363152",
+   "verdict": "fail",
+   "stall_abort_t": 60.0,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 55.03,
+   "goal_dist_m": 31.9009,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t38_s695695011",
+   "verdict": "fail",
+   "stall_abort_t": 60.0,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 55.02,
+   "goal_dist_m": 31.9156,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,196 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "Run c5t30_s1221617743: collision at t=4.45 s, robot stopped, unmapped point first seen within 2 m at t=2.12 s, distance to object at impact 0.48 m (partner_rel_xy [0.48,0.19])",
+   "Run c5t30_s629553526: collision at t=3.78 s while robot moving 0.40 m/s, unmapped point first within 2 m at t=1.35 s, distance at impact 0.09 m forward",
+   "Run c5t30_s303176465: collision at t=147.37 s while robot moving 0.30 m/s, unmapped point first within 2 m at t=142.45 s, 58 stop‑turn episodes before impact"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Unmapped moving objects will be detected by lidar within 1.0 m before they become a collision threat",
+    "holds": false,
+    "why": "first_not_on_map shows detection at >1.9 m; reactive evasion only triggers at d<1.0 m, which is too late"
+   },
+   {
+    "assumption": "Backing away at 0.4 m/s for 0.5 s provides enough clearance",
+    "holds": false,
+    "why": "back distance ≈0.2 m, but closing speeds up to 0.75 m/s leave insufficient margin"
+   },
+   {
+    "assumption": "Rotating in place at ≤1.0 rad/s can reorient the robot away before impact",
+    "holds": false,
+    "why": "rotation may require >1 s while the object is already <1 m away"
+   },
+   {
+    "assumption": "Clearance‑hold keeps the robot stopped until the object is safely beyond 2.0 m",
+    "holds": false,
+    "why": "collisions occur while robot is stopped, indicating the hold released before the object cleared"
+   },
+   {
+    "assumption": "The VO planner will avoid any collision if a feasible trajectory exists",
+    "holds": false,
+    "why": "VO selects commands that still lead to collisions with unmapped points not represented as tracks"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Simple pause_until based on distance & shrinking",
+    "turns": "0",
+    "result": "1/4 passes, 3 collisions"
+   },
+   {
+    "family": "TTC‑based pause (raw TTC stop)",
+    "turns": "2,7,8,18,23,26",
+    "result": "mixed (4/7 passes overall), still collisions in many runs"
+   },
+   {
+    "family": "Gap detection & side detour",
+    "turns": "3,5,15,22",
+    "result": "0/3, 0/5, 0/3, 0/3 passes"
+   },
+   {
+    "family": "Predictive speed scaling",
+    "turns": "4,5,6,11,12,14",
+    "result": "2/5, 2/5, 3/6, 4/7, 2/5, 4/7 passes"
+   },
+   {
+    "family": "Velocity‑Obstacle (VO) planner",
+    "turns": "5,17,21",
+    "result": "2/5, 7/10, 1/4 passes (most successful family so far)"
+   },
+   {
+    "family": "3D lidar integration",
+    "turns": "6",
+    "result": "3/6 passes"
+   },
+   {
+    "family": "Potential‑field avoidance",
+    "turns": "11",
+    "result": "4/7 passes"
+   },
+   {
+    "family": "Dynamic‑Window Approach (DWA)",
+    "turns": "12",
+    "result": "2/5 passes"
+   },
+   {
+    "family": "Vector‑Field Histogram (VFH)",
+    "turns": "13",
+    "result": "0/3 passes"
+   },
+   {
+    "family": "A* replanning with dynamic grid",
+    "turns": "16",
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Synthetic tracks for unmapped points",
+    "turns": "24,25",
+    "result": "2/5 passes each"
+   },
+   {
+    "family": "Clear‑hold timing adjustments",
+    "turns": "27,28,29",
+    "result": "2/5, 0/3, 1/4 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Aggressive raw‑TTC based full stop with an extended clearance‑hold: when any unmapped point yields TTC < 1.0 s, command an immediate stop and keep the robot halted until the point stays beyond 2.5 m for at least 1 s, ignoring VO and other layers.",
+    "new_family": true,
+    "for": "prevent collisions when a fast‑approaching object is detected early",
+    "risk": "may increase stall time and reduce overall throughput"
+   },
+   {
+    "idea": "Increase reactive‑evasion thresholds: trigger at d < 1.5 m, use back‑up speed 0.8 m/s for 1.0 s, and rotate at up to 1.5 rad/s; also enlarge the cool‑down to avoid repeated triggers.",
+    "new_family": false,
+    "for": "give the robot more time and distance to separate from the object",
+    "risk": "could cause unnecessary stops or overshoot in tight corridors"
+   },
+   {
+    "idea": "Add a raw‑TTC gating layer before the VO planner: scan unmapped points within a ±30° forward cone, compute TTC for each, and if any TTC < 0.8 s force a stop (or short backup) and skip VO; resume VO only after TTC > 1.5 s for 0.5 s.",
+    "new_family": true,
+    "for": "ensure VO never selects a command that would intersect a fast‑approaching unmapped object",
+    "risk": "may increase the number of stop episodes if the TTC threshold is too aggressive"
+   }
+  ],
+  "chosen": "Candidate 3 is chosen because it directly blocks unsafe VO commands using an inexpensive raw‑TTC check, integrates cleanly with the existing VO pipeline, and addresses the core failure where unmapped points are not represented in VO tracks.",
+  "target": "controller (add raw‑TTC gating before _vo_planner) and a small helper function _raw_ttc_gate",
+  "direction": "1. Implement _raw_ttc_gate(st, pose) that extracts unmapped points via _unmapped_raw, filters those within a ±30° forward cone, and computes TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED). 2. In controller(), after _perceive and before any VO or speed logic, call _raw_ttc_gate; if it returns a pause duration, set st['pause_until']=max(st.get('pause_until',-1.0), t+pause) and return (0.0,0.0,False). 3. While paused, keep the clearance‑hold active (call _arm_clear_hold) so the robot stays stopped. 4. Only when t >= st['pause_until'] and the TTC of all forward points exceeds 1.5 s for 0.5 s, clear the pause flag and resume normal VO/predictive‑speed flow. 5. Ensure _guard is still applied to any backup command issued during the pause. 6. Tune the TTC thresholds (0.8 s for stop, 1.5 s for resume) based on observed closing speeds.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"Run c5t30_s1221617743: collision at t=4.45 s, robot stopped, unmapped point first seen within 2 m at t=2.12 s, distance to object at impact 0.48 m (partner_rel_xy [0.48,0.19])\",\n    \"Run c5t30_s629553526: collision at t=3.78 s while robot moving 0.40 m/s, unmapped point first within 2 m at t=1.35 s, distance at impact 0.09 m forward\",\n    \"Run c5t30_s303176465: collision at t=147.37 s while robot moving 0.30 m/s, unmapped point first within 2 m at t=142.45 s, 58 stop‑turn episodes before impact\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Unmapped moving objects will be detected by lidar within 1.0 m before they become a collision threat\",\n      \"holds\": false,\n      \"why\": \"first_not_on_map shows detection at >1.9 m; reactive evasion only triggers at d<1.0 m, which is too late\"\n    },\n    {\n      \"assumption\": \"Backing away at 0.4 m/s for 0.5 s provides enough clearance\",\n      \"holds\": false,\n      \"why\": \"back distance ≈0.2 m, but closing speeds up to 0.75 m/s leave insufficient margin\"\n    },\n    {\n      \"assumption\": \"Rotating in place at ≤1.0 rad/s can reorient the robot away before impact\",\n      \"holds\": false,\n      \"why\": \"rotation may require >1 s while the object is already <1 m away\"\n    },\n    {\n      \"assumption\": \"Clearance‑hold keeps the robot stopped until the object is safely beyond 2.0 m\",\n      \"holds\": false,\n      \"why\": \"collisions occur while robot is stopped, indicating the hold released before the object cleared\"\n    },\n    {\n      \"assumption\": \"The VO planner will avoid any collision if a feasible trajectory exists\",\n      \"holds\": false,\n      \"why\": \"VO selects commands that still lead to collisions with unmapped points not represented as tracks\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"Simple pause_until based on distance & shrinking\",\n      \"turns\": \"0\",\n      \"result\": \"1/4 passes, 3 collisions\"\n    },\n    {\n      \"family\": \"TTC‑based pause (raw TTC stop)\",\n      \"turns\": \"2,7,8,18,23,26\",\n      \"result\": \"mixed (4/7 passes overall), still collisions in many runs\"\n    },\n    {\n      \"family\": \"Gap detection & side detour\",\n      \"turns\": \"3,5,15,22\",\n      \"result\": \"0/3, 0/5, 0/3, 0/3 passes\"\n    },\n    {\n      \"family\": \"Predictive speed scaling\",\n      \"turns\": \"4,5,6,11,12,14\",\n      \"result\": \"2/5, 2/5, 3/6, 4/7, 2/5, 4/7 passes\"\n    },\n    {\n      \"family\": \"Velocity‑Obstacle (VO) planner\",\n      \"turns\": \"5,17,21\",\n      \"result\": \"2/5, 7/10, 1/4 passes (most successful family so far)\"\n    },\n    {\n      \"family\": \"3D lidar integration\",\n      \"turns\": \"6\",\n      \"result\": \"3/6 passes\"\n    },\n    {\n      \"family\": \"Potential‑field avoidance\",\n      \"turns\": \"11\",\n      \"result\": \"4/7 passes\"\n    },\n    {\n      \"family\": \"Dynamic‑Window Approach (DWA)\",\n      \"turns\": \"12\",\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"Vector‑Field Histogram (VFH)\",\n      \"turns\": \"13\",\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"A* replanning with dynamic grid\",\n      \"turns\": \"16\",\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"Synthetic tracks for unmapped points\",\n      \"turns\": \"24,25\",\n      \"result\": \"2/5 passes each\"\n    },\n    {\n      \"family\": \"Clear‑hold timing adjustments\",\n      \"turns\": \"27,28,29\",\n      \"result\": \"2/5, 0/3, 1/4 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Aggressive raw‑TTC based full stop with an extended clearance‑hold: when any unmapped point yields TTC < 1.0 s, command an immediate stop and keep the robot halted until the point stays beyond 2.5 m for at least 1 s, ignoring VO and other layers.\",\n      \"new_family\": true,\n      \"for\": \"prevent collisions when a fast‑approaching object is detected early\",\n      \"risk\": \"may increase stall time and reduce overall throughput\"\n    },\n    {\n      \"idea\": \"Increase reactive‑evasion thresholds: trigger at d < 1.5 m, use back‑up speed 0.8 m/s for 1.0 s, and rotate at up to 1.5 rad/s; also enlarge the cool‑down to avoid repeated triggers.\",\n      \"new_family\": false,\n      \"for\": \"give the robot more time and distance to separate from the object\",\n      \"risk\": \"could cause unnecessary stops or overshoot in tight corridors\"\n    },\n    {\n      \"idea\": \"Add a raw‑TTC gating layer before the VO planner: scan unmapped points within a ±30° forward cone, compute TTC for each, and if any TTC < 0.8 s force a stop (or short backup) and skip VO; resume VO only after TTC > 1.5 s for 0.5 s.\",\n      \"new_family\": true,\n      \"for\": \"ensure VO never selects a command that would intersect a fast‑approaching unmapped object\",\n      \"risk\": \"may increase the number of stop episodes if the TTC threshold is too aggressive\"\n    }\n  ],\n  \"chosen\": \"Candidate 3 is chosen because it directly blocks unsafe VO commands using an inexpensive raw‑TTC check, integrates cleanly with the existing VO pipeline, and addresses the core failure where unmapped points are not represented in VO tracks.\",\n  \"target\": \"controller (add raw‑TTC gating before _vo_planner) and a small helper function _raw_ttc_gate\",\n  \"direction\": \"1. Implement _raw_ttc_gate(st, pose) that extracts unmapped points via _unmapped_raw, filters those within a ±30° forward cone, and computes TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED). 2. In controller(), after _perceive and before any VO or speed logic, call _raw_ttc_gate; if it returns a pause duration, set st['pause_until']=max(st.get('pause_until',-1.0), t+pause) and return (0.0,0.0,False). 3. While paused, keep the clearance‑hold active (call _arm_clear_hold) so the robot stays stopped. 4. Only when t >= st['pause_until'] and the TTC of all forward points exceeds 1.5 s for 0.5 s, clear the pause flag and resume normal VO/predictive‑speed flow. 5. Ensure _guard is still applied to any backup command issued during the pause. 6. Tune the TTC thresholds (0.8 s for stop, 1.5 s for resume) based on observed closing speeds.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t30_s1221617743",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.45,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.48,
+    0.19
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 2.12,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t30_s629553526",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 589.5,
+   "sim_time_s": 9.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.783,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.40m/s",
+   "partner_rel_xy": [
+    0.09,
+    0.56
+   ],
+   "closing_m_s": 0.75,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 1.35,
+   "goal_dist_m": 31.938,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t30_s303176465",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 579.8,
+   "sim_time_s": 153.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 147.367,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    -0.35,
+    0.61
+   ],
+   "closing_m_s": 0.11,
+   "stop_turns": 58,
+   "first_seen_within_2m_t": 142.45,
+   "goal_dist_m": 5.8867,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

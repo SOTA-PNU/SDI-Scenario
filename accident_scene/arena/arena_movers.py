@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import os
+import random
 
 SCENARIOS = {
     # 0.6 x 0.6 x 1.0 m boxes, taller than both 2D lidar planes (0.42 m) and the scan plane (0.35 m).
@@ -29,6 +30,41 @@ SCENARIOS = {
 }
 
 
+# Randomised scenarios (2026-11-15): the lanes of a base scenario, with each mover's speed and its start position on
+# the lane (phase) drawn from a seeded RNG, so no controller can know where a mover will be from the run clock alone.
+# ARENA_MOVERS_SEED fixes the draw (reproduce a run); unset, every run draws a fresh seed. The seed and the drawn
+# values are printed by the harness and kept in results/<variant>_movers.json.
+RANDOMIZED = {
+    "v1r": {"lanes_of": "v1", "speed_range": (0.3, 0.8)},
+}
+_DRAWN = {}     # one draw per process: spawn and every physics step must see the same movers
+
+
+def seed_used():
+    return _DRAWN.get("seed")
+
+
+def _randomized(name):
+    if name in _DRAWN.get("by_name", {}):
+        return [dict(m) for m in _DRAWN["by_name"][name]]
+    spec = RANDOMIZED[name]
+    env_seed = os.environ.get("ARENA_MOVERS_SEED", "").strip()
+    seed = int(env_seed) if env_seed else random.SystemRandom().randrange(1, 2 ** 31)
+    rng = random.Random(seed)
+    lo, hi = spec["speed_range"]
+    out = []
+    for m in SCENARIOS[spec["lanes_of"]]:
+        m = dict(m)
+        (x0, y0), (x1, y1) = m["p0"], m["p1"]
+        L = math.hypot(x1 - x0, y1 - y0)
+        m["speed"] = round(rng.uniform(lo, hi), 4)
+        m["phase"] = round(rng.uniform(0.0, 2.0 * L / m["speed"]), 4)     # anywhere on the lane, either direction
+        out.append(m)
+    _DRAWN["seed"] = seed
+    _DRAWN.setdefault("by_name", {})[name] = out
+    return [dict(m) for m in out]
+
+
 def scenario_name():
     return os.environ.get("ARENA_MOVERS", "").strip() or None
 
@@ -38,8 +74,10 @@ def scenario(name=None):
     name = name or scenario_name()
     if not name:
         return []
+    if name in RANDOMIZED:
+        return _randomized(name)
     if name not in SCENARIOS:
-        raise ValueError(f"unknown ARENA_MOVERS scenario {name!r}; known: {sorted(SCENARIOS)}")
+        raise ValueError(f"unknown ARENA_MOVERS scenario {name!r}; known: {sorted(SCENARIOS) + sorted(RANDOMIZED)}")
     return [dict(m) for m in SCENARIOS[name]]
 
 

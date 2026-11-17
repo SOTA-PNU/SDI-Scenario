@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 chosen/direction(시간 확장 A* 대신 VO 플래너를 주 회피 수단으로)에 따라 controller 의 결정 블록을 다시 짰습니다. 추적 중인 물체가 _SAFE_DIST 이내이면(_NEAR_HOLD 동안 유지) 매 스텝 `_vo_planner(strict=False)` 로 명령을 고르고 `_guard` 로 최종 검사합니다. 이 모드에서는 A* 재계획을 건너뛰고 pause_until 을 초기화합니다. VO 가 1.0 s 넘게 해를 못 내면 그때만 `_replan_route`(A*)로 경로를 바꾸고 `_plan_speed` 로 천천히 진행합니다. 경유점 진행 로직은 새 경로를 받은 직후에도 다시 쓸 수 있도록 `_route_target` 으로 분리했습니다.\n\n```python\n_VO_FAIL_T = 1.0\n\n\ndef _route_target(st, pose):\n    \"\"\"Advance along the active route st[\"wps\"] and return the current target (x, y); None once the last point is\n    reached (goal alignment).  Pushed off the goal by more than 0.45 m -> back to the last route point.\"\"\"\n    x, y = pose[0], pose[1]\n    wps = st[\"wps\"]\n    n = len(wps)\n    if st[\"idx\"] >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.45:\n        st[\"idx\"] = n - 1\n    if st[\"idx\"] >= n:\n        return None\n    e = wps[st[\"idx\"]]\n    while st[\"idx\"] < n - 1 and math.hypot(e[0] - x, e[1] - y) < 0.35:\n        if e[2] >= 0:\n            st[\"orig_next\"] = max(st[\"orig_next\"], e[2] + 1)\n        st[\"idx\"] += 1\n        e = wps[st[\"idx\"]]\n    if st[\"idx\"] == n - 1 and math.hypot(e[0] - x, e[1] - y) < 0.25:\n        st[\"orig_next\"] = len(_WAYPOINTS)\n        st[\"idx\"] = n\n        return None\n    return (e[0], e[1])\n\n\ndef controller(t, pose, env):\n    \"\"\"Waypoint following with the VO planner as the primary mover avoidance (diagnosis: VO primary, A* fallback).\n    (1) perception + mover tracking; (2) route target via _route_target (goal alignment once the route is done);\n    (3) when a tracked mover is within _SAFE_DIST (held _NEAR_HOLD s): _vo_planner every step, result checked by\n    _guard; pause_until is cleared and A* is skipped.  Only when VO finds no command for more than _VO_FAIL_T s\n    the A* replanner (_replan_route, every _REPLAN_DT s) replaces the route, and the robot drives on it with\n    _plan_speed + _guard; (4) with no mover near: TTC pause, _predictive_speed, _guard.\"\"\"\n    if not hasattr(controller, \"st\"):\n        controller.st = {\"idx\": 0, \"prev\": None, \"vm\": 0.0, \"wz\": 0.0, \"tracks\": [],\n                         \"last_f\": None, \"last_b\": None, \"raw\": np.zeros((0, 2)), \"ttc\": float(\"inf\"),\n                         \"c3\": [], \"c3_seen\": [], \"p_t\": -1.0,\n                         \"um_src\": None, \"um\": np.zeros((0, 2)),\n                         \"pause_until\": -1.0, \"detour\": None, \"det_until\": -1.0,\n                         \"wps\": [(float(p[0]), float(p[1]), k) for k, p in enumerate(_WAYPOINTS)],\n                         \"orig_next\": 0, \"plan_t\": -1e9, \"plan_until\": -1.0, \"plan_pts\": None,\n                         \"vo_until\": -1.0, \"vo_none_since\": None, \"vo_prev\": None}\n    st = controller.st\n    x, y, yaw = pose\n\n    # ---- 1) perception and track update ----\n    _update_motion(st, t, pose)\n    _perceive(st, t, pose)\n    M = _track_array(st, t)\n\n    # ---- 2) route target / goal alignment ----\n    wp = _route_target(st, pose)\n    if wp is None:\n        st[\"vo_none_since\"] = None\n        e_goal = _wrap_angle(GOAL[2] - yaw)\n        if abs(e_goal) < 0.05:\n            if _margin(pose, st[\"vm\"], 0.0, 0.0, M, 4.0, 0.15)[0] >= 0.0:\n                return 0.0, 0.0, True\n            return 0.0, 0.0, False\n        v, w = _guard(st, pose, M, 0.0, _clamp(1.5 * e_goal, -0.6, 0.6))\n        return v, w, False\n\n    # ---- 3) mover near: VO planner first, A* only after VO has failed for > _VO_FAIL_T s ----\n    if len(M) and _min_gap(pose, M) <= _SAFE_DIST:\n        st[\"vo_until\"] = t + _NEAR_HOLD\n    if t < st[\"vo_until\"]:\n        st[\"pause_until\"] = -1.0\n        st[\"plan_until\"] = -1.0\n        cmd = _vo_planner(st, pose, wp, M, strict=False)\n        if cmd is not None:\n            st[\"vo_none_since\"] = None\n            v, w = _guard(st, pose, M, cmd[0], cmd[1])\n            return v, w, False\n        if st[\"vo_none_since\"] is None:\n            st[\"vo_none_since\"] = t\n        if (t - st[\"vo_none_since\"] > _VO_FAIL_T and len(M)\n                and t - st[\"plan_t\"] >= _REPLAN_DT):\n            new = _replan_route(st, t, pose, M)\n            st[\"plan_t\"] = t\n            if new is not None:\n                st[\"wps\"] = new\n                st[\"idx\"] = 0\n                st[\"detour\"] = None\n                wp2 = _route_target(st, pose)\n                if wp2 is not None:\n                    wp = wp2\n        v_nom, w_nom, _ = _follow(pose, wp)\n        vc = _plan_speed(st, pose, wp, min(v_nom, 1.0), M) if v_nom > 0.0 else 0.0\n        v, w = _guard(st, pose, M, vc, w_nom)\n        return v, w, False\n\n    # ---- 4) no mover near: TTC pause, predictive speed, final check ----\n    st[\"vo_none_since\"] = None\n    pause, _ttc = _dynamic_pause(st, pose, M)\n    if pause is not None and pause > 0.0:\n        st[\"pause_until\"] = t + pause\n    if t < st[\"pause_until\"]:\n        return 0.0, 0.0, False\n    v_nom, w_nom, _ = _follow(pose, wp)\n    vc = _predictive_speed(st, pose, wp, v_nom, M) if v_nom > 0.0 else 0.0\n    if vc is None:\n        vc = 0.0\n    v, w = _guard(st, pose, M, vc, w_nom)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 60516,
+  "completion_tokens": 6382
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 56690,
+  "total_cost_usd": 0.61176,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6382,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 60514,
+    "webSearchRequests": 0,
+    "costUSD": 0.61176,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3950,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 60514,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "58e14a62-91b0-41cd-ab72-f8b1999cbf44"
+ }
+}

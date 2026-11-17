@@ -1,0 +1,213 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t15_s499558197: collision at t=36.683 s, robot speed 0.66 m/s, mover 0.05 m ahead left‑right, closing speed 0.45 m/s, first seen 31.75 s (2 m).",
+   "c5t15_s2082648106: collision at t=54.583 s, robot speed 0.30 m/s, mover at (‑0.74, 0.51) m, closing speed 0.47 m/s, first seen 49.95 s (≈2 m).",
+   "c5t15_s698862054: progress abort at t=93.97 s after 54 stop‑turn episodes, robot never left start area (30.7 m from goal), indicating side‑detour caused deadlock."
+  ],
+  "assumptions": [
+   {
+    "assumption": "The robot can fully stop (|vm|<0.1) before a side detour is planned.",
+    "holds": true,
+    "why": "controller checks vm < 0.1 before calling _side_detour."
+   },
+   {
+    "assumption": "The nearest mover’s position and velocity estimated from lidar are accurate enough for safe detour planning.",
+    "holds": false,
+    "why": "first_not_on_map appears ~5 s after the mover enters 2 m range, causing outdated predictions and collisions."
+   },
+   {
+    "assumption": "A lateral offset of 0.8–1.2 m from the robot is always free of static obstacles.",
+    "holds": true,
+    "why": "_map_free and _segment_free verify static map before accepting a detour point."
+   },
+   {
+    "assumption": "Executing a side detour always yields a larger safety margin than staying stopped.",
+    "holds": false,
+    "why": "Collisions still occur after detour and a run aborts with progress‑abort, showing the margin can shrink."
+   },
+   {
+    "assumption": "After a detour the robot can resume waypoint following without re‑checking dynamic safety.",
+    "holds": false,
+    "why": "The progress‑abort run shows the robot got stuck after detour, indicating unsafe resumption."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline",
+    "turns": "0",
+    "result": "1/1 pass"
+   },
+   {
+    "family": "pause_init",
+    "turns": "1",
+    "result": "1/1 pass"
+   },
+   {
+    "family": "tcc_pause_dynamic",
+    "turns": "2",
+    "result": "4/5 pass"
+   },
+   {
+    "family": "min_gap_detour",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "predictive_speed",
+    "turns": "4",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "vo_planner",
+    "turns": "5",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "lidar3d_integration",
+    "turns": "6",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "ttc_stop_check",
+    "turns": "7",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "ttc_stop_check+vo",
+    "turns": "8",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "proximity_stop_and_backup",
+    "turns": "9",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "early_raw_stop",
+    "turns": "10",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "potential_field",
+    "turns": "11",
+    "result": "4/7 pass"
+   },
+   {
+    "family": "dwa",
+    "turns": "12",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "vfh",
+    "turns": "13",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "simplified_pause_dynamic",
+    "turns": "14",
+    "result": "4/7 pass"
+   },
+   {
+    "family": "side_detour",
+    "turns": "15",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "시간‑증강 A* 재계획: 매 사이클 현재 트랙을 3 s 뒤 위치로 예측해 동적 장애물 셀에 삽입하고, 2 m 격자에서 A* 로 새 경로를 생성해 웨이포인트를 교체한다.",
+    "new_family": true,
+    "for": "현재 로봇이 정지 후 측면 회피가 실패하는 이유는 정적 지도만 고려하고 움직이는 물체의 미래 위치를 반영하지 않음.",
+    "risk": "재계획 연산량이 1/60 s 주기에 맞지 않아 타임아웃이나 지연이 발생할 수 있다."
+   },
+   {
+    "idea": "카메라 기반 움직이는 물체 추적 및 차선 변경: front stereo 카메라 이미지에서 움직이는 상자를 색·모션으로 검출하고 속도 추정 후 1.5 m 좌/우 차선으로 이동, 차선 복귀 후 진행한다.",
+    "new_family": true,
+    "for": "라이다가 뒤쪽 물체를 놓치는 경우가 있어 카메라 시야를 활용하면 조기 감지가 가능.",
+    "risk": "이미지 처리 비용과 조명 변화로 검출 실패가 발생하면 오히려 잘못된 차선 선택으로 충돌할 위험이 있다."
+   },
+   {
+    "idea": "VO와 DWA 하이브리드 플래너: VO 로 위험 영역을 제외한 후보를 DWA 후보와 교차하고, 안전 마진을 동적으로 조정해 후보를 선택, 실패 시 정지 후 재시도한다.",
+    "new_family": false,
+    "for": "VO와 DWA 각각의 약점을 보완해 더 넓은 후보 집합을 제공, 기존 VO·DWA 실패 사례를 개선한다.",
+    "risk": "복합 비용 함수가 복잡해 파라미터 튜닝이 어려워 보수적 행동을 초래할 수 있다."
+   }
+  ],
+  "chosen": "시간‑증강 A* 재계획을 선택한다. 이는 움직이는 물체의 미래 위치를 명시적으로 고려해 경로를 전체적으로 수정하므로 현재 측면 회피가 충돌을 막지 못하는 근본 원인을 해결한다.",
+  "target": "controller, 새로운 replanner 함수, 시간‑증강 occupancy grid",
+  "direction": "1) 편집 영역 상단에 `_PLAN_HORIZON = 3.0` 초와 `_GRID_RES = 0.2` m 를 정의한다. 2) `_build_dynamic_grid(st, pose, M)` 함수를 추가해 정적 장애물과 현재 트랙을 `_PLAN_HORIZON` 동안 외삽한 mover 위치를 2‑D 격자에 표시한다. 3) `_replan_path(pose, goal, grid)` 함수를 구현해 A* 로 새로운 웨이포인트 시퀀스를 반환한다. 4) `controller` 에서 `_perceive` 후, mover가 `_SAFE_DIST` 이내이면 `_build_dynamic_grid`와 `_replan_path` 를 호출해 `_WAYPOINTS` 를 교체하고 `st[\"detour\"]`·`st[\"pause_until\"]` 를 초기화한다. 5) 기존 `_follow` 와 `_guard` 로 첫 웨이포인트를 추적하면서 안전 검사를 수행한다. 6) 새 경로가 생성될 때마다 `st[\"idx\"]` 를 0 으로 재설정해 전체 경로를 다시 따라가게 한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t15_s499558197: collision at t=36.683 s, robot speed 0.66 m/s, mover 0.05 m ahead left‑right, closing speed 0.45 m/s, first seen 31.75 s (2 m).\",\n    \"c5t15_s2082648106: collision at t=54.583 s, robot speed 0.30 m/s, mover at (‑0.74, 0.51) m, closing speed 0.47 m/s, first seen 49.95 s (≈2 m).\",\n    \"c5t15_s698862054: progress abort at t=93.97 s after 54 stop‑turn episodes, robot never left start area (30.7 m from goal), indicating side‑detour caused deadlock.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"The robot can fully stop (|vm|<0.1) before a side detour is planned.\",\n      \"holds\": true,\n      \"why\": \"controller checks vm < 0.1 before calling _side_detour.\"\n    },\n    {\n      \"assumption\": \"The nearest mover’s position and velocity estimated from lidar are accurate enough for safe detour planning.\",\n      \"holds\": false,\n      \"why\": \"first_not_on_map appears ~5 s after the mover enters 2 m range, causing outdated predictions and collisions.\"\n    },\n    {\n      \"assumption\": \"A lateral offset of 0.8–1.2 m from the robot is always free of static obstacles.\",\n      \"holds\": true,\n      \"why\": \"_map_free and _segment_free verify static map before accepting a detour point.\"\n    },\n    {\n      \"assumption\": \"Executing a side detour always yields a larger safety margin than staying stopped.\",\n      \"holds\": false,\n      \"why\": \"Collisions still occur after detour and a run aborts with progress‑abort, showing the margin can shrink.\"\n    },\n    {\n      \"assumption\": \"After a detour the robot can resume waypoint following without re‑checking dynamic safety.\",\n      \"holds\": false,\n      \"why\": \"The progress‑abort run shows the robot got stuck after detour, indicating unsafe resumption.\"\n    }\n  ],\n  \"approach_families\": [\n    { \"family\": \"baseline\", \"turns\": \"0\", \"result\": \"1/1 pass\" },\n    { \"family\": \"pause_init\", \"turns\": \"1\", \"result\": \"1/1 pass\" },\n    { \"family\": \"tcc_pause_dynamic\", \"turns\": \"2\", \"result\": \"4/5 pass\" },\n    { \"family\": \"min_gap_detour\", \"turns\": \"3\", \"result\": \"0/3 pass\" },\n    { \"family\": \"predictive_speed\", \"turns\": \"4\", \"result\": \"2/5 pass\" },\n    { \"family\": \"vo_planner\", \"turns\": \"5\", \"result\": \"2/5 pass\" },\n    { \"family\": \"lidar3d_integration\", \"turns\": \"6\", \"result\": \"3/6 pass\" },\n    { \"family\": \"ttc_stop_check\", \"turns\": \"7\", \"result\": \"0/3 pass\" },\n    { \"family\": \"ttc_stop_check+vo\", \"turns\": \"8\", \"result\": \"3/6 pass\" },\n    { \"family\": \"proximity_stop_and_backup\", \"turns\": \"9\", \"result\": \"0/3 pass\" },\n    { \"family\": \"early_raw_stop\", \"turns\": \"10\", \"result\": \"0/3 pass\" },\n    { \"family\": \"potential_field\", \"turns\": \"11\", \"result\": \"4/7 pass\" },\n    { \"family\": \"dwa\", \"turns\": \"12\", \"result\": \"2/5 pass\" },\n    { \"family\": \"vfh\", \"turns\": \"13\", \"result\": \"0/3 pass\" },\n    { \"family\": \"simplified_pause_dynamic\", \"turns\": \"14\", \"result\": \"4/7 pass\" },\n    { \"family\": \"side_detour\", \"turns\": \"15\", \"result\": \"0/3 pass\" }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"시간‑증강 A* 재계획: 매 사이클 현재 트랙을 3 s 뒤 위치로 예측해 동적 장애물 셀에 삽입하고, 2 m 격자에서 A* 로 새 경로를 생성해 웨이포인트를 교체한다.\",\n      \"new_family\": true,\n      \"for\": \"현재 로봇이 정지 후 측면 회피가 실패하는 이유는 정적 지도만 고려하고 움직이는 물체의 미래 위치를 반영하지 않음.\",\n      \"risk\": \"재계획 연산량이 1/60 s 주기에 맞지 않아 타임아웃이나 지연이 발생할 수 있다.\"\n    },\n    {\n      \"idea\": \"카메라 기반 움직이는 물체 추적 및 차선 변경: front stereo 카메라 이미지에서 움직이는 상자를 색·모션으로 검출하고 속도 추정 후 1.5 m 좌/우 차선으로 이동, 차선 복귀 후 진행한다.\",\n      \"new_family\": true,\n      \"for\": \"라이다가 뒤쪽 물체를 놓치는 경우가 있어 카메라 시야를 활용하면 조기 감지가 가능.\",\n      \"risk\": \"이미지 처리 비용과 조명 변화로 검출 실패가 발생하면 오히려 잘못된 차선 선택으로 충돌할 위험이 있다.\"\n    },\n    {\n      \"idea\": \"VO와 DWA 하이브리드 플래너: VO 로 위험 영역을 제외한 후보를 DWA 후보와 교차하고, 안전 마진을 동적으로 조정해 후보를 선택, 실패 시 정지 후 재시도한다.\",\n      \"new_family\": false,\n      \"for\": \"VO와 DWA 각각의 약점을 보완해 더 넓은 후보 집합을 제공, 기존 VO·DWA 실패 사례를 개선한다.\",\n      \"risk\": \"복합 비용 함수가 복잡해 파라미터 튜닝이 어려워 보수적 행동을 초래할 수 있다.\"\n    }\n  ],\n  \"chosen\": \"시간‑증강 A* 재계획을 선택한다. 이는 움직이는 물체의 미래 위치를 명시적으로 고려해 경로를 전체적으로 수정하므로 현재 측면 회피가 충돌을 막지 못하는 근본 원인을 해결한다.\",\n  \"target\": \"controller, 새로운 replanner 함수, 시간‑증강 occupancy grid\",\n  \"direction\": \"1) 편집 영역 상단에 `_PLAN_HORIZON = 3.0` 초와 `_GRID_RES = 0.2` m 를 정의한다. 2) `_build_dynamic_grid(st, pose, M)` 함수를 추가해 정적 장애물과 현재 트랙을 `_PLAN_HORIZON` 동안 외삽한 mover 위치를 2‑D 격자에 표시한다. 3) `_replan_path(pose, goal, grid)` 함수를 구현해 A* 로 새로운 웨이포인트 시퀀스를 반환한다. 4) `controller` 에서 `_perceive` 후, mover가 `_SAFE_DIST` 이내이면 `_build_dynamic_grid`와 `_replan_path` 를 호출해 `_WAYPOINTS` 를 교체하고 `st[\\\"detour\\\"]`·`st[\\\"pause_until\\\"]` 를 초기화한다. 5) 기존 `_follow` 와 `_guard` 로 첫 웨이포인트를 추적하면서 안전 검사를 수행한다. 6) 새 경로가 생성될 때마다 `st[\\\"idx\\\"]` 를 0 으로 재설정해 전체 경로를 다시 따라가게 한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t15_s499558197",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 42.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 36.683,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.66m/s",
+   "partner_rel_xy": [
+    0.05,
+    -0.56
+   ],
+   "closing_m_s": 0.45,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 31.75,
+   "goal_dist_m": 30.109,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t15_s2082648106",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 557.3,
+   "sim_time_s": 60.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 54.583,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    -0.74,
+    0.51
+   ],
+   "closing_m_s": 0.47,
+   "stop_turns": 34,
+   "first_seen_within_2m_t": 49.95,
+   "goal_dist_m": 29.153,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t15_s698862054",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 496.7,
+   "sim_time_s": 95.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 93.97,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 54,
+   "first_seen_within_2m_t": 89.02,
+   "goal_dist_m": 30.7022,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,211 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "실패한 s1870619065 는 충돌·정체·진행 중단이 모두 null 입니다. 마지막 기록인 42.3 s 에 로봇은 0.78 m/s 로 정상 주행 중이었고 GOAL 까지 16.18 m 남았습니다. 통과한 6회의 종료 시각(약 94.5·84.6·85.3·96.2·76.2·114.8 s) 합 약 552 s 에 42 s 를 더하면 시도 기록의 '합계 601 s / 한도 600 s' 와 맞습니다. 즉 충돌이 아니라 7회 공용 시뮬 예산이 바닥나 잘린 것으로 봅니다.",
+   "느린 원인은 GOAL 근처 맴돌기입니다. 4회(s1612·s2042·s2138·s885)는 GOAL 원 진입 후 약 11 s(83→94.5, 73→84.6, 84.9→96.2, 103.4→114.8)를 0.3 m/s 주행·0.8 m/s 재진입·제자리 회전을 되풀이했습니다. 그동안 3.1–3.7 m, 방위 120–155° 에 지도 밖 물체가 있었고 최종 거리는 0.38–0.42 m 로 복귀 문턱 0.45 m 바로 안쪽에 몰려 있습니다.",
+   "물체가 멀어지던 s1179(1.89 m, −149°)·s446(1.46 m, 177°)은 0.79 m/s 로 들어가 3 s 만에 끝났고 최종 거리 0.075·0.086 m 입니다. 7회 전부 충돌이 0회였지만 2 m 안 접근은 이 두 번(모두 뒤쪽, 멀어지는 중)뿐이어서 회피 성능은 거의 시험되지 않았습니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "높이 1.0 m 인 물체를 0.42 m 높이 2D 라이다로 볼 수 있다",
+    "holds": true,
+    "why": "하네스 first_not_on_map 이 7회 모두 같은 높이의 라이다로 물체를 잡았습니다"
+   },
+   {
+    "assumption": "부풀린 정적 지도에 없는 점 덩어리는 움직이는 물체다",
+    "holds": true,
+    "why": "정체·출발 대기가 없었습니다. 다만 GOAL 근처 3.3 m 물체가 무엇인지는 확인할 수 없습니다"
+   },
+   {
+    "assumption": "등속 예측 2.5 s 와 간격 0.8 m 기준이면 충돌을 막는다",
+    "holds": true,
+    "why": "충돌 0/7 입니다. 다만 근접 상황이 거의 없어 검증은 약합니다"
+   },
+   {
+    "assumption": "정렬 단계에서 모든 후보가 위험하면 간격이 가장 큰 후보(후진)로 물러나도 금방 끝난다",
+    "holds": false,
+    "why": "후진으로 0.45 m 밖에 나가면 다시 0.8 m/s 로 추종하는 왕복이 4회 각 약 11 s 이어졌습니다. 최종 거리가 0.40 m 근처에 몰린 것이 그 흔적입니다"
+   },
+   {
+    "assumption": "실행 시간은 결과에 영향이 없다",
+    "holds": false,
+    "why": "한 실행이 73–115 s 걸려(정적 48.6 s) 공용 예산 600 s 를 넘었고, 7번째 실행이 잘렸습니다"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 없는 경유점 추종",
+    "turns": "#0",
+    "result": "0/3"
+   },
+   {
+    "family": "거리 임계 감속·정지·후진 반응형",
+    "turns": "#1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙 추적 + 등속 예측 rollout 후보 선택",
+    "turns": "#2(이번)",
+    "result": "6/7 통과, 충돌 0, 실패 1은 예산 절단"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "rollout 구조는 유지하고 GOAL 마무리만 고친다: 목표 근처 감속, 복귀 문턱에 이력 두기, 정렬 단계에서는 짧은 구간이 위험할 때만 물러나기",
+    "new_family": false,
+    "for": "맴돌기 11 s×4회가 낭비의 대부분이고, 최종 거리가 0.45 m 문턱 바로 안에 몰려 있습니다",
+    "risk": "목표에서 정지한 채 다가오는 물체에 늦게 반응할 수 있습니다"
+   },
+   {
+    "idea": "주변 4 m 안에 트랙이 없으면 직선 구간 최고 속도를 1.0 m/s 로 올린다",
+    "new_family": false,
+    "for": "경로 약 44 m 를 0.8 m/s 로 가면 최소 62 s 로 시간 여유가 작습니다",
+    "risk": "반응 거리가 줄어 충돌 위험이 커지고, 상수만 바꾼 시도입니다"
+   },
+   {
+    "idea": "제자리에 오래 머무는 지도 밖 덩어리를 실행 중 정적 지도에 등록해 트랙에서 뺀다",
+    "new_family": true,
+    "for": "4개 배치에서 GOAL 근처 같은 상대 위치에 3.1–3.7 m 물체가 보였습니다",
+    "risk": "왕복 끝에서 잠시 멈춘 물체를 정적으로 오인하면 충돌합니다. 정적이라는 근거도 약합니다"
+   }
+  ],
+  "chosen": "후보 1: 충돌 없는 감지·예측 구조는 지키면서, 근거가 가장 뚜렷한 GOAL 마무리 낭비(실행당 약 11 s)만 없애 예산 안에 모든 실행이 끝나게 합니다.",
+  "target": "controller 의 GOAL 단계(정렬·done·복귀 조건)와 _pursuit_cmd 의 마지막 경유점 속도",
+  "direction": "_track_movers, _rollout, _MOVER_R, _MOVER_GAP, 후보 목록과 순서는 그대로 둡니다. _pursuit_cmd 에서 idx==n-1 이면 속도를 min(vmax, 0.6*d+0.15) 로 줄이고, 포착 반경을 0.25 m 에서 0.35 m 로 넓힙니다. controller 에서 idx>=n 일 때 GOAL 로 복귀하는 거리 조건을 0.45 m 에서 0.6 m 로 올려 정렬과 추종이 번갈아 바뀌는 왕복을 막습니다. 정렬 단계(align)에서는 2.5 s 판정으로 align 이나 fix(0,0) 이 위험해도, 같은 rollout 의 처음 1.0 s(k≤10) 최소 간격이 0 이상이면 align 을 고릅니다. 1.0 s 안에서도 간격이 0 미만일 때만 기존처럼 간격이 가장 큰 후보(후진 포함)로 물러나고, done 판정은 지금처럼 2.5 s 정지 rollout 의 cmin>=0 을 그대로 요구합니다. 다음 진단을 위해 GOAL 까지 1.5 m 안에 있을 때만 0.5 s 마다 한 줄 print 합니다: 'DBG t, 거리, 고른 후보, 후보별 cmin, 가장 가까운 트랙 위치·속도'.",
+  "confidence": "medium"
+ },
+ "raw": "{\"failure_mode\": \"timeout\",\n \"evidence\": [\"실패한 s1870619065 는 충돌·정체·진행 중단이 모두 null 입니다. 마지막 기록인 42.3 s 에 로봇은 0.78 m/s 로 정상 주행 중이었고 GOAL 까지 16.18 m 남았습니다. 통과한 6회의 종료 시각(약 94.5·84.6·85.3·96.2·76.2·114.8 s) 합 약 552 s 에 42 s 를 더하면 시도 기록의 '합계 601 s / 한도 600 s' 와 맞습니다. 즉 충돌이 아니라 7회 공용 시뮬 예산이 바닥나 잘린 것으로 봅니다.\", \"느린 원인은 GOAL 근처 맴돌기입니다. 4회(s1612·s2042·s2138·s885)는 GOAL 원 진입 후 약 11 s(83→94.5, 73→84.6, 84.9→96.2, 103.4→114.8)를 0.3 m/s 주행·0.8 m/s 재진입·제자리 회전을 되풀이했습니다. 그동안 3.1–3.7 m, 방위 120–155° 에 지도 밖 물체가 있었고 최종 거리는 0.38–0.42 m 로 복귀 문턱 0.45 m 바로 안쪽에 몰려 있습니다.\", \"물체가 멀어지던 s1179(1.89 m, −149°)·s446(1.46 m, 177°)은 0.79 m/s 로 들어가 3 s 만에 끝났고 최종 거리 0.075·0.086 m 입니다. 7회 전부 충돌이 0회였지만 2 m 안 접근은 이 두 번(모두 뒤쪽, 멀어지는 중)뿐이어서 회피 성능은 거의 시험되지 않았습니다.\"],\n \"assumptions\": [{\"assumption\": \"높이 1.0 m 인 물체를 0.42 m 높이 2D 라이다로 볼 수 있다\", \"holds\": true, \"why\": \"하네스 first_not_on_map 이 7회 모두 같은 높이의 라이다로 물체를 잡았습니다\"}, {\"assumption\": \"부풀린 정적 지도에 없는 점 덩어리는 움직이는 물체다\", \"holds\": true, \"why\": \"정체·출발 대기가 없었습니다. 다만 GOAL 근처 3.3 m 물체가 무엇인지는 확인할 수 없습니다\"}, {\"assumption\": \"등속 예측 2.5 s 와 간격 0.8 m 기준이면 충돌을 막는다\", \"holds\": true, \"why\": \"충돌 0/7 입니다. 다만 근접 상황이 거의 없어 검증은 약합니다\"}, {\"assumption\": \"정렬 단계에서 모든 후보가 위험하면 간격이 가장 큰 후보(후진)로 물러나도 금방 끝난다\", \"holds\": false, \"why\": \"후진으로 0.45 m 밖에 나가면 다시 0.8 m/s 로 추종하는 왕복이 4회 각 약 11 s 이어졌습니다. 최종 거리가 0.40 m 근처에 몰린 것이 그 흔적입니다\"}, {\"assumption\": \"실행 시간은 결과에 영향이 없다\", \"holds\": false, \"why\": \"한 실행이 73–115 s 걸려(정적 48.6 s) 공용 예산 600 s 를 넘었고, 7번째 실행이 잘렸습니다\"}],\n \"approach_families\": [{\"family\": \"센서 없는 경유점 추종\", \"turns\": \"#0\", \"result\": \"0/3\"}, {\"family\": \"거리 임계 감속·정지·후진 반응형\", \"turns\": \"#1\", \"result\": \"0/3\"}, {\"family\": \"트랙 추적 + 등속 예측 rollout 후보 선택\", \"turns\": \"#2(이번)\", \"result\": \"6/7 통과, 충돌 0, 실패 1은 예산 절단\"}],\n \"candidates\": [{\"idea\": \"rollout 구조는 유지하고 GOAL 마무리만 고친다: 목표 근처 감속, 복귀 문턱에 이력 두기, 정렬 단계에서는 짧은 구간이 위험할 때만 물러나기\", \"new_family\": false, \"for\": \"맴돌기 11 s×4회가 낭비의 대부분이고, 최종 거리가 0.45 m 문턱 바로 안에 몰려 있습니다\", \"risk\": \"목표에서 정지한 채 다가오는 물체에 늦게 반응할 수 있습니다\"}, {\"idea\": \"주변 4 m 안에 트랙이 없으면 직선 구간 최고 속도를 1.0 m/s 로 올린다\", \"new_family\": false, \"for\": \"경로 약 44 m 를 0.8 m/s 로 가면 최소 62 s 로 시간 여유가 작습니다\", \"risk\": \"반응 거리가 줄어 충돌 위험이 커지고, 상수만 바꾼 시도입니다\"}, {\"idea\": \"제자리에 오래 머무는 지도 밖 덩어리를 실행 중 정적 지도에 등록해 트랙에서 뺀다\", \"new_family\": true, \"for\": \"4개 배치에서 GOAL 근처 같은 상대 위치에 3.1–3.7 m 물체가 보였습니다\", \"risk\": \"왕복 끝에서 잠시 멈춘 물체를 정적으로 오인하면 충돌합니다. 정적이라는 근거도 약합니다\"}],\n \"chosen\": \"후보 1: 충돌 없는 감지·예측 구조는 지키면서, 근거가 가장 뚜렷한 GOAL 마무리 낭비(실행당 약 11 s)만 없애 예산 안에 모든 실행이 끝나게 합니다.\",\n \"target\": \"controller 의 GOAL 단계(정렬·done·복귀 조건)와 _pursuit_cmd 의 마지막 경유점 속도\",\n \"direction\": \"_track_movers, _rollout, _MOVER_R, _MOVER_GAP, 후보 목록과 순서는 그대로 둡니다. _pursuit_cmd 에서 idx==n-1 이면 속도를 min(vmax, 0.6*d+0.15) 로 줄이고, 포착 반경을 0.25 m 에서 0.35 m 로 넓힙니다. controller 에서 idx>=n 일 때 GOAL 로 복귀하는 거리 조건을 0.45 m 에서 0.6 m 로 올려 정렬과 추종이 번갈아 바뀌는 왕복을 막습니다. 정렬 단계(align)에서는 2.5 s 판정으로 align 이나 fix(0,0) 이 위험해도, 같은 rollout 의 처음 1.0 s(k≤10) 최소 간격이 0 이상이면 align 을 고릅니다. 1.0 s 안에서도 간격이 0 미만일 때만 기존처럼 간격이 가장 큰 후보(후진 포함)로 물러나고, done 판정은 지금처럼 2.5 s 정지 rollout 의 cmin>=0 을 그대로 요구합니다. 다음 진단을 위해 GOAL 까지 1.5 m 안에 있을 때만 0.5 s 마다 한 줄 print 합니다: 'DBG t, 거리, 고른 후보, 후보별 cmin, 가장 가까운 트랙 위치·속도'.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c3t2_s1612439996",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4042,
+   "time_to_goal_s": 82.967
+  },
+  {
+   "run": "c3t2_s204270019",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.3796,
+   "time_to_goal_s": 73.0
+  },
+  {
+   "run": "c3t2_s1179287885",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 80.35,
+   "goal_dist_m": 0.0753,
+   "time_to_goal_s": 82.15
+  },
+  {
+   "run": "c3t2_s2138248259",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4023,
+   "time_to_goal_s": 84.867
+  },
+  {
+   "run": "c3t2_s446768003",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 71.25,
+   "goal_dist_m": 0.0856,
+   "time_to_goal_s": 73.1
+  },
+  {
+   "run": "c3t2_s885560189",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4154,
+   "time_to_goal_s": 103.417
+  },
+  {
+   "run": "c3t2_s1870619065",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.1807,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "c3t2_s1870619065 는 정체 중단이 없습니다. 실제 c3t2_s1870619065: verdict=fail, stall_abort_t=None, progress_abort_t=None, collision_t=None, partner=None, robot_at_collision=None, stop_turns=3"
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": [
+    "c3t2_s1870619065 는 정체 중단이 없습니다. 실제 c3t2_s1870619065: verdict=fail, stall_abort_t=None, progress_abort_t=None, collision_t=None, partner=None, robot_at_collision=None, stop_turns=3"
+   ]
+  },
+  {
+   "attempt": 2,
+   "errors": [
+    "c3t2_s1870619065 는 정체 중단이 없습니다. 실제 c3t2_s1870619065: verdict=fail, stall_abort_t=None, progress_abort_t=None, collision_t=None, partner=None, robot_at_collision=None, stop_turns=3"
+   ]
+  },
+  {
+   "attempt": "no_prior",
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

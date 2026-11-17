@@ -1,0 +1,207 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c5t10_s1218741183: first_not_on_map at 85.05 s (1.4 m), robot stopped then resumed; no progress and progress_abort at 90 s, goal still 32 m away.",
+   "c5t10_s1337523796: early stop triggered at 109.15 s (1.75 m), robot resumed and collided at 114.15 s with mover_03 (rel pos [-0.79,0.46], closing 0.24 m/s).",
+   "All runs: early stop uses pause_until = t+1.0 s, but unmapped points remained within <2 m for several seconds, causing repeated stops or unsafe resumes."
+  ],
+  "assumptions": [
+   {
+    "assumption": "Unmapped lidar points are always moving objects, not static false positives.",
+    "holds": true,
+    "why": "No evidence of static points causing false early stops; unmapped points correspond to the movers in the logs."
+   },
+   {
+    "assumption": "A 1 s pause after early stop is sufficient for a moving object to clear the robot's immediate vicinity.",
+    "holds": false,
+    "why": "Collision after 5 s (run c5t10_s1337523796) shows the mover was still present after the 1 s pause."
+   },
+   {
+    "assumption": "After early stop, the robot can safely resume waypoint following without re‑evaluating the mover's future trajectory.",
+    "holds": false,
+    "why": "Both collision and progress‑abort runs resumed while the mover remained within unsafe distance."
+   },
+   {
+    "assumption": "Proximity stop/back‑up only needs to be active while early stop is on or in its grace period.",
+    "holds": false,
+    "why": "Objects caused collisions after early stop ended, indicating the proximity logic was insufficient."
+   },
+   {
+    "assumption": "Nominal speed (up to 1.5 m/s) can be restored immediately after pause_until expires, assuming no other threats.",
+    "holds": false,
+    "why": "Runs resumed at full speed while a mover was still nearby, leading to stalls or collision."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": [
+     0
+    ],
+    "result": "0/4 passes"
+   },
+   {
+    "family": "raw_point_stop",
+    "turns": [
+     1
+    ],
+    "result": "1/4 passes"
+   },
+   {
+    "family": "dynamic_pause_tracks",
+    "turns": [
+     2
+    ],
+    "result": "4/5 passes"
+   },
+   {
+    "family": "gap_detour",
+    "turns": [
+     3
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "predictive_speed_scaling",
+    "turns": [
+     4
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "vo_planner",
+    "turns": [
+     5
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "3d_lidar_safe_dist",
+    "turns": [
+     6
+    ],
+    "result": "3/6 passes"
+   },
+   {
+    "family": "raw_ttc_stop_check",
+    "turns": [
+     7
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "raw_ttc_vo_strict",
+    "turns": [
+     8
+    ],
+    "result": "3/6 passes"
+   },
+   {
+    "family": "proximity_stop_backup",
+    "turns": [
+     9
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "early_raw_stop_proximity",
+    "turns": [
+     10
+    ],
+    "result": "0/3 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Potential‑field avoidance: compute a repulsive vector from each unmapped lidar point within a radius and combine with an attractive vector toward the current waypoint; derive heading error and speed scaling from the resultant vector.",
+    "new_family": true,
+    "for": "Provides continuous, smooth avoidance without binary stops, reducing stalls and keeping progress.",
+    "risk": "May create local minima near static obstacles, causing oscillations or dead‑locks."
+   },
+   {
+    "idea": "Dynamic occupancy‑grid planning: discretize a 5 m radius into a fine grid, project unmapped points forward using estimated velocities, run a lightweight A* to the waypoint every 0.5 s, and follow the first step of the path.",
+    "new_family": true,
+    "for": "Explicitly plans around moving objects, guaranteeing a collision‑free path if the grid resolution is sufficient.",
+    "risk": "Computational overhead may exceed the 1/60 s control cycle, especially with many points."
+   },
+   {
+    "idea": "Continuous TTC‑based speed scaling: compute TTC for each unmapped point, take the minimum, and scale forward speed proportionally (v = v_nom * clamp((TTC‑safety)/TTC_max, 0, 1)). Adjust yaw to steer away from points with lowest TTC.",
+    "new_family": true,
+    "for": "Keeps the robot moving while slowing down as objects approach, avoiding long pauses that cause progress aborts.",
+    "risk": "If TTC estimation is noisy, the robot may not decelerate quickly enough for fast‑approaching movers."
+   }
+  ],
+  "chosen": "Potential‑field avoidance is selected because it replaces binary stops with a smooth steering behavior, directly addressing the repeated stalls and late‑stage collisions observed.",
+  "target": "controller",
+  "direction": "Add constants _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 and a helper _potential_field_avoidance(pose, raw, wp) that sums repulsive vectors from unmapped points (inverse distance weighting) and an attractive vector to wp, then returns a desired heading and speed factor; in controller, after _perceive replace the early‑stop and proximity‑stop calls with a call to _potential_field_avoidance, set v = min(v_nom, v_pf) and w = clamp(7.5*(desired_heading‑yaw), -0.6, 0.6), and only fall back to the existing VO planner if the potential‑field margin is negative; keep _guard for final safety checks; remove the 1 s binary pause logic or reduce it to a short debounce.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c5t10_s1218741183: first_not_on_map at 85.05 s (1.4 m), robot stopped then resumed; no progress and progress_abort at 90 s, goal still 32 m away.\",\n    \"c5t10_s1337523796: early stop triggered at 109.15 s (1.75 m), robot resumed and collided at 114.15 s with mover_03 (rel pos [-0.79,0.46], closing 0.24 m/s).\",\n    \"All runs: early stop uses pause_until = t+1.0 s, but unmapped points remained within <2 m for several seconds, causing repeated stops or unsafe resumes.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Unmapped lidar points are always moving objects, not static false positives.\",\n      \"holds\": true,\n      \"why\": \"No evidence of static points causing false early stops; unmapped points correspond to the movers in the logs.\"\n    },\n    {\n      \"assumption\": \"A 1 s pause after early stop is sufficient for a moving object to clear the robot's immediate vicinity.\",\n      \"holds\": false,\n      \"why\": \"Collision after 5 s (run c5t10_s1337523796) shows the mover was still present after the 1 s pause.\"\n    },\n    {\n      \"assumption\": \"After early stop, the robot can safely resume waypoint following without re‑evaluating the mover's future trajectory.\",\n      \"holds\": false,\n      \"why\": \"Both collision and progress‑abort runs resumed while the mover remained within unsafe distance.\"\n    },\n    {\n      \"assumption\": \"Proximity stop/back‑up only needs to be active while early stop is on or in its grace period.\",\n      \"holds\": false,\n      \"why\": \"Objects caused collisions after early stop ended, indicating the proximity logic was insufficient.\"\n    },\n    {\n      \"assumption\": \"Nominal speed (up to 1.5 m/s) can be restored immediately after pause_until expires, assuming no other threats.\",\n      \"holds\": false,\n      \"why\": \"Runs resumed at full speed while a mover was still nearby, leading to stalls or collision.\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"no_control\",\n      \"turns\": [0],\n      \"result\": \"0/4 passes\"\n    },\n    {\n      \"family\": \"raw_point_stop\",\n      \"turns\": [1],\n      \"result\": \"1/4 passes\"\n    },\n    {\n      \"family\": \"dynamic_pause_tracks\",\n      \"turns\": [2],\n      \"result\": \"4/5 passes\"\n    },\n    {\n      \"family\": \"gap_detour\",\n      \"turns\": [3],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"predictive_speed_scaling\",\n      \"turns\": [4],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"vo_planner\",\n      \"turns\": [5],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"3d_lidar_safe_dist\",\n      \"turns\": [6],\n      \"result\": \"3/6 passes\"\n    },\n    {\n      \"family\": \"raw_ttc_stop_check\",\n      \"turns\": [7],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"raw_ttc_vo_strict\",\n      \"turns\": [8],\n      \"result\": \"3/6 passes\"\n    },\n    {\n      \"family\": \"proximity_stop_backup\",\n      \"turns\": [9],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"early_raw_stop_proximity\",\n      \"turns\": [10],\n      \"result\": \"0/3 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Potential‑field avoidance: compute a repulsive vector from each unmapped lidar point within a radius and combine with an attractive vector toward the current waypoint; derive heading error and speed scaling from the resultant vector.\",\n      \"new_family\": true,\n      \"for\": \"Provides continuous, smooth avoidance without binary stops, reducing stalls and keeping progress.\",\n      \"risk\": \"May create local minima near static obstacles, causing oscillations or dead‑locks.\"\n    },\n    {\n      \"idea\": \"Dynamic occupancy‑grid planning: discretize a 5 m radius into a fine grid, project unmapped points forward using estimated velocities, run a lightweight A* to the waypoint every 0.5 s, and follow the first step of the path.\",\n      \"new_family\": true,\n      \"for\": \"Explicitly plans around moving objects, guaranteeing a collision‑free path if the grid resolution is sufficient.\",\n      \"risk\": \"Computational overhead may exceed the 1/60 s control cycle, especially with many points.\"\n    },\n    {\n      \"idea\": \"Continuous TTC‑based speed scaling: compute TTC for each unmapped point, take the minimum, and scale forward speed proportionally (v = v_nom * clamp((TTC‑safety)/TTC_max, 0, 1)). Adjust yaw to steer away from points with lowest TTC.\",\n      \"new_family\": true,\n      \"for\": \"Keeps the robot moving while slowing down as objects approach, avoiding long pauses that cause progress aborts.\",\n      \"risk\": \"If TTC estimation is noisy, the robot may not decelerate quickly enough for fast‑approaching movers.\"\n    }\n  ],\n  \"chosen\": \"Potential‑field avoidance is selected because it replaces binary stops with a smooth steering behavior, directly addressing the repeated stalls and late‑stage collisions observed.\",\n  \"target\": \"controller\",\n  \"direction\": \"Add constants _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 and a helper _potential_field_avoidance(pose, raw, wp) that sums repulsive vectors from unmapped points (inverse distance weighting) and an attractive vector to wp, then returns a desired heading and speed factor; in controller, after _perceive replace the early‑stop and proximity‑stop calls with a call to _potential_field_avoidance, set v = min(v_nom, v_pf) and w = clamp(7.5*(desired_heading‑yaw), -0.6, 0.6), and only fall back to the existing VO planner if the potential‑field margin is negative; keep _guard for final safety checks; remove the 1 s binary pause logic or reduce it to a short debounce.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t10_s1218741183",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 85.05,
+   "goal_dist_m": 32.1633,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t10_s189053306",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 509.0,
+   "sim_time_s": 92.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.98,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 86.03,
+   "goal_dist_m": 31.4172,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t10_s1337523796",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 417.0,
+   "sim_time_s": 120.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 114.15,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.09m/s",
+   "partner_rel_xy": [
+    -0.79,
+    0.46
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 109.15,
+   "goal_dist_m": 0.4128,
+   "time_to_goal_s": 119.15
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

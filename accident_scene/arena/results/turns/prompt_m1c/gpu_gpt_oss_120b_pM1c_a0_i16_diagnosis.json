@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=exception error_type=ValueError message=plan_stage requires grid/search/simplify/validate stage=search",
+    "plan_summary 로그에 매 시도마다 \"fallback\" 단계가 없고, 마지막 기록된 stage가 \"search\"인 것을 보면 fallback 호출이 예외를 일으킨다",
+    "choose_command 매 틱에서 v,w 가 0이지만 로봇이 200 s 동안 정지해 있어 stall_rule 에 의해 정체로 판단됨"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 허용되지 않은 단계인 plan_stage('fallback') 호출을 제거하거나 허용된 단계('simplify' 등)로 바꾸어 예외를 없애라. fallback 성공 시에도 기존 'simplify'·'validate' 단계만 기록하면 된다.",
+  "not_to_change": "plan_path 외의 lookahead_target, follow_cmd 및 base 제어 루프는 수정하지 말 것",
+  "confidence": "high"
+}

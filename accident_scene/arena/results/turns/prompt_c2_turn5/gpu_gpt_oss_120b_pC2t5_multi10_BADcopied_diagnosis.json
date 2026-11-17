@@ -1,0 +1,174 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t5_s652684458: stall_abort_t 66.07 s, stop_turn_episodes 26, first_not_on_map at t=61.12 s, robot never resumes waypoint",
+   "run c2t5_s107735859: stall_abort_t 60.0 s, stop_turn_episodes 34, first_not_on_map at t=55.08 s, robot spins in place",
+   "run c2t5_s1050263290: stall_abort_t 62.52 s, stop_turn_episodes 28, first_not_on_map at t=57.55 s, robot stays stopped"
+  ],
+  "target": "controller (감지·회피 로직 및 _DETECT_DIST/_DETECT_ANGLE 파라미터)",
+  "direction": "1) _DETECT_DIST 를 1.0 m, _DETECT_ANGLE 를 ±45°(np.deg2rad(45)) 로 축소해 불필요한 측면 감지를 억제한다. 2) 이동 물체가 감지되면 v=0, w=0 로 2 s 정지(현재 _AVOID_DURATION) 후, 여전히 물체가 있으면 1 s 동안 회전(w=±_AVOID_ROT_SPEED) 후 바로 정상 웨이포인트 추적으로 복귀한다. 3) 회전 후에도 물체가 1 m 이내에 남아 있으면 다시 정지‑대기 루프에 들어가고, 3번 연속 대기 후에는 현재 웨이포인트를 좌·우 0.5 m 옆으로 임시 이동시켜 우회하도록 한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t5_s652684458: stall_abort_t 66.07 s, stop_turn_episodes 26, first_not_on_map at t=61.12 s, robot never resumes waypoint\",\n    \"run c2t5_s107735859: stall_abort_t 60.0 s, stop_turn_episodes 34, first_not_on_map at t=55.08 s, robot spins in place\",\n    \"run c2t5_s1050263290: stall_abort_t 62.52 s, stop_turn_episodes 28, first_not_on_map at t=57.55 s, robot stays stopped\"\n  ],\n  \"target\": \"controller (감지·회피 로직 및 _DETECT_DIST/_DETECT_ANGLE 파라미터)\",\n  \"direction\": \"1) _DETECT_DIST 를 1.0 m, _DETECT_ANGLE 를 ±45°(np.deg2rad(45)) 로 축소해 불필요한 측면 감지를 억제한다. 2) 이동 물체가 감지되면 v=0, w=0 로 2 s 정지(현재 _AVOID_DURATION) 후, 여전히 물체가 있으면 1 s 동안 회전(w=±_AVOID_ROT_SPEED) 후 바로 정상 웨이포인트 추적으로 복귀한다. 3) 회전 후에도 물체가 1 m 이내에 남아 있으면 다시 정지‑대기 루프에 들어가고, 3번 연속 대기 후에는 현재 웨이포인트를 좌·우 0.5 m 옆으로 임시 이동시켜 우회하도록 한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t5_s47553594",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 18.067,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.72m/s",
+   "partner_rel_xy": [
+    0.45,
+    -0.37
+   ],
+   "closing_m_s": 0.37,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 16.85,
+   "goal_dist_m": 20.6974,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t5_s1621011119",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 18.133,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.43m/s",
+   "partner_rel_xy": [
+    -0.09,
+    0.55
+   ],
+   "closing_m_s": 0.65,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 16.65,
+   "goal_dist_m": 20.4272,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t5_s1699154765",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 53.45,
+   "goal_dist_m": 0.2209,
+   "time_to_goal_s": 55.5
+  },
+  {
+   "run": "c2t5_s1050263290",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 3.467,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.36m/s",
+   "partner_rel_xy": [
+    0.38,
+    -0.52
+   ],
+   "closing_m_s": -0.27,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.12,
+   "goal_dist_m": 29.7458,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t5_s403473715",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 52.53,
+   "goal_dist_m": 0.2207,
+   "time_to_goal_s": 54.533
+  },
+  {
+   "run": "c2t5_s1324881932",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 16.133,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.65m/s",
+   "partner_rel_xy": [
+    0.42,
+    0.54
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 15.02,
+   "goal_dist_m": 21.5859,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t5_s1217971828",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 50.75,
+   "goal_dist_m": 0.2044,
+   "time_to_goal_s": 52.767
+  },
+  {
+   "run": "c2t5_s90237212",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 55.52,
+   "goal_dist_m": 0.2258,
+   "time_to_goal_s": 57.533
+  },
+  {
+   "run": "c2t5_s652684458",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 5.433,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.34,
+    -0.61
+   ],
+   "closing_m_s": 0.25,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 0.52,
+   "goal_dist_m": 30.9311,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t5_s107735859",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 4.117,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.32,
+    -0.61
+   ],
+   "closing_m_s": 0.47,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.42,
+   "goal_dist_m": 30.8737,
+   "time_to_goal_s": null
+  }
+ ]
+}

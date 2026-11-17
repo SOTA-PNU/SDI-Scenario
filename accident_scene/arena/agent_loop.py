@@ -124,6 +124,10 @@ B_MODE = None             # --b1 / --b2 (project C, 실험 19-): the A-4 loop an
 B_MOVERS = "v1"           # arena_movers.SCENARIOS key used for the final grading
 A23 = False               # --a23 (실험 17): A-2-2 with the gate fixed - docstrings do not count as a code
                           # change, no note limit while test drives are left - and PROMPT_A2_3.md
+B_GATE = False            # --b-gate (B-5-29G, 2026-11-15): B mode with the prompt's rules enforced - an answer is
+                          # graded only if its EDIT REGION passed a test this turn (an answer without code is held
+                          # too, B-5-29 a0 t1), and every test drive runs --b-test-sim-s whatever the model asked
+B_TEST_SIM_S = 200.0
 A21_INJECT = HERE / "a21_probe_inject.py"
 A21_BLOCK = None          # the telemetry block, read once when the run starts (its sha is logged)
 END_LINE = "# ========================= [END EDIT REGION] ===============================\n"
@@ -221,6 +225,19 @@ GATE_NOTE_STATIC_A23 = GATE_NOTE_STATIC.replace(
     " 남은 시험 주행은 {left}번입니다.",
     " 남은 시험 주행은 {left}번이며, 시험 주행이 남아 있는 동안에는 pass 를 받은 코드만 채점합니다.")
 assert GATE_NOTE_STATIC_A23 != GATE_NOTE_STATIC
+B_GATE_NOTE = ("이 답은 채점하지 않았습니다. 답의 `[EDIT REGION]` 이 이번 회차에 `run_isaac_sim` 에서 "
+               "`\"verdict\": \"pass\"` 를 받은 코드와 다릅니다(주석, 빈 줄, docstring 차이는 같은 코드로 봅니다). "
+               "이번 회차에 pass 를 받은 시험: {passed}. {left} 원인을 고쳐 다시 시험하고, "
+               "pass 를 받은 코드를 그대로 답으로 내십시오.")
+B_GATE_NOTE_NOCODE = ("이 답은 채점하지 않았습니다. 답에 `[EDIT REGION]` 코드 블록이 없습니다. {left} "
+                      "원인을 고쳐 `run_isaac_sim` 으로 다시 시험하고, pass 를 받은 코드를 python 코드 펜스 "
+                      "하나로 내십시오.")
+B_GATE_NOTE_STATIC = ("이 답은 채점하지 않았습니다. 정적 검사에 걸렸습니다.\n\n{detail}\n\n"
+                      "{left} 고친 코드를 먼저 `run_isaac_sim` 으로 시험해 pass 를 받은 뒤, 그 코드를 그대로 내십시오.")
+
+
+def b_gate_left(left):
+    return "시험 횟수에는 한도가 없습니다." if UNLIMITED else f"남은 시험 주행은 {left}번입니다."
 
 
 def inject_telemetry(run_text, watch=()):
@@ -588,8 +605,48 @@ def recover_call(text, call_no):
              "function": {"name": name, "arguments": h.group("body").strip()}}, hdr)
 
 
+CLAUDE_CWD = Path.home() / "c3_agent_cwd"       # empty folder: no project files, settings or memory to pick up
+CLAUDE_SYSTEM = "You are a careful engineering assistant. Answer exactly in the format the user asks for."
+
+
+def claude_post(payload, timeout):
+    """One answer from Claude Code headless (user 2026-11-16, series C-3: every role is Claude Opus 5.5).
+    `claude -p --tools ""` in an empty folder: a new process per call, no tools, no MCP, no settings - it sees the
+    prompt and nothing else. Chat history (a coder retry) is flattened into one prompt. Returns an OpenAI-style dict."""
+    import subprocess
+    msgs = payload["messages"]
+    text = msgs[0]["content"]
+    for m in msgs[1:]:
+        text += ("\n\n---\n\n[당신이 앞서 낸 답]\n\n" if m["role"] == "assistant" else "\n\n---\n\n[이어진 요청]\n\n") + m["content"]
+    CLAUDE_CWD.mkdir(exist_ok=True)
+    cmd = ["claude", "-p", "--tools", "", "--model", payload.get("model") or "claude-opus-5-5",
+           "--effort", payload.get("reasoning_effort") or "high", "--system-prompt", CLAUDE_SYSTEM,
+           "--strict-mcp-config", "--setting-sources", "", "--output-format", "json"]
+    last = None
+    for attempt in range(3):
+        r = subprocess.run(cmd, input=text, capture_output=True, text=True, cwd=CLAUDE_CWD, timeout=timeout)
+        try:
+            d = json.loads(r.stdout)
+        except ValueError:
+            d = {"is_error": True, "result": (r.stdout or r.stderr)[-2000:]}
+        last = d
+        if not d.get("is_error") and d.get("num_turns") == 1 and d.get("result"):
+            u = d.get("usage", {})
+            return {"choices": [{"message": {"role": "assistant", "content": d["result"]}}],
+                    "usage": {"prompt_tokens": (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0)
+                              + (u.get("cache_read_input_tokens") or 0),
+                              "completion_tokens": u.get("output_tokens")},
+                    "claude": {k: d.get(k) for k in ("num_turns", "duration_ms", "total_cost_usd", "modelUsage", "session_id")}}
+        time.sleep(30 * (attempt + 1))
+    raise RuntimeError(f"claude -p failed: {json.dumps(last, ensure_ascii=False)[:1500]}")
+
+
 def post(base, payload, timeout):
     """POST /chat/completions; HTTP errors come back with their body."""
+    # a Claude model name goes to Claude Code headless whatever the series (C-4: only the coder is on vLLM)
+    if str(payload.get("model") or "").startswith("claude") or (
+            os.environ.get("AGENT_BACKEND") == "claude" and not os.environ.get("AGENT_ROLE_MODELS")):
+        return claude_post(payload, timeout)
     body = json.dumps(payload).encode()
     req = urllib.request.Request(f"{base}/chat/completions", data=body, headers={
         "Content-Type": "application/json", "Connection": "close"})
@@ -772,6 +829,8 @@ class Run:
         except (TypeError, ValueError):
             sim_s = MAX_SIM_S
         sim_s = min(MAX_SIM_S, max(MIN_SIM_S, sim_s))
+        if B_GATE:
+            sim_s = B_TEST_SIM_S            # the prompt asks for 200; the model left it out in B-5-29
         text = build(code)
         ok, detail = static_check(text)
         iso = TL.ISAAC_LOG_DIR
@@ -885,7 +944,7 @@ class Run:
         if A21:
             rec["code_ran"] = code_ran
             rec["a21"] = diag_rec
-        if A22:
+        if A22 or B_GATE:
             rec["code_key"] = code_key(region_of(text).rstrip())
         return out, rec
 
@@ -902,6 +961,30 @@ class Run:
         key = code_key(region_of(text).rstrip()) if region_of(text) else None
         passed = {t.get("code_key") for t in rec["tests"] if t.get("verdict") == "pass" and t.get("code_key")}
         left = a.test_budget - st["tests_used"]
+        if B_GATE:
+            # an answer without code is held as well; after --b-gate-max notes in one turn it is graded.
+            # splice() wraps any text into a region, so an answer without the begin marker counts as no code
+            if TL.BEGIN_MARK not in code:
+                key = None
+            why = ("passed_test" if ok and key in passed else "no_test_left" if left <= 0 else
+                   "gate_limit" if st["gate"] >= a.b_gate_max else None)
+            self.event("submission_gate", turn=turn, call=self.call, code_key=key, passed_keys=sorted(passed),
+                       static_ok=ok, tests_left=left, notes_sent=st["gate"], decision=why or "held")
+            rec.setdefault("gate", []).append({"call": self.call, "code_key": key, "decision": why or "held",
+                                               "tests_left": left})
+            if why:
+                return None
+            st["gate"] += 1
+            st["tool_choice"] = "auto"
+            kind = "코드 없음" if key is None else "정적 검사" if not ok else "pass 받은 시험 코드와 다름"
+            self.say(f"[t{turn} c{self.call:02d}] 제출 확인: {kind} - 채점하지 않고 안내 "
+                     f"({st['gate']}/{a.b_gate_max})")
+            if key is None:
+                return B_GATE_NOTE_NOCODE.format(left=b_gate_left(left))
+            if not ok:
+                return B_GATE_NOTE_STATIC.format(detail=detail, left=b_gate_left(left))
+            done = [f"test{t_['test']:02d}" for t_ in rec["tests"] if t_.get("verdict") == "pass"]
+            return B_GATE_NOTE.format(passed=", ".join(done) or "없음", left=b_gate_left(left))
         if A23:
             # no note limit while test drives are left (실험 16: the limit let untested code
             # through with 8 left); at the call cap the answer is graded instead of lost
@@ -1168,6 +1251,7 @@ class Run:
                **(a21_header() if A21 else {}),
                **({"b": B_MODE, "grading_movers": B_MOVERS, "test_movers": B_MOVERS if TEST_MOVERS else None}
                   if B_MODE else {}),
+               **({"b_gate": True, "b_gate_max": a.b_gate_max, "b_test_sim_s": B_TEST_SIM_S} if B_GATE else {}),
                **({"a4t": True, "seed_file": A4T_SEED["file"], "seed_completion_s": A4T_SEED["completion_s"],
                    "seed_time_to_goal_s": A4T_SEED["time_to_goal_s"]} if A4T else {}),
                "query_budget": a.query_budget if A21 else None,
@@ -1247,7 +1331,7 @@ class Run:
                     if not calls:
                         content = m.get("content") or ""
                         msgs.append({"role": "assistant", "content": content})
-                        if A22 and content.strip():
+                        if (A22 or B_GATE) and content.strip():
                             held = self.gate(turn, rec, st, content)
                             if held:
                                 msgs.append({"role": "user", "content": held})
@@ -1405,6 +1489,12 @@ def main():
                     help="실험 38: return every DBG line (no head/tail cut) up to this many characters per test; 0 = the old 40+40 lines")
     ap.add_argument("--turn-note-file", default=None,
                     help="실험 35: a prompt file whose text replaces the closing sentence of every turn feedback")
+    ap.add_argument("--b-gate", action="store_true",
+                    help="B-5-29G: grade an answer only if its EDIT REGION passed a test this turn (answers without "
+                         "code held too) and run every test drive for --b-test-sim-s")
+    ap.add_argument("--b-gate-max", type=int, default=10,
+                    help="--b-gate: notes per turn before a held answer is graded anyway")
+    ap.add_argument("--b-test-sim-s", type=float, default=200.0, help="--b-gate: sim seconds of every test drive")
     ap.add_argument("--b-test-movers", action="store_true",
                     help="B-5-1 (실험 26): the test drives run on the grading scene too (ARENA_MOVERS=--b-movers)")
     ap.add_argument("--base-file", default=None,
@@ -1430,7 +1520,7 @@ def main():
                     help="--a21: scene_obstacles + check_route calls per turn")
     a = ap.parse_args()
     global A21, A22, A23, A4T, A4T_SEED, B_MODE, B_MOVERS, BASE_FILE, BASE, UNLIMITED, TEST_MOVERS, TURN_NOTE
-    global DBG_FULL_CHARS
+    global DBG_FULL_CHARS, B_GATE, B_TEST_SIM_S
     if a.test_budget == 0:
         a.test_budget = UNLIMITED_TESTS        # no limit: the call cap (tests + 6) is then unlimited too
         UNLIMITED = True                       # tool description without the limit, no tests_left
@@ -1451,6 +1541,10 @@ def main():
         import arena_movers
         arena_movers.scenario(B_MOVERS)       # unknown scenario names fail here, before any model call
     TEST_MOVERS = a.b_test_movers
+    B_GATE = a.b_gate
+    B_TEST_SIM_S = min(MAX_SIM_S, max(MIN_SIM_S, a.b_test_sim_s))
+    if B_GATE and not B_MODE:
+        raise SystemExit("--b-gate 는 B 모드에서만 씁니다.")
     TURN_NOTE = (HERE / a.turn_note_file).read_text().strip() if a.turn_note_file else None
     DBG_FULL_CHARS = max(0, a.dbg_full_chars)
     if TEST_MOVERS and not B_MODE:

@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=exception error_type=NotImplementedError message=fill the model path-planning hook",
+    "DBG plan_summary ... status=no_path attempts=0.50:exception|0.45:exception|0.40:exception|0.35:exception",
+    "final_pose stays near START (-9.0,-10.8) and speed mean=0.0, indicating no path was ever adopted"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에 A* 그리드 탐색을 구현한다. occupancy_grid(clearance_m,0.5) 로 격자를 얻고, cell_of 로 시작·목표 셀을 구한다. 8방향 이웃을 탐색하면서 segment_free 로 연결 가능성을 검사하고 히프큐로 최단경로를 찾는다. 경로가 있으면 xy_of 로 셀 중심 좌표를 리스트로 반환하고, 없으면 None를 반환한다. plan_stage 호출을 grid, search, simplify, validate 순으로 배치해 기존 디버그 형식을 유지한다.",
+  "not_to_change": "follow_cmd와 lookahead_target는 현재 구현을 그대로 유지한다.",
+  "confidence": "high"
+}

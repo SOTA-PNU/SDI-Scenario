@@ -32,6 +32,9 @@ ap.add_argument("--speedup", type=float, default=4.0, help="sim seconds per vide
 ap.add_argument("--fps", type=int, default=30)
 ap.add_argument("--out", default=None)
 ap.add_argument("--title", default=None)
+ap.add_argument("--map-file", default=None,
+                help="read WALLS / FIXED_OBSTACLES from this runner when the run file has none (e.g. A-4 code on the "
+                     "thin base): keeps the whole warehouse in view instead of zooming to the trajectory")
 a = ap.parse_args()
 
 run = Path(a.run_file).resolve()
@@ -42,9 +45,9 @@ res_path = arena / "results" / f"{variant}_result.json"
 src = run.read_text()
 
 
-def literal(name):
-    """Evaluate a top-level `NAME = <literal>` assignment from the run file."""
-    tree = ast.parse(src)
+def literal(name, text=None):
+    """Evaluate a top-level `NAME = <literal>` assignment from the run file (or `text`)."""
+    tree = ast.parse(src if text is None else text)
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == name for t in node.targets):
             return node.value
@@ -52,14 +55,22 @@ def literal(name):
 
 
 mission = eval(compile(ast.Expression(literal("MISSION")), "MISSION", "eval"), {})  # dict(...) call
-walls = ast.literal_eval(literal("WALLS")) if literal("WALLS") is not None else None
-fixed = ast.literal_eval(literal("FIXED_OBSTACLES")) if literal("FIXED_OBSTACLES") is not None else []
+map_src = Path(a.map_file).read_text() if a.map_file else None
+def map_literal(name):
+    node = literal(name)
+    return node if node is not None or map_src is None else literal(name, map_src)
+walls = ast.literal_eval(map_literal("WALLS")) if map_literal("WALLS") is not None else None
+fixed = ast.literal_eval(map_literal("FIXED_OBSTACLES")) if map_literal("FIXED_OBSTACLES") is not None else []
 selfbox = ast.literal_eval(literal("_BASE_SELF_BOX")) if literal("_BASE_SELF_BOX") is not None else (-0.62, 0.17, -0.31, 0.31)
 
 movers = []
-if a.movers:
-    sys.path.insert(0, str(arena))
-    import arena_movers as AM  # noqa: E402
+movers_file = arena / "results" / f"{variant}_movers.json"
+sys.path.insert(0, str(arena))
+import arena_movers as AM  # noqa: E402
+if movers_file.exists():
+    # randomised scenario (v1r ...): the speeds and phases this run drew, written by the harness
+    movers = json.load(open(movers_file))["movers"]
+elif a.movers:
     movers = AM.SCENARIOS[a.movers]
 
 rows = list(csv.DictReader(open(traj_path)))

@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-933e5b16e94711ae",
+ "object": "chat.completion",
+ "created": 1794732328,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유:  \n1️⃣ 기존 `_detect_moving_any` 가 거리 1.2 m·±30° 로 제한돼 움직이는 물체를 놓치고 충돌이 발생했습니다.  \n2️⃣ 충돌 로그에 나타난 물체는 30° 밖·최대 2 m 거리까지 있었으므로 탐지 범위를 확대하고, 전·후 라이다 전체를 사용하도록 수정했습니다.  \n3️⃣ 물체 감지 시 즉시 정지하고, 평균 베어링에 따라 회전하도록 회피 상태를 유지하도록 로직을 추가했습니다.  \n\n```python\ndef _detect_moving_any(pose):\n    \"\"\"\n    Detect moving objects with BOTH front and back 2‑D lidars.\n    Expanded detection: distance ≤ 2.0 m, ANY bearing (full 360°).\n    Returns (has_moving, mean_bearing) where mean_bearing is the average\n    robot‑frame bearing of the moving points (positive = left).\n    \"\"\"\n    # collect points from both lidars\n    pts_front = lidar2d_points(\"front\")\n    pts_back = lidar2d_points(\"back\")\n    if pts_front.shape[0] == 0 and pts_back.shape[0] == 0:\n        return False, 0.0\n    pts = np.vstack([pts_front, pts_back]) if pts_front.shape[0] and pts_back.shape[0] else (\n        pts_front if pts_front.shape[0] else pts_back\n    )\n\n    # distance filter (≤ 2.0 m)\n    d2 = np.einsum(\"ij,ij->i\", pts, pts)\n    dist = np.sqrt(d2)\n    within_dist = dist <= 2.0\n    if not np.any(within_dist):\n        return False, 0.0\n\n    cand_robot = pts[within_dist]\n\n    # convert to world to filter out static map points\n    cand_world = to_world(cand_robot, pose)[:, :2]\n    moving_mask = np.array([not _in_static_obstacle(p) for p in cand_world])\n    if not np.any(moving_mask):\n        return False, 0.0\n\n    moving_pts = cand_robot[moving_mask]\n    # compute bearing of each moving point (robot frame)\n    bearing = np.arctan2(moving_pts[:, 1], moving_pts[:, 0])\n    mean_bearing = float(np.mean(bearing))\n    return True, mean_bearing\n\n\ndef controller(t, pose, env):\n    \"\"\"Waypoint‑following with robust reactive avoidance of moving objects.\"\"\"\n    # ----- persistent state -------------------------------------------------\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0          # waypoint index\n        controller.avoid = False    # are we currently avoiding?\n        controller.avoid_dir = 0.0  # rotation direction while avoiding\n\n    # ----- 1️⃣  moving‑object detection ------------------------------------\n    has_moving, mean_bearing = _detect_moving_any(pose)\n\n    if has_moving:\n        # enter/continue avoidance mode\n        controller.avoid = True\n        # choose a turning direction opposite to the object's bearing\n        # (positive bearing → object on left → turn right, i.e. negative w)\n        controller.avoid_dir = -np.sign(mean_bearing) if mean_bearing != 0.0 else 1.0\n        return 0.0, float(0.6 * controller.avoid_dir), False\n\n    # if we were avoiding but the object disappeared, clear the flag\n    if controller.avoid:\n        controller.avoid = False\n        controller.avoid_dir = 0.0\n        # give a brief pause (0 m/s, 0 rad/s) on the next tick to stabilise\n        return 0.0, 0.0, False\n\n    # ----- 2️⃣  Goal‑alignment phase (after final waypoint) -----------------\n    x, y, yaw = pose\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # ----- 3️⃣  Normal waypoint‑following ----------------------------------\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # advance to next waypoint if close enough (except for the goal)\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # ----- 4️⃣  Control law (same as static‑only version) ------------------\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # trigger alignment after reaching the final waypoint\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return float(v), float(w), False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to propose changes. The current code already expands detection to both front and back, distance ≤1.2 m, bearing ±30°. The failures show moving objects at bearings 73°, 33°, -49°, outside ±30°. So need to increase detection sector to larger angle, maybe 90° or 180° or full 360°, and distance up to 2.0 m as suggested.\n\nAlso need to adjust detection of static obstacles: currently uses _in_static_obstacle which includes walls correctly? The earlier issue fixed walls detection; but ensure detection works.\n\nThus modify _detect_moving_any: increase distance threshold to 2.0, bearing limit to ±90° (or maybe 180°). Simpler: use full 360°, i.e., no bearing filter. Also maybe incorporate 3D lidar for better detection? Could use 3D lidar to detect objects at any height. But static obstacles also appear in 3D lidar; we can filter similarly.\n\nSimplify: Use front and back 2D lidars, but combine all points regardless of bearing, distance ≤2.0. Then if any moving points, stop and rotate away based on mean bearing (still compute bearing). If bearing near zero (object ahead), rotate left or right arbitrarily.\n\nAlso maybe add a small backing maneuver if object behind.\n\nImplement new detection function _detect_moving_wide(pose) and replace calls.\n\nWe can also add a state machine: when moving object detected, set a flag and continue rotating until cleared. Use controller.has_avoid flag.\n\nImplement:\n\nif not hasattr(controller, \"avoid\"):\n    controller.avoid = False\n    controller.avoid_dir = 0\n\nWhen detection returns has_moving, set avoid=True, avoid_dir = -np.sign(mean_bearing) or 1 if zero. Then v=0, w=0.6*avoid_dir.\n\nWhen no moving detected and controller.avoid is True, keep rotating for a short time maybe 0.5 sec to clear, then set avoid=False.\n\nSimplify: just stop and rotate until detection cleared.\n\nImplement changes accordingly.\n\nWe need to output changed definitions: modify _detect_moving_any and controller (maybe add new vars). Also maybe adjust _in_static_obstacle wall condition? Already correct after previous fix. But we might need to ensure it includes walls correctly; but we trust.\n\nThus provide changed code: new _detect_moving_wide (or modify existing) and updated controller logic.\n\nWe must only output changed top-level definitions.\n\nLet's craft modifications.\n\nWill replace _detect_moving_any with new version using distance 2.0 and no bearing limit.\n\nAdd new helper _detect_moving_wide (or just modify existing). Provide updated controller with avoidance state.\n\nImplement:\n\ndef controller(...):\n    if not hasattr(controller, \"state\"):\n        controller.state = {\"idx\":0, \"avoid\":False, \"avoid_dir\":0}\n\nUse controller.state dict.\n\nBut we cannot rename existing idx variable usage? We can keep controller.idx as before, and add controller.avoid, controller.avoid_dir.\n\nImplement.\n\nNow produce final answer."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 10232,
+  "total_tokens": 12130,
+  "completion_tokens": 1898,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 639
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

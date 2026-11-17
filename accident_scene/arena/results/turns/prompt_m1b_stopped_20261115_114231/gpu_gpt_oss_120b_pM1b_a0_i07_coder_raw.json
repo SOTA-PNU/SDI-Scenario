@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-af979978a5f2a604",
+  "object": "chat.completion",
+  "created": 1794709006,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\ndef plan_path(start_xy, goal_xy, clearance_m):\n    \"\"\"\n    Deterministic 4‑direction A* planner with an increased goal shift.\n    The planner works on the static occupancy_grid (resolution 0.5 m) using the\n    requested centre clearance.  The goal is shifted toward the start by\n    0.45 m (still within the 0.5 m endpoint tolerance) to give the robot more\n    map clearance for the final yaw‑alignment turn.  The validation step will\n    reconnect the shifted goal back to the true GOAL if the gap is ≤0.5 m.\n    \"\"\"\n    # ---- shift goal back toward start (0.45 m) --------------------------------\n    dx = start_xy[0] - goal_xy[0]\n    dy = start_xy[1] - goal_xy[1]\n    norm = math.hypot(dx, dy)\n    if norm > 0.0:\n        ux, uy = dx / norm, dy / norm\n        # shift distance chosen to stay inside the 0.5 m endpoint tolerance\n        shift_dist = 0.45\n        goal_shifted = (goal_xy[0] + shift_dist * ux, goal_xy[1] + shift_dist * uy)\n    else:\n        goal_shifted = goal_xy  # degenerate case – keep original\n\n    # ---- grid generation -------------------------------------------------\n    plan_stage(\"grid\")\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\n\n    # ---- start / shifted goal cell -----------------------------------------\n    sx, sy = cell_of(start_xy, origin, res)\n    gx, gy = cell_of(goal_shifted, origin, res)\n\n    # bounds check – let validation reject later if out of bounds\n    max_ix, max_iy = blocked.shape[1] - 1, blocked.shape[0] - 1\n    if not (0 <= sx <= max_ix and 0 <= sy <= max_iy and\n            0 <= gx <= max_ix and 0 <= gy <= max_iy):\n        return None\n    if blocked[sy, sx] or blocked[gy, gx]:\n        return None\n\n    # ---- connector safety (same clearance as validation) ------------------\n    if not segment_free(start_xy, xy_of((sx, sy), origin, res), clearance_m):\n        return None\n    if not segment_free(xy_of((gx, gy), origin, res), goal_shifted, clearance_m):\n        return None\n\n    # ---- A* search (4‑neighbour) -----------------------------------------\n    plan_stage(\"search\")\n    start = (sx, sy)\n    goal = (gx, gy)\n\n    def heuristic(a, b):\n        return (abs(a[0] - b[0]) + abs(a[1] - b[1])) * res\n\n    frontier = [(heuristic(start, goal), 0.0, start)]\n    heapq.heapify(frontier)\n    came_from = {start: None}\n    cost_so_far = {start: 0.0}\n    neighbors = [(1, 0), (-1, 0), (0, 1), (0, -1)]\n\n    while frontier:\n        _, g, current = heapq.heappop(frontier)\n        if current == goal:\n            break\n        for dx_n, dy_n in neighbors:\n            nx, ny = current[0] + dx_n, current[1] + dy_n\n            if not (0 <= nx <= max_ix and 0 <= ny <= max_iy):\n                continue\n            if blocked[ny, nx]:\n                continue\n            new_cost = g + res\n            nxt = (nx, ny)\n            if nxt not in cost_so_far or new_cost < cost_so_far[nxt] - 1e-12:\n                cost_so_far[nxt] = new_cost\n                priority = new_cost + heuristic(nxt, goal)\n                heapq.heappush(frontier, (priority, new_cost, nxt))\n                came_from[nxt] = current\n\n    if goal not in came_from:\n        return None\n\n    # ---- reconstruct raw cell‑centre path ---------------------------------\n    raw_cells = []\n    cur = goal\n    while cur is not None:\n        raw_cells.append(cur)\n        cur = came_from[cur]\n    raw_cells.reverse()\n    raw_path = [xy_of(cell, origin, res) for cell in raw_cells]\n\n    # ---- simple line‑of‑sight simplification -------------------------------\n    plan_stage(\"simplify\", input_points=len(raw_path))\n    if len(raw_path) <= 2:\n        simplified = raw_path\n    else:\n        simplified = [raw_path[0]]\n        for i in range(2, len(raw_path)):\n            if not segment_free(simplified[-1], raw_path[i], clearance_m):\n                simplified.append(raw_path[i - 1])\n        simplified.append(raw_path[-1])\n    plan_stage(\"simplify\", input_points=len(raw_path), output_points=len(simplified))\n\n    # ---- validation -------------------------------------------------------\n    plan_stage(\"validate\", input_points=len(simplified))\n    result = validate_plan(simplified)\n    if result[\"accepted\"]:\n        # validate_plan adds connectors to the true GOAL if within 0.5 m.\n        return result[\"path\"]\n    return None\n\n\ndef lookahead_target(path, pose):\n    # Use the base helper; it already respects the 0.3–2.0 m window.\n    target = _base_loop_forward_target(path, pose)\n    if target is not None:\n        return target\n\n    # Fallback: advance at least the minimum distance along the path.\n    cfg = _BASE_LOOP_CFG\n    proj = _base_loop_projection(path, pose[:2])\n    ahead_s = proj[\"s\"] + cfg[\"target_min_ahead_m\"]\n    ahead_s = min(ahead_s, proj[\"total\"])\n    fallback = _base_loop_point_at_s(path, ahead_s)\n\n    builtins.print(\n        f\"DBG lookahead_target fallback s={ahead_s:.3f} total={proj['total']:.3f} \"\n        f\"pos={pose[:2]} target={fallback}\"\n    )\n    return fallback\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"\n    Pure‑pursuit controller as described in the specification.\n    Returns (v, w) before the base clamps them.\n    \"\"\"\n    dx = target_xy[0] - pose[0]\n    dy = target_xy[1] - pose[1]\n    dist = math.hypot(dx, dy)\n    angle = math.atan2(dy, dx)\n    e = angle - pose[2]\n    e = math.atan2(math.sin(e), math.cos(e))  # wrap to [-π, π]\n\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to adjust plan_path according to diagnosis: increase goal shift distance from 0.3 to 0.6 (or more) to give more clearance near goal. Also maybe ensure segment_free checks after shift use same clearance (no extra). Already code shifts 0.3. Need to change to 0.6 (or maybe 0.7). Also ensure validation will reconnect.\n\nImplement change: shift distance = 0.6.\n\nPotential other adjustments: ensure that the shifted goal is still within 0.5m of real goal so validation can reconnect. Since shift is 0.6, could be >0.5; but validation will add connector if within 0.5. If shift >0.5, then start_gap may be >0.5 and validation will reject. So need to keep shift <=0.5? Actually requirement: endpoint tolerance 0.5m, validation will reject if start_gap > endpoint_limit_m (0.5). So shift must be <=0.5. Diagnosis says increase to 0.6 or more, but that would exceed limit causing rejection. However maybe they intend to shift beyond but then validation will add connector? Wait validation adds connectors only if start_gap <= endpoint_limit_m? It adds start and goal connectors if gaps >1e-12 but then later checks max(start_gap, goal_gap) > endpoint_limit_m + 1e-12 => reject. So shift >0.5 will cause reject. So maybe we should keep shift 0.5? The diagnosis may be approximate; we can use 0.45? But need to increase clearance near goal enough.\n\nGoal area narrow; maybe shift 0.4 gives more clearance but still within 0.5.\n\nLet's set shift = 0.45 (max allowed <0.5). That should give more room.\n\nImplement: shift_dist = 0.45.\n\nAlso ensure we still use segment_free for connectors with same clearance.\n\nImplement modifications only in plan_path.\n\nReturn same rest.\n\nThus produce updated EDIT REGION with plan_path changed.\n\nWe must include only the block with three functions. Provide updated plan_path, lookahead_target, follow_cmd (unchanged). Keep other functions same.\n\nLet's edit plan_path code accordingly.\n\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 33707,
+    "total_tokens": 35717,
+    "completion_tokens": 2010,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 460
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794709006.5996618,
+    "wall_s": 12.052,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 7,
+    "call": 13
+  }
+}

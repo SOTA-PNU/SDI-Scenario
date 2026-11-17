@@ -1,0 +1,29 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "508번에 달하는 정지·제자리 회전 구간이 기록되어 로봇이 거의 움직이지 않았음 (stop_turn_episodes count=508)",
+   "first_not_on_map이 595 s에 1.58 m 거리에서 처음 보였지만 이미 목표까지 32 m 남은 상태이며, 목표에 도달하지 못함 (final_goal_dist_m=32.0742)",
+   "회피 종료 조건이 front_dist > EXIT_DIST AND back_dist > EXIT_DIST 인데, 라이다 잡음으로 동적 거리값이 EXIT_DIST(2 m) 이하인 경우가 지속돼 회피 플래그가 해제되지 않음"
+  ],
+  "target": "avoidance logic & dynamic detection",
+  "direction": "라이다 잡음에 대비해 동적 거리 값을 연속 N번(예: 5번) 이상 EXIT_DIST보다 크면 회피를 해제하도록 수정하고, EXIT_DIST를 1.5 m 정도로 낮추며, 동적 물체 감지를 위해 최근 3프레임 평균 거리를 사용한다. 또한 장애물과의 상대 속도(전진 속도·접근 속도)를 고려해 required_stop을 동적으로 계산하고, 정적 물체 필터링에 작은 마진(예: 0.05 m) 을 추가해 오탐을 줄인다. 마지막으로 회피 중에도 작은 전진(v=0.2 m/s)으로 상황을 관찰해 장시간 정지 상태를 방지한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"508번에 달하는 정지·제자리 회전 구간이 기록되어 로봇이 거의 움직이지 않았음 (stop_turn_episodes count=508)\",\n    \"first_not_on_map이 595 s에 1.58 m 거리에서 처음 보였지만 이미 목표까지 32 m 남은 상태이며, 목표에 도달하지 못함 (final_goal_dist_m=32.0742)\",\n    \"회피 종료 조건이 front_dist > EXIT_DIST AND back_dist > EXIT_DIST 인데, 라이다 잡음으로 동적 거리값이 EXIT_DIST(2 m) 이하인 경우가 지속돼 회피 플래그가 해제되지 않음\"\n  ],\n  \"target\": \"avoidance logic & dynamic detection\",\n  \"direction\": \"라이다 잡음에 대비해 동적 거리 값을 연속 N번(예: 5번) 이상 EXIT_DIST보다 크면 회피를 해제하도록 수정하고, EXIT_DIST를 1.5 m 정도로 낮추며, 동적 물체 감지를 위해 최근 3프레임 평균 거리를 사용한다. 또한 장애물과의 상대 속도(전진 속도·접근 속도)를 고려해 required_stop을 동적으로 계산하고, 정적 물체 필터링에 작은 마진(예: 0.05 m) 을 추가해 오탐을 줄인다. 마지막으로 회피 중에도 작은 전진(v=0.2 m/s)으로 상황을 관찰해 장시간 정지 상태를 방지한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c1t2_s1762697780",
+   "verdict": "fail",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 508,
+   "first_seen_within_2m_t": 595.05,
+   "goal_dist_m": 32.0742,
+   "time_to_goal_s": null
+  }
+ ]
+}

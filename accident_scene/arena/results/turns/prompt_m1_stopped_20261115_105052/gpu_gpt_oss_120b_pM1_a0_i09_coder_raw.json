@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-8a032cf1345b311b",
+  "object": "chat.completion",
+  "created": 1794705837,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\n\ndef plan_path(start_xy, goal_xy, clearance_m):\n    \"\"\"\n    A* search on the static occupancy grid.\n    Returns a list of world (x, y) points that includes the exact start\n    and goal coordinates.  The raw A* path (cell centres) is used directly;\n    no additional simplification or connector checks are performed – the\n    base's ``validate_plan`` will handle those.\n    \"\"\"\n    # ---- stage: grid ----------------------------------------------------\n    plan_stage(\"grid\")\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\n\n    # Convert start / goal to cell indices; reject out‑of‑bounds or occupied cells.\n    try:\n        start_cell = cell_of(start_xy, origin, res)\n        goal_cell = cell_of(goal_xy, origin, res)\n    except Exception:\n        return None\n\n    ny, nx = blocked.shape\n    sx, sy = start_cell\n    gx, gy = goal_cell\n    if not (0 <= sx < nx and 0 <= sy < ny and 0 <= gx < nx and 0 <= gy < ny):\n        return None\n    if blocked[sy, sx] or blocked[gy, gx]:\n        return None\n\n    # ---- stage: search --------------------------------------------------\n    plan_stage(\"search\")\n    # Deterministic 8‑neighbour order.\n    neigh_offsets = [(-1, -1), (0, -1), (1, -1),\n                     (-1,  0),          (1,  0),\n                     (-1,  1), (0,  1), (1,  1)]\n\n    # Heuristic: Euclidean distance between cell centres.\n    goal_cx, goal_cy = xy_of(goal_cell, origin, res)\n\n    def heuristic(cell):\n        cx, cy = xy_of(cell, origin, res)\n        return math.hypot(cx - goal_cx, cy - goal_cy)\n\n    open_set = []\n    heapq.heappush(open_set, (heuristic(start_cell), 0.0, start_cell))\n    came_from = {}\n    g_score = {start_cell: 0.0}\n    found = False\n\n    while open_set:\n        _, cur_g, current = heapq.heappop(open_set)\n        if current == goal_cell:\n            found = True\n            break\n\n        cx, cy = xy_of(current, origin, res)\n\n        for dx, dy in neigh_offsets:\n            nx_cell, ny_cell = current[0] + dx, current[1] + dy\n            if not (0 <= nx_cell < nx and 0 <= ny_cell < ny):\n                continue\n            if blocked[ny_cell, nx_cell]:\n                continue\n            nx_cx, ny_cy = xy_of((nx_cell, ny_cell), origin, res)\n            # Ensure the geometric connection respects the requested clearance.\n            if not segment_free((cx, cy), (nx_cx, ny_cy), clearance_m):\n                continue\n\n            tentative_g = cur_g + math.hypot(nx_cx - cx, ny_cy - cy)\n            neighbor = (nx_cell, ny_cell)\n            if tentative_g < g_score.get(neighbor, math.inf):\n                came_from[neighbor] = current\n                g_score[neighbor] = tentative_g\n                f_score = tentative_g + heuristic(neighbor)\n                heapq.heappush(open_set, (f_score, tentative_g, neighbor))\n\n    if not found:\n        return None\n\n    # Reconstruct raw path (cell centres).\n    raw_cells = []\n    cur = goal_cell\n    while cur != start_cell:\n        raw_cells.append(cur)\n        cur = came_from[cur]\n    raw_cells.append(start_cell)\n    raw_cells.reverse()\n    raw_path = [xy_of(c, origin, res) for c in raw_cells]\n\n    # Prepend exact start and append exact goal – base will validate connectors.\n    full_path = [tuple(start_xy)] + raw_path + [tuple(goal_xy)]\n\n    # ---- stage: validate ------------------------------------------------\n    plan_stage(\"validate\", input_points=len(full_path))\n\n    return full_path\n\n\ndef lookahead_target(path, pose):\n    \"\"\"\n    Return a forward point on *path* that lies between the configured\n    ``target_min_ahead_m`` (0.3 m) and the **smaller** of\n    ``target_max_ahead_m`` (2.0 m) and ``target_path_limit_m`` (1.0 m) ahead of\n    the robot, and that is geometrically reachable from the robot pose\n    (segment_free with the current clearance).  The function scans distances\n    from the maximum down to the minimum, picking the first reachable point.\n    If none are reachable, the robot’s current position is returned so that\n    the base will request a safe stop.\n    \"\"\"\n    # Current projection of the robot onto the path.\n    proj = _base_loop_projection(path, pose[:2])\n    robot_s = proj[\"s\"]\n\n    cfg = _BASE_LOOP_CFG\n    min_ahead = cfg[\"target_min_ahead_m\"]\n    # Limit the forward look‑ahead to both the planner's max and the base's path limit.\n    max_ahead = min(cfg[\"target_max_ahead_m\"], cfg[\"target_path_limit_m\"])\n\n    # Use the clearance currently adopted by the planner (or the default).\n    clearance = _BASE_LOOP_ST.get(\"clearance_m\")\n    if clearance is None:\n        clearance = cfg[\"clearances_m\"][0]\n\n    # Scan distances from max to min (step 0.05 m gives enough granularity).\n    for d in np.arange(max_ahead, min_ahead - 1e-9, -0.05):\n        candidate = _base_loop_point_at_s(path, robot_s + d)\n        if segment_free(pose[:2], candidate, clearance):\n            return float(candidate[0]), float(candidate[1])\n\n    # As a fallback, try the point that the base helper would have returned.\n    fallback = _base_loop_forward_target(path, pose)\n    if fallback is not None and segment_free(pose[:2], fallback, clearance):\n        return float(fallback[0]), float(fallback[1])\n\n    # No reachable forward point – stay at the current robot location.\n    return float(pose[0]), float(pose[1])\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"\n    Pure‑pursuit controller.\n    *dist* = Euclidean distance to the target.\n    *e*    = signed bearing error (wrapped to [-π, π]).\n    If |e| > 0.35 rad the robot stops (v = 0).  Otherwise\n        v = min(1.5, 2.5·dist + 0.5)\n    w = clamp(7.5·e, ‑2.0, 2.0)\n    \"\"\"\n    x, y, yaw = pose\n    tx, ty = target_xy\n    dx, dy = tx - x, ty - y\n    dist = math.hypot(dx, dy)\n    e = math.atan2(dy, dx) - yaw\n    e = math.atan2(math.sin(e), math.cos(e))          # wrap to [-π, π]\n\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to modify only lookahead_target according to diagnosis: limit max ahead distance to min(cfg[\"target_max_ahead_m\"], cfg[\"target_path_limit_m\"]). Also ensure we return a point within that range that passes segment_free. The current lookahead_target scans from max_ahead (currently cfg[\"target_max_ahead_m\"] = 2.0) down to min_ahead (0.3). But base guard_target will reject if target_path_distance > target_path_limit_m (1.0). So we need to limit max ahead to 1.0. Also maybe ensure we also respect target_path_limit_m for forward target generation. The code should compute max_ahead = min(cfg[\"target_max_ahead_m\"], cfg[\"target_path_limit_m\"]). Use that.\n\nAlso ensure we use segment_free with current clearance (same as before). The rest remains.\n\nPotential nuance: The base guard_target also checks off_path if projected distance > target_path_limit_m. But we are providing a point along path; its distance along path is within max_ahead, but Euclidean distance to path may be small. However if we limit ahead distance to 1.0, then projected distance <= 1.0, so guard passes.\n\nThus modify lookahead_target accordingly.\n\nAlso maybe adjust fallback scanning order: scanning from max to min is fine.\n\nImplement.\n\nMake sure to import needed variables (they are in outer scope). Use _base_loop_point_at_s.\n\nEdge: If no reachable point, return pose location (as before) leads to stop.\n\nImplement change.\n\nAlso ensure we still use clearance from state.\n\nReturn tuple floats.\n\nThus produce EDIT REGION block with only updated lookahead_target function.\n\nWe must output full EDIT REGION block (the three functions). But we only modify lookahead_target; plan_path and follow_cmd unchanged. Must include all three functions with updated lookahead_target.\n\nAdd comment about change.\n\nProvide code within same block.\n\nLet's craft final code."
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 33945,
+    "total_tokens": 36005,
+    "completion_tokens": 2060,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 396
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794705837.1869593,
+    "wall_s": 12.382,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 9,
+    "call": 17
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=exception error_type=NotImplementedError message=fill the model path-planning hook",
+    "DBG plan_summary t=0.00 status=no_path attempts=0.50:exception|0.45:exception|0.40:exception|0.35:exception"
+  ],
+  "function": "plan_path",
+  "direction": "Replace the NotImplementedError with a deterministic 4‑direction A* planner. Use occupancy_grid(clearance_m, 0.5) (no extra safety margin), convert start/goal to cells, verify segment_free for start‑cell and goal‑cell connectors with the same clearance_m, run A* on the 4‑neighbour grid, reconstruct the world‑coordinate path, call plan_stage('grid'),('search'),('simplify'),('validate') and finally validate_plan(raw_path) before returning the accepted path.",
+  "not_to_change": "Do not modify the existing lookahead_target or follow_cmd functions.",
+  "confidence": "medium"
+}

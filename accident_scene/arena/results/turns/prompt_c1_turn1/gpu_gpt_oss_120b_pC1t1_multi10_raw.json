@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-814dec6396e6f55b",
+ "object": "chat.completion",
+ "created": 1794724402,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c1t1_s423929058: first_not_on_map at t=4.92 s, distance 0.46 m, but collision at t=9.9 s → 장애물 인식 후에도 너무 가까운 거리에서 전진을 재개함\",\n    \"run c1t1_s1949073101: first_not_on_map within 2 m at t=2.35 s, collision at t=4.467 s → 현재 SAFE_DIST 0.8 m 로는 고속 주행(v≈1 m/s) 시 감속·회피가 늦음\",\n    \"모든 10회 실행에서 회피 플래그가 설정된 뒤 회전 후 다시 전진했지만, 회전 종료 시점에 dyn_dist > SAFE_DIST(0.8) 이면서도 실제 충돌 거리 < 0.5 m 로 충돌 발생\"\n  ],\n  \"target\": \"controller (avoidance logic)\",\n  \"direction\": \"1) SAFE_DIST와 EXIT_DIST 값을 각각 1.5 m와 2.0 m 로 늘려 초기 감지 범위를 확대한다. 2) 현재 전진 속도 v와 추정 닫힘 속도(동적 물체와의 상대 속도) 를 이용해 required_stop = max(SAFE_DIST, v*0.5+0.3) 를 계산하고, dyn_dist < required_stop 일 때만 회피 플래그를 켠다. 3) 회피 상태에서는 v=0 유지하고 w를 ±0.8 rad/s 로 회전하되, dyn_dist 가 required_stop 보다 크게 될 때까지 전진을 재개하지 않는다. 4) 필요 시 뒤쪽 라이다도 읽어 회전 중 뒤쪽에 물체가 있으면 회전 방향을 반대로 전환한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to analyze multiple runs summary to determine failure mode. All runs failed, mostly collisions. The code uses front 2D lidar to detect dynamic obstacles, but seems insufficient: collisions still happen. Evidence: collisions occur even when first_not_on_map shows detection earlier (e.g., run1 detection at 6.45s, collision at 11.4s). The avoidance logic: if dyn_dist < SAFE_DIST (0.8) then set avoid True and rotate, else if avoid and dyn_dist > EXIT_DIST (1.0) exit. However, the robot may be moving while obstacle is at distance >0.8 but still on collision course because closing speed high. Also the avoidance rotates in place with v=0, w limited to +-0.8 rad/s, may not turn enough before obstacle reaches. Also they only look at front lidar; obstacles can be from side/back? The collisions show partner_rel_xy often with x positive (ahead) and y varying. In some runs, first_not_on_map detection at ~0.46m at 4.92s, collision at 9.9s, meaning after detection robot kept rotating but didn't move away enough, then resumed moving and collided.\n\nAlso stop_turn episodes many; robot does many turn episodes but still collides. Possibly the logic never resets avoid flag correctly because after avoidance, they resume waypoint following but still may be too close to obstacle when turning ends. Also they ignore dynamic obstacles when in goal alignment phase (avoid flag still considered). They do check avoid before align, so okay.\n\nMain failure cause: detection range too small (0.8m) and reaction too slow; need to incorporate predictive braking based on closing speed, or enlarge safe distance, or use both front and back lidar? Also they only consider nearest dynamic point but not its velocity; need to consider closing speed.\n\nThus propose to modify: increase SAFE_DIST to e.g., 1.5m, EXIT_DIST to 2.0m, and add braking distance calculation: if closing speed >0, require distance > v*reaction + 0.5. Also incorporate side lidar? Simpler: use both front and back? Probably front enough.\n\nAlso need to handle case where obstacle appears very close (first_not_on_map at 0.46m) but robot still rotating and then moves forward into it. Should stop and wait until obstacle passes beyond safe distance before moving.\n\nThus target: adjust avoidance logic to include a \"stop\" state until dyn_dist > SAFE_DIST + margin and also ensure robot doesn't move forward while obstacle within safe zone. Already does that. But collisions happen because dyn_dist may be >SAFE_DIST (e.g., 0.9) but still collides due to high speed. So need to compute safe distance based on current speed.\n\nImplement: compute required_stop_dist = max(SAFE_DIST, v * 0.5 + 0.3) (assuming reaction 0.5s). If dyn_dist < required_stop_dist then avoid.\n\nAlso increase rotation speed maybe.\n\nThus propose changes: add function _required_stop_dist(v) and modify condition.\n\nAlso maybe use both front and back lidar to detect obstacles behind when turning.\n\nProvide target: controller logic.\n\nNow produce JSON with failure_mode: collision, evidence list referencing runs e.g., run c1t1_s423929058 detection at 4.92s distance 0.46m but collision at 9.9s, and run c1t1_s1949073101 detection at 2.35s distance 1.93m but collision at 4.467s, indicating insufficient safe distance.\n\ntarget: controller avoidance logic (increase safe distance, predictive).\n\ndirection: increase SAFE_DIST to 1.5, EXIT_DIST to 2.0; compute dynamic safe distance based on current speed and closing speed; only resume forward when dyn_dist > required; optionally use both front and back lidar for detection.\n\nConfidence high."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 19109,
+  "total_tokens": 20347,
+  "completion_tokens": 1238,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 807
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

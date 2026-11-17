@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-bc1c110f1d6611e1",
+  "object": "chat.completion",
+  "created": 1794703531,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\ndef plan_path(start_xy, goal_xy, clearance_m):\n    raise NotImplementedError(\"fill the model path-planning hook\")\n\n\ndef lookahead_target(path, pose):\n    \"\"\"\n    Return a forward point on *path* that lies between the configured\n    ``target_min_ahead_m`` (0.3 m) and ``target_max_ahead_m`` (2.0 m) ahead of\n    the robot.  The implementation simply uses the base helper\n    ``_base_loop_forward_target`` which already respects the min/max ahead\n    limits and walks across segment boundaries when the current segment is\n    too short.  If that helper fails (e.g. the path is shorter than the\n    minimum look‑ahead), the final waypoint of the path is used as a safe\n    fallback so that the function always returns two finite numbers.\n    \"\"\"\n    # Try the standard forward‑target helper which respects the 0.3‑2.0 m range.\n    target = _base_loop_forward_target(path, pose)\n    if target is None:\n        # Path is shorter than the required look‑ahead; fall back to the last\n        # point (goal) which is guaranteed to be a finite coordinate.\n        target = tuple(path[-1])\n    # Ensure a tuple of two floats is returned.\n    return float(target[0]), float(target[1])\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"\n    Pure pursuit controller.\n    *dist* = Euclidean distance to the target.\n    *e*    = signed bearing error (wrapped to [-π, π]).\n    If |e| > 0.35 rad the robot stops (v = 0).  Otherwise\n        v = min(1.5, 2.5·dist + 0.5)\n    w = clamp(7.5·e, ‑2.0, 2.0)\n    \"\"\"\n    x, y, yaw = pose\n    tx, ty = target_xy\n    dx, dy = tx - x, ty - y\n    dist = math.hypot(dx, dy)\n    e = math.atan2(dy, dx) - yaw\n    e = math.atan2(math.sin(e), math.cos(e))          # wrap to [-π, π]\n\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to modify only lookahead_target to satisfy diagnosis: remove segment_free and dynamic object safety checks, always return a forward point on path within 0.3-2.0m ahead. Must ensure it returns finite numbers. Use base utilities: _base_loop_point_at_s, _base_loop_projection to get robot's projection and then compute ahead distance.\n\nSimplify: compute projection = _base_loop_projection(path, pose[:2]) gives s and fraction etc. Use robot_s = projection[\"s\"]; total length? The forward target should be point at s + max(min_ahead, min(max_ahead, remaining_on_current_segment)). Actually base has _base_loop_forward_target which returns a point respecting min ahead and max ahead, but also ensures remaining on same segment not exceed. However that function already checks segment_free later in guard. But we can just call that function and return it directly, bypassing segment_free check. Or compute using _base_loop_point_at_s.\n\nGoal: return a point on path that is at least target_min_ahead_m away from robot projection, and at most target_max_ahead_m, also not beyond path end. If remaining distance on path after robot_s is less than min ahead, then return None? Base guard will handle fallback; but we need not return None to avoid error. The base loop after lookahead_target calls _base_loop_guard_target which may replace if unsafe. But if we always return a point within range, guard will accept (maybe still check segment_free but we removed segment_free check in lookahead_target, but guard will still check segment_free for connector, but that may fail causing fallback. However we can ensure we return a point that is reachable: maybe use _base_loop_forward_target which already respects segment free? Actually _base_loop_forward_target does not check segment_free; guard will later check connector between robot pose and target using segment_free. If that fails, guard will fallback to forward target again or request zero. To avoid failures, we could return the point that is exactly the robot's projection forward point (the same as guard's fallback). But still connector may be blocked; but if map has obstacles near robot, maybe path is blocked already, but base path is validated, so the segment from robot to that forward point should be free because path is free and robot is on path. However robot may be off path slightly; but projection ensures closest point, and forward target is on same segment as projection, so segment from robot to that point may cross obstacles? Could be but likely safe. We'll trust.\n\nImplementation: compute projection = _base_loop_projection(path, pose[:2]); robot_s = projection[\"s\"]; then compute ahead = max(cfg[\"target_min_ahead_m\"], min(cfg[\"target_max_ahead_m\"], (1.0 - projection[\"fraction\"]) * projection[\"length\"])); target_s = robot_s + ahead; point = _base_loop_point_at_s(path, target_s); return point.\n\nEdge: if remaining segment length < min ahead, then fallback to None? But spec says if segment remaining < min ahead, use next segment to accumulate 0.3m. The above logic uses same segment length; if less, ahead will be that length (since min of max ahead and same_segment). But if same_segment < min ahead, we need to go into next segment. Simpler: use _base_loop_forward_target which does exactly that: it returns point at min ahead, possibly crossing segment boundaries. So we can just call that and return.\n\nThus lookahead_target = return _base_loop_forward_target(path, pose). But need to ensure returns tuple (x,y). If forward_target returns None, we need to return something finite; maybe return the last point of path (goal) if within range? But guard will handle. However _base_loop_pair expects two finite numbers; if we return None, error. So we must guarantee not None. Use fallback to last point of path if forward_target is None.\n\nImplementation:\n\n```\ndef lookahead_target(path, pose):\n    target = _base_loop_forward_target(path, pose)\n    if target is None:\n        # fallback: last point of path (goal)\n        target = tuple(path[-1])\n    return target[0], target[1]\n```\n\nAdd docstring.\n\nWe must keep plan_path and follow_cmd unchanged. Also need import nothing. Use existing functions.\n\nAdd DBG lines optional.\n\nImplement.\n\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 33817,
+    "total_tokens": 35329,
+    "completion_tokens": 1512,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 900
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794703531.523783,
+    "wall_s": 9.236,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 4,
+    "call": 7
+  }
+}

@@ -1,0 +1,159 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c5t1_s639567638: 거리 0.94 m에서 1 s 정지 후 0.17 m/s 재개, 0.66 m/s 접촉 속도로 충돌 (t=25.333)",
+   "run c5t1_s1797941841: 거리 0.96 m에서 1 s 정지 후 0.09 m/s 재개, 0.57 m/s 접촉 속도로 충돌 (t=26.183)",
+   "run c5t1_s295520308: 정지 상태에서 0.95 m 거리 물체가 0.66 m/s 속도로 접근, 충돌 발생 (t=17.583)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "1 s 정지와 1 m 감지 거리면 모든 움직이는 물체를 피할 수 있다",
+    "holds": false,
+    "why": "충돌 시점에서 거리 ≤0.96 m, 정지 1 s 후 물체가 여전히 근접해 충돌"
+   },
+   {
+    "assumption": "움직이는 물체는 0.66 m/s 이하 속도로 접근한다",
+    "holds": true,
+    "why": "모든 충돌 기록의 closing_m_s가 0.57~0.66 m/s"
+   },
+   {
+    "assumption": "라이다 감지는 정적 장애물을 완전히 제거한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 물체가 정확히 나타남"
+   },
+   {
+    "assumption": "pause_until 이후 10 s 강제 재개는 필요 없다",
+    "holds": true,
+    "why": "충돌은 강제 재개 전 단계에서 발생"
+   },
+   {
+    "assumption": "evade 로직은 pause 중에 필요 없으며 정지만 하면 안전하다",
+    "holds": false,
+    "why": "pause 중에 물체가 여전히 접근해 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "fixed pause‑wait",
+    "turns": "0,1",
+    "result": "1/4 통과, 3 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "거리·상대속도 기반 동적 정지 시간 계산 후 가변 pause_until 설정",
+    "new_family": true,
+    "for": "접근 물체를 조기에 감지하고 정지 시간을 물체 속도에 맞게 조정",
+    "risk": "정지 시간이 길어져 전체 수행 시간이 늘어나고 정체 가능"
+   },
+   {
+    "idea": "감지 거리 2 m, 정지 시간 2 s 로 고정값 확대",
+    "new_family": false,
+    "for": "간단히 반응 시간을 늘려 충돌 회피",
+    "risk": "여전히 빠른 물체에 부족하거나 과도한 대기"
+   },
+   {
+    "idea": "pause 중에도 _plan_detour 로 측면 우회 경로 생성 후 회피",
+    "new_family": true,
+    "for": "정지만으로 부족할 때 측면 이동으로 회피",
+    "risk": "정적 장애물과 충돌 위험, 경로 계획 복잡"
+   }
+  ],
+  "chosen": "거리·상대속도 기반 동적 정지 시간 계산을 선택, 물체 속도에 따라 정지 시간을 조절해 충돌 방지",
+  "target": "controller (및 보조 함수 _dynamic_pause, _should_pause)",
+  "direction": "1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c5t1_s639567638: 거리 0.94 m에서 1 s 정지 후 0.17 m/s 재개, 0.66 m/s 접촉 속도로 충돌 (t=25.333)\",\n    \"run c5t1_s1797941841: 거리 0.96 m에서 1 s 정지 후 0.09 m/s 재개, 0.57 m/s 접촉 속도로 충돌 (t=26.183)\",\n    \"run c5t1_s295520308: 정지 상태에서 0.95 m 거리 물체가 0.66 m/s 속도로 접근, 충돌 발생 (t=17.583)\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"1 s 정지와 1 m 감지 거리면 모든 움직이는 물체를 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"충돌 시점에서 거리 ≤0.96 m, 정지 1 s 후 물체가 여전히 근접해 충돌\"\n    },\n    {\n      \"assumption\": \"움직이는 물체는 0.66 m/s 이하 속도로 접근한다\",\n      \"holds\": true,\n      \"why\": \"모든 충돌 기록의 closing_m_s가 0.57~0.66 m/s\"\n    },\n    {\n      \"assumption\": \"라이다 감지는 정적 장애물을 완전히 제거한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 물체가 정확히 나타남\"\n    },\n    {\n      \"assumption\": \"pause_until 이후 10 s 강제 재개는 필요 없다\",\n      \"holds\": true,\n      \"why\": \"충돌은 강제 재개 전 단계에서 발생\"\n    },\n    {\n      \"assumption\": \"evade 로직은 pause 중에 필요 없으며 정지만 하면 안전하다\",\n      \"holds\": false,\n      \"why\": \"pause 중에 물체가 여전히 접근해 충돌\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"fixed pause‑wait\",\n      \"turns\": \"0,1\",\n      \"result\": \"1/4 통과, 3 충돌\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"거리·상대속도 기반 동적 정지 시간 계산 후 가변 pause_until 설정\",\n      \"new_family\": true,\n      \"for\": \"접근 물체를 조기에 감지하고 정지 시간을 물체 속도에 맞게 조정\",\n      \"risk\": \"정지 시간이 길어져 전체 수행 시간이 늘어나고 정체 가능\"\n    },\n    {\n      \"idea\": \"감지 거리 2 m, 정지 시간 2 s 로 고정값 확대\",\n      \"new_family\": false,\n      \"for\": \"간단히 반응 시간을 늘려 충돌 회피\",\n      \"risk\": \"여전히 빠른 물체에 부족하거나 과도한 대기\"\n    },\n    {\n      \"idea\": \"pause 중에도 _plan_detour 로 측면 우회 경로 생성 후 회피\",\n      \"new_family\": true,\n      \"for\": \"정지만으로 부족할 때 측면 이동으로 회피\",\n      \"risk\": \"정적 장애물과 충돌 위험, 경로 계획 복잡\"\n    }\n  ],\n  \"chosen\": \"거리·상대속도 기반 동적 정지 시간 계산을 선택, 물체 속도에 따라 정지 시간을 조절해 충돌 방지\",\n  \"target\": \"controller (및 보조 함수 _dynamic_pause, _should_pause)\",\n  \"direction\": \"1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c5t1_s639567638",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 31.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 25.333,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.17m/s",
+   "partner_rel_xy": [
+    0.2,
+    -0.55
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 22.55,
+   "goal_dist_m": 23.9942,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t1_s1797941841",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 568.7,
+   "sim_time_s": 32.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.183,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.09m/s",
+   "partner_rel_xy": [
+    0.34,
+    -0.55
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 22.82,
+   "goal_dist_m": 23.1477,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t1_s371982087",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 536.5,
+   "sim_time_s": 69.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 63.02,
+   "goal_dist_m": 0.2232,
+   "time_to_goal_s": 64.983
+  },
+  {
+   "run": "c5t1_s295520308",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 467.5,
+   "sim_time_s": 23.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.583,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.05,
+    -0.55
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 15.92,
+   "goal_dist_m": 23.8766,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

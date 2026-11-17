@@ -1,0 +1,153 @@
+{
+ "seed": 18533188,
+ "variant": "gpu_gpt_oss_120b_pC1once_a0_t1_test01",
+ "run": {
+  "variant": "gpu_gpt_oss_120b_pC1once_a0_t1_test01",
+  "sim_seconds": 200.0,
+  "static_ok": true,
+  "verdict": "fail",
+  "final_dist_m": 30.6478,
+  "collisions": 987,
+  "partners": [
+   "/World/arena_mover_00"
+  ],
+  "first_collision_t": 3.3,
+  "time_to_goal_s": null,
+  "sim_time_s": 9.3,
+  "runtime_error": null,
+  "wall_s": 30.1,
+  "dbg_lines": 0
+ },
+ "movers_vs_robot": {
+  "note": "물체 중심과 로봇 중심 사이 거리(m). 물체는 0.6 m 정사각, 로봇 몸체는 약 0.95 x 0.68 m.",
+  "closest": [
+   {
+    "mover": "arena_mover_00 (start_zone)",
+    "min_center_dist_m": 0.44,
+    "t": 6.73,
+    "robot_xy": [
+     -7.44,
+     -10.47
+    ],
+    "mover_xy": [
+     -7.0,
+     -10.47
+    ]
+   },
+   {
+    "mover": "arena_mover_01 (west_corridor)",
+    "min_center_dist_m": 9.23,
+    "t": 8.3,
+    "robot_xy": [
+     -7.42,
+     -10.18
+    ],
+    "mover_xy": [
+     -6.49,
+     -1.0
+    ]
+   },
+   {
+    "mover": "arena_mover_02 (center)",
+    "min_center_dist_m": 19.99,
+    "t": 8.3,
+    "robot_xy": [
+     -7.42,
+     -10.18
+    ],
+    "mover_xy": [
+     -0.58,
+     8.6
+    ]
+   },
+   {
+    "mover": "arena_mover_03 (goal_west)",
+    "min_center_dist_m": 27.29,
+    "t": 8.3,
+    "robot_xy": [
+     -7.42,
+     -10.18
+    ],
+    "mover_xy": [
+     4.0,
+     14.6
+    ]
+   },
+   {
+    "mover": "arena_mover_04 (goal_south)",
+    "min_center_dist_m": 25.97,
+    "t": 8.3,
+    "robot_xy": [
+     -7.42,
+     -10.18
+    ],
+    "mover_xy": [
+     7.6,
+     11.0
+    ]
+   }
+  ],
+  "collision": {
+   "t": 3.3,
+   "partners": [
+    "/World/arena_mover_00"
+   ],
+   "robot_pose": [
+    -7.45,
+    -10.63,
+    -0.03
+   ],
+   "robot_speed_m_s": 1.5,
+   "movers_at_t": [
+    {
+     "mover": "arena_mover_00 (start_zone)",
+     "xy": [
+      -7.0,
+      -11.1
+     ]
+    },
+    {
+     "mover": "arena_mover_01 (west_corridor)",
+     "xy": [
+      -3.76,
+      -1.0
+     ]
+    },
+    {
+     "mover": "arena_mover_02 (center)",
+     "xy": [
+      -1.37,
+      8.6
+     ]
+    },
+    {
+     "mover": "arena_mover_03 (goal_west)",
+     "xy": [
+      4.0,
+      16.57
+     ]
+    },
+    {
+     "mover": "arena_mover_04 (goal_south)",
+     "xy": [
+      7.18,
+      11.0
+     ]
+    }
+   ]
+  }
+ },
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "첫 충돌 시각 3.3 s, 로봇 위치 (-7.45, -10.63)에서 mover start_zone와 충돌",
+   "collision_partner \"/World/arena_mover_00\" 은 움직이는 물체이며 로봇이 waypoint 를 따라가던 중 센서를 전혀 사용하지 않음",
+   "controller 코드에 lidar·camera 함수 호출이 없으며 움직이는 물체를 회피하는 로직이 없음"
+  ],
+  "target": "controller",
+  "direction": "controller에 앞쪽 2D 라이다를 호출해 앞 0.8 m 이내 장애물을 감지하면 v를 0으로 만들고, 일정 시간 정지 후 장애물이 사라지면 기존 waypoint‑추종으로 복귀하도록 상태 변수를 추가한다. 장애물 감지 시 작은 회전(w)으로 우회 시도도 포함한다. 이렇게 하면 매 실행마다 다른 물체 배치에도 실시간 회피가 가능한다.",
+  "confidence": "high"
+ },
+ "raw_content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"첫 충돌 시각 3.3 s, 로봇 위치 (-7.45, -10.63)에서 mover start_zone와 충돌\",\n    \"collision_partner \\\"/World/arena_mover_00\\\" 은 움직이는 물체이며 로봇이 waypoint 를 따라가던 중 센서를 전혀 사용하지 않음\",\n    \"controller 코드에 lidar·camera 함수 호출이 없으며 움직이는 물체를 회피하는 로직이 없음\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"controller에 앞쪽 2D 라이다를 호출해 앞 0.8 m 이내 장애물을 감지하면 v를 0으로 만들고, 일정 시간 정지 후 장애물이 사라지면 기존 waypoint‑추종으로 복귀하도록 상태 변수를 추가한다. 장애물 감지 시 작은 회전(w)으로 우회 시도도 포함한다. 이렇게 하면 매 실행마다 다른 물체 배치에도 실시간 회피가 가능한다.\",\n  \"confidence\": \"high\"\n}",
+ "missing": []
+}

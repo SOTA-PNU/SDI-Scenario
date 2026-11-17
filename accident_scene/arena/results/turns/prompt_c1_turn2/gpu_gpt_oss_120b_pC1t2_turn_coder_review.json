@@ -1,0 +1,74 @@
+{
+ "turn": 2,
+ "started": "2026-11-15 16:40:39",
+ "code_in": "results/turns/prompt_c1_turn1/gpu_gpt_oss_120b_pC1t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c1t1_s423929058: first_not_on_map at t=4.92 s, distance 0.46 m, but collision at t=9.9 s → 장애물 인식 후에도 너무 가까운 거리에서 전진을 재개함",
+   "run c1t1_s1949073101: first_not_on_map within 2 m at t=2.35 s, collision at t=4.467 s → 현재 SAFE_DIST 0.8 m 로는 고속 주행(v≈1 m/s) 시 감속·회피가 늦음",
+   "모든 10회 실행에서 회피 플래그가 설정된 뒤 회전 후 다시 전진했지만, 회전 종료 시점에 dyn_dist > SAFE_DIST(0.8) 이면서도 실제 충돌 거리 < 0.5 m 로 충돌 발생"
+  ],
+  "target": "controller (avoidance logic)",
+  "direction": "1) SAFE_DIST와 EXIT_DIST 값을 각각 1.5 m와 2.0 m 로 늘려 초기 감지 범위를 확대한다. 2) 현재 전진 속도 v와 추정 닫힘 속도(동적 물체와의 상대 속도) 를 이용해 required_stop = max(SAFE_DIST, v*0.5+0.3) 를 계산하고, dyn_dist < required_stop 일 때만 회피 플래그를 켠다. 3) 회피 상태에서는 v=0 유지하고 w를 ±0.8 rad/s 로 회전하되, dyn_dist 가 required_stop 보다 크게 될 때까지 전진을 재개하지 않는다. 4) 필요 시 뒤쪽 라이다도 읽어 회전 중 뒤쪽에 물체가 있으면 회전 방향을 반대로 전환한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유:  \n1. 기존 SAFE_DIST/EXIT_DIST 값이 작아 빠른 전진 속도에서 회피가 늦어 충돌이 발생했습니다. 진단에서 제시된대로 안전 범위를 확대하고, 동적 물체와의 상대 속도를 고려해 required_stop 거리를 동적으로 계산하도록 했습니다.  \n2. 회피 중에도 뒤쪽 라이다를 확인해 회전 방향이 뒤쪽 물체와 충돌하지 않도록 반전시키고, 회피 종료 조건을 양쪽 라이다가 충분히 멀어졌을 때로 바꾸어 안정성을 높였습니다.  \n3. 코드 가독성을 위해 동적 물체 탐지를 라이다 종류별 함수로 분리하고, 상수 REACTION_TIME · BUFFER 을 도입해 요구 정지 거리를 명시적으로 계산했습니다.",
+   "changed": [
+    "BUFFER",
+    "EXIT_DIST",
+    "REACTION_TIME",
+    "SAFE_DIST",
+    "_nearest_dynamic_back",
+    "_nearest_dynamic_front",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "SAFE_DIST와 EXIT_DIST 값을 각각 1.5 m와 2.0 m 로 늘린다",
+      "implemented": true,
+      "note": "SAFE_DIST=1.5, EXIT_DIST=2.0 로 정의"
+     },
+     {
+      "instruction": "v와 상대 속도를 이용해 required_stop = max(SAFE_DIST, v*0.5+0.3) 를 계산하고 dyn_dist < required_stop 일 때 회피 플래그를 켠다",
+      "implemented": true,
+      "note": "v_target 사용, REACTION_TIME=0.5, BUFFER=0.3 로 required_stop 계산, front_dist < required_stop 로 회피 시작"
+     },
+     {
+      "instruction": "회피 상태에서는 v=0 유지하고 w를 ±0.8 rad/s 로 회전하며 dyn_dist 가 required_stop 보다 크게 될 때까지 전진 재개하지 않는다",
+      "implemented": true,
+      "note": "회피 시 v=0, w=_clamp(1.0*avoid_dir,-0.8,0.8); exit 조건은 front/back 거리 > EXIT_DIST(>=required_stop) 로 구현"
+     },
+     {
+      "instruction": "뒤쪽 라이다를 읽어 회전 중 뒤쪽에 물체가 있으면 회전 방향을 반대로 전환한다",
+      "implemented": true,
+      "note": "back_dist, back_bearing 사용해 back_dist < required_stop && back_bearing*avoid_dir>0 시 avoid_dir 반전"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "seeds": [
+  1762697780,
+  145093272,
+  1908764829,
+  620777270,
+  724077913,
+  1995321233,
+  1064334404,
+  1516986836,
+  1765925868,
+  1815838695
+ ],
+ "reason": "변경 이유:  \n1. 기존 SAFE_DIST/EXIT_DIST 값이 작아 빠른 전진 속도에서 회피가 늦어 충돌이 발생했습니다. 진단에서 제시된대로 안전 범위를 확대하고, 동적 물체와의 상대 속도를 고려해 required_stop 거리를 동적으로 계산하도록 했습니다.  \n2. 회피 중에도 뒤쪽 라이다를 확인해 회전 방향이 뒤쪽 물체와 충돌하지 않도록 반전시키고, 회피 종료 조건을 양쪽 라이다가 충분히 멀어졌을 때로 바꾸어 안정성을 높였습니다.  \n3. 코드 가독성을 위해 동적 물체 탐지를 라이다 종류별 함수로 분리하고, 상수 REACTION_TIME · BUFFER 을 도입해 요구 정지 거리를 명시적으로 계산했습니다."
+}

@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary ... attempts=0.50:empty_path|0.45:empty_path|0.40:empty_path|0.35:empty_path ... path_points=0",
+    "시뮬레이션 진행 로그에서 로봇이 전혀 이동하지 않아 평균 속도 0.0 m/s, 정지 구간 199 s 기록",
+    "plan_path 반환값이 None 로 인해 base 가 계속 empty_path 로 판단, 재계획만 반복"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 8‑연결 이웃을 사용하고, 이웃 이동 전 segment_free 검사를 제거한다. 즉 neighbor8 = ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)) 로 바꾸고, edge_free 호출을 생략하여 blocked 셀만 제외한다. 이렇게 하면 A* 가 경로를 찾고 validate_plan 이 최종 허용 여부를 판단한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 그대로 유지한다.",
+  "confidence": "medium"
+}

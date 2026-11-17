@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-bd9b1d9f12dac741",
+ "object": "chat.completion",
+ "created": 1794730069,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t0_s1554098519: first_not_on_map 2 m at t=1.05 s, robot still moving 1.5 m/s and collides at t=3.33 s\",\n    \"run c2t0_s1302393766: first_not_on_map 2 m at t=27.85 s, robot speed 1.09 m/s, collision at t=29.38 s\",\n    \"모든 실패 실행에서 controller는 센서를 전혀 사용하지 않아 움직이는 물체를 감지·회피하지 못함\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to determine failure mode: collisions dominate (9 of 10 runs fail due to collision). Need to analyze why code fails: it doesn't use sensors, so moving objects not detected, leading to collisions early. Evidence: first_not_on_map shows detection times but controller ignores. Also stop_turn_episodes show many stop-turns (maybe due to waypoint following). Collisions happen at early times when object appears within 2m (first_not_on_map within 2m at ~1s) but robot still moving at ~1.5 m/s, not stopping. So failure mode: collision due to lack of dynamic obstacle avoidance. Need to propose adding sensor-based detection and reactive stopping/avoidance. Target: modify controller to incorporate lidar2d_points detection of non-map points (first_not_on_map) and if any within safety distance (e.g., 1.5 m) then stop and wait until cleared or perform simple avoidance (e.g., turn away). Could also add simple reactive behavior: if moving object detected within 1.5 m in front sector, set v=0, w=0.5 rad/s to turn away, maybe resume after cleared.\n\nProvide evidence: e.g., run c2t0_s1554098519 collision at 3.33s, first_not_on_map within 2m at 1.05s, robot still moving 1.5 m/s at collision. Another run c2t0_s1302393766 collision at 29.38s, first_not_on_map within 2m at 27.85s, robot still moving 1.09 m/s. So pattern.\n\nThus failure mode = collision.\n\nTarget: controller (add sensor detection). Direction: add code to read front lidar, filter points not belonging to map (use provided first_not_on_map logic? but we can approximate by checking points that are not within any static obstacle bounding boxes). Simpler: use lidar2d_points('front') and detect any point within 1.2 m ahead (bearing +-30°). If found, set v=0 and rotate slowly until clear. Also keep waypoint logic but pause.\n\nWill propose adding a new helper function _is_moving_obstacle_near() using lidar2d_points and static map boxes.\n\nBut cannot import map data? We have WALLS, FIXED_OBSTACLES, MISSION boxes. Could compute distances to those to filter static. Simpler: use first_not_on_map detection via lidar2d_points and compare to map? Hard. Could just treat any point within 1.2 m as obstacle (including static) but static already avoided by waypoints, so fine.\n\nThus modify controller to check front lidar each call, if any point distance < safety_dist and bearing within +/-30°, then stop and turn away (e.g., w = 0.5). After clearance, resume.\n\nProvide JSON.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 19154,
+  "total_tokens": 20066,
+  "completion_tokens": 912,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 592
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

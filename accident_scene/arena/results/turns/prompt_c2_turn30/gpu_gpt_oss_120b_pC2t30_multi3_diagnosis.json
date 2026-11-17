@@ -1,0 +1,74 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t30_s628560032: first_not_on_map 1.31 m at bearing -30° (outside 1 m detection) → collision at 67.33 s",
+   "run c2t30_s317015420: moving object at 2.0 m, bearing -55° not detected → collision at 58.1 s",
+   "run c2t30_s1907137410: after 7 avoid_rotate episodes robot hit static box at 76.53 s, showing rotation caused a static collision"
+  ],
+  "target": "controller",
+  "direction": "Increase _CLOSE_DETECT_DIST to 1.5 m (or 2.0 m) and set _CLOSE_DETECT_ANGLE to np.pi so the detection cone covers all directions. Replace the call to _detect_moving_front with _detect_moving_any to use the larger detection sector. Extend _AVOID_DURATION to 0.8 s and _BACK_TIME to 1.0 s for more clearance before rotating. Reduce _AVOID_ROT_TIME to 0.4 s to limit rotation near static obstacles.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t30_s628560032: first_not_on_map 1.31 m at bearing -30° (outside 1 m detection) → collision at 67.33 s\",\n    \"run c2t30_s317015420: moving object at 2.0 m, bearing -55° not detected → collision at 58.1 s\",\n    \"run c2t30_s1907137410: after 7 avoid_rotate episodes robot hit static box at 76.53 s, showing rotation caused a static collision\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"Increase _CLOSE_DETECT_DIST to 1.5 m (or 2.0 m) and set _CLOSE_DETECT_ANGLE to np.pi so the detection cone covers all directions. Replace the call to _detect_moving_front with _detect_moving_any to use the larger detection sector. Extend _AVOID_DURATION to 0.8 s and _BACK_TIME to 1.0 s for more clearance before rotating. Reduce _AVOID_ROT_TIME to 0.4 s to limit rotation near static obstacles.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t30_s628560032",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 67.333,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.20m/s 회전 +1.0",
+   "partner_rel_xy": [
+    -0.91,
+    -0.37
+   ],
+   "closing_m_s": 0.44,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 62.35,
+   "goal_dist_m": 4.6637,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t30_s317015420",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 58.1,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.18m/s 회전 +1.0",
+   "partner_rel_xy": [
+    -0.41,
+    -0.59
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 56.02,
+   "goal_dist_m": 4.9056,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t30_s1907137410",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 76.533,
+   "partner": "static:arena_box_06",
+   "robot_at_collision": "주행 0.16m/s 회전 +1.5",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 71.62,
+   "goal_dist_m": 3.1154,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

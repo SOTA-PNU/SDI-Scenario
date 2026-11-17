@@ -1,0 +1,184 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c5t27_s367941497: object first seen at t=0.12 s (1.93 m) but collision with mover_00 occurs at t=5.0 s despite an early stop at t=0.2 s",
+   "run c5t27_s1661556862: first unmapped point within 2 m at t=40.15 s, collision with mover_03 at t=45.083 s (≈5 s later) after the clearance hold timed out",
+   "run c5t27_s603735424: stall abort at t=122.45 s after many stop‑turn episodes; robot moved only 0.292 m in the last 60 s, indicating it could not resume after repeated stops"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Robot can safely resume once the nearest unmapped point and any tracked mover are > _CLEAR_R (2 m) away for at least _CLEAR_OK_T (0.5 s)",
+    "holds": false,
+    "why": "Collisions happen after the hold ends while the object is still within ~2 m (e.g., runs 2 and 4)"
+   },
+   {
+    "assumption": "A fixed maximum clearance‑hold duration (_CLEAR_MAX = 4 s) is sufficient for any moving object to clear the safety zone",
+    "holds": false,
+    "why": "Both collisions occur >4 s after the first detection, showing the fixed cap is too short"
+   },
+   {
+    "assumption": "When a mover is inside _SAFE_DIST, the VO planner will always find a safe trajectory within its horizon",
+    "holds": false,
+    "why": "Several runs show the VO planner returns None, after which the controller falls back to predictive speed and collides"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "simple pause_until",
+    "turns": "0‑2",
+    "result": "3 attempts, 6 passes (early stop logic only)"
+   },
+   {
+    "family": "detour‑based",
+    "turns": "3",
+    "result": "1 attempt, 0 passes"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": "4",
+    "result": "1 attempt, 2 passes"
+   },
+   {
+    "family": "VO‑based planning (including synthetic tracks, VO‑only, VO+detour, etc.)",
+    "turns": "5‑26",
+    "result": "22 attempts, 42 passes (mixed success, still collisions)"
+   },
+   {
+    "family": "clearance‑hold after stop",
+    "turns": "27",
+    "result": "1 attempt, 2 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Adaptive clearance hold: compute time‑to‑collision (TTC) from _dynamic_pause or _raw_ttc_stop and keep the robot stopped until TTC exceeds a safe threshold (e.g., 2 s) instead of a fixed 4 s cap",
+    "new_family": true,
+    "for": "collisions after the fixed hold expires while the object is still nearby",
+    "risk": "Longer stops may increase overall mission time; TTC estimation errors could cause unnecessary delays"
+   },
+   {
+    "idea": "Remove predictive‑speed fallback after a stop; if VO planner cannot produce a safe command, keep the robot stopped (or rotate in place) until a safe command appears",
+    "new_family": true,
+    "for": "preventing unsafe forward motion when VO fails",
+    "risk": "May cause stalls if VO cannot find a path for an extended period"
+   },
+   {
+    "idea": "Prioritize side‑detour generation after any stop: when _min_gap ≤ _SAFE_DIST and VO fails, immediately invoke _side_detour with a larger lateral offset and longer timeout",
+    "new_family": true,
+    "for": "providing a deterministic escape route when VO is unable to plan",
+    "risk": "Side detour may conflict with static obstacles, requiring additional map checks"
+   }
+  ],
+  "chosen": "Adaptive clearance hold (candidate A) is selected because the fixed 4 s maximum hold is insufficient; extending the hold dynamically based on actual TTC ensures the robot only resumes when the moving object is truly safe.",
+  "target": "clearance‑hold logic (functions _arm_clear_hold, _clear_hold and related constants)",
+  "direction": "1. Add constants _CLEAR_TTC = 2.0 and _CLEAR_TTC_MARGIN = 0.5. 2. In _arm_clear_hold compute the current TTC using _dynamic_pause (or _raw_ttc_stop) and set st[\"clear_hold_until\"] = t + max(_CLEAR_TTC, ttc + _CLEAR_TTC_MARGIN). 3. Modify _clear_hold to drop the fixed _CLEAR_MAX cap and keep holding while min(d, gap) ≤ _CLEAR_R or TTC < _CLEAR_TTC. 4. Remove the grace‑period logic that releases the hold after a fixed time; instead release only after the TTC‑based condition is satisfied for _CLEAR_OK_T seconds. 5. Ensure every place that calls _arm_clear_hold passes the current M (track array) so TTC can be evaluated. 6. Test that after a stop the robot remains halted until the moving object’s TTC exceeds the threshold, then resumes normal VO/predictive‑speed control.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c5t27_s367941497: object first seen at t=0.12 s (1.93 m) but collision with mover_00 occurs at t=5.0 s despite an early stop at t=0.2 s\",\n    \"run c5t27_s1661556862: first unmapped point within 2 m at t=40.15 s, collision with mover_03 at t=45.083 s (≈5 s later) after the clearance hold timed out\",\n    \"run c5t27_s603735424: stall abort at t=122.45 s after many stop‑turn episodes; robot moved only 0.292 m in the last 60 s, indicating it could not resume after repeated stops\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Robot can safely resume once the nearest unmapped point and any tracked mover are > _CLEAR_R (2 m) away for at least _CLEAR_OK_T (0.5 s)\",\n      \"holds\": false,\n      \"why\": \"Collisions happen after the hold ends while the object is still within ~2 m (e.g., runs 2 and 4)\"\n    },\n    {\n      \"assumption\": \"A fixed maximum clearance‑hold duration (_CLEAR_MAX = 4 s) is sufficient for any moving object to clear the safety zone\",\n      \"holds\": false,\n      \"why\": \"Both collisions occur >4 s after the first detection, showing the fixed cap is too short\"\n    },\n    {\n      \"assumption\": \"When a mover is inside _SAFE_DIST, the VO planner will always find a safe trajectory within its horizon\",\n      \"holds\": false,\n      \"why\": \"Several runs show the VO planner returns None, after which the controller falls back to predictive speed and collides\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"simple pause_until\",\n      \"turns\": \"0‑2\",\n      \"result\": \"3 attempts, 6 passes (early stop logic only)\"\n    },\n    {\n      \"family\": \"detour‑based\",\n      \"turns\": \"3\",\n      \"result\": \"1 attempt, 0 passes\"\n    },\n    {\n      \"family\": \"predictive speed scaling\",\n      \"turns\": \"4\",\n      \"result\": \"1 attempt, 2 passes\"\n    },\n    {\n      \"family\": \"VO‑based planning (including synthetic tracks, VO‑only, VO+detour, etc.)\",\n      \"turns\": \"5‑26\",\n      \"result\": \"22 attempts, 42 passes (mixed success, still collisions)\"\n    },\n    {\n      \"family\": \"clearance‑hold after stop\",\n      \"turns\": \"27\",\n      \"result\": \"1 attempt, 2 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Adaptive clearance hold: compute time‑to‑collision (TTC) from _dynamic_pause or _raw_ttc_stop and keep the robot stopped until TTC exceeds a safe threshold (e.g., 2 s) instead of a fixed 4 s cap\",\n      \"new_family\": true,\n      \"for\": \"collisions after the fixed hold expires while the object is still nearby\",\n      \"risk\": \"Longer stops may increase overall mission time; TTC estimation errors could cause unnecessary delays\"\n    },\n    {\n      \"idea\": \"Remove predictive‑speed fallback after a stop; if VO planner cannot produce a safe command, keep the robot stopped (or rotate in place) until a safe command appears\",\n      \"new_family\": true,\n      \"for\": \"preventing unsafe forward motion when VO fails\",\n      \"risk\": \"May cause stalls if VO cannot find a path for an extended period\"\n    },\n    {\n      \"idea\": \"Prioritize side‑detour generation after any stop: when _min_gap ≤ _SAFE_DIST and VO fails, immediately invoke _side_detour with a larger lateral offset and longer timeout\",\n      \"new_family\": true,\n      \"for\": \"providing a deterministic escape route when VO is unable to plan\",\n      \"risk\": \"Side detour may conflict with static obstacles, requiring additional map checks\"\n    }\n  ],\n  \"chosen\": \"Adaptive clearance hold (candidate A) is selected because the fixed 4 s maximum hold is insufficient; extending the hold dynamically based on actual TTC ensures the robot only resumes when the moving object is truly safe.\",\n  \"target\": \"clearance‑hold logic (functions _arm_clear_hold, _clear_hold and related constants)\",\n  \"direction\": \"1. Add constants _CLEAR_TTC = 2.0 and _CLEAR_TTC_MARGIN = 0.5. 2. In _arm_clear_hold compute the current TTC using _dynamic_pause (or _raw_ttc_stop) and set st[\\\"clear_hold_until\\\"] = t + max(_CLEAR_TTC, ttc + _CLEAR_TTC_MARGIN). 3. Modify _clear_hold to drop the fixed _CLEAR_MAX cap and keep holding while min(d, gap) ≤ _CLEAR_R or TTC < _CLEAR_TTC. 4. Remove the grace‑period logic that releases the hold after a fixed time; instead release only after the TTC‑based condition is satisfied for _CLEAR_OK_T seconds. 5. Ensure every place that calls _arm_clear_hold passes the current M (track array) so TTC can be evaluated. 6. Test that after a stop the robot remains halted until the moving object’s TTC exceeds the threshold, then resumes normal VO/predictive‑speed control.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t27_s1535035896",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 89.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 83.03,
+   "goal_dist_m": 0.0691,
+   "time_to_goal_s": 84.95
+  },
+  {
+   "run": "c5t27_s367941497",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 511.0,
+   "sim_time_s": 11.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.0,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.39m/s",
+   "partner_rel_xy": [
+    0.37,
+    0.52
+   ],
+   "closing_m_s": 0.43,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 0.12,
+   "goal_dist_m": 31.7941,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t27_s1798807491",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 500.0,
+   "sim_time_s": 82.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 76.17,
+   "goal_dist_m": 0.0507,
+   "time_to_goal_s": 77.983
+  },
+  {
+   "run": "c5t27_s1661556862",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 417.9,
+   "sim_time_s": 51.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 45.083,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.40m/s",
+   "partner_rel_xy": [
+    0.42,
+    0.37
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 41.75,
+   "goal_dist_m": 4.9311,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t27_s603735424",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 366.8,
+   "sim_time_s": 123.5,
+   "stall_abort_t": 122.45,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 15.1165,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,251 @@
+{
+ "turn": 4,
+ "started": "2026-11-15 17:59:57",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c2_turn2/gpu_gpt_oss_120b_pC2t2_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t2_s87398614: collision at t=4.2 s, moving object bearing 73° (outside ±30° sector) and first_not_on_map within 2 m at t=1.35 s bearing 73°",
+   "run c2t2_s1474663144: collision at t=18.55 s, moving object bearing 33° (outside ±30°) and first_not_on_map within 2 m at t=17.42 s bearing 33°",
+   "run c2t2_s1160845285: collision at t=46.1 s, moving object bearing –49° (outside ±30°) and first_not_on_map within 2 m at t=44.72 s bearing –49°"
+  ],
+  "target": "_detect_moving_any (and controller reaction)",
+  "direction": "1) 확대된 탐지 범위: 거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 바꾼다. 2) _detect_moving_any에서 앞·뒤 라이다를 모두 사용해 위 조건을 적용한다. 3) 감지 시 v를 0으로 하고, 평균 베어링의 부호에 따라 회전(w=±0.6 rad/s)하거나, 거리 비례 감속을 추가한다. 4) 기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체를 조기에 차단한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유:  \n- 진단에서 이동 물체가 ±30°·1.2 m 범위 밖에서도 충돌이 발생함을 확인했습니다.  \n- 따라서 **탐지 범위를 확대**하여 2 m 이내 ±90°(사실상 전방 반구)까지 검출하고, 검출 시 즉시 전진을 중단하고 회전하도록 반응 로직을 강화했습니다.  \n- 회전 속도를 약간 늘려 물체를 빠르게 피하고, 기존 웨이포인트 로직과 충돌 없이 재개될 수 있도록 했습니다.",
+   "changed": [
+    "_DETECT_ANGLE",
+    "_DETECT_DIST",
+    "_detect_moving_any",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 확대",
+      "implemented": true,
+      "note": "_DETECT_DIST=2.0, _DETECT_ANGLE=np.deg2rad(90.0) 사용"
+     },
+     {
+      "instruction": "_detect_moving_any에서 앞·뒤 라이다 모두 사용",
+      "implemented": true,
+      "note": "pts_front, pts_back을 결합해 처리"
+     },
+     {
+      "instruction": "감지 시 v를 0으로 하고 평균 베어링 부호에 따라 회전(w=±0.6 rad/s) 또는 거리 비례 감속",
+      "implemented": true,
+      "note": "v=0, w=-0.8*sign(mean_bearing) (속도 0.8 rad/s) 구현"
+     },
+     {
+      "instruction": "기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체 차단",
+      "implemented": true,
+      "note": "탐지 범위 ±90°·2 m 로 확대, 전·후 라이다 모두 적용"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유:  \n- 진단에서 이동 물체가 ±30°·1.2 m 범위 밖에서도 충돌이 발생함을 확인했습니다.  \n- 따라서 **탐지 범위를 확대**하여 2 m 이내 ±90°(사실상 전방 반구)까지 검출하고, 검출 시 즉시 전진을 중단하고 회전하도록 반응 로직을 강화했습니다.  \n- 회전 속도를 약간 늘려 물체를 빠르게 피하고, 기존 웨이포인트 로직과 충돌 없이 재개될 수 있도록 했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1207646714,
+  228997367,
+  440040885,
+  1233151740,
+  1841486000,
+  209790174,
+  664111211,
+  1718718581,
+  792001528,
+  710935078
+ ],
+ "sim_used_s": 523.3,
+ "verdicts": {
+  "1207646714": "fail",
+  "228997367": "fail",
+  "440040885": "fail",
+  "1233151740": "fail",
+  "1841486000": "fail",
+  "209790174": "fail",
+  "664111211": "fail",
+  "1718718581": "fail",
+  "792001528": "fail",
+  "710935078": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 18400,
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t4_s1207646714: stall_abort_t 66.07 s, stop_turn_episodes 26, first_not_on_map at 61.12 s (object detected but robot never resumes)",
+   "run c2t4_s228997367: stall_abort_t 60.0 s, stop_turn_episodes 34, first_not_on_map at 55.08 s, robot stays in place despite detection",
+   "run c2t4_s664111211: stall_abort_t 62.52 s, stop_turn_episodes 28, first_not_on_map at 57.55 s, robot spins continuously"
+  ],
+  "target": "controller (reactive avoidance logic and detection thresholds)",
+  "direction": "1) _DETECT_DIST을 1.0 m로, _DETECT_ANGLE을 ±45°(np.deg2rad(45))로 줄여 불필요한 측면 감지를 억제한다. 2) controller에 회피 상태 타이머를 도입해 물체가 감지되면 v=0, w=0으로 최대 2 s 정지 후, 여전히 물체가 있으면 작은 좌측/우측 회피 회전(w=±0.4 rad/s) 후 전진을 재개한다. 3) 회피 후 1 m 이내에 물체가 남아 있으면 다시 정지·대기, 그렇지 않으면 waypoint 추적으로 복귀한다. 4) 기존 _detect_moving_any은 그대로 두고, 위 로직으로 과도한 제자리 회전을 방지한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c2t4_s1207646714",
+   "verdict": "fail",
+   "stall_abort_t": 66.07,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 61.12,
+   "goal_dist_m": 31.9605,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s228997367",
+   "verdict": "fail",
+   "stall_abort_t": 60.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 34,
+   "first_seen_within_2m_t": 55.08,
+   "goal_dist_m": 32.0696,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s440040885",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 13.917,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.8rad/s",
+   "partner_rel_xy": [
+    -0.31,
+    0.6
+   ],
+   "closing_m_s": 0.17,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 8.95,
+   "goal_dist_m": 31.1764,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s1233151740",
+   "verdict": "fail",
+   "stall_abort_t": 64.13,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 41,
+   "first_seen_within_2m_t": 59.22,
+   "goal_dist_m": 31.9446,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s1841486000",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 17.033,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.8rad/s",
+   "partner_rel_xy": [
+    -0.57,
+    0.55
+   ],
+   "closing_m_s": 0.19,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 12.05,
+   "goal_dist_m": 31.2044,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s209790174",
+   "verdict": "fail",
+   "stall_abort_t": 60.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 40,
+   "first_seen_within_2m_t": 55.25,
+   "goal_dist_m": 32.1719,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s664111211",
+   "verdict": "fail",
+   "stall_abort_t": 62.52,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": 57.55,
+   "goal_dist_m": 31.9424,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s1718718581",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "collision_t": 21.883,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.8rad/s",
+   "partner_rel_xy": [
+    -0.4,
+    0.59
+   ],
+   "closing_m_s": 0.15,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 16.95,
+   "goal_dist_m": 31.167,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s792001528",
+   "verdict": "fail",
+   "stall_abort_t": 64.72,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 45,
+   "first_seen_within_2m_t": 61.15,
+   "goal_dist_m": 31.9013,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t4_s710935078",
+   "verdict": "fail",
+   "stall_abort_t": 67.93,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 51,
+   "first_seen_within_2m_t": 63.0,
+   "goal_dist_m": 32.0172,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 10개 중 1개 pass, 9개 fail (시뮬 시간 합계 223 s / 한도 600 s)\n#1 이번 코드(진단 \"controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.\" 반영, 검토 통과): 새 배치 10개 중 2개 pass, 8개 fail (시뮬 시간 합계 200 s / 한도 600 s)\n#2 이번 코드(진단 \"바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다. 해당 if 문을 수정해 외부 영역을 wall 로 인식하도록 바꾸면 움직이는 물체가 static으로 오인되지 않아 감지가 가능해진다.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 525 s / 한도 600 s)\n#4 이번 코드(진단 \"1) 확대된 탐지 범위: 거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 바꾼다. 2) _detect_moving_any에서 앞·뒤 라이다를 모두 사용해 위 조건을 적용한다. 3) 감지 시 v를 0으로 하고, 평균 베어링의 부호에 따라 회전(w=±0.6 rad/s)하거나, 거리 비례 감속을 추가한다. 4) 기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체를 조기에 차단한다.\" 반영, 검토 통과): 새 배치 10개 중 0개 pass, 10개 fail (시뮬 시간 합계 523 s / 한도 600 s)",
+ "ended": "2026-11-15 18:15:27"
+}

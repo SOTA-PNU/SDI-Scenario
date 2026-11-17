@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary ... status=no_path attempts=0.50:empty_path|0.45:empty_path|0.40:empty_path|0.35:empty_path ...",
+    "전체 400번의 choose 호출 모두 follow_safe 로 선택됐으며 로봇은 199 s 동안 정지 상태였음",
+    "plan_path 반환값이 None → validate_plan 반환 empty_path → base 재계획 루프가 계속 실패"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 occupancy_grid 호출 시 해상도를 0.25 m 로 바꾸어 더 촘촘한 격자를 사용한다. 이렇게 하면 좁은 통로에서도 자유 셀이 존재해 A* 탐색이 성공하고 validate_plan이 경로를 받아들인다. 기존 8‑연결, nearest_free 로직 및 segment_free 검사는 그대로 유지한다.",
+  "not_to_change": "lookahead_target와 follow_cmd는 현재 구현을 그대로 유지하고, 속도·회전 제한(1.5 m/s, 2.0 rad/s)도 변경하지 않는다.",
+  "confidence": "medium"
+}

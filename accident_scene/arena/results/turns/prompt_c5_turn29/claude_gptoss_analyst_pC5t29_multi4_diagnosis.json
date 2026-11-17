@@ -1,0 +1,214 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t29_s994780875: 로봇이 정지 상태에서 mover_02가 뒤쪽(-1.02,0.1)에서 0.45 m/s로 접근, 충돌 시점 거리 0.97 m (within 1 m) (t=65.983)",
+   "c5t29_s1643459953: 로봇이 정지 상태에서 mover_01이 앞쪽(0.23,0.53)에서 0.52 m/s로 접근, 충돌 시점 거리 1.0 m (within 1 m) (t=33.233)",
+   "c5t29_s848932833: 로봇이 정지 후 전진했지만 mover_00이 앞쪽(0.53,-0.01)에서 0.38 m/s로 접근, 충돌 시점 거리 0.97 m (within 1 m) (t=10.217)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_rear_mover가 x<-0.5, 거리<1.0 m이면 후방 회피가 트리거된다",
+    "holds": false,
+    "why": "뒤쪽 mover_02/01 은 x≈-1.0, 거리≈1.0 m 로 임계값을 살짝 초과해 감지되지 않음"
+   },
+   {
+    "assumption": "앞쪽 근접 회피는 d<_PX_BACK_D(0.5 m) 일 때만 후진한다",
+    "holds": false,
+    "why": "충돌 전 거리≈1.0 m 로 임계값보다 크고, 로봇이 전진 후 충돌"
+   },
+   {
+    "assumption": "정지 후 clear_hold가 거리>_CLEAR_R(2.0 m) 되면 안전해져 재시작한다",
+    "holds": false,
+    "why": "정지 상태에서도 mover가 1 m 이내에 접근해 충돌"
+   },
+   {
+    "assumption": "_evade_rotate 함수는 사용되지 않는다",
+    "holds": true,
+    "why": "코드에 정의만 있고 controller에서 호출되지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "basic pause_until (거리/시간 기반 정지)",
+    "turns": "0,1,2",
+    "result": "6/13"
+   },
+   {
+    "family": "predictive speed scaling (TTC 기반 속도 조절)",
+    "turns": "2,4",
+    "result": "6/10"
+   },
+   {
+    "family": "velocity‑obstacle (VO) planner",
+    "turns": "5‑8,11‑21,22‑28",
+    "result": "44/137"
+   },
+   {
+    "family": "potential field avoidance",
+    "turns": "11",
+    "result": "4/7"
+   },
+   {
+    "family": "dynamic window approach (DWA)",
+    "turns": "12",
+    "result": "2/5"
+   },
+   {
+    "family": "VFH gap navigation",
+    "turns": "13",
+    "result": "0/3"
+   },
+   {
+    "family": "A* 재계획 (동적 그리드)",
+    "turns": "16,17",
+    "result": "1/13"
+   },
+   {
+    "family": "synthetic track 추가",
+    "turns": "24‑26",
+    "result": "8/17"
+   },
+   {
+    "family": "rear backup 전용 로직",
+    "turns": "22",
+    "result": "0/3"
+   },
+   {
+    "family": "early raw stop",
+    "turns": "10",
+    "result": "0/3"
+   },
+   {
+    "family": "proximity stop & backup",
+    "turns": "9",
+    "result": "0/3"
+   },
+   {
+    "family": "raw TTC stop",
+    "turns": "18,23,24,26",
+    "result": "4/7"
+   },
+   {
+    "family": "evade rotate (회전 회피)",
+    "turns": "19,20",
+    "result": "3/9"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "거리 1.0 m 이내 unmapped 점이 감지되면 즉시 -0.4 m/s 후진 0.5 s 후 90° 회전하여 회피한다",
+    "new_family": true,
+    "for": "앞·뒤 모두에서 1 m 이내 물체가 접근할 때 충돌 방지",
+    "risk": "후진·회전 중 static 장애물과 충돌 가능, 회전 각도 조정 필요"
+   },
+   {
+    "idea": "_rear_mover 임계값을 _RB_DIST=1.5 m 로 확대하고, 거리 <1.5 m 일 때 _px_backup_cmd 로 후진 수행",
+    "new_family": false,
+    "for": "뒤쪽 물체 감지를 강화",
+    "risk": "불필요한 후진으로 경로 지연"
+   },
+   {
+    "idea": "_evade_rotate 를 controller에서 _min_gap≤_EVADE_R 일 때 호출해 회전 회피를 우선 적용",
+    "new_family": false,
+    "for": "현재 정의된 회전 회피 로직 활용",
+    "risk": "회전 중 static map 충돌 위험, 회전 지속 시간 관리 필요"
+   }
+  ],
+  "chosen": "거리 1.0 m 이내 unmapped 점이 감지되면 즉시 후진·회전 회피 방식을 선택합니다. 이는 앞·뒤 모두에서 충돌을 방지할 수 있습니다.",
+  "target": "controller (새 함수 _reactive_evasion 및 관련 state 변수)",
+  "direction": "1) controller 초기화에 st['reactive_back_until']=-1.0, st['reactive_rot_until']=-1.0, st['v_back']=0.0, st['target_bearing']=0.0 를 추가한다. 2) _reactive_evasion(st,t,pose) 를 정의: _px_dist 로 가장 가까운 unmapped 점을 구하고 d<1.0 m이면 st['reactive_back_until']=t+0.5, st['v_back']=-0.4, st['target_bearing']=_wrap_angle(math.atan2(near[1],near[0])+math.pi) 로 회전 목표 설정한다. 3) controller() 에서 _perceive 이후 바로 if st['reactive_back_until']>t: return st['v_back'],0.0,False; elif st['reactive_rot_until']>t: w=_clamp(7.5*(st['target_bearing']-yaw),-1.0,1.0); return 0.0,w,False; elif _reactive_evasion(st,t,pose): continue; 4) 후진이 끝나면 st['reactive_rot_until']=t+abs(st['target_bearing']-yaw)/1.0 (1 rad/s 회전 속도) 로 회전 단계 시작한다. 5) 회전이 끝나면 모든 reactive 변수들을 -1.0 로 초기화하고 기존 VO/예측 속도 로직으로 복귀한다. 6) 모든 반환은 _guard(st,pose,M,v,w) 로 최종 안전 검사를 수행한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t29_s994780875: 로봇이 정지 상태에서 mover_02가 뒤쪽(-1.02,0.1)에서 0.45 m/s로 접근, 충돌 시점 거리 0.97 m (within 1 m) (t=65.983)\",\n    \"c5t29_s1643459953: 로봇이 정지 상태에서 mover_01이 앞쪽(0.23,0.53)에서 0.52 m/s로 접근, 충돌 시점 거리 1.0 m (within 1 m) (t=33.233)\",\n    \"c5t29_s848932833: 로봇이 정지 후 전진했지만 mover_00이 앞쪽(0.53,-0.01)에서 0.38 m/s로 접근, 충돌 시점 거리 0.97 m (within 1 m) (t=10.217)\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"_rear_mover가 x<-0.5, 거리<1.0 m이면 후방 회피가 트리거된다\",\n      \"holds\": false,\n      \"why\": \"뒤쪽 mover_02/01 은 x≈-1.0, 거리≈1.0 m 로 임계값을 살짝 초과해 감지되지 않음\"\n    },\n    {\n      \"assumption\": \"앞쪽 근접 회피는 d<_PX_BACK_D(0.5 m) 일 때만 후진한다\",\n      \"holds\": false,\n      \"why\": \"충돌 전 거리≈1.0 m 로 임계값보다 크고, 로봇이 전진 후 충돌\"\n    },\n    {\n      \"assumption\": \"정지 후 clear_hold가 거리>_CLEAR_R(2.0 m) 되면 안전해져 재시작한다\",\n      \"holds\": false,\n      \"why\": \"정지 상태에서도 mover가 1 m 이내에 접근해 충돌\"\n    },\n    {\n      \"assumption\": \"_evade_rotate 함수는 사용되지 않는다\",\n      \"holds\": true,\n      \"why\": \"코드에 정의만 있고 controller에서 호출되지 않음\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"basic pause_until (거리/시간 기반 정지)\",\n      \"turns\": \"0,1,2\",\n      \"result\": \"6/13\"\n    },\n    {\n      \"family\": \"predictive speed scaling (TTC 기반 속도 조절)\",\n      \"turns\": \"2,4\",\n      \"result\": \"6/10\"\n    },\n    {\n      \"family\": \"velocity‑obstacle (VO) planner\",\n      \"turns\": \"5‑8,11‑21,22‑28\",\n      \"result\": \"44/137\"\n    },\n    {\n      \"family\": \"potential field avoidance\",\n      \"turns\": \"11\",\n      \"result\": \"4/7\"\n    },\n    {\n      \"family\": \"dynamic window approach (DWA)\",\n      \"turns\": \"12\",\n      \"result\": \"2/5\"\n    },\n    {\n      \"family\": \"VFH gap navigation\",\n      \"turns\": \"13\",\n      \"result\": \"0/3\"\n    },\n    {\n      \"family\": \"A* 재계획 (동적 그리드)\",\n      \"turns\": \"16,17\",\n      \"result\": \"1/13\"\n    },\n    {\n      \"family\": \"synthetic track 추가\",\n      \"turns\": \"24‑26\",\n      \"result\": \"8/17\"\n    },\n    {\n      \"family\": \"rear backup 전용 로직\",\n      \"turns\": \"22\",\n      \"result\": \"0/3\"\n    },\n    {\n      \"family\": \"early raw stop\",\n      \"turns\": \"10\",\n      \"result\": \"0/3\"\n    },\n    {\n      \"family\": \"proximity stop & backup\",\n      \"turns\": \"9\",\n      \"result\": \"0/3\"\n    },\n    {\n      \"family\": \"raw TTC stop\",\n      \"turns\": \"18,23,24,26\",\n      \"result\": \"4/7\"\n    },\n    {\n      \"family\": \"evade rotate (회전 회피)\",\n      \"turns\": \"19,20\",\n      \"result\": \"3/9\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"거리 1.0 m 이내 unmapped 점이 감지되면 즉시 -0.4 m/s 후진 0.5 s 후 90° 회전하여 회피한다\",\n      \"new_family\": true,\n      \"for\": \"앞·뒤 모두에서 1 m 이내 물체가 접근할 때 충돌 방지\",\n      \"risk\": \"후진·회전 중 static 장애물과 충돌 가능, 회전 각도 조정 필요\"\n    },\n    {\n      \"idea\": \"_rear_mover 임계값을 _RB_DIST=1.5 m 로 확대하고, 거리 <1.5 m 일 때 _px_backup_cmd 로 후진 수행\",\n      \"new_family\": false,\n      \"for\": \"뒤쪽 물체 감지를 강화\",\n      \"risk\": \"불필요한 후진으로 경로 지연\"\n    },\n    {\n      \"idea\": \"_evade_rotate 를 controller에서 _min_gap≤_EVADE_R 일 때 호출해 회전 회피를 우선 적용\",\n      \"new_family\": false,\n      \"for\": \"현재 정의된 회전 회피 로직 활용\",\n      \"risk\": \"회전 중 static map 충돌 위험, 회전 지속 시간 관리 필요\"\n    }\n  ],\n  \"chosen\": \"거리 1.0 m 이내 unmapped 점이 감지되면 즉시 후진·회전 회피 방식을 선택합니다. 이는 앞·뒤 모두에서 충돌을 방지할 수 있습니다.\",\n  \"target\": \"controller (새 함수 _reactive_evasion 및 관련 state 변수)\",\n  \"direction\": \"1) controller 초기화에 st['reactive_back_until']=-1.0, st['reactive_rot_until']=-1.0, st['v_back']=0.0, st['target_bearing']=0.0 를 추가한다. 2) _reactive_evasion(st,t,pose) 를 정의: _px_dist 로 가장 가까운 unmapped 점을 구하고 d<1.0 m이면 st['reactive_back_until']=t+0.5, st['v_back']=-0.4, st['target_bearing']=_wrap_angle(math.atan2(near[1],near[0])+math.pi) 로 회전 목표 설정한다. 3) controller() 에서 _perceive 이후 바로 if st['reactive_back_until']>t: return st['v_back'],0.0,False; elif st['reactive_rot_until']>t: w=_clamp(7.5*(st['target_bearing']-yaw),-1.0,1.0); return 0.0,w,False; elif _reactive_evasion(st,t,pose): continue; 4) 후진이 끝나면 st['reactive_rot_until']=t+abs(st['target_bearing']-yaw)/1.0 (1 rad/s 회전 속도) 로 회전 단계 시작한다. 5) 회전이 끝나면 모든 reactive 변수들을 -1.0 로 초기화하고 기존 VO/예측 속도 로직으로 복귀한다. 6) 모든 반환은 _guard(st,pose,M,v,w) 로 최종 안전 검사를 수행한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t29_s1094740518",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 116.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 110.73,
+   "goal_dist_m": 0.0513,
+   "time_to_goal_s": 112.483
+  },
+  {
+   "run": "c5t29_s994780875",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 483.3,
+   "sim_time_s": 72.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 65.983,
+   "partner": "mover_02",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -1.02,
+    0.1
+   ],
+   "closing_m_s": 0.45,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 62.53,
+   "goal_dist_m": 7.7714,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t29_s1643459953",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 411.3,
+   "sim_time_s": 39.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 33.233,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.23,
+    0.53
+   ],
+   "closing_m_s": 0.52,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 29.55,
+   "goal_dist_m": 18.5666,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t29_s848932833",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 372.1,
+   "sim_time_s": 16.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 10.217,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.53,
+    -0.01
+   ],
+   "closing_m_s": 0.38,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 5.32,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

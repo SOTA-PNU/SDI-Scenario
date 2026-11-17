@@ -145,6 +145,15 @@ class ArenaHarness(Harness):
             self._mover_ops.append((m, t_op))
         print(f"[movers] scenario {arena_movers.scenario_name()}: {len(self.movers)} moving obstacles "
               f"({', '.join(m['name'] for m in self.movers)})", flush=True)
+        if arena_movers.seed_used() is not None:
+            # randomised scenario: the draw is what makes the run reproducible, so keep it next to the result
+            import json
+            print(f"[movers] seed {arena_movers.seed_used()}: "
+                  + ", ".join(f"{m['name']} v={m['speed']} phase={m['phase']}" for m in self.movers), flush=True)
+            os.makedirs(self.out_dir, exist_ok=True)
+            with open(os.path.join(self.out_dir, f"{self.variant}_movers.json"), "w") as f:
+                json.dump({"scenario": arena_movers.scenario_name(), "seed": arena_movers.seed_used(),
+                           "movers": self.movers}, f, indent=1)
 
     def _step_movers(self, step_size):
         from pxr import Gf
@@ -159,7 +168,157 @@ class ArenaHarness(Harness):
         super().boot()
         if self.movers:
             self.sim.add_physics_callback("arena_movers", self._step_movers)
+        if os.environ.get("CARTER_SENSOR_LOG"):
+            self._start_sensor_log()
         return self
+
+    # ---- sensor log (CARTER_SENSOR_LOG=1, 2026-11-15): both 2D lidars at <= 10 Hz, for the analyst only ----
+    # The harness never kept what the robot's sensors saw, so an analyst could not tell whether a mover was visible
+    # before a collision. Each kept scan stores the mission time, the ground-truth pose at that moment and the
+    # ranges in cm (uint16, 0 = no return). A separate node is spun from a physics callback: the harness node is
+    # spun once per step and would fall behind a 60 Hz scan topic.
+    SENSOR_LOG_DT = 0.1
+
+    def _start_sensor_log(self):
+        from rclpy.qos import qos_profile_sensor_data
+        from sensor_msgs.msg import LaserScan
+
+        self._slog = {"front": [], "back": []}
+        self._slog_meta = {}
+        self._slog_next = {"front": -1e9, "back": -1e9}
+        self._slog_node = self._rclpy.create_node(f"arena_sensor_log_{os.getpid()}")
+        for which in ("front", "back"):
+            self._slog_node.create_subscription(LaserScan, f"/{which}_2d_lidar/scan",
+                                                lambda msg, w=which: self._on_scan_log(w, msg), qos_profile_sensor_data)
+        self.sim.add_physics_callback("arena_sensor_log", self._spin_sensor_log)
+        print("[sensor_log] recording /front_2d_lidar/scan and /back_2d_lidar/scan every "
+              f"{self.SENSOR_LOG_DT} s", flush=True)
+
+    def _spin_sensor_log(self, step_size):
+        for _ in range(20):
+            self._rclpy.spin_once(self._slog_node, timeout_sec=0.0)
+
+    def _on_scan_log(self, which, msg):
+        import numpy as np
+
+        t0 = getattr(self, "_t0", None)
+        t = (self.sim.current_time - t0) if t0 is not None else -1.0
+        if t < self._slog_next[which]:
+            return
+        self._slog_next[which] = t + self.SENSOR_LOG_DT - 1e-6
+        r = np.asarray(msg.ranges, dtype=np.float32)
+        ok = np.isfinite(r) & (r >= msg.range_min) & (r <= msg.range_max)
+        cm = np.where(ok, np.clip(np.round(r * 100.0), 1, 65535), 0).astype(np.uint16)
+        # the scan was measured at its header stamp (sim time), before it arrived here; the pose for it is looked up
+        # at that stamp when saving (receive-time pose put returns off the walls whenever the robot turned)
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        ts = (stamp - t0) if t0 is not None else -1.0
+        self._slog[which].append((round(t, 4), tuple(round(v, 4) for v in self.gt_pose()), cm, round(ts, 4)))
+        self._slog_meta.setdefault(which, {"angle_min": float(msg.angle_min), "angle_increment": float(msg.angle_increment),
+                                           "beams": len(msg.ranges), "frame": msg.header.frame_id})
+
+    def run_mission(self, controller, *args, **kwargs):
+        lim = float(os.environ.get("ARENA_STALL_ABORT_S", "0") or 0)
+        # progress abort rides along with the stall abort unless ARENA_PROGRESS_ABORT_S=0 (C-2 turn 9: the robot
+        # wandered 3 m off START for minutes - it kept moving, so the stall rule never fired)
+        plim = float(os.environ.get("ARENA_PROGRESS_ABORT_S", "90" if lim > 0 else "0") or 0)
+        if lim > 0 or plim > 0:
+            controller = self._stall_guard(controller, lim, plim)
+        result = super().run_mission(controller, *args, **kwargs)
+        if getattr(self, "_slog", None) is not None:
+            self._save_sensor_log()
+        return result
+
+    # ---- stall abort (ARENA_STALL_ABORT_S, 2026-11-15): a robot that has not moved STALL_DIST_M over the last
+    # ARENA_STALL_ABORT_S simulated seconds ends the mission (graded as it stands, i.e. fail). C-1 turn 2 and C-2 turn 3
+    # sat at START for the whole 600 s. Turning in place does not count as moving.
+    STALL_DIST_M = 0.3
+
+    PROGRESS_M = 1.0          # the goal distance must drop this much ...
+    PROGRESS_EXEMPT_M = 1.5   # ... except this close to GOAL (aligning there is fine)
+
+    def _stall_guard(self, controller, lim, plim=0.0):
+        import json
+        import math
+        from collections import deque
+
+        hist = deque()
+        gd = deque()                                   # (t, goal distance) over the last plim seconds
+        state = {"aborted": False, "best_before": float("inf")}
+        gx, gy = self.goal[0], self.goal[1]
+
+        def abort(kind, t, pose, info, msg):
+            state["aborted"] = True
+            print(msg, flush=True)
+            os.makedirs(self.out_dir, exist_ok=True)
+            with open(os.path.join(self.out_dir, f"{self.variant}_stall.json"), "w") as f:
+                json.dump({"kind": kind, "t": round(t, 2), "pose": [round(v, 3) for v in pose], **info}, f)
+            return 0.0, 0.0, True
+
+        def guarded(t, pose, env):
+            if state["aborted"]:
+                return 0.0, 0.0, True
+            if plim > 0:
+                d = math.hypot(gx - pose[0], gy - pose[1])
+                gd.append((t, d))
+                while gd and gd[0][0] < t - plim:
+                    state["best_before"] = min(state["best_before"], gd.popleft()[1])
+                if t >= plim and d > self.PROGRESS_EXEMPT_M:
+                    best_recent = min(v for _, v in gd)
+                    if state["best_before"] - best_recent < self.PROGRESS_M:
+                        return abort("no_progress", t, pose,
+                                     {"window_s": plim, "best_before_m": round(state["best_before"], 2),
+                                      "best_recent_m": round(best_recent, 2), "goal_dist_m": round(d, 2)},
+                                     f"[harness] PROGRESS abort at t={t:.2f}s: goal distance improved "
+                                     f"{state['best_before'] - best_recent:.2f} m in the last {plim:.0f} s (< {self.PROGRESS_M} m)")
+            if lim <= 0:
+                return controller(t, pose, env)
+            hist.append((t, pose[0], pose[1]))
+            while hist and hist[0][0] < t - lim:
+                hist.popleft()
+            if t >= lim and hist:
+                moved = max(((x - pose[0]) ** 2 + (y - pose[1]) ** 2) ** 0.5 for _, x, y in hist)
+                if moved < self.STALL_DIST_M:
+                    return abort("stall", t, pose, {"window_s": lim, "moved_m": round(moved, 3)},
+                                 f"[harness] STALL abort at t={t:.2f}s: moved {moved:.2f} m in the last {lim:.0f} s "
+                                 f"(< {self.STALL_DIST_M} m)")
+            return controller(t, pose, env)
+        return guarded
+
+    def _save_sensor_log(self):
+        import json
+
+        import numpy as np
+
+        arrays = {}
+        tr = np.array(self.traj, dtype=np.float64) if getattr(self, "traj", None) else None   # (t, x, y, yaw) every frame
+        lags = []
+        for which, rows in self._slog.items():
+            if not rows:
+                continue
+            ts = np.array([r[3] for r in rows], dtype=np.float64)
+            arrays[f"{which}_t"] = ts.astype(np.float32)                     # measurement time (header stamp)
+            arrays[f"{which}_t_recv"] = np.array([r[0] for r in rows], dtype=np.float32)
+            arrays[f"{which}_pose_recv"] = np.array([r[1] for r in rows], dtype=np.float32)
+            if tr is not None and len(tr) > 1:
+                yaw = np.unwrap(tr[:, 3])
+                pose = np.stack([np.interp(ts, tr[:, 0], tr[:, 1]), np.interp(ts, tr[:, 0], tr[:, 2]),
+                                 np.arctan2(np.sin(np.interp(ts, tr[:, 0], yaw)), np.cos(np.interp(ts, tr[:, 0], yaw)))], axis=1)
+            else:
+                pose = arrays[f"{which}_pose_recv"]
+            arrays[f"{which}_pose"] = pose.astype(np.float32)                 # pose at the measurement time
+            arrays[f"{which}_ranges_cm"] = np.stack([r[2] for r in rows])
+            lags += [r[0] - r[3] for r in rows if r[0] >= 0]
+        if tr is not None:
+            arrays["traj_full"] = tr.astype(np.float32)                        # every frame, for re-timing in analysis
+        if lags:
+            self._slog_meta["receive_minus_stamp_s"] = {"median": round(float(np.median(lags)), 4),
+                                                        "max": round(float(np.max(lags)), 4)}
+        arrays["meta_json"] = np.array(json.dumps(self._slog_meta))
+        os.makedirs(self.out_dir, exist_ok=True)
+        path = os.path.join(self.out_dir, f"{self.variant}_lidar2d.npz")
+        np.savez_compressed(path, **arrays)
+        print(f"[sensor_log] {path}: " + ", ".join(f"{w} {len(r)} scans" for w, r in self._slog.items()), flush=True)
 
 
 # --------------------------------------------------------------------------

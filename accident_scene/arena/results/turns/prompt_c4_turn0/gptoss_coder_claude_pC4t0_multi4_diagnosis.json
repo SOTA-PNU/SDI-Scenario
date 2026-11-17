@@ -1,0 +1,154 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실패 3건 모두 로봇이 1 m/s 안팎으로 달리다 앞쪽(partner_rel_x 0.45~0.47)에서 물체와 부딪힘. s613390933 은 3.82 s 에 1.48 m/s, s3273279 는 3.70 s 에 0.97 m/s, s2050837032 는 46.27 s 에 1.05 m/s.",
+   "충돌 1초 전에도 라이다에 이미 보였음. s3273279 는 2.92 s 에 0.95 m 정면(0°), s2050837032 는 45.75 s 에 0.82 m 정면(0°)이었는데 46.0 s 에 오히려 1.51 m/s 로 가속함. s613390933 은 시작 때부터 1.7 m 에 보였고 3.6 s 에 0.61 m(-39°)까지 다가옴.",
+   "물체의 로봇 기준 속도는 [-0.09,0.33], [0.18,-0.65], [-0.14,0.56] 으로 모두 옆으로 가로지르는 방향이고 closing 은 0.3 m/s 이하였음. 멈춰 기다렸다면 물체가 앞을 지나갔을 상황임. 코드는 센서를 전혀 읽지 않음."
+  ],
+  "assumptions": [
+   {
+    "assumption": "경유점 경로 위에는 정적 지도의 장애물만 있다",
+    "holds": false,
+    "why": "3/4 실행에서 경로 위로 지나가던 물체와 충돌함."
+   },
+   {
+    "assumption": "위치만 보고 최고 1.5 m/s 로 달려도 안전하다",
+    "holds": false,
+    "why": "0.8~1 m 앞에 물체가 있는데도 1.0~1.5 m/s 로 그대로 돌진함."
+   },
+   {
+    "assumption": "경유점 추종 자체는 안정적이다",
+    "holds": true,
+    "why": "pass 실행이 52 s 에 도착함. 다만 이득 7.5 때문에 매 실행 0.2 s·1.7 s 에 제자리 회전이 되풀이되는 진동이 있음."
+   },
+   {
+    "assumption": "도착 시간이 60 s 예산 안에 든다",
+    "holds": true,
+    "why": "pass 실행이 56.1 s 로, 정지·대기에 쓸 여유는 몇 초뿐임."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 없이 고정 경유점 추종",
+    "turns": "#0",
+    "result": "4개 배치 중 1 통과, 3 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "2D 라이다 점 가운데 정적 지도에 없는 점만 남겨 앞 통로를 검사하고, 거리에 따라 감속·정지하며, 바짝 다가오면 뒤로 물러남",
+    "new_family": true,
+    "for": "충돌 물체가 모두 1 s 이상 전에 정면 1 m 안에서 보였고, 옆으로 가로지르는 물체였으므로 멈추면 지나감.",
+    "risk": "정면으로 다가오는 물체에는 멈춰도 맞을 수 있음. 지도 여유를 잘못 잡으면 정적 물체를 물체로 보고 정체함. 대기 시간이 예산을 잡아먹음."
+   },
+   {
+    "idea": "지도에 없는 점을 반발력으로 쓰는 반응형 회피(VFH 또는 포텐셜)로 경유점 방향을 비틀어 돌아감",
+    "new_family": true,
+    "for": "멈추지 않으므로 시간 예산에 유리함.",
+    "risk": "옆으로 움직이는 물체 쪽으로 틀어 갈 수 있음. 정적 장애물에 붙을 위험이 있고 튜닝이 어려움."
+   },
+   {
+    "idea": "점 덩어리를 프레임마다 추적해 속도를 추정하고, 2 s 앞을 예측해 충돌하면 양보하거나 후진",
+    "new_family": true,
+    "for": "정면으로 오는 물체와 가로지르는 물체를 구분할 수 있음.",
+    "risk": "구현이 복잡함. 회전할 때 추적이 흔들림."
+   }
+  ],
+  "chosen": "1번을 고름. 충돌 전 1 s 넘게 정면에서 감지가 가능했고 물체가 가로지르는 경우였으므로, 가장 단순하고 검증하기 쉬운 감속·정지·후진으로 3건을 모두 막을 수 있음.",
+  "target": "controller 와 새 감지 함수 _mover_points(pose)",
+  "direction": "매 호출마다 lidar2d_points('front')·('back') 을 합쳐 to_world 로 바꾸고, 다음 세 가지를 빼 남은 점을 물체 점(로봇 기준)으로 씀: WALLS 사각형을 0.2 m 줄인 영역 밖의 점, MISSION boxes 와 FIXED_OBSTACLES 를 0.25 m 키운 사각형 안의 점. 앞 통로(x 0.25~3.0 m, |y|<0.6 m)에 물체 점이 3개 이상 있으면 가장 가까운 x 를 d 로 잡고, v=min(v_nav, max(0, 0.9*(d-1.0))) 로 줄여 d<1.0 m 이면 v=0 으로 멈춤. 경유점 추종 쪽은 회전 이득을 7.5 에서 3.0 으로 낮춰 진동을 줄이고, 최고 속도 1.5 m/s 는 예산 때문에 그대로 둠. 멈춘 상태에서 앞 0.8 m 안(|y|<0.6)에 물체 점이 있으면 뒤로 물러남(v=-0.4). 단, 뒤 통로(x -1.3~-0.7, |y|<0.6)에는 지도에 있든 없든 점이 하나도 없어야 함. 제자리 회전은 그대로 허용하되, 전진은 앞 통로가 비었을 때만 함. 상태가 바뀔 때만 'DBG t 상태 d' 를 print 함.",
+  "confidence": "high"
+ },
+ "raw": "{\"failure_mode\": \"collision\",\n \"evidence\": [\"실패 3건 모두 로봇이 1 m/s 안팎으로 달리다 앞쪽(partner_rel_x 0.45~0.47)에서 물체와 부딪힘. s613390933 은 3.82 s 에 1.48 m/s, s3273279 는 3.70 s 에 0.97 m/s, s2050837032 는 46.27 s 에 1.05 m/s.\", \"충돌 1초 전에도 라이다에 이미 보였음. s3273279 는 2.92 s 에 0.95 m 정면(0°), s2050837032 는 45.75 s 에 0.82 m 정면(0°)이었는데 46.0 s 에 오히려 1.51 m/s 로 가속함. s613390933 은 시작 때부터 1.7 m 에 보였고 3.6 s 에 0.61 m(-39°)까지 다가옴.\", \"물체의 로봇 기준 속도는 [-0.09,0.33], [0.18,-0.65], [-0.14,0.56] 으로 모두 옆으로 가로지르는 방향이고 closing 은 0.3 m/s 이하였음. 멈춰 기다렸다면 물체가 앞을 지나갔을 상황임. 코드는 센서를 전혀 읽지 않음.\"],\n \"assumptions\": [{\"assumption\": \"경유점 경로 위에는 정적 지도의 장애물만 있다\", \"holds\": false, \"why\": \"3/4 실행에서 경로 위로 지나가던 물체와 충돌함.\"},\n                 {\"assumption\": \"위치만 보고 최고 1.5 m/s 로 달려도 안전하다\", \"holds\": false, \"why\": \"0.8~1 m 앞에 물체가 있는데도 1.0~1.5 m/s 로 그대로 돌진함.\"},\n                 {\"assumption\": \"경유점 추종 자체는 안정적이다\", \"holds\": true, \"why\": \"pass 실행이 52 s 에 도착함. 다만 이득 7.5 때문에 매 실행 0.2 s·1.7 s 에 제자리 회전이 되풀이되는 진동이 있음.\"},\n                 {\"assumption\": \"도착 시간이 60 s 예산 안에 든다\", \"holds\": true, \"why\": \"pass 실행이 56.1 s 로, 정지·대기에 쓸 여유는 몇 초뿐임.\"}],\n \"approach_families\": [{\"family\": \"센서 없이 고정 경유점 추종\", \"turns\": \"#0\", \"result\": \"4개 배치 중 1 통과, 3 충돌\"}],\n \"candidates\": [{\"idea\": \"2D 라이다 점 가운데 정적 지도에 없는 점만 남겨 앞 통로를 검사하고, 거리에 따라 감속·정지하며, 바짝 다가오면 뒤로 물러남\", \"new_family\": true, \"for\": \"충돌 물체가 모두 1 s 이상 전에 정면 1 m 안에서 보였고, 옆으로 가로지르는 물체였으므로 멈추면 지나감.\", \"risk\": \"정면으로 다가오는 물체에는 멈춰도 맞을 수 있음. 지도 여유를 잘못 잡으면 정적 물체를 물체로 보고 정체함. 대기 시간이 예산을 잡아먹음.\"},\n                {\"idea\": \"지도에 없는 점을 반발력으로 쓰는 반응형 회피(VFH 또는 포텐셜)로 경유점 방향을 비틀어 돌아감\", \"new_family\": true, \"for\": \"멈추지 않으므로 시간 예산에 유리함.\", \"risk\": \"옆으로 움직이는 물체 쪽으로 틀어 갈 수 있음. 정적 장애물에 붙을 위험이 있고 튜닝이 어려움.\"},\n                {\"idea\": \"점 덩어리를 프레임마다 추적해 속도를 추정하고, 2 s 앞을 예측해 충돌하면 양보하거나 후진\", \"new_family\": true, \"for\": \"정면으로 오는 물체와 가로지르는 물체를 구분할 수 있음.\", \"risk\": \"구현이 복잡함. 회전할 때 추적이 흔들림.\"}],\n \"chosen\": \"1번을 고름. 충돌 전 1 s 넘게 정면에서 감지가 가능했고 물체가 가로지르는 경우였으므로, 가장 단순하고 검증하기 쉬운 감속·정지·후진으로 3건을 모두 막을 수 있음.\",\n \"target\": \"controller 와 새 감지 함수 _mover_points(pose)\",\n \"direction\": \"매 호출마다 lidar2d_points('front')·('back') 을 합쳐 to_world 로 바꾸고, 다음 세 가지를 빼 남은 점을 물체 점(로봇 기준)으로 씀: WALLS 사각형을 0.2 m 줄인 영역 밖의 점, MISSION boxes 와 FIXED_OBSTACLES 를 0.25 m 키운 사각형 안의 점. 앞 통로(x 0.25~3.0 m, |y|<0.6 m)에 물체 점이 3개 이상 있으면 가장 가까운 x 를 d 로 잡고, v=min(v_nav, max(0, 0.9*(d-1.0))) 로 줄여 d<1.0 m 이면 v=0 으로 멈춤. 경유점 추종 쪽은 회전 이득을 7.5 에서 3.0 으로 낮춰 진동을 줄이고, 최고 속도 1.5 m/s 는 예산 때문에 그대로 둠. 멈춘 상태에서 앞 0.8 m 안(|y|<0.6)에 물체 점이 있으면 뒤로 물러남(v=-0.4). 단, 뒤 통로(x -1.3~-0.7, |y|<0.6)에는 지도에 있든 없든 점이 하나도 없어야 함. 제자리 회전은 그대로 허용하되, 전진은 앞 통로가 비었을 때만 함. 상태가 바뀔 때만 'DBG t 상태 d' 를 print 함.\",\n \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c4t0_s613390933",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 9.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.817,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.48m/s 회전 +0.3",
+   "partner_rel_xy": [
+    0.47,
+    -0.45
+   ],
+   "closing_m_s": 0.3,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.4164,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c4t0_s2050837032",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 590.2,
+   "sim_time_s": 52.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 46.267,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.05m/s 회전 +1.8",
+   "partner_rel_xy": [
+    0.47,
+    0.12
+   ],
+   "closing_m_s": -0.01,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 44.35,
+   "goal_dist_m": 4.4291,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c4t0_s933983545",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 537.9,
+   "sim_time_s": 56.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 50.15,
+   "goal_dist_m": 0.2554,
+   "time_to_goal_s": 52.217
+  },
+  {
+   "run": "c4t0_s3273279",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 481.8,
+   "sim_time_s": 9.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.45,
+    0.21
+   ],
+   "closing_m_s": 0.11,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 1.52,
+   "goal_dist_m": 28.8855,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

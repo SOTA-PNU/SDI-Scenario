@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary t=0.00 status=no_path ... reason=empty_path issue=none_return",
+    "plan_path returned None for every clearance (0.5,0.45,0.4,0.35) – see repeated \"empty_path\" entries in all plan_summary logs",
+    "Stall log shows robot never moved (v=0) for 199 s, confirming no path was ever adopted"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 occupancy_grid 호출 시 해상도를 0.5 m 로 유지하되, 현재 clearance 값(0.5~0.35)에서는 전체 그리드가 blocked 상태가 되어 nearest_free가 None을 반환한다. 이를 해결하려면 grid 생성 시 요구 여유를 낮춰(예: clearance_m 대신 0.25 m) 더 많은 자유 셀을 확보하고, 그 후에 실제 clearance_m 값으로 segment_free 검증을 수행해 경로를 재구성한다. 또한, blocked 그리드가 전부 True인 경우 fallback 로 전체 그리드를 free로 간주하도록 예외 처리(전체 blocked이면 blocked[:] = False)한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 그대로 두고 plan_path만 수정한다.",
+  "confidence": "medium"
+}

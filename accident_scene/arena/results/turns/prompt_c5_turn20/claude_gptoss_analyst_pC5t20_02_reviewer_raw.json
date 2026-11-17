@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_raw_ttc_stop 가 pause 를 반환하면 evade_mode 를 True 로 설정\", \"implemented\": true, \"note\": \"pz is not None 이고 evade_skip_until 이 지났으면 evade_mode=True, evade_t0·evade_until 을 설정함\"},\n  {\"instruction\": \"_evade_rotate 호출을 _vo_planner(st, pose, wp, M, strict=True) 로 교체\", \"implemented\": true, \"note\": \"evade 분기에서 _route_target 으로 wp_e 를 구하고(None 이면 GOAL) _vo_planner(..., strict=True) 를 먼저 호출함\"},\n  {\"instruction\": \"VO 가 낸 (v,w) 를 _guard(evade=True) 로 검증한 뒤 바로 반환\", \"implemented\": true, \"note\": \"cmd 가 None 이 아니면 _guard(st, pose, M, cmd[0], cmd[1], evade=True) 결과를 (v, w, False) 로 반환함\"},\n  {\"instruction\": \"VO 가 후보를 찾지 못하면 _evade_rotate 로 회전 백업\", \"implemented\": true, \"note\": \"cmd 가 None 일 때만 _evade_rotate 를 호출하고 _guard(evade=True) 를 거쳐 반환함\"},\n  {\"instruction\": \"위험 거리 > _EVADE_R 이거나 _EVADE_MAX_T 타임아웃이면 evasion 해제\", \"implemented\": true, \"note\": \"timed_out 이면 해제함. 거리 조건에는 pz is None 과 evade_hold(_EVADE_MIN_T 디바운스)가 추가로 붙어 해제가 지시보다 엄격함. 타임아웃이 상한이라 지시 취지와는 맞음\"},\n  {\"instruction\": \"VO 사용 시 evade_until=t+_EVADE_MAX_T, VO 성공 시 pause_until=0\", \"implemented\": true, \"note\": \"evade_until 은 처음 VO 를 쓸 때(evade_vo 플래그) 한 번만 다시 설정하고, pause_until=0.0 은 VO 가 성공할 때마다 넣음\"},\n  {\"instruction\": \"_guard 의 evade=True 0속도 통과 로직 유지\", \"implemented\": true, \"note\": \"_guard 는 바뀌지 않음\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"strict VO 는 추적된 물체 M 만 피함. evade 를 촉발한 비지도 raw 점(아직 추적 안 된 물체)은 lidar 띠·sweep 검사에만 걸려, VO 가 그 방향으로 전진을 고를 수 있음\",\n  \"처음 VO 를 쓸 때 evade_until 을 다시 늘리므로 회피 모드가 최대 약 2×_EVADE_MAX_T 까지 길어질 수 있음\",\n  \"정지 중 측면 충돌이 근거인데, strict VO 의 stop 후보 마진이 0 이상이면 여전히 정지를 고를 수 있음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 104930,
+  "completion_tokens": 3118
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30047,
+  "total_cost_usd": 0.9017919999999999,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3118,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 104928,
+    "webSearchRequests": 0,
+    "costUSD": 0.9017919999999999,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1986,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 104928,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "d6b78e10-0230-4af4-b4f4-13035e417dd0"
+ }
+}

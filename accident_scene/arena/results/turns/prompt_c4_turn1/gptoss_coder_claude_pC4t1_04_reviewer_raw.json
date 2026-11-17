@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"매 호출마다 앞·뒤 2D 라이다를 합쳐 to_world 로 월드 좌표로 바꿈\", \"implemented\": true, \"note\": \"_mover_points 에서 lidar2d_points('front')·('back') 을 vstack 하고 to_world(raw_pts, pose) 를 씀. controller 가 매 호출마다 부름.\"},\n  {\"instruction\": \"WALLS 를 0.2 m 줄인 영역 밖의 점을 뺌\", \"implemented\": true, \"note\": \"WALLS[0]+0.2 ~ WALLS[1]-0.2, WALLS[2]+0.2 ~ WALLS[3]-0.2 안의 점만 남김.\"},\n  {\"instruction\": \"MISSION boxes 와 FIXED_OBSTACLES 를 0.25 m 키운 사각형 안의 점을 뺌\", \"implemented\": true, \"note\": \"margin=0.25 로 두 목록을 모두 제외함. 남은 점은 로봇 기준 raw_pts[mask] 로 돌려줌.\"},\n  {\"instruction\": \"앞 통로(x 0.25~3.0, |y|<0.6)에 물체 점이 3개 이상이면 가장 가까운 x 를 d 로 잡음\", \"implemented\": true, \"note\": \"fwd_mask 와 count_nonzero>=3 으로 판정하고 d_min 을 구함. |y|<=0.6 은 실질적으로 같음.\"},\n  {\"instruction\": \"v=min(v_nav, max(0, 0.9*(d-1.0))) 로 감속하고 d<1.0 이면 정지\", \"implemented\": true, \"note\": \"safe_speed 식이 지시와 같음. d<1.0 이면 0 이 됨.\"},\n  {\"instruction\": \"회전 이득을 7.5 에서 3.0 으로 낮춤\", \"implemented\": true, \"note\": \"두 분기 모두 _clamp(3.0*e, -2.0, 2.0) 를 씀.\"},\n  {\"instruction\": \"최고 속도 1.5 m/s 유지\", \"implemented\": true, \"note\": \"v_nom=min(1.5, 2.5*dist+0.5) 그대로임.\"},\n  {\"instruction\": \"정지 상태에서 앞 0.8 m 안(|y|<0.6)에 물체 점이 있으면 v=-0.4 로 후진\", \"implemented\": true, \"note\": \"v<0.01 이고 d_min<0.8 이면 v=-0.4, w=0 으로 함.\"},\n  {\"instruction\": \"후진은 뒤 통로(x -1.3~-0.7, |y|<0.6)에 지도 포함 점이 하나도 없을 때만\", \"implemented\": true, \"note\": \"필터 전 raw_pts 로 rear_mask 를 만들고 np.any 가 거짓일 때만 후진함.\"},\n  {\"instruction\": \"제자리 회전은 허용하고, 전진은 앞 통로가 비었을 때만\", \"implemented\": true, \"note\": \"정지 중에도 w_nom 을 유지해 회전함. 다만 d 가 1~3 m 이면 감속식대로 저속 전진함. 감속식 지시를 따른 결과임.\"},\n  {\"instruction\": \"상태가 바뀔 때만 'DBG t 상태 d' 출력\", \"implemented\": true, \"note\": \"new_state != controller.state 일 때만 print('DBG', t, 상태, d) 를 부름.\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"'전진은 앞 통로가 비었을 때만' 은 d 1~3 m 에서 저속 전진을 허용하는 감속식과 서로 맞지 않음. 의도를 분명히 해야 함.\",\n  \"정적 장애물을 0.25 m, 벽을 0.2 m 넓혀 지우므로 박스·선반 옆이나 벽 가까이를 지나는 물체는 보이지 않음.\",\n  \"후진 판정에서 w=0 으로 두어 후진 중에는 제자리 회전이 멈춤.\",\n  \"pass 실행이 이미 56 s 라 정지·대기가 길어지면 실행당 평균 60 s 예산을 넘을 수 있음.\",\n  \"정면에서 다가오는 물체, 옆·뒤에서 오는 물체, 목표 정렬 단계의 물체에는 대응이 없음.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 22331,
+  "completion_tokens": 4542
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 43735,
+  "total_cost_usd": 0.26948,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4542,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 22329,
+    "webSearchRequests": 0,
+    "costUSD": 0.26948,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2978,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 22329,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "12192bf2-e65d-4f93-98d6-ecdeab4f7cfd"
+ }
+}

@@ -1,0 +1,186 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t9_s465892405: 충돌 t=4.717 s, 로봇 0.26 m/s 전진, first_not_on_map 2 m(2.82 s) → 1 m(3.82 s) 내에 있었지만 정지하지 않음",
+   "c5t9_s1384845919: 충돌 t=8.367 s, 로봇 정지 상태, first_not_on_map 1.08 m(3.43 s) 이후 움직이는 물체가 로봇에 충돌",
+   "c5t9_s881108099: 충돌 t=5.467 s, 로봇 0.19 m/s 전진, first_not_on_map 1.66 m(0.52 s) → 0.98 m(4.35 s)까지도 정지 트리거 미발동"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 2 s 이내에 클러스터링·트래킹으로 M에 등록된다",
+    "holds": false,
+    "why": "첫 충돌 전까지 M에 트랙이 없었음(충돌 시점에만 감지됨)"
+   },
+   {
+    "assumption": "raw unmapped 라이다 점이 0.8 m 이내이면 _proximity_stop_and_backup 이 정지를 유도한다",
+    "holds": false,
+    "why": "최근점 거리 0.98 m·1.66 m 로 정지 조건을 만족하지 않아 충돌 발생"
+   },
+   {
+    "assumption": "gap <= _SAFE_DIST(3 m) 은 트랙이 존재할 때만 true 이며, 이때 VO 플래너가 동작한다",
+    "holds": false,
+    "why": "트랙이 없으므로 gap=inf, VO 미사용, 물체와 충돌"
+   },
+   {
+    "assumption": "static‑map 필터가 정확히 정적 점을 제거하고 움직이는 점만 _unmapped_raw 로 남긴다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 존재해 움직이는 점이 잘 탐지됨"
+   },
+   {
+    "assumption": "정지 상태에서 _px_back_until 가 활성화되면 후진이 수행된다",
+    "holds": false,
+    "why": "정지 상태(런2)에서 후진이 실행되지 않아 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": "0",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "static_pause_until + raw‑lidar filter",
+    "turns": "1",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "dynamic pause using t_tc",
+    "turns": "2",
+    "result": "4/5 pass"
+   },
+   {
+    "family": "min_gap detection + detour",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": "4",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VO planner integration",
+    "turns": "5",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "3D‑lidar + extended safe distance",
+    "turns": "6",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "TTC stop check (worst‑case speed)",
+    "turns": "7",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "TTC stop + VO strict mode",
+    "turns": "8",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "proximity stop & backup (current)",
+    "turns": "9",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "early raw‑point emergency stop: if any unmapped lidar point is ≤1.5 m and its TTC (using estimated relative speed) <0.8 s, stop immediately and set pause_until= t+1 s",
+    "new_family": true,
+    "for": "충돌 전 2 m 이내에서 물체가 감지됐지만 거리/시간 임계값이 너무 작아 정지하지 못함",
+    "risk": "정적 점이 오탐될 경우 불필요한 정지 증가"
+   },
+   {
+    "idea": "pseudo‑tracker: treat the nearest unmapped point as a mover with a nominal velocity (≈0.5 m/s) and inject it into M so gap/_VO_planner 작동을 raw 점에서도 가능하게 함",
+    "new_family": true,
+    "for": "gap 계산이 트랙에만 의존해 VO가 전혀 동작하지 않음",
+    "risk": "가짜 트랙이 과도히 보수적인 회피를 유도해 진행 속도 저하"
+   },
+   {
+    "idea": "잠재장(repulsive field): 모든 unmapped 점을 2 m 반경 내에서 반발 벡터로 합산, 목표 방향과 합성해 v,w 를 산출; 거리·밀도에 비례해 회피 강도 증가",
+    "new_family": true,
+    "for": "클러스터링 지연으로 트랙이 안 잡히는 상황에서도 연속적인 회피 가능",
+    "risk": "복잡한 파라미터 튜닝 필요, 과도한 회피로 경로가 비효율적"
+   }
+  ],
+  "chosen": "early raw‑point emergency stop (candidate 1) – 가장 직접적으로 거리·TTC 임계값을 확대해 충돌 직전 정지를 보장함",
+  "target": "controller (새 함수 _early_raw_stop와 상수 _EARLY_STOP_DIST/_EARLY_STOP_TTC 추가)",
+  "direction": "1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\"pause_until\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t9_s465892405: 충돌 t=4.717 s, 로봇 0.26 m/s 전진, first_not_on_map 2 m(2.82 s) → 1 m(3.82 s) 내에 있었지만 정지하지 않음\",\n    \"c5t9_s1384845919: 충돌 t=8.367 s, 로봇 정지 상태, first_not_on_map 1.08 m(3.43 s) 이후 움직이는 물체가 로봇에 충돌\",\n    \"c5t9_s881108099: 충돌 t=5.467 s, 로봇 0.19 m/s 전진, first_not_on_map 1.66 m(0.52 s) → 0.98 m(4.35 s)까지도 정지 트리거 미발동\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 2 s 이내에 클러스터링·트래킹으로 M에 등록된다\",\n      \"holds\": false,\n      \"why\": \"첫 충돌 전까지 M에 트랙이 없었음(충돌 시점에만 감지됨)\"\n    },\n    {\n      \"assumption\": \"raw unmapped 라이다 점이 0.8 m 이내이면 _proximity_stop_and_backup 이 정지를 유도한다\",\n      \"holds\": false,\n      \"why\": \"최근점 거리 0.98 m·1.66 m 로 정지 조건을 만족하지 않아 충돌 발생\"\n    },\n    {\n      \"assumption\": \"gap <= _SAFE_DIST(3 m) 은 트랙이 존재할 때만 true 이며, 이때 VO 플래너가 동작한다\",\n      \"holds\": false,\n      \"why\": \"트랙이 없으므로 gap=inf, VO 미사용, 물체와 충돌\"\n    },\n    {\n      \"assumption\": \"static‑map 필터가 정확히 정적 점을 제거하고 움직이는 점만 _unmapped_raw 로 남긴다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록이 존재해 움직이는 점이 잘 탐지됨\"\n    },\n    {\n      \"assumption\": \"정지 상태에서 _px_back_until 가 활성화되면 후진이 수행된다\",\n      \"holds\": false,\n      \"why\": \"정지 상태(런2)에서 후진이 실행되지 않아 충돌\"\n    }\n  ],\n  \"approach_families\": [\n    { \"family\": \"no_control\", \"turns\": \"0\", \"result\": \"1/4 pass\" },\n    { \"family\": \"static_pause_until + raw‑lidar filter\", \"turns\": \"1\", \"result\": \"1/4 pass\" },\n    { \"family\": \"dynamic pause using t_tc\", \"turns\": \"2\", \"result\": \"4/5 pass\" },\n    { \"family\": \"min_gap detection + detour\", \"turns\": \"3\", \"result\": \"0/3 pass\" },\n    { \"family\": \"predictive speed scaling\", \"turns\": \"4\", \"result\": \"2/5 pass\" },\n    { \"family\": \"VO planner integration\", \"turns\": \"5\", \"result\": \"2/5 pass\" },\n    { \"family\": \"3D‑lidar + extended safe distance\", \"turns\": \"6\", \"result\": \"3/6 pass\" },\n    { \"family\": \"TTC stop check (worst‑case speed)\", \"turns\": \"7\", \"result\": \"0/3 pass\" },\n    { \"family\": \"TTC stop + VO strict mode\", \"turns\": \"8\", \"result\": \"3/6 pass\" },\n    { \"family\": \"proximity stop & backup (current)\", \"turns\": \"9\", \"result\": \"0/3 pass\" }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"early raw‑point emergency stop: if any unmapped lidar point is ≤1.5 m and its TTC (using estimated relative speed) <0.8 s, stop immediately and set pause_until= t+1 s\",\n      \"new_family\": true,\n      \"for\": \"충돌 전 2 m 이내에서 물체가 감지됐지만 거리/시간 임계값이 너무 작아 정지하지 못함\",\n      \"risk\": \"정적 점이 오탐될 경우 불필요한 정지 증가\"\n    },\n    {\n      \"idea\": \"pseudo‑tracker: treat the nearest unmapped point as a mover with a nominal velocity (≈0.5 m/s) and inject it into M so gap/_VO_planner 작동을 raw 점에서도 가능하게 함\",\n      \"new_family\": true,\n      \"for\": \"gap 계산이 트랙에만 의존해 VO가 전혀 동작하지 않음\",\n      \"risk\": \"가짜 트랙이 과도히 보수적인 회피를 유도해 진행 속도 저하\"\n    },\n    {\n      \"idea\": \"잠재장(repulsive field): 모든 unmapped 점을 2 m 반경 내에서 반발 벡터로 합산, 목표 방향과 합성해 v,w 를 산출; 거리·밀도에 비례해 회피 강도 증가\",\n      \"new_family\": true,\n      \"for\": \"클러스터링 지연으로 트랙이 안 잡히는 상황에서도 연속적인 회피 가능\",\n      \"risk\": \"복잡한 파라미터 튜닝 필요, 과도한 회피로 경로가 비효율적\"\n    }\n  ],\n  \"chosen\": \"early raw‑point emergency stop (candidate 1) – 가장 직접적으로 거리·TTC 임계값을 확대해 충돌 직전 정지를 보장함\",\n  \"target\": \"controller (새 함수 _early_raw_stop와 상수 _EARLY_STOP_DIST/_EARLY_STOP_TTC 추가)\",\n  \"direction\": \"1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\\\"pause_until\\\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t9_s465892405",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.717,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.26m/s",
+   "partner_rel_xy": [
+    -0.34,
+    -0.54
+   ],
+   "closing_m_s": 0.36,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 2.82,
+   "goal_dist_m": 30.577,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t9_s1384845919",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 589.3,
+   "sim_time_s": 14.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.367,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.4,
+    0.51
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 3.43,
+   "goal_dist_m": 30.9722,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t9_s881108099",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 574.9,
+   "sim_time_s": 11.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.467,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.19m/s",
+   "partner_rel_xy": [
+    -0.76,
+    -0.53
+   ],
+   "closing_m_s": 0.21,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.52,
+   "goal_dist_m": 31.7332,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

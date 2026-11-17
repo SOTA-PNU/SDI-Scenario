@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-a1464ea5ddc76c1c",
+  "object": "chat.completion",
+  "created": 1794707138,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\ndef plan_path(start_xy, goal_xy, clearance_m):\n    # A* on the occupancy grid with 8‑connectivity, using segment_free for edge checks.\n    # Returns a list of world (x, y) points with the exact start and goal coordinates.\n    plan_stage(\"grid\")\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\n\n    # Convert world points to grid cells.\n    sx, sy = cell_of(start_xy, origin, res)\n    gx, gy = cell_of(goal_xy, origin, res)\n    nx, ny = blocked.shape[1], blocked.shape[0]\n\n    # If start or goal cell is out of bounds or occupied, give up early.\n    if not (0 <= sx < nx and 0 <= sy < ny) or blocked[sy, sx]:\n        plan_stage(\"search\")\n        plan_stage(\"validate\", input_points=0)\n        return None\n    if not (0 <= gx < nx and 0 <= gy < ny) or blocked[gy, gx]:\n        plan_stage(\"search\")\n        plan_stage(\"validate\", input_points=0)\n        return None\n\n    # ------------------------------------------------------------------\n    # A* search\n    # ------------------------------------------------------------------\n    plan_stage(\"search\")\n    start = (sx, sy)\n    goal = (gx, gy)\n\n    # cache results of segment_free to avoid duplicate geometry checks\n    _seg_cache = {}\n\n    def seg_free(c1, c2):\n        key = (c1, c2) if c1 <= c2 else (c2, c1)\n        if key in _seg_cache:\n            return _seg_cache[key]\n        p = xy_of(c1, origin, res)\n        q = xy_of(c2, origin, res)\n        ok = segment_free(p, q, clearance_m)\n        _seg_cache[key] = ok\n        return ok\n\n    # heuristic: Euclidean distance in world space\n    def heuristic(c):\n        dx = (c[0] - goal[0]) * res\n        dy = (c[1] - goal[1]) * res\n        return math.hypot(dx, dy)\n\n    neighbors = [(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if not (dx == 0 and dy == 0)]\n\n    open_set = []\n    heapq.heappush(open_set, (heuristic(start), start))\n    came_from = {}\n    g_score = {start: 0.0}\n    found = False\n\n    while open_set:\n        _, current = heapq.heappop(open_set)\n        if current == goal:\n            found = True\n            break\n\n        cx, cy = current\n        for dx, dy in neighbors:\n            nx_cell = (cx + dx, cy + dy)\n            if not (0 <= nx_cell[0] < nx and 0 <= nx_cell[1] < ny):\n                continue\n            if blocked[nx_cell[1], nx_cell[0]]:\n                continue\n            if not seg_free(current, nx_cell):\n                continue\n            tentative_g = g_score[current] + math.hypot(dx * res, dy * res)\n            if nx_cell not in g_score or tentative_g < g_score[nx_cell] - 1e-12:\n                came_from[nx_cell] = current\n                g_score[nx_cell] = tentative_g\n                f = tentative_g + heuristic(nx_cell)\n                heapq.heappush(open_set, (f, nx_cell))\n\n    if not found:\n        plan_stage(\"validate\", input_points=0)\n        return None\n\n    # ------------------------------------------------------------------\n    # Reconstruct cell path and convert to world points\n    # ------------------------------------------------------------------\n    rev_cells = []\n    cur = goal\n    while cur != start:\n        rev_cells.append(cur)\n        cur = came_from[cur]\n    rev_cells.append(start)\n    rev_cells.reverse()\n\n    raw_path = [xy_of(cell, origin, res) for cell in rev_cells]\n\n    # Build final path: exact start → intermediate cell centres → exact goal\n    path = [tuple(start_xy)]\n    for pt in raw_path[1:-1]:\n        path.append((float(pt[0]), float(pt[1])))\n    path.append(tuple(goal_xy))\n\n    plan_stage(\"simplify\", input_points=len(raw_path), output_points=len(path))\n    plan_stage(\"validate\", input_points=len(path))\n    return path\n\n\ndef lookahead_target(path, pose):\n    \"\"\"\n    Return a forward point on the path respecting the min/max ahead distances.\n    If the robot is too close to the end of the current segment (remaining\n    length < target_min_ahead), we *do not* cross the segment boundary here.\n    Instead we return ``None`` so the base guard will invoke its own forward‑\n    target logic, which can safely step into the next segment.\n    \"\"\"\n    cfg = _BASE_LOOP_CFG\n    proj = _base_loop_projection(path, pose[:2])\n\n    # Reject if the robot is outside the allowed corridor.\n    if proj[\"distance\"] > cfg[\"target_path_limit_m\"] + 1e-12:\n        return None\n\n    # Length remaining on the current segment.\n    remaining_seg = (1.0 - proj[\"fraction\"]) * proj[\"length\"]\n\n    # If we have enough room on this segment, compute a normal ahead distance.\n    if remaining_seg >= cfg[\"target_min_ahead_m\"] - 1e-12:\n        max_ahead = min(cfg[\"target_max_ahead_m\"], cfg[\"target_path_limit_m\"])\n        ahead = max(cfg[\"target_min_ahead_m\"], min(max_ahead, remaining_seg))\n        target = _base_loop_point_at_s(path, proj[\"s\"] + ahead)\n        return (float(target[0]), float(target[1]))\n\n    # Not enough room on the current segment → let base handle it.\n    return None\n\n\ndef follow_cmd(pose, target_xy):\n    # Pure pursuit law described in the mission spec.\n    x, y, yaw = pose\n    tx, ty = target_xy\n    dist = math.hypot(tx - x, ty - y)\n    # heading error wrapped to [-π, π]\n    err = math.atan2(ty - y, tx - x) - yaw\n    err = math.atan2(math.sin(err), math.cos(err))\n\n    if abs(err) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * err))\n    return float(v), float(w)\n\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to modify only lookahead_target per diagnostic: when remaining_seg < min_ahead (0.3), should return None so base will fallback to forward target logic. Also ensure not crossing segment boundary. Current implementation: if remaining_seg < min_ahead, sets ahead = max_ahead, then later checks ahead < min_ahead. That may produce ahead large (max_ahead up to 1.0) which could cross segment, causing large turn and v=0. So change to: if remaining_seg < min_ahead - epsilon, return None. Also need to ensure projection distance check remains. Also maybe need to respect target_path_limit (1.0). Simpler: after computing proj, if proj[\"distance\"] > limit: return None. Then compute remaining_seg. If remaining_seg >= min_ahead - eps: ahead = max(min_ahead, min(max_ahead, remaining_seg)). else: return None. That matches diagnostic.\n\nAlso need to ensure we don't exceed target_max_ahead or target_path_limit. Use cfg.\n\nImplement accordingly.\n\nAlso need to keep plan_path and follow_cmd unchanged.\n\nMake sure to import _BASE_LOOP_CFG already present. Use _base_loop_projection and _base_loop_point_at_s.\n\nImplement.\n\nReturn None to trigger base guard.\n\nLet's produce final edit block with modifications only to lookahead_target.\n\nBut we also need to include plan_path and follow_cmd definitions unchanged? The instruction: only modify this block; we can keep existing code but modify lookahead_target. Provide full block.\n\nAdd comment about change.\n\nLet's craft code.\n\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 34070,
+    "total_tokens": 35859,
+    "completion_tokens": 1789,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 319
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794707138.4247048,
+    "wall_s": 13.358,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 12,
+    "call": 24
+  }
+}

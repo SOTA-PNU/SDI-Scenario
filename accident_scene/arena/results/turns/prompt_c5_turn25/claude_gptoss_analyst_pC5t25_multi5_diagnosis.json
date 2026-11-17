@@ -1,0 +1,334 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t25_s138554580: collision at t=37.317 s with mover_02 (rel pos [0.44,-0.33] m, closing speed 0.62 m/s); first_not_on_map within 2 m at t=33.35 s (1.98 m, bearing 43°)",
+   "c5t25_s1078533540: collision at t=2.133 s with mover_00 (rel pos [-0.03,-0.58] m, closing speed 0.48 m/s); first_not_on_map within 2 m at t=1.45 s (0.96 m, bearing -58°)",
+   "c5t25_s1543740192: collision at t=37.783 s with mover_02 (rel pos [-0.36,-0.6] m, closing speed 0.13 m/s); first_not_on_map within 2 m at t=32.8 s (0.91 m, bearing 52°)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D/3D lidar provides unmapped points of moving objects before impact",
+    "holds": true,
+    "why": "first_not_on_map timestamps are earlier than collision times in all failing runs"
+   },
+   {
+    "assumption": "Synthetic tracks can estimate velocities of moving objects accurately",
+    "holds": false,
+    "why": "synthetic_tracks often produce zero‑velocity rows for fast movers, limiting VO effectiveness"
+   },
+   {
+    "assumption": "VO planner with horizon 2 s can generate safe commands for approaching objects",
+    "holds": false,
+    "why": "collisions still occur after VO window ends, indicating the horizon is insufficient"
+   },
+   {
+    "assumption": "Robot can stop within required distance given deceleration 1.2 m/s²",
+    "holds": true,
+    "why": "theoretical stopping distance at observed speeds (<0.7 m/s) is <0.2 m, but detection is sometimes too late"
+   },
+   {
+    "assumption": "Environment consists only of static map plus moving boxes",
+    "holds": true,
+    "why": "scene description confirms no other dynamic elements"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Simple pause on raw lidar detection",
+    "turns": [
+     1
+    ],
+    "result": "1/4 passes"
+   },
+   {
+    "family": "Predictive speed based on dynamic‑pause TTC",
+    "turns": [
+     2
+    ],
+    "result": "4/5 passes"
+   },
+   {
+    "family": "Side‑detour after min‑gap detection",
+    "turns": [
+     3
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Predictive speed with larger safe distance",
+    "turns": [
+     4
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "Velocity‑obstacle (VO) planner only",
+    "turns": [
+     5
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "VO + 3D lidar integration",
+    "turns": [
+     6
+    ],
+    "result": "3/6 passes"
+   },
+   {
+    "family": "TTC stop check without VO",
+    "turns": [
+     7
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "TTC stop + VO fallback",
+    "turns": [
+     8
+    ],
+    "result": "3/6 passes"
+   },
+   {
+    "family": "Proximity stop & backup",
+    "turns": [
+     9
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Early raw‑stop based on TTC",
+    "turns": [
+     10
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Potential‑field avoidance",
+    "turns": [
+     11
+    ],
+    "result": "4/7 passes"
+   },
+   {
+    "family": "Dynamic‑window approach (DWA)",
+    "turns": [
+     12
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "Vector‑field histogram (VFH)",
+    "turns": [
+     13
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Simplified VO (no pause)",
+    "turns": [
+     14
+    ],
+    "result": "4/7 passes"
+   },
+   {
+    "family": "Side‑detour only",
+    "turns": [
+     15
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "A* replanning only",
+    "turns": [
+     16
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "VO with replanner fallback after VO failure",
+    "turns": [
+     17
+    ],
+    "result": "7/10 passes"
+   },
+   {
+    "family": "Raw‑TTC stop (no backup)",
+    "turns": [
+     18
+    ],
+    "result": "4/7 passes"
+   },
+   {
+    "family": "Raw‑TTC + evade‑rotate",
+    "turns": [
+     19
+    ],
+    "result": "1/4 passes"
+   },
+   {
+    "family": "Raw‑TTC + evasion (VO strict)",
+    "turns": [
+     20
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "Extended VO horizon (3 s) only",
+    "turns": [
+     21
+    ],
+    "result": "1/4 passes"
+   },
+   {
+    "family": "Extended VO + rear‑backup",
+    "turns": [
+     22
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Raw‑TTC + pause only",
+    "turns": [
+     23
+    ],
+    "result": "1/4 passes"
+   },
+   {
+    "family": "Synthetic tracks (zero‑velocity rows) only",
+    "turns": [
+     24
+    ],
+    "result": "2/5 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Add early‑stop using _raw_ttc_stop() and, when a pause is triggered, immediately execute a reverse backup via _px_backup_cmd() before resuming VO planning.",
+    "new_family": true,
+    "for": "collisions where unmapped points appear within ~1 m and TTC < 1 s (e.g., runs c5t25_s1078533540 and c5t25_s138554580)",
+    "risk": "may increase stop‑and‑go time; backup could be blocked by static map if not enough clearance"
+   },
+   {
+    "idea": "Hybrid PF‑VO: compute a potential‑field heading first, then bias the VO candidate set toward that heading (e.g., restrict VO deltas around PF direction).",
+    "new_family": true,
+    "for": "situations where VO alone fails to find a feasible velocity but a clear gap exists (observed in turn 17 failures)",
+    "risk": "adds computational overhead and may still miss fast‑closing objects if PF field is noisy"
+   }
+  ],
+  "chosen": "candidate 1 – integrate raw_ttc_stop early stop with immediate reverse backup before VO planning",
+  "target": "controller (add early‑stop & backup logic)",
+  "direction": "1. After _perceive() call, invoke pause = _raw_ttc_stop(st, t, pose). 2. If pause is not None, set st['pause_until'] = max(st['pause_until'], t + pause) and compute nearest unmapped point via _px_dist(). 3. Call _px_backup_cmd(st, pose, M, near) to obtain a safe reverse speed v_back; if v_back is not None, return (v_back, 0.0, False) while pause is active. 4. While t < st['pause_until'] and no backup command, return (0.0, 0.0, False) to stay stopped. 5. After pause expires, clear the flag and resume the existing VO / predictive‑speed pipeline unchanged. 6. Ensure _guard() is still applied to any backup command.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t25_s138554580: collision at t=37.317 s with mover_02 (rel pos [0.44,-0.33] m, closing speed 0.62 m/s); first_not_on_map within 2 m at t=33.35 s (1.98 m, bearing 43°)\",\n    \"c5t25_s1078533540: collision at t=2.133 s with mover_00 (rel pos [-0.03,-0.58] m, closing speed 0.48 m/s); first_not_on_map within 2 m at t=1.45 s (0.96 m, bearing -58°)\",\n    \"c5t25_s1543740192: collision at t=37.783 s with mover_02 (rel pos [-0.36,-0.6] m, closing speed 0.13 m/s); first_not_on_map within 2 m at t=32.8 s (0.91 m, bearing 52°)\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D/3D lidar provides unmapped points of moving objects before impact\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map timestamps are earlier than collision times in all failing runs\"\n    },\n    {\n      \"assumption\": \"Synthetic tracks can estimate velocities of moving objects accurately\",\n      \"holds\": false,\n      \"why\": \"synthetic_tracks often produce zero‑velocity rows for fast movers, limiting VO effectiveness\"\n    },\n    {\n      \"assumption\": \"VO planner with horizon 2 s can generate safe commands for approaching objects\",\n      \"holds\": false,\n      \"why\": \"collisions still occur after VO window ends, indicating the horizon is insufficient\"\n    },\n    {\n      \"assumption\": \"Robot can stop within required distance given deceleration 1.2 m/s²\",\n      \"holds\": true,\n      \"why\": \"theoretical stopping distance at observed speeds (<0.7 m/s) is <0.2 m, but detection is sometimes too late\"\n    },\n    {\n      \"assumption\": \"Environment consists only of static map plus moving boxes\",\n      \"holds\": true,\n      \"why\": \"scene description confirms no other dynamic elements\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"Simple pause on raw lidar detection\",\n      \"turns\": [1],\n      \"result\": \"1/4 passes\"\n    },\n    {\n      \"family\": \"Predictive speed based on dynamic‑pause TTC\",\n      \"turns\": [2],\n      \"result\": \"4/5 passes\"\n    },\n    {\n      \"family\": \"Side‑detour after min‑gap detection\",\n      \"turns\": [3],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"Predictive speed with larger safe distance\",\n      \"turns\": [4],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"Velocity‑obstacle (VO) planner only\",\n      \"turns\": [5],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"VO + 3D lidar integration\",\n      \"turns\": [6],\n      \"result\": \"3/6 passes\"\n    },\n    {\n      \"family\": \"TTC stop check without VO\",\n      \"turns\": [7],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"TTC stop + VO fallback\",\n      \"turns\": [8],\n      \"result\": \"3/6 passes\"\n    },\n    {\n      \"family\": \"Proximity stop & backup\",\n      \"turns\": [9],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"Early raw‑stop based on TTC\",\n      \"turns\": [10],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"Potential‑field avoidance\",\n      \"turns\": [11],\n      \"result\": \"4/7 passes\"\n    },\n    {\n      \"family\": \"Dynamic‑window approach (DWA)\",\n      \"turns\": [12],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"Vector‑field histogram (VFH)\",\n      \"turns\": [13],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"Simplified VO (no pause)\",\n      \"turns\": [14],\n      \"result\": \"4/7 passes\"\n    },\n    {\n      \"family\": \"Side‑detour only\",\n      \"turns\": [15],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"A* replanning only\",\n      \"turns\": [16],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"VO with replanner fallback after VO failure\",\n      \"turns\": [17],\n      \"result\": \"7/10 passes\"\n    },\n    {\n      \"family\": \"Raw‑TTC stop (no backup)\",\n      \"turns\": [18],\n      \"result\": \"4/7 passes\"\n    },\n    {\n      \"family\": \"Raw‑TTC + evade‑rotate\",\n      \"turns\": [19],\n      \"result\": \"1/4 passes\"\n    },\n    {\n      \"family\": \"Raw‑TTC + evasion (VO strict)\",\n      \"turns\": [20],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"Extended VO horizon (3 s) only\",\n      \"turns\": [21],\n      \"result\": \"1/4 passes\"\n    },\n    {\n      \"family\": \"Extended VO + rear‑backup\",\n      \"turns\": [22],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"Raw‑TTC + pause only\",\n      \"turns\": [23],\n      \"result\": \"1/4 passes\"\n    },\n    {\n      \"family\": \"Synthetic tracks (zero‑velocity rows) only\",\n      \"turns\": [24],\n      \"result\": \"2/5 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Add early‑stop using _raw_ttc_stop() and, when a pause is triggered, immediately execute a reverse backup via _px_backup_cmd() before resuming VO planning.\",\n      \"new_family\": true,\n      \"for\": \"collisions where unmapped points appear within ~1 m and TTC < 1 s (e.g., runs c5t25_s1078533540 and c5t25_s138554580)\",\n      \"risk\": \"may increase stop‑and‑go time; backup could be blocked by static map if not enough clearance\"\n    },\n    {\n      \"idea\": \"Hybrid PF‑VO: compute a potential‑field heading first, then bias the VO candidate set toward that heading (e.g., restrict VO deltas around PF direction).\",\n      \"new_family\": true,\n      \"for\": \"situations where VO alone fails to find a feasible velocity but a clear gap exists (observed in turn 17 failures)\",\n      \"risk\": \"adds computational overhead and may still miss fast‑closing objects if PF field is noisy\"\n    }\n  ],\n  \"chosen\": \"candidate 1 – integrate raw_ttc_stop early stop with immediate reverse backup before VO planning\",\n  \"target\": \"controller (add early‑stop & backup logic)\",\n  \"direction\": \"1. After _perceive() call, invoke pause = _raw_ttc_stop(st, t, pose). 2. If pause is not None, set st['pause_until'] = max(st['pause_until'], t + pause) and compute nearest unmapped point via _px_dist(). 3. Call _px_backup_cmd(st, pose, M, near) to obtain a safe reverse speed v_back; if v_back is not None, return (v_back, 0.0, False) while pause is active. 4. While t < st['pause_until'] and no backup command, return (0.0, 0.0, False) to stay stopped. 5. After pause expires, clear the flag and resume the existing VO / predictive‑speed pipeline unchanged. 6. Ensure _guard() is still applied to any backup command.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c5t25_s1971748970",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 70.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 64.18,
+   "goal_dist_m": 0.0717,
+   "time_to_goal_s": 67.45
+  },
+  {
+   "run": "c5t25_s138554580",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 529.8,
+   "sim_time_s": 43.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 37.317,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    0.44,
+    -0.33
+   ],
+   "closing_m_s": 0.62,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 33.35,
+   "goal_dist_m": 12.9399,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t25_s1773653604",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 486.5,
+   "sim_time_s": 76.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 70.63,
+   "goal_dist_m": 0.0503,
+   "time_to_goal_s": 72.717
+  },
+  {
+   "run": "c5t25_s1078533540",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 409.9,
+   "sim_time_s": 8.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.133,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.63m/s",
+   "partner_rel_xy": [
+    -0.03,
+    -0.58
+   ],
+   "closing_m_s": 0.48,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 29.8051,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t25_s1543740192",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 401.8,
+   "sim_time_s": 43.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 37.783,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    -0.36,
+    -0.6
+   ],
+   "closing_m_s": 0.13,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 32.8,
+   "goal_dist_m": 9.8827,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

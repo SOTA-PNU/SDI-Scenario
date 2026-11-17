@@ -1,0 +1,77 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t11_s471485376: first_not_on_map 2 m 이내 시각 -0.05 s, 충돌 시각 3.467 s, 감지 거리 1 m 로는 물체를 늦게 인식",
+   "run c2t11_s186592814: first_not_on_map 2 m 이내 시각 55.22 s, 충돌 시각 57.3 s, 2 s 반응 시간으로는 회피 부족",
+   "run c2t11_s271162448: first_not_on_map 2 m 이내 시각 8.82 s, 충돌 시각 13.733 s, 로봇이 정지 상태에서도 물체가 남아 있어 감지가 늦음"
+  ],
+  "target": "constants _DETECT_DIST, _DETECT_ANGLE, _AVOID_DURATION, _CLEAR_TIME, _AVOID_COOLDOWN",
+  "direction": "1) _DETECT_DIST를 1.5 m, _DETECT_ANGLE를 np.deg2rad(60)으로 확대해 움직이는 물체를 더 일찍 포착한다. 2) _AVOID_DURATION을 3.0 s, _CLEAR_TIME을 2.0 s로 늘려 정지·대기 시간을 늘린다. 3) _AVOID_COOLDOWN을 0.2 s로 줄여 회피 후 바로 재감지할 수 있게 한다. 4) 위 값들을 상단 상수 정의에 반영하고, state‑machine에서 기존 변수명을 그대로 사용한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t11_s471485376: first_not_on_map 2 m 이내 시각 -0.05 s, 충돌 시각 3.467 s, 감지 거리 1 m 로는 물체를 늦게 인식\",\n    \"run c2t11_s186592814: first_not_on_map 2 m 이내 시각 55.22 s, 충돌 시각 57.3 s, 2 s 반응 시간으로는 회피 부족\",\n    \"run c2t11_s271162448: first_not_on_map 2 m 이내 시각 8.82 s, 충돌 시각 13.733 s, 로봇이 정지 상태에서도 물체가 남아 있어 감지가 늦음\"\n  ],\n  \"target\": \"constants _DETECT_DIST, _DETECT_ANGLE, _AVOID_DURATION, _CLEAR_TIME, _AVOID_COOLDOWN\",\n  \"direction\": \"1) _DETECT_DIST를 1.5 m, _DETECT_ANGLE를 np.deg2rad(60)으로 확대해 움직이는 물체를 더 일찍 포착한다. 2) _AVOID_DURATION을 3.0 s, _CLEAR_TIME을 2.0 s로 늘려 정지·대기 시간을 늘린다. 3) _AVOID_COOLDOWN을 0.2 s로 줄여 회피 후 바로 재감지할 수 있게 한다. 4) 위 값들을 상단 상수 정의에 반영하고, state‑machine에서 기존 변수명을 그대로 사용한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t11_s186592814",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 57.3,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.72m/s",
+   "partner_rel_xy": [
+    0.49,
+    -0.28
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 55.22,
+   "goal_dist_m": 4.4209,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t11_s271162448",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.733,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.4,
+    0.48
+   ],
+   "closing_m_s": 0.33,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 8.82,
+   "goal_dist_m": 32.3036,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t11_s471485376",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.467,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.36m/s",
+   "partner_rel_xy": [
+    0.51,
+    -0.06
+   ],
+   "closing_m_s": -0.07,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 31.2919,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

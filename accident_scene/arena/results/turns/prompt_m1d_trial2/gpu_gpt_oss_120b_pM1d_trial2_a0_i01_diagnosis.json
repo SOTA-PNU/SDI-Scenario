@@ -1,0 +1,11 @@
+{
+  "failure_mode": "runtime_error",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=exception error_type=UnboundLocalError message=local variable 'prev_pt' referenced before assignment stage=simplify",
+    "plan_stage(\"simplify\", input_points=58) 기록 후 output_points=None 로 표시되어 simplification 단계에서 예외가 발생했음",
+    "plan_summary 전체에 status=no_path, reason=exception 로 4개의 clearance 모두 동일한 예외가 보고됨"
+  ],
+  "function": "plan_path",
+  "direction": "simplify 단계에서 prev_pt 변수가 정의되지 않아 UnboundLocalError가 발생한다. 간단히 simplification을 제거하고 raw_path 를 그대로 반환하거나, prev_pt 를 루프 시작 전에 raw_path[0] 로 초기화하고 로직을 수정한다.",
+  "confidence": "high"
+}

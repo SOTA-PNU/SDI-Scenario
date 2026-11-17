@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1a) 현재 선분 투영점에서 폴리라인을 따라 0.8 m 앞 점 추종\", \"implemented\": true, \"note\": \"_seg_proj 투영점에서 _lookahead_pt(px,py,idx,_LOOKAHEAD=0.8)를 겨눔\"},\n  {\"instruction\": \"1b) 방향 오차 1.2 rad 초과일 때만 제자리 회전\", \"implemented\": true, \"note\": \"_pursuit_cmd 에서 abs(e)>1.2 이면 (0, w) 반환\"},\n  {\"instruction\": \"1c) 0.35 rad 초과면 v=vcap·cos(e)\", \"implemented\": true, \"note\": \"abs(e)>0.35 이면 vc*=cos(e)\"},\n  {\"instruction\": \"1d) 다음 모서리 1.0 m 안이면 vcap≤0.7\", \"implemented\": true, \"note\": \"투영점과 _WAYPOINTS[idx] 거리가 1.0 미만이면 min(vmax,0.7)\"},\n  {\"instruction\": \"1e) 투영점이 경유점을 지나면 idx 증가\", \"implemented\": true, \"note\": \"u>=1.0 이면 idx+1. 기존 0.35 m 규칙과 '다음 선분이 더 가까우면 증가' 조건이 추가됐으나 지시와 충돌하지 않음\"},\n  {\"instruction\": \"1f) _rollout 도 같은 함수 사용\", \"implemented\": true, \"note\": \"_rollout path 분기가 같은 _pursuit_cmd 를 호출\"},\n  {\"instruction\": \"2a) 마지막 구간 감속 min(vmax, 1.0·d+0.2)\", \"implemented\": true, \"note\": \"idx==n-1 이면 vc=min(vmax,1.0*d_goal+0.2)\"},\n  {\"instruction\": \"2b) GOAL 0.6 m 안이면 정렬, 0.7 m 밖이면 추종 복귀\", \"implemented\": true, \"note\": \"controller 와 _pursuit_cmd 모두 0.6/0.7 사용\"},\n  {\"instruction\": \"2c) 정렬 회전 ±1.5 rad/s, |yaw 오차|<0.2 이면 done\", \"implemented\": true, \"note\": \"_align_w 를 clamp ±1.5 로 바꿈, done 조건 0.2\"},\n  {\"instruction\": \"3) path(1.5)를 prim 맨 앞에 두되 모든 트랙 3.5 m 밖·미성숙 없음일 때만 허용, 나머지 선택 규칙 유지\", \"implemented\": true, \"note\": \"fast_ok 조건일 때 prim 앞에 (path,_VFAST=1.5)를 넣음. 선택 루프와 best_of 는 그대로\"},\n  {\"instruction\": \"4) 회전 0.6 rad/s 초과 스캔에서는 2.0 m 밖의 짝 없는 덩어리로 새 트랙을 만들지 않음\", \"implemented\": true, \"note\": \"rot_ok=False 이고 robot_xy 거리>_ROT_NEW_TRACK_R(2.0)이면 continue, robot_xy 를 전달함\"},\n  {\"instruction\": \"5a) 경유점, _MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측 유지, 물체·시각 상수 없음\", \"implemented\": true, \"note\": \"해당 정의가 바뀌지 않았고 새 상수는 거리·속도 파라미터뿐\"},\n  {\"instruction\": \"5b) DBG 끝에 누적 제자리 회전 시간과 path(1.5) 시간 추가\", \"implemented\": true, \"note\": \"t_spin, t_fast 를 누적해 DBG 줄 끝에 출력\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"1.0·d+0.2 감속이면 0.6 m 에서 약 0.8 m/s 인 채로 정렬(v=0)로 바뀝니다. 허용치 0.75 m 까지 여유가 0.15 m 뿐이라 관성으로 넘어가거나 0.7 m 밖으로 밀려 추종과 정렬을 오갈 수 있습니다.\",\n  \"로봇 실제 속도 상한이 1.5 m/s 에 못 미치면 path(1.5)는 효과가 없습니다(진단 자체도 지적함).\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 54993,
+  "completion_tokens": 6499
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 59987,
+  "total_cost_usd": 0.569916,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6499,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 54991,
+    "webSearchRequests": 0,
+    "costUSD": 0.569916,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 4913,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 54991,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "247e1d3e-952c-4392-b0b3-d8ec9b7070e0"
+ }
+}

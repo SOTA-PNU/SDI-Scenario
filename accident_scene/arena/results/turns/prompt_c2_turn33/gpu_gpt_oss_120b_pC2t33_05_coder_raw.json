@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-84412a017d1d03cc",
+ "object": "chat.completion",
+ "created": 1794826298,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유:  \n우회점 생성 로직을 단순화하여 물체 베어링에 **수직(좌·우) 방향**으로만 `_LATERAL_OFFSET` 만큼 이동하도록 하였습니다. 반대 방향 후보를 제거함으로써 진단 2번(“반대 방향 선택을 제거”)을 만족하고, 좌·우 퍼펜디큘러 후보만 검토해 가능한 경유점을 선택하도록 수정했습니다.\n\n```python\ndef _compute_bypass_target(pose, bearing):\n    \"\"\"Return a lateral bypass waypoint offset by _LATERAL_OFFSET to the left or right\n    of the detected moving object's bearing. Only left/right perpendicular candidates\n    are considered; the opposite direction is deliberately omitted.\"\"\"\n    x, y, yaw = pose\n    world_angle = yaw + bearing\n\n    # Left perpendicular (90° CCW from object's direction)\n    dx_left = -math.sin(world_angle)\n    dy_left =  math.cos(world_angle)\n    cand_left = (x + _LATERAL_OFFSET * dx_left, y + _LATERAL_OFFSET * dy_left)\n    if not _in_static_obstacle(cand_left) and _line_is_clear((x, y), cand_left):\n        return cand_left\n\n    # Right perpendicular (90° CW from object's direction)\n    dx_right =  math.sin(world_angle)\n    dy_right = -math.cos(world_angle)\n    cand_right = (x + _LATERAL_OFFSET * dx_right, y + _LATERAL_OFFSET * dy_right)\n    if not _in_static_obstacle(cand_right) and _line_is_clear((x, y), cand_right):\n        return cand_right\n\n    # No viable lateral bypass point found\n    return None\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to respond with changed reason and python code fence containing only the definitions that need to be changed or added. The changes required:\n\n- Modify `_compute_bypass_target` to remove opposite direction candidate and only consider left and right perpendicular directions (perpendicular to bearing). The function should generate lateral offset points to the left or right of the moving object's bearing relative to robot orientation, and choose a feasible one.\n\n- Ensure the function still returns a target if possible, else None.\n\n- Possibly adjust any related constants? The direction is to \"수직(좌·우) 방향으로만 _LATERAL_OFFSET 만큼 이동하도록 하고, 반대 방향 선택을 제거\". So we need to modify `_compute_bypass_target`. The rest of the code is fine.\n\nThe code currently includes `_compute_bypass_target` that tries opposite first, then left, then right. We need to modify it to only consider left and right perpendicular candidates.\n\nThus we need to provide a new definition for `_compute_bypass_target` that excludes opposite direction. The rest of the code remains unchanged.\n\nPotential additional adjustments: maybe we need to store `_LATERAL_OFFSET` constant is already defined earlier (value 2.0). So we just need to change the function.\n\nThus answer: Provide change reason and the new function definition.\n\nMake sure not to include any import statements or edit region comments. Provide only the changed definition.\n\nThus final answer will be:\n\n변경 이유: ... then code block with new `_compute_bypass_target`.\n\nPotentially need to also adjust usage of `_compute_bypass_target` if any other parts depend on opposite direction? The only usage is in controller when moving detection triggers avoid_stop and then after stop it tries to compute bypass target. That code expects the function to return a target or None. Removing opposite direction is fine.\n\nThus answer.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-96dcc7f3",
+ "usage": {
+  "prompt_tokens": 22320,
+  "total_tokens": 23069,
+  "completion_tokens": 749,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 373
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

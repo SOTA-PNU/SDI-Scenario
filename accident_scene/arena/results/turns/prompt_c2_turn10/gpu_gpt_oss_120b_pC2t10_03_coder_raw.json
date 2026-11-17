@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-8497b145da4af01b",
+ "object": "chat.completion",
+ "created": 1794739288,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에서 제시한 바와 같이 이동 물체 감지를 전체 360°가 아닌 ±120°(총 240°) 범위로 제한해야 합니다. 이렇게 하면 측면·후방에서 불필요하게 감지되는 정적 구조물이나 지나치게 먼 물체에 대한 오탐을 줄여 회피 행동을 보다 정확하게 할 수 있습니다. 따라서 `_DETECT_ANGLE` 값을 `np.deg2rad(120.0)` 로 수정합니다.\n\n```python\n_DETECT_ANGLE = np.deg2rad(120.0)  # [rad] detection half‑plane ±120°\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "The user asks: \"검토 담당이 Isaac 실행 전에 돌려보냈습니다. detect_angle 를 전체 360°가 아니라 ±120°(np.deg2rad(120.0)) 로 수정해 주세요. 현재는 np.pi 로 설정돼 있어 진단 지시와 다릅니다.\"\n\nWe need to output:\n\n- First, a brief \"변경 이유:\" with 2-4 sentences explaining why we change.\n\n- Then a python code fence with only the top-level definitions that need to be changed or added. The code that we need to modify is the definition of _DETECT_ANGLE (currently set to np.pi). We need to change it to np.deg2rad(120.0). Also, we might need to adjust any other parts that reference detection angle? Possibly only that constant.\n\nWe must not include import statements or edit region comments. Only the top-level definition(s) changed.\n\nThus we output:\n\n변경 이유: ... (explain that detection angle is limited to ±120° per diagnostic, to avoid false positives and reduce unnecessary avoidance, aligning with the instruction.)\n\nThen code:\n\n```python\n_DETECT_ANGLE = np.deg2rad(120.0)  # [rad] detection half-plane ±120°\n```\n\nMake sure to include the comment.\n\nThat's it.\n\nBut also ensure we follow format: \"변경 이유:\" and then code fence. The code fence should contain only changed top-level definitions.\n\nThus final answer.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 14312,
+  "total_tokens": 14763,
+  "completion_tokens": 451,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 302
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

@@ -1,0 +1,214 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c5t24_s701199081: collision at t=4.833 s with mover_00 (rel pos [0.43,0.35] m, closing speed 0.56 m/s), first unmapped point seen at 1.71 m (-49°) before synthetic tracks radius (1.5 m) could include it",
+   "run c5t24_s1523415102: collision at t=61.683 s with mover_03 (rel pos [-0.89,0.30] m, closing speed 0.43 m/s), first unmapped point entered 2 m range only at t≈57.85 s, after synthetic‑track creation",
+   "run c5t24_s1779591020: collision at t=38.283 s with static arena_box_09, after detour caused by synthetic‑track handling deviated from original waypoint path"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Unmapped lidar points within 1.5 m represent moving objects early enough for safe avoidance",
+    "holds": false,
+    "why": "first_not_on_map distances (1.71 m, 2.35 m) exceed 1.5 m, so synthetic tracks are created too late to avoid fast movers"
+   },
+   {
+    "assumption": "Treating unmapped points as zero‑velocity tracks yields a conservative VO that prevents collisions",
+    "holds": false,
+    "why": "zero‑velocity synthetic tracks do not model the actual motion; fast approaching movers still collide before VO can react"
+   },
+   {
+    "assumption": "Synthetic tracks do not interfere with static‑map avoidance and will not cause unnecessary detours",
+    "holds": false,
+    "why": "run c5t24_s1779591020 shows a synthetic‑track‑induced detour leading to a static‑box collision"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline",
+    "turns": "0",
+    "result": "1 pass / 4 runs"
+   },
+   {
+    "family": "pause_ttc_stop",
+    "turns": "1,2,4,7,8,9,10,23",
+    "result": "8 turns, 10 passes total"
+   },
+   {
+    "family": "predictive_speed",
+    "turns": "2,4,5,6",
+    "result": "4 turns, 11 passes total"
+   },
+   {
+    "family": "VO",
+    "turns": "5,6,7,8,17,18,19,20,21,22,24",
+    "result": "11 turns, 25 passes total"
+   },
+   {
+    "family": "synthetic_tracks",
+    "turns": "24",
+    "result": "1 turn, 2 passes"
+   },
+   {
+    "family": "potential_field",
+    "turns": "11",
+    "result": "1 turn, 4 passes"
+   },
+   {
+    "family": "DWA",
+    "turns": "12",
+    "result": "1 turn, 2 passes"
+   },
+   {
+    "family": "VFH",
+    "turns": "13",
+    "result": "1 turn, 0 passes"
+   },
+   {
+    "family": "Astar",
+    "turns": "16",
+    "result": "1 turn, 0 passes"
+   },
+   {
+    "family": "rear_backup",
+    "turns": "22",
+    "result": "1 turn, 0 passes"
+   },
+   {
+    "family": "side_detour",
+    "turns": "15",
+    "result": "1 turn, 0 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Dynamic‑grid replanning: build a time‑augmented occupancy grid (including predicted mover positions) each cycle and run a fast A* to generate a new waypoint sequence, falling back to VO for short‑term avoidance",
+    "new_family": true,
+    "for": "provides a global view of moving obstacles beyond the 1.5 m synthetic‑track radius and avoids detour‑induced static collisions",
+    "risk": "high computational load may exceed the 1/60 s control budget, causing missed updates"
+   },
+   {
+    "idea": "Hybrid reactive emergency stop: if any unmapped point is within 1.0 m and TTC < 0.5 s, issue an immediate stop and in‑place rotation away from the point before VO planning resumes",
+    "new_family": true,
+    "for": "captures fast approaching objects that synthetic tracks miss, reducing collision risk with high‑speed movers",
+    "risk": "may cause excessive stopping and oscillations, increasing total travel time and possibly leading to stall aborts"
+   },
+   {
+    "idea": "Velocity‑aware synthetic tracks: estimate a short‑term velocity for each unmapped point (e.g., by differencing successive lidar scans) and create synthetic tracks with (x,y,vx,vy,age,0) so the VO planner treats them as moving obstacles",
+    "new_family": true,
+    "for": "gives the VO planner realistic motion of previously static synthetic tracks, allowing earlier and more accurate avoidance of fast movers",
+    "risk": "velocity estimates can be noisy, potentially generating spurious obstacles and causing unnecessary detours"
+   }
+  ],
+  "chosen": "Candidate 3 (velocity‑aware synthetic tracks) is chosen because it directly addresses the root cause—synthetic tracks being created too late and with zero velocity—while keeping the existing VO pipeline and low computational overhead.",
+  "target": "Modify _synthetic_tracks function and VO planner to handle non‑zero velocities for synthetic tracks",
+  "direction": "1. Store the previous raw unmapped point cloud in st[\"um_prev\"] each cycle. 2. Compute per‑point displacement between current and previous clouds, filter out points with displacement <0.02 m to reduce noise. 3. For each retained point, calculate velocity (dx/dt, dy/dt) and create a track row (x, y, vx, vy, 0.0, 0.0). 4. Replace the zero‑velocity rows returned by _synthetic_tracks with these velocity‑aware rows. 5. Ensure _vo_planner receives the extended M (including these tracks) unchanged; VO already accounts for track velocities. 6. Update _mark_free/_guard if needed to ignore synthetic tracks when they are far enough, but keep existing safety checks.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c5t24_s701199081: collision at t=4.833 s with mover_00 (rel pos [0.43,0.35] m, closing speed 0.56 m/s), first unmapped point seen at 1.71 m (-49°) before synthetic tracks radius (1.5 m) could include it\",\n    \"run c5t24_s1523415102: collision at t=61.683 s with mover_03 (rel pos [-0.89,0.30] m, closing speed 0.43 m/s), first unmapped point entered 2 m range only at t≈57.85 s, after synthetic‑track creation\",\n    \"run c5t24_s1779591020: collision at t=38.283 s with static arena_box_09, after detour caused by synthetic‑track handling deviated from original waypoint path\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Unmapped lidar points within 1.5 m represent moving objects early enough for safe avoidance\",\n      \"holds\": false,\n      \"why\": \"first_not_on_map distances (1.71 m, 2.35 m) exceed 1.5 m, so synthetic tracks are created too late to avoid fast movers\"\n    },\n    {\n      \"assumption\": \"Treating unmapped points as zero‑velocity tracks yields a conservative VO that prevents collisions\",\n      \"holds\": false,\n      \"why\": \"zero‑velocity synthetic tracks do not model the actual motion; fast approaching movers still collide before VO can react\"\n    },\n    {\n      \"assumption\": \"Synthetic tracks do not interfere with static‑map avoidance and will not cause unnecessary detours\",\n      \"holds\": false,\n      \"why\": \"run c5t24_s1779591020 shows a synthetic‑track‑induced detour leading to a static‑box collision\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"baseline\",\n      \"turns\": \"0\",\n      \"result\": \"1 pass / 4 runs\"\n    },\n    {\n      \"family\": \"pause_ttc_stop\",\n      \"turns\": \"1,2,4,7,8,9,10,23\",\n      \"result\": \"8 turns, 10 passes total\"\n    },\n    {\n      \"family\": \"predictive_speed\",\n      \"turns\": \"2,4,5,6\",\n      \"result\": \"4 turns, 11 passes total\"\n    },\n    {\n      \"family\": \"VO\",\n      \"turns\": \"5,6,7,8,17,18,19,20,21,22,24\",\n      \"result\": \"11 turns, 25 passes total\"\n    },\n    {\n      \"family\": \"synthetic_tracks\",\n      \"turns\": \"24\",\n      \"result\": \"1 turn, 2 passes\"\n    },\n    {\n      \"family\": \"potential_field\",\n      \"turns\": \"11\",\n      \"result\": \"1 turn, 4 passes\"\n    },\n    {\n      \"family\": \"DWA\",\n      \"turns\": \"12\",\n      \"result\": \"1 turn, 2 passes\"\n    },\n    {\n      \"family\": \"VFH\",\n      \"turns\": \"13\",\n      \"result\": \"1 turn, 0 passes\"\n    },\n    {\n      \"family\": \"Astar\",\n      \"turns\": \"16\",\n      \"result\": \"1 turn, 0 passes\"\n    },\n    {\n      \"family\": \"rear_backup\",\n      \"turns\": \"22\",\n      \"result\": \"1 turn, 0 passes\"\n    },\n    {\n      \"family\": \"side_detour\",\n      \"turns\": \"15\",\n      \"result\": \"1 turn, 0 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Dynamic‑grid replanning: build a time‑augmented occupancy grid (including predicted mover positions) each cycle and run a fast A* to generate a new waypoint sequence, falling back to VO for short‑term avoidance\",\n      \"new_family\": true,\n      \"for\": \"provides a global view of moving obstacles beyond the 1.5 m synthetic‑track radius and avoids detour‑induced static collisions\",\n      \"risk\": \"high computational load may exceed the 1/60 s control budget, causing missed updates\"\n    },\n    {\n      \"idea\": \"Hybrid reactive emergency stop: if any unmapped point is within 1.0 m and TTC < 0.5 s, issue an immediate stop and in‑place rotation away from the point before VO planning resumes\",\n      \"new_family\": true,\n      \"for\": \"captures fast approaching objects that synthetic tracks miss, reducing collision risk with high‑speed movers\",\n      \"risk\": \"may cause excessive stopping and oscillations, increasing total travel time and possibly leading to stall aborts\"\n    },\n    {\n      \"idea\": \"Velocity‑aware synthetic tracks: estimate a short‑term velocity for each unmapped point (e.g., by differencing successive lidar scans) and create synthetic tracks with (x,y,vx,vy,age,0) so the VO planner treats them as moving obstacles\",\n      \"new_family\": true,\n      \"for\": \"gives the VO planner realistic motion of previously static synthetic tracks, allowing earlier and more accurate avoidance of fast movers\",\n      \"risk\": \"velocity estimates can be noisy, potentially generating spurious obstacles and causing unnecessary detours\"\n    }\n  ],\n  \"chosen\": \"Candidate 3 (velocity‑aware synthetic tracks) is chosen because it directly addresses the root cause—synthetic tracks being created too late and with zero velocity—while keeping the existing VO pipeline and low computational overhead.\",\n  \"target\": \"Modify _synthetic_tracks function and VO planner to handle non‑zero velocities for synthetic tracks\",\n  \"direction\": \"1. Store the previous raw unmapped point cloud in st[\\\"um_prev\\\"] each cycle. 2. Compute per‑point displacement between current and previous clouds, filter out points with displacement <0.02 m to reduce noise. 3. For each retained point, calculate velocity (dx/dt, dy/dt) and create a track row (x, y, vx, vy, 0.0, 0.0). 4. Replace the zero‑velocity rows returned by _synthetic_tracks with these velocity‑aware rows. 5. Ensure _vo_planner receives the extended M (including these tracks) unchanged; VO already accounts for track velocities. 6. Update _mark_free/_guard if needed to ignore synthetic tracks when they are far enough, but keep existing safety checks.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t24_s701199081",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.833,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    0.43,
+    0.35
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 31.9248,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t24_s1523415102",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 589.2,
+   "sim_time_s": 67.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 61.683,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.41m/s",
+   "partner_rel_xy": [
+    -0.89,
+    0.3
+   ],
+   "closing_m_s": 0.43,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 57.85,
+   "goal_dist_m": 0.8886,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t24_s361559195",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 521.5,
+   "sim_time_s": 74.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 68.45,
+   "goal_dist_m": 0.0794,
+   "time_to_goal_s": 70.667
+  },
+  {
+   "run": "c5t24_s195447537",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 447.1,
+   "sim_time_s": 57.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 51.45,
+   "goal_dist_m": 0.0522,
+   "time_to_goal_s": 53.6
+  },
+  {
+   "run": "c5t24_s1779591020",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 389.7,
+   "sim_time_s": 44.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 38.283,
+   "partner": "static:arena_box_09",
+   "robot_at_collision": "주행 0.15m/s",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 33.3,
+   "goal_dist_m": 14.6706,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

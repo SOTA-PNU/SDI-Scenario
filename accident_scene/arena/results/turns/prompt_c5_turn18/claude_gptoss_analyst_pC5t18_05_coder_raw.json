@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시 (1)에 따라 `_raw_ttc_stop` 에서 `rt_skip_until`·`_RT_MAX_WAIT`·`_RT_GRACE` 유예 분기를 없앴습니다. 이제 min(ttc_a, ttc_b) < `_RT_TTC`(1 s)이면 언제나 pause 를 반환하며, 진단과 다른 동작은 남아 있지 않습니다(지시 1). 검토 지시 (2)에 따라 `_RT_RANGE` 를 `_TTC_RANGE`(5 m)로 바꿨습니다. 5 m 는 TTC 1 s 구간(전진 최대 1.5 m/s + 0.25 m, 물체 2 m/s)을 모두 덮습니다. 정체 방지는 따로 넣지 않았습니다. 해제 뒤 controller 가 `pause_until` 경과 후에만 VO/A* 타이머를 초기화하고 기존 VO 블록에 넘기므로, 정체는 그쪽에서 처리됩니다(지시 3·5). 더는 쓰지 않는 `_rt_tracked`·`_RT_TRACK_R`·`_RT_MAX_WAIT`·`_RT_GRACE`·`_RT_URGENT_TTC` 정의는 이 출력 형식으로 지울 수 없어 남아 있지만, 어디서도 호출하거나 참조하지 않습니다.\n\n```python\n_RT_RANGE = _TTC_RANGE\n\n\ndef _raw_ttc_stop(st, t, pose):\n    \"\"\"Raw-lidar TTC early stop on unmapped points (_unmapped_raw: static map removed; tracked or not).\n    (a) robot driving forward (vm > 0.1) into unmapped points in a 1.2 m wide corridor ahead:\n        ttc_a = (distance from the front face - 0.25) / vm.\n    (b) unmapped points closing on the robot: body distance d (_px_dist) shrinking at rate > 0.1 m/s:\n        ttc_b = d / rate.\n    Points within _RT_RANGE (= _TTC_RANGE, 5 m: covers the whole 1 s TTC window).  Whenever\n    min(ttc_a, ttc_b) < _RT_TTC returns the pause (0.4 - 0.9 s, longer for smaller TTC), else None.\"\"\"\n    st.setdefault(\"rt_hist\", [])\n    vm = st[\"vm\"]\n    d, near = _px_dist(st, pose)\n    hist = [e for e in st[\"rt_hist\"] if t - e[0] <= 1.0]\n    old = [e for e in hist if t - e[0] >= 0.2]\n    rate = 0.0\n    if old and d < float(\"inf\"):\n        rate = (old[-1][1] - d) / max(t - old[-1][0], 1e-3)        # > 0: distance shrinking\n    if d < float(\"inf\"):\n        hist.append((t, d))\n    st[\"rt_hist\"] = hist\n\n    U = _unmapped_raw(st, pose)\n\n    # (a) driving into unmapped points ahead\n    ttc_a = float(\"inf\")\n    if vm > 0.1 and len(U):\n        A = U[(U[:, 0] > _BODY[1] + _PX_SELF) & (np.abs(U[:, 1]) < 0.6)]\n        if len(A) >= _TTC_MIN_PTS:\n            da = float(np.sort(A[:, 0])[_TTC_MIN_PTS - 1]) - _BODY[1]\n            if da < _RT_RANGE:\n                ttc_a = max(da - 0.25, 0.0) / vm\n\n    # (b) unmapped points closing on the robot\n    ttc_b = float(\"inf\")\n    if near is not None and d < _RT_RANGE and rate > 0.1:\n        ttc_b = d / rate\n\n    ttc = min(ttc_a, ttc_b)\n    if ttc >= _RT_TTC:\n        return None\n    return _clamp(0.4 + 0.5 * (_RT_TTC - ttc), 0.4, 0.9)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 70016,
+  "completion_tokens": 2638
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 23983,
+  "total_cost_usd": 0.6128800000000001,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2638,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 70014,
+    "webSearchRequests": 0,
+    "costUSD": 0.6128800000000001,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1225,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 70014,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "c350efec-af62-4b0e-9291-de1031b7f815"
+ }
+}

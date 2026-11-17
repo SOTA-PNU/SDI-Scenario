@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary t=0.00 status=no_path attempts=0.50:empty_path|0.45:empty_path|0.40:empty_path|0.35:empty_path ...",
+    "plan_reject 로그에 reason=empty_path, input_points=0, input_issue=none_return 가 반복적으로 기록됨",
+    "전체 시뮬레이션 동안 v,w 모두 0으로 유지돼 로봇이 199 s 정지(시간 초과)한 점"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path 를 0.25 m 해상도(또는 0.5 m 8‑연결) 그리드로 구현하고, 시작·목표 셀이 blocked 이면 nearest_free 로 대체한다. A* 에서는 8‑연결(대각 포함) 이웃을 사용하고, 각 이웃 이동 전 segment_free 로 연결 가능 여부를 검증한다. 검색 전후에 plan_stage('grid'), plan_stage('search'), plan_stage('simplify'), plan_stage('validate') 를 적절히 호출해 검증 정보를 남긴다. 이렇게 하면 base 가 accept 된 경로를 받아 전진을 시작할 수 있다.",
+  "not_to_change": "base 루프, choose_command, lookahead_target, follow_cmd, controller 등 EDIT 영역 밖 코드를 수정하지 말 것",
+  "confidence": "medium"
+}

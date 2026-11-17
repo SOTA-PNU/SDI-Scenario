@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 \"후보 1\"과 direction 지시대로 감지·추적·rollout 구조(`_track_movers`, `_rollout`, `_MOVER_R`, `_MOVER_GAP`, 후보 목록과 순서)는 그대로 두고, GOAL 근처 왕복으로 실행당 약 11 s 가 버려지던 부분만 고쳤습니다. `_pursuit_cmd` 는 마지막 경유점에서 속도를 `min(vmax, 0.6*d+0.15)` 로 줄이고 포착 반경을 0.35 m 로 넓혔으며, `controller` 의 GOAL 복귀 문턱은 0.6 m 로 올려 0.35/0.6 m 이력을 두었습니다. 정렬 단계에서 align 의 2.5 s 판정이 위험해도 같은 rollout 의 처음 1.0 s(k≤10) 최소 간격이 0 이상이면 align 을 고르고, 1.0 s 안에서도 위험할 때만 기존 루프(후진 포함, 최소 간격이 가장 큰 후보)로 물러나게 했습니다. 이렇게 하면 fix(0,0) 이 위험하든 아니든 같은 규칙이 적용됩니다. done 판정(정지 2.5 s rollout 의 cmin≥0)은 그대로이고, GOAL 1.5 m 안에서 0.5 s(호출 30회)마다 한 줄 DBG 를 출력하는 코드를 넣었습니다.\n\n```python\ndef _pursuit_cmd(x, y, th, idx, vmax):\n    \"\"\"경유점 추종 명령 (v, w, 새 idx). idx >= len(_WAYPOINTS) 면 (0, 0, idx).\n    마지막 경유점(GOAL)으로 갈 때는 v=min(vmax, 0.6*d+0.15) 로 감속하고, 0.35 m 안이면 도착으로 봅니다.\"\"\"\n    n = len(_WAYPOINTS)\n    if idx >= n:\n        return 0.0, 0.0, idx\n    tx, ty = _WAYPOINTS[idx]\n    d = math.hypot(tx - x, ty - y)\n    if idx < n - 1 and d < 0.35:\n        idx += 1\n        tx, ty = _WAYPOINTS[idx]\n        d = math.hypot(tx - x, ty - y)\n    if idx == n - 1 and d < 0.35:\n        return 0.0, 0.0, n\n    e = _wrap_angle(math.atan2(ty - y, tx - x) - th)\n    w = _clamp(7.5 * e, -1.2, 1.2)\n    if abs(e) > 0.35:\n        return 0.0, w, idx\n    if idx == n - 1:\n        return min(vmax, 0.6 * d + 0.15), w, idx\n    return min(vmax, 2.5 * d + 0.5), w, idx\n\n\ndef _cmin_upto(traj, movers, kmax):\n    \"\"\"rollout 궤적 traj 의 처음 kmax 단계(0.1 s 간격)만 본 최소 여유(간격 - 요구 간격). 물체가 없으면 99.\"\"\"\n    cmin = 99.0\n    if not movers:\n        return cmin\n    for k, (px, py, pth) in enumerate(traj[:kmax], start=1):\n        cmin = min(cmin, _clear_at(px, py, pth, movers, 0.1 * k))\n    return cmin\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 물체 추적·등속 예측 기반 속도 선택(후보 v∈{v_wp, 0.5, 0.3, 0, -0.3}, 제자리 회전 시 w∈{w, 0}).\n    GOAL 마무리: 포착 0.35 m / 복귀 0.6 m 이력, 정렬 중에는 1.0 s 안이 안전하면 정렬을 계속합니다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.ready = 0\n\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    tracks, raw, stat, ok = _track_movers(pose)\n    controller.ready = controller.ready + 1 if ok else 0\n    if controller.ready < 12:          # 라이다가 들어오고 트랙이 잡힐 때까지 대기\n        return 0.0, 0.0, False\n\n    # ---- 현재 시점으로 예측한 물체 (x, y, vx, vy, 반경 0.45, 요구 간격 0.35) : 모든 트랙 동일 ----\n    step = _TRK[\"step\"]\n    movers = []\n    for tr in tracks:\n        age = (step - tr[\"seen\"]) / 60.0\n        vx, vy = tr[\"v\"]\n        movers.append((tr[\"p\"][0] + vx * age, tr[\"p\"][1] + vy * age, vx, vy, _MOVER_R, _MOVER_GAP))\n\n    # ---- 경유점 진행 (GOAL 포착 0.35 m, 복귀 문턱 0.6 m 의 이력) ----\n    d_goal = math.hypot(GOAL[0] - x, GOAL[1] - y)\n    if controller.idx >= n and d_goal > 0.6:\n        controller.idx = n - 1         # 피하느라 많이 밀려났을 때만 GOAL 로 복귀\n    if controller.idx < n:\n        _, _, controller.idx = _pursuit_cmd(x, y, yaw, controller.idx, 0.8)\n    align = controller.idx >= n\n\n    rear_blocked = raw.shape[0] > 0 and bool(\n        ((raw[:, 0] < _BODY[0]) & (raw[:, 0] > _BODY[0] - 0.45) & (np.abs(raw[:, 1]) < 0.45)).any())\n\n    # ---- GOAL 정렬 완료: 정지한 채 2.5 s 동안 간격 0.35 m 가 지켜질 때만 끝냄 ----\n    if align and abs(_wrap_angle(GOAL[2] - yaw)) < 0.05:\n        cmin, _ = _rollout(pose, (\"fix\", 0.0, 0.0), controller.idx, movers)\n        if cmin >= 0.0:\n            return 0.0, 0.0, True\n\n    # ---- 후보: 경유점 추종 v_wp/0.5/0.3 (제자리 회전 중이면 (0, w)), 정지 (0, 0), 후진 (-0.3, 0) ----\n    if align:\n        prim = [(\"align\", 0.0, 0.0), (\"fix\", 0.0, 0.0), (\"fix\", -0.3, 0.0)]\n    else:\n        prim = [(\"path\", 0.8, 0.0), (\"path\", 0.5, 0.0), (\"path\", 0.3, 0.0),\n                (\"fix\", 0.0, 0.0), (\"fix\", -0.3, 0.0)]\n\n    cache = {}\n    chosen = None\n\n    # ---- 정렬 단계: 2.5 s 판정이 위험해도 처음 1.0 s 가 안전하면 정렬(제자리 회전)을 계속 ----\n    if align:\n        a_cand = prim[0]\n        cache[a_cand] = _rollout(pose, a_cand, controller.idx, movers)\n        a_cmin, a_traj = cache[a_cand]\n        if a_cmin >= 0.0 or _cmin_upto(a_traj, movers, 10) >= 0.0:\n            chosen = a_cand\n\n    # ---- 그 밖에는 기존 방식: 간격을 지키는 가장 빠른 후보, 없으면 최소 간격이 가장 큰 후보 ----\n    if chosen is None:\n        best = None\n        for cand in prim:\n            kind, v, w = cand\n            if v < 0.0 and rear_blocked:\n                continue\n            if cand not in cache:\n                cache[cand] = _rollout(pose, cand, controller.idx, movers)\n            cmin, traj = cache[cand]\n            if kind == \"fix\" and v < 0.0 and not _static_ok(traj, stat):\n                continue\n            if cmin >= 0.0:            # 간격 0.35 m 를 지키는 가장 빠른 후보\n                chosen = cand\n                break\n            if best is None or cmin > best[0] + 1e-6:\n                best = (cmin, cand)\n        if chosen is None:             # 모두 위험하면 prim 전체에서 최소 간격이 가장 큰 후보\n            chosen = best[1] if best is not None else (\"fix\", 0.0, 0.0)\n\n    # ---- 진단용 출력: GOAL 1.5 m 안에서 0.5 s(호출 30회)마다 한 줄 ----\n    if d_goal < 1.5 and step % 30 == 0:\n        parts = []\n        for cand in prim:\n            if cand not in cache:\n                cache[cand] = _rollout(pose, cand, controller.idx, movers)\n            parts.append(\"%s(%.1f,%.1f)=%.2f\" % (cand[0], cand[1], cand[2], cache[cand][0]))\n        near = \"none\"\n        if movers:\n            mb = min(movers, key=lambda m: math.hypot(m[0] - x, m[1] - y))\n            near = \"p=(%.2f,%.2f) v=(%.2f,%.2f) d=%.2f\" % (\n                mb[0], mb[1], mb[2], mb[3], math.hypot(mb[0] - x, mb[1] - y))\n        print(\"DBG t=%.2f dist=%.3f chosen=%s(%.1f,%.1f) cmin=[%s] nearest=%s\" % (\n            t, d_goal, chosen[0], chosen[1], chosen[2], \" \".join(parts), near), flush=True)\n\n    kind, v, w = chosen\n    if kind == \"path\":\n        v, w, _ = _pursuit_cmd(x, y, yaw, controller.idx, v)\n    elif kind == \"align\":\n        e = _wrap_angle(GOAL[2] - yaw)\n        v, w = 0.0, (0.0 if abs(e) < 0.05 else _clamp(1.5 * e, -0.6, 0.6))\n    return float(v), float(w), False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 22547,
+  "completion_tokens": 7802
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 65931,
+  "total_cost_usd": 0.33640800000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 7802,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 22545,
+    "webSearchRequests": 0,
+    "costUSD": 0.33640800000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 4262,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 22545,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "698759ff-a41c-4633-9ee2-8a281a44e3fd"
+ }
+}

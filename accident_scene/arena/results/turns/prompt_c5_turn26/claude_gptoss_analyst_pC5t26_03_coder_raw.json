@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적대로 `_ttc_stop_backup` 을 진단 2·4단계에 맞췄습니다. (1) skip 구간에서 트리거를 지우던 줄을 없애, `_raw_ttc_stop` 이 pause 를 주면 언제나 `pause_until = max(pause_until, t + pause)` 가 됩니다. (2) `_RTS_MAX_T` 강제 해제를 빼고, 해제는 `t >= pause_until` 일 때만 `rts_on` 을 끄는 방식으로 바꿨습니다. 이제 `pause_until` 을 -1 로 지우지 않으므로 `_rear_backup` 의 `rb_hold` 타이머가 보존됩니다. 남는 위험은 지도에 없는 정지 물체가 전방 회랑에 있을 때 `ttc_a` 가 되풀이되어 정지·재출발이 반복되고 시간 예산을 더 쓸 수 있다는 점이며, 백업 명령, `_guard`, 호출 위치는 바꾸지 않았습니다.\n\n```python\ndef _ttc_stop_backup(st, t, pose, M):\n    \"\"\"Raw-TTC early stop with immediate back-up (diagnosis chosen candidate 1).\n    1) pause = _raw_ttc_stop(...) every cycle; whenever it is not None -> st[\"pause_until\"] = max(st[\"pause_until\"],\n    t + pause) (always, no skip window).  2) nearest unmapped point via _px_dist; 3) on the trigger (and later while\n    that point is itself closing or is within _PX_BACK_D) _px_backup_cmd(st, pose, M, near) gives a back-up speed\n    away from it (lidar strip, swept body, static map and mover margin checked there); it is held _PX_BACK_T s and\n    every back-up command passes _guard.  4) otherwise stay stopped (0, 0) while t < pause_until.  5) only when\n    t >= pause_until is the flag (rts_on) cleared - pause_until itself is left untouched so other layers' timers\n    (e.g. _rear_backup's rb_hold) survive - and None is returned so the existing VO / predictive-speed pipeline\n    runs unchanged.  Returns (v, w) while active, else None.\"\"\"\n    pause = _raw_ttc_stop(st, t, pose)\n    cm, d, near = _rts_closing(st, pose)\n    new = False\n    if pause is not None:\n        if not st[\"rts_on\"]:\n            st[\"rts_t0\"] = t\n            new = True\n        st[\"rts_on\"] = True\n        st[\"pause_until\"] = max(st[\"pause_until\"], t + pause)\n    if not st[\"rts_on\"]:\n        return None\n\n    # pause over: resume the normal pipeline (only the flag is cleared)\n    if t >= st[\"pause_until\"]:\n        st[\"rts_on\"] = False\n        return None\n\n    P = st[\"raw\"]\n    # back-up in progress (cancelled if its lidar strip / swept body gets blocked)\n    if st[\"rts_back_until\"] > t:\n        v = st[\"rts_back_v\"]\n        if _lidar_clear(P, v, 0.4) and _sweep_clear(P, v, 0.0, 0.3):\n            return _guard(st, pose, M, v, 0.0)\n        st[\"rts_back_until\"] = -1.0\n\n    # immediate back-up on the trigger, and again while the point keeps coming at us / is very close\n    if near is not None and (new or cm or d < _PX_BACK_D):\n        v = _px_backup_cmd(st, pose, M, near)\n        if v is not None:\n            st[\"rts_back_v\"] = v\n            st[\"rts_back_until\"] = t + _PX_BACK_T\n            st[\"pause_until\"] = max(st[\"pause_until\"], t + _PX_BACK_T + 0.3)\n            return _guard(st, pose, M, v, 0.0)\n\n    return 0.0, 0.0\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 77459,
+  "completion_tokens": 1899
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 16995,
+  "total_cost_usd": 0.657644,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1899,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 77457,
+    "webSearchRequests": 0,
+    "costUSD": 0.657644,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 561,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 77457,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "bd5c9c0a-0ba3-45f4-83c1-80a4803404b9"
+ }
+}

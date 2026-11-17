@@ -1,0 +1,165 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c5t7_s2137668504: 55.42 s에 비지도 점 1.48 m가 감지돼 정지 후 60 s 이상 멈춰 stall_abort 발생",
+   "run c5t7_s1189899090: 156.25 s에 비지도 점 2.0 m가 감지돼 160 s까지 정지해 stall_abort 발생",
+   "run c5t7_s479636483: 28.23 s에 비지도 점 1.25 m가 감지돼 정지 후 31 s에 재개했지만 33.2 s에 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "비지도 라이다 점은 움직이는 물체이며 0.5 s 내에 지나갈 것이다",
+    "holds": false,
+    "why": "정지 후 60 s 이상 멈추는 경우와 충돌이 발생해 가정이 어긋남"
+   },
+   {
+    "assumption": "pause_until 로만 회피하면 충돌을 방지할 수 있다",
+    "holds": false,
+    "why": "정지 후 재개 시 물체가 아직 가까워 충돌이 발생함"
+   },
+   {
+    "assumption": "트랙에 있는 물체만 충돌 위험을 판단한다",
+    "holds": false,
+    "why": "충돌 물체가 트랙에 포함되지 않아 회피 로직이 작동하지 않음"
+   },
+   {
+    "assumption": "라이다 데이터는 노이즈가 거의 없고 정적 장애물은 정확히 필터링된다",
+    "holds": false,
+    "why": "정지 중 지속적으로 비지도 점이 감지돼 스톨이 발생함"
+   },
+   {
+    "assumption": "정지 후 바로 진행해도 안전하다",
+    "holds": false,
+    "why": "정지 후 재개 시 물체가 아직 가까워 충돌이 일어남"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "간단 정지 감지",
+    "turns": "1",
+    "result": "1/4 통과"
+   },
+   {
+    "family": "동적 마진 기반 정지",
+    "turns": "2",
+    "result": "4/5 통과"
+   },
+   {
+    "family": "갭 감지 및 우회",
+    "turns": "3",
+    "result": "0/3 통과"
+   },
+   {
+    "family": "예측 속도 스케일링",
+    "turns": "4",
+    "result": "2/5 통과"
+   },
+   {
+    "family": "VO 플래너 적용",
+    "turns": "5",
+    "result": "2/5 통과"
+   },
+   {
+    "family": "VO와 안전거리 결합",
+    "turns": "6",
+    "result": "3/6 통과"
+   },
+   {
+    "family": "원시 라이다 TTC 정지",
+    "turns": "7",
+    "result": "0/3 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC 감지 시 VO 플래너를 호출해 회피 명령을 선택",
+    "new_family": true,
+    "for": "정지만 하면 스톨과 충돌이 발생하므로 VO 로 회피하면 진행 가능",
+    "risk": "VO 플래너가 안전한 후보를 찾지 못하면 정지가 지속될 수 있음"
+   },
+   {
+    "idea": "비지도 점이 앞±30° 안에 있으면 측면 회전 후 전진하는 규칙 기반 우회",
+    "new_family": true,
+    "for": "짧은 거리 물체를 빠르게 우회해 정지 시간을 최소화",
+    "risk": "정적 장애물과 충돌 위험이 있어 사전 맵 검사가 필요"
+   },
+   {
+    "idea": "3D 라이다 높이 필터링으로 바닥·천장 점을 제외하고 움직이는 물체만 고려",
+    "new_family": true,
+    "for": "높이 정보를 이용해 잘못된 점을 제거해 불필요한 정지를 방지",
+    "risk": "높이 필터가 물체를 놓칠 경우 회피 못함"
+   }
+  ],
+  "chosen": "TTC 감지 시 VO 플래너를 호출해 회피 명령을 선택한다. 이는 정지와 충돌을 동시에 방지할 수 있다.",
+  "target": "controller와 _ttc_stop_check 함수",
+  "direction": "1) _ttc_stop_check 를 true/false 로만 반환하도록 수정하고, 정지 명령을 직접 내리지 않는다. 2) controller 에서 _ttc_stop_check 호출 후 true이면 _vo_planner 를 strict 모드로 호출한다. 3) VO 플래너가 유효한 (v,w) 를 반환하면 그 값을 사용하고, 반환이 없을 때만 기존 pause_until 로 정지한다. 4) pause_until 를 VO 플래너가 실패했을 때만 연장하도록 하고, 성공 시 초기화한다. 5) 기존 정지 로직을 유지하되, VO 회피가 가능한 경우 우선 적용한다. 6) 필요 시 _mark_free 로 이동 재개 시점을 관리한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c5t7_s2137668504: 55.42 s에 비지도 점 1.48 m가 감지돼 정지 후 60 s 이상 멈춰 stall_abort 발생\",\n    \"run c5t7_s1189899090: 156.25 s에 비지도 점 2.0 m가 감지돼 160 s까지 정지해 stall_abort 발생\",\n    \"run c5t7_s479636483: 28.23 s에 비지도 점 1.25 m가 감지돼 정지 후 31 s에 재개했지만 33.2 s에 충돌\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"비지도 라이다 점은 움직이는 물체이며 0.5 s 내에 지나갈 것이다\",\n      \"holds\": false,\n      \"why\": \"정지 후 60 s 이상 멈추는 경우와 충돌이 발생해 가정이 어긋남\"\n    },\n    {\n      \"assumption\": \"pause_until 로만 회피하면 충돌을 방지할 수 있다\",\n      \"holds\": false,\n      \"why\": \"정지 후 재개 시 물체가 아직 가까워 충돌이 발생함\"\n    },\n    {\n      \"assumption\": \"트랙에 있는 물체만 충돌 위험을 판단한다\",\n      \"holds\": false,\n      \"why\": \"충돌 물체가 트랙에 포함되지 않아 회피 로직이 작동하지 않음\"\n    },\n    {\n      \"assumption\": \"라이다 데이터는 노이즈가 거의 없고 정적 장애물은 정확히 필터링된다\",\n      \"holds\": false,\n      \"why\": \"정지 중 지속적으로 비지도 점이 감지돼 스톨이 발생함\"\n    },\n    {\n      \"assumption\": \"정지 후 바로 진행해도 안전하다\",\n      \"holds\": false,\n      \"why\": \"정지 후 재개 시 물체가 아직 가까워 충돌이 일어남\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"간단 정지 감지\",\n      \"turns\": \"1\",\n      \"result\": \"1/4 통과\"\n    },\n    {\n      \"family\": \"동적 마진 기반 정지\",\n      \"turns\": \"2\",\n      \"result\": \"4/5 통과\"\n    },\n    {\n      \"family\": \"갭 감지 및 우회\",\n      \"turns\": \"3\",\n      \"result\": \"0/3 통과\"\n    },\n    {\n      \"family\": \"예측 속도 스케일링\",\n      \"turns\": \"4\",\n      \"result\": \"2/5 통과\"\n    },\n    {\n      \"family\": \"VO 플래너 적용\",\n      \"turns\": \"5\",\n      \"result\": \"2/5 통과\"\n    },\n    {\n      \"family\": \"VO와 안전거리 결합\",\n      \"turns\": \"6\",\n      \"result\": \"3/6 통과\"\n    },\n    {\n      \"family\": \"원시 라이다 TTC 정지\",\n      \"turns\": \"7\",\n      \"result\": \"0/3 통과\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"TTC 감지 시 VO 플래너를 호출해 회피 명령을 선택\",\n      \"new_family\": true,\n      \"for\": \"정지만 하면 스톨과 충돌이 발생하므로 VO 로 회피하면 진행 가능\",\n      \"risk\": \"VO 플래너가 안전한 후보를 찾지 못하면 정지가 지속될 수 있음\"\n    },\n    {\n      \"idea\": \"비지도 점이 앞±30° 안에 있으면 측면 회전 후 전진하는 규칙 기반 우회\",\n      \"new_family\": true,\n      \"for\": \"짧은 거리 물체를 빠르게 우회해 정지 시간을 최소화\",\n      \"risk\": \"정적 장애물과 충돌 위험이 있어 사전 맵 검사가 필요\"\n    },\n    {\n      \"idea\": \"3D 라이다 높이 필터링으로 바닥·천장 점을 제외하고 움직이는 물체만 고려\",\n      \"new_family\": true,\n      \"for\": \"높이 정보를 이용해 잘못된 점을 제거해 불필요한 정지를 방지\",\n      \"risk\": \"높이 필터가 물체를 놓칠 경우 회피 못함\"\n    }\n  ],\n  \"chosen\": \"TTC 감지 시 VO 플래너를 호출해 회피 명령을 선택한다. 이는 정지와 충돌을 동시에 방지할 수 있다.\",\n  \"target\": \"controller와 _ttc_stop_check 함수\",\n  \"direction\": \"1) _ttc_stop_check 를 true/false 로만 반환하도록 수정하고, 정지 명령을 직접 내리지 않는다. 2) controller 에서 _ttc_stop_check 호출 후 true이면 _vo_planner 를 strict 모드로 호출한다. 3) VO 플래너가 유효한 (v,w) 를 반환하면 그 값을 사용하고, 반환이 없을 때만 기존 pause_until 로 정지한다. 4) pause_until 를 VO 플래너가 실패했을 때만 연장하도록 하고, 성공 시 초기화한다. 5) 기존 정지 로직을 유지하되, VO 회피가 가능한 경우 우선 적용한다. 6) 필요 시 _mark_free 로 이동 재개 시점을 관리한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t7_s479636483",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 39.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 33.217,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.80m/s",
+   "partner_rel_xy": [
+    -0.14,
+    -0.65
+   ],
+   "closing_m_s": 0.3,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 28.23,
+   "goal_dist_m": 30.2975,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t7_s2137668504",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 560.8,
+   "sim_time_s": 61.4,
+   "stall_abort_t": 60.37,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 55.42,
+   "goal_dist_m": 31.7828,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t7_s1189899090",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 499.4,
+   "sim_time_s": 160.8,
+   "stall_abort_t": 159.82,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 156.25,
+   "goal_dist_m": 23.651,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

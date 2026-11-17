@@ -1,0 +1,170 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t23_s446697998: t=4.983 s 충돌, mover_00와 접촉, 로봇 위치 [-6.92, -10.04]; unmapped 점이 t=0.02 s (1.68 m, -61°)에 처음 보였지만 트랙에 등록되지 않음",
+   "c5t23_s246806584: t=6.333 s 충돌, mover_00와 접촉, 로봇 위치 [-6.98, -10.23]; unmapped 점이 t=1.33 s (1.34 m, 32°)에 보였지만 트랙에 포함되지 않음",
+   "c5t23_s1450391782: t=50.417 s 충돌, static:arena_box_08와 접촉; unmapped 점이 t=45.45 s (2.41 m, -116°)에 보였고 t=49.35 s에 0.98 m까지 접근했음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 라이다 점이 충분히 모여 트랙이 생성된 뒤에 위험 거리(_SAFE_DIST) 안에 들어온다",
+    "holds": false,
+    "why": "첫 번째 실행에서 unmapped 점이 1.68 m 거리에서 보였지만 트랙이 없었고 바로 충돌함"
+   },
+   {
+    "assumption": "raw_ttc_stop 은 전방 1.5 m 구간만 검사하면 충분하다",
+    "holds": false,
+    "why": "충돌 물체가 측면(베어링 -61°, 32°)에 있었지만 정지 트리거가 발생하지 않음"
+   },
+   {
+    "assumption": "정적 지도에 모든 고정 장애물이 포함돼 있다",
+    "holds": false,
+    "why": "static arena_box_08 은 지도에 없으며 충돌 원인으로 작용함"
+   },
+   {
+    "assumption": "mover 가 _SAFE_DIST 안에 들어오면 VO 플래너가 활성화된다",
+    "holds": true,
+    "why": "트랙이 존재할 경우 VO 가 정상 작동하지만 트랙이 없을 때는 무시됨"
+   },
+   {
+    "assumption": "pause_until 로 설정된 정지는 재계획에 충분한 시간을 제공한다",
+    "holds": false,
+    "why": "충돌 직전 정지 시간이 짧아 회피 경로를 만들기 전에 충돌이 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "raw_ttc_stop early pause",
+    "turns": "0‑4",
+    "result": "8/21 passes"
+   },
+   {
+    "family": "predictive_speed scaling",
+    "turns": "2‑4",
+    "result": "6/13 passes"
+   },
+   {
+    "family": "VO planner with min_gap",
+    "turns": "5, 17",
+    "result": "9/15 passes"
+   },
+   {
+    "family": "potential field avoidance",
+    "turns": "11",
+    "result": "4/7 passes"
+   },
+   {
+    "family": "Dynamic Window Approach (DWA)",
+    "turns": "12",
+    "result": "2/5 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "unmapped 점을 0 m/s 정적 트랙으로 변환해 VO 플래너에 입력한다",
+    "new_family": true,
+    "for": "트랙이 없을 때도 VO 가 unmapped 점을 회피하도록 해 측면 충돌을 방지한다",
+    "risk": "불필요한 회피가 늘어나 로봇이 과도하게 멈추거나 경로가 길어질 수 있다"
+   },
+   {
+    "idea": "전체 2‑D TTC 계산을 도입해 로봇 속도와 점까지의 거리·방향을 이용해 즉시 정지한다",
+    "new_family": true,
+    "for": "전방뿐 아니라 측면에 있는 물체도 빠르게 탐지해 충돌을 예방한다",
+    "risk": "라이다 노이즈에 민감해 잦은 불필요 정지와 진행 지연이 발생할 수 있다"
+   }
+  ],
+  "chosen": "unmapped 점을 정적 트랙으로 변환해 VO 플래너에 전달하는 방식을 선택한다; 기존 VO 가 가장 높은 성공률을 보였으며, 누락된 점을 바로 회피에 포함시킬 수 있다",
+  "target": "controller (synthetic track 생성 및 VO 입력 수정)",
+  "direction": "1) _synthetic_tracks(st, pose) 함수를 추가해 _unmapped_raw 로 현재 unmapped 점을 얻고, 1.5 m 이내인 점을 (x, y, 0, 0, 0, 0) 형태의 트랙 행으로 만든다. 2) controller() 에서 M = _track_array(st, t) 를 만든 뒤 M = np.concatenate([M, _synthetic_tracks(st, pose)]) 로 확장한다. 3) 기존 raw_ttc_stop 블록을 비활성화하거나 pause 시간을 0으로 설정해 중복 정지를 방지한다. 4) _vo_planner 호출은 확장된 M 으로 수행해 unmapped 점을 회피 대상에 포함한다. 5) _guard 로 최종 명령을 검증해 라이다 스트립과 스윕 바디 안전을 유지한다. 6) 매 사이클마다 synthetic_tracks 를 새로 생성해 최신 unmapped 점만 반영한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t23_s446697998: t=4.983 s 충돌, mover_00와 접촉, 로봇 위치 [-6.92, -10.04]; unmapped 점이 t=0.02 s (1.68 m, -61°)에 처음 보였지만 트랙에 등록되지 않음\",\n    \"c5t23_s246806584: t=6.333 s 충돌, mover_00와 접촉, 로봇 위치 [-6.98, -10.23]; unmapped 점이 t=1.33 s (1.34 m, 32°)에 보였지만 트랙에 포함되지 않음\",\n    \"c5t23_s1450391782: t=50.417 s 충돌, static:arena_box_08와 접촉; unmapped 점이 t=45.45 s (2.41 m, -116°)에 보였고 t=49.35 s에 0.98 m까지 접근했음\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 라이다 점이 충분히 모여 트랙이 생성된 뒤에 위험 거리(_SAFE_DIST) 안에 들어온다\",\n      \"holds\": false,\n      \"why\": \"첫 번째 실행에서 unmapped 점이 1.68 m 거리에서 보였지만 트랙이 없었고 바로 충돌함\"\n    },\n    {\n      \"assumption\": \"raw_ttc_stop 은 전방 1.5 m 구간만 검사하면 충분하다\",\n      \"holds\": false,\n      \"why\": \"충돌 물체가 측면(베어링 -61°, 32°)에 있었지만 정지 트리거가 발생하지 않음\"\n    },\n    {\n      \"assumption\": \"정적 지도에 모든 고정 장애물이 포함돼 있다\",\n      \"holds\": false,\n      \"why\": \"static arena_box_08 은 지도에 없으며 충돌 원인으로 작용함\"\n    },\n    {\n      \"assumption\": \"mover 가 _SAFE_DIST 안에 들어오면 VO 플래너가 활성화된다\",\n      \"holds\": true,\n      \"why\": \"트랙이 존재할 경우 VO 가 정상 작동하지만 트랙이 없을 때는 무시됨\"\n    },\n    {\n      \"assumption\": \"pause_until 로 설정된 정지는 재계획에 충분한 시간을 제공한다\",\n      \"holds\": false,\n      \"why\": \"충돌 직전 정지 시간이 짧아 회피 경로를 만들기 전에 충돌이 발생함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"raw_ttc_stop early pause\",\n      \"turns\": \"0‑4\",\n      \"result\": \"8/21 passes\"\n    },\n    {\n      \"family\": \"predictive_speed scaling\",\n      \"turns\": \"2‑4\",\n      \"result\": \"6/13 passes\"\n    },\n    {\n      \"family\": \"VO planner with min_gap\",\n      \"turns\": \"5, 17\",\n      \"result\": \"9/15 passes\"\n    },\n    {\n      \"family\": \"potential field avoidance\",\n      \"turns\": \"11\",\n      \"result\": \"4/7 passes\"\n    },\n    {\n      \"family\": \"Dynamic Window Approach (DWA)\",\n      \"turns\": \"12\",\n      \"result\": \"2/5 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"unmapped 점을 0 m/s 정적 트랙으로 변환해 VO 플래너에 입력한다\",\n      \"new_family\": true,\n      \"for\": \"트랙이 없을 때도 VO 가 unmapped 점을 회피하도록 해 측면 충돌을 방지한다\",\n      \"risk\": \"불필요한 회피가 늘어나 로봇이 과도하게 멈추거나 경로가 길어질 수 있다\"\n    },\n    {\n      \"idea\": \"전체 2‑D TTC 계산을 도입해 로봇 속도와 점까지의 거리·방향을 이용해 즉시 정지한다\",\n      \"new_family\": true,\n      \"for\": \"전방뿐 아니라 측면에 있는 물체도 빠르게 탐지해 충돌을 예방한다\",\n      \"risk\": \"라이다 노이즈에 민감해 잦은 불필요 정지와 진행 지연이 발생할 수 있다\"\n    }\n  ],\n  \"chosen\": \"unmapped 점을 정적 트랙으로 변환해 VO 플래너에 전달하는 방식을 선택한다; 기존 VO 가 가장 높은 성공률을 보였으며, 누락된 점을 바로 회피에 포함시킬 수 있다\",\n  \"target\": \"controller (synthetic track 생성 및 VO 입력 수정)\",\n  \"direction\": \"1) _synthetic_tracks(st, pose) 함수를 추가해 _unmapped_raw 로 현재 unmapped 점을 얻고, 1.5 m 이내인 점을 (x, y, 0, 0, 0, 0) 형태의 트랙 행으로 만든다. 2) controller() 에서 M = _track_array(st, t) 를 만든 뒤 M = np.concatenate([M, _synthetic_tracks(st, pose)]) 로 확장한다. 3) 기존 raw_ttc_stop 블록을 비활성화하거나 pause 시간을 0으로 설정해 중복 정지를 방지한다. 4) _vo_planner 호출은 확장된 M 으로 수행해 unmapped 점을 회피 대상에 포함한다. 5) _guard 로 최종 명령을 검증해 라이다 스트립과 스윕 바디 안전을 유지한다. 6) 매 사이클마다 synthetic_tracks 를 새로 생성해 최신 unmapped 점만 반영한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c5t23_s1578252722",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 61.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 55.73,
+   "goal_dist_m": 0.0493,
+   "time_to_goal_s": 57.767
+  },
+  {
+   "run": "c5t23_s446697998",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 538.3,
+   "sim_time_s": 11.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.983,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.14,
+    0.54
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 0.02,
+   "goal_dist_m": 32.0999,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t23_s1450391782",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 527.3,
+   "sim_time_s": 56.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 50.417,
+   "partner": "static:arena_box_08",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 47.65,
+   "goal_dist_m": 4.694,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t23_s246806584",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 470.9,
+   "sim_time_s": 12.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 6.333,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.46,
+    0.26
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 1.33,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

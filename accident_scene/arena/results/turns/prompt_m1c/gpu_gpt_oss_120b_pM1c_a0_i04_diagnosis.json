@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject shows only reason=empty_path from validate_stage, no search/simplify stages were recorded, indicating plan_path returned None before any search.",
+    "plan_path returns None when nearest_free(start) or nearest_free(goal) is None, after calling plan_stage('validate', input_points=0). This occurs for all clearances, causing base to never obtain a path.",
+    "Execution summary reports stall for 199 s and timeout, with no path adopted (status=no_path)."
+  ],
+  "function": "plan_path",
+  "direction": "Modify plan_path so that a blocked start or goal does not cause an immediate None return. If nearest_free cannot find a free cell, fall back to returning a simple two‑point path [(start_xy), (goal_xy)] (or keep the original blocked cells) and let validate_plan reject it, allowing the base to retry with a lower clearance. Ensure plan_stage calls for 'search' and 'simplify' are still made for this fallback path.",
+  "not_to_change": "Do not change lookahead_target, follow_cmd, or any base control logic; keep clearance handling as passed by the base.",
+  "confidence": "high"
+}

@@ -1,0 +1,77 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "코드: _DETECT_ANGLE = np.deg2rad(45) 로 각도 제한 (45°) 적용",
+   "c2t22_s2004384967: first_not_on_map within 2 m at t=34.87, bearing 117° (outside 45°) → 감지 안돼 로봇이 전진을 재개하고 37.817 s에 충돌",
+   "c2t22_s1035138472: first_not_on_map within 2 m at t=18.33, bearing 117°; 로봇이 정지 후 전진을 재개해 23.3 s에 충돌"
+  ],
+  "target": "_DETECT_ANGLE (또는 _detect_moving_any 의 각도 필터)",
+  "direction": "코드에서 _DETECT_ANGLE 를 45° 로 제한해 뒤쪽·측면 물체를 놓치고 있다. 이를 np.pi(180°) 로 확대하거나 _detect_moving_any 의 sector_mask 각도 조건을 제거해 모든 방위의 움직이는 물체를 감지하도록 바꾼다. 필요 시 _CLOSE_DETECT_ANGLE 도 동일하게 확대한다. 이렇게 하면 회피 상태가 정확히 전환돼 충돌을 방지한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"코드: _DETECT_ANGLE = np.deg2rad(45) 로 각도 제한 (45°) 적용\",\n    \"c2t22_s2004384967: first_not_on_map within 2 m at t=34.87, bearing 117° (outside 45°) → 감지 안돼 로봇이 전진을 재개하고 37.817 s에 충돌\",\n    \"c2t22_s1035138472: first_not_on_map within 2 m at t=18.33, bearing 117°; 로봇이 정지 후 전진을 재개해 23.3 s에 충돌\"\n  ],\n  \"target\": \"_DETECT_ANGLE (또는 _detect_moving_any 의 각도 필터)\",\n  \"direction\": \"코드에서 _DETECT_ANGLE 를 45° 로 제한해 뒤쪽·측면 물체를 놓치고 있다. 이를 np.pi(180°) 로 확대하거나 _detect_moving_any 의 sector_mask 각도 조건을 제거해 모든 방위의 움직이는 물체를 감지하도록 바꾼다. 필요 시 _CLOSE_DETECT_ANGLE 도 동일하게 확대한다. 이렇게 하면 회피 상태가 정확히 전환돼 충돌을 방지한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t22_s2004384967",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 37.817,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.6,
+    0.5
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 34.87,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t22_s1035138472",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 23.3,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.42,
+    0.57
+   ],
+   "closing_m_s": 0.35,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 18.33,
+   "goal_dist_m": 31.6657,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t22_s1768006653",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.0,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.08,
+    0.65
+   ],
+   "closing_m_s": 0.29,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 9.02,
+   "goal_dist_m": 32.38,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

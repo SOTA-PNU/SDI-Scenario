@@ -1,0 +1,222 @@
+{
+ "turn": 2,
+ "started": "2026-11-15 17:22:19",
+ "code_in": "results/turns/prompt_c2_turn1/gpu_gpt_oss_120b_pC2t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "wall check in _in_static_obstacle treats points inside WALLS rectangle as wall, filtering out all lidar points in the arena (e.g., run c2t1_s1716666872 first_not_on_map shows moving object at 0.96 m but detection never triggered).",
+   "collisions occur at ~3 s when moving objects are within 1 m, yet controller never stops (robot state shows forward speed at 0.24 m/s at 2.85 s).",
+   "pass runs only when moving objects appear much later (first_not_on_map >44 s), indicating detection works only when objects are outside the mistaken wall region."
+  ],
+  "target": "_in_static_obstacle",
+  "direction": "바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다. 해당 if 문을 수정해 외부 영역을 wall 로 인식하도록 바꾸면 움직이는 물체가 static으로 오인되지 않아 감지가 가능해진다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유:  \n- 기존 `_in_static_obstacle` 함수는 WALLS 영역을 “벽”으로 오인해 내부 자유 공간을 모두 정적 장애물로 판단했습니다.  \n- 이 때문에 움직이는 물체가 실제로는 자유 공간에 있더라도 정적 장애물로 필터링돼 감지가 되지 않아 충돌이 발생했습니다.  \n- WALLS 사각형을 **외부** 영역을 벽으로 인식하도록 조건을 반전시켜, 움직이는 물체를 올바르게 탐지하도록 수정했습니다.",
+   "changed": [
+    "_in_static_obstacle"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다.",
+      "implemented": true,
+      "note": "_in_static_obstacle 함수에서 벽 판별 조건을 반전함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유:  \n- 기존 `_in_static_obstacle` 함수는 WALLS 영역을 “벽”으로 오인해 내부 자유 공간을 모두 정적 장애물로 판단했습니다.  \n- 이 때문에 움직이는 물체가 실제로는 자유 공간에 있더라도 정적 장애물로 필터링돼 감지가 되지 않아 충돌이 발생했습니다.  \n- WALLS 사각형을 **외부** 영역을 벽으로 인식하도록 조건을 반전시켜, 움직이는 물체를 올바르게 탐지하도록 수정했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  260057816,
+  1133624541,
+  1392820833,
+  1474663144,
+  1091229148,
+  356109299,
+  2001723594,
+  1272544327,
+  87398614,
+  1160845285
+ ],
+ "sim_used_s": 524.8,
+ "verdicts": {
+  "260057816": "pass",
+  "1133624541": "pass",
+  "1392820833": "pass",
+  "1474663144": "fail",
+  "1091229148": "pass",
+  "356109299": "pass",
+  "2001723594": "pass",
+  "1272544327": "pass",
+  "87398614": "fail",
+  "1160845285": "fail"
+ },
+ "passes": 7,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t2_s87398614: collision at t=4.2 s, moving object bearing 73° (outside ±30° sector) and first_not_on_map within 2 m at t=1.35 s bearing 73°",
+   "run c2t2_s1474663144: collision at t=18.55 s, moving object bearing 33° (outside ±30°) and first_not_on_map within 2 m at t=17.42 s bearing 33°",
+   "run c2t2_s1160845285: collision at t=46.1 s, moving object bearing –49° (outside ±30°) and first_not_on_map within 2 m at t=44.72 s bearing –49°"
+  ],
+  "target": "_detect_moving_any (and controller reaction)",
+  "direction": "1) 확대된 탐지 범위: 거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 바꾼다. 2) _detect_moving_any에서 앞·뒤 라이다를 모두 사용해 위 조건을 적용한다. 3) 감지 시 v를 0으로 하고, 평균 베어링의 부호에 따라 회전(w=±0.6 rad/s)하거나, 거리 비례 감속을 추가한다. 4) 기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체를 조기에 차단한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c2t2_s260057816",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 59.42,
+   "goal_dist_m": 0.199,
+   "time_to_goal_s": 61.35
+  },
+  {
+   "run": "c2t2_s1133624541",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 47.15,
+   "goal_dist_m": 0.2042,
+   "time_to_goal_s": 49.167
+  },
+  {
+   "run": "c2t2_s1392820833",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 56.25,
+   "goal_dist_m": 0.202,
+   "time_to_goal_s": 58.25
+  },
+  {
+   "run": "c2t2_s1474663144",
+   "verdict": "fail",
+   "collision_t": 18.55,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.58m/s 회전 -0.5",
+   "partner_rel_xy": [
+    0.29,
+    0.6
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 17.42,
+   "goal_dist_m": 20.9187,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t2_s1091229148",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 52.65,
+   "goal_dist_m": 0.2296,
+   "time_to_goal_s": 54.667
+  },
+  {
+   "run": "c2t2_s356109299",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 51.15,
+   "goal_dist_m": 0.204,
+   "time_to_goal_s": 53.117
+  },
+  {
+   "run": "c2t2_s2001723594",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": 71.62,
+   "goal_dist_m": 0.2299,
+   "time_to_goal_s": 73.6
+  },
+  {
+   "run": "c2t2_s1272544327",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 57.92,
+   "goal_dist_m": 0.2278,
+   "time_to_goal_s": 59.883
+  },
+  {
+   "run": "c2t2_s87398614",
+   "verdict": "fail",
+   "collision_t": 4.2,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.29m/s",
+   "partner_rel_xy": [
+    0.0,
+    0.57
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 1.35,
+   "goal_dist_m": 30.0614,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t2_s1160845285",
+   "verdict": "fail",
+   "collision_t": 46.1,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.64m/s",
+   "partner_rel_xy": [
+    0.49,
+    -0.39
+   ],
+   "closing_m_s": 0.46,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 44.72,
+   "goal_dist_m": 3.9127,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 10개 중 1개 pass, 9개 fail (시뮬 시간 합계 223 s / 한도 600 s)\n#1 이번 코드(진단 \"controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.\" 반영, 검토 통과): 새 배치 10개 중 2개 pass, 8개 fail (시뮬 시간 합계 200 s / 한도 600 s)\n#2 이번 코드(진단 \"바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다. 해당 if 문을 수정해 외부 영역을 wall 로 인식하도록 바꾸면 움직이는 물체가 static으로 오인되지 않아 감지가 가능해진다.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 525 s / 한도 600 s)",
+ "ended": "2026-11-15 17:35:00"
+}

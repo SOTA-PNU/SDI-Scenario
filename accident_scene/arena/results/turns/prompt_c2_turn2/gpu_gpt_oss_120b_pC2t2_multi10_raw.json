@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-86116abe399cc2b2",
+ "object": "chat.completion",
+ "created": 1794731692,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t2_s87398614: collision at t=4.2 s, moving object bearing 73° (outside ±30° sector) and first_not_on_map within 2 m at t=1.35 s bearing 73°\",\n    \"run c2t2_s1474663144: collision at t=18.55 s, moving object bearing 33° (outside ±30°) and first_not_on_map within 2 m at t=17.42 s bearing 33°\",\n    \"run c2t2_s1160845285: collision at t=46.1 s, moving object bearing –49° (outside ±30°) and first_not_on_map within 2 m at t=44.72 s bearing –49°\"\n  ],\n  \"target\": \"_detect_moving_any (and controller reaction)\",\n  \"direction\": \"1) 확대된 탐지 범위: 거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 바꾼다. 2) _detect_moving_any에서 앞·뒤 라이다를 모두 사용해 위 조건을 적용한다. 3) 감지 시 v를 0으로 하고, 평균 베어링의 부호에 따라 회전(w=±0.6 rad/s)하거나, 거리 비례 감속을 추가한다. 4) 기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체를 조기에 차단한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to output JSON with failure_mode, evidence, target, direction, confidence.\n\nWe have multiple runs: 10 runs, 7 pass, 3 fail. The failures are runs 4 (c2t2_s1474663144), 9 (c2t2_s87398614), 10 (c2t2_s1160845285). The code currently does reactive avoidance: if moving detected within 1.2m and ±30°, stop and rotate away. In fails, why detection didn't happen or too late? Let's examine each.\n\nRun 9 (collision at t=4.2s, first_not_on_map at 0.12s within 5m, but moving object first seen within 2m at 1.35s, bearing 73°. The robot started moving forward quickly (1.29 m/s) and collided at 4.2s. The detection logic: it checks both front and back lidar points within 1.2m and ±30°. At early times, the moving object was initially at bearing -13° (front left) at 2.43m distance at t=0.12. Not within 1.2m, so not detected. It entered within 2m at t=1.35 at bearing 73° (which is +73°, outside ±30° sector). So detection didn't trigger because bearing >30°. The object was moving across robot's path from side maybe. The robot didn't see it because sector limited. So failure due to narrow detection sector.\n\nRun 4 (collision at 18.55s, first_not_on_map within 2m at 17.42s bearing 33°, within 30°? 33° slightly outside, maybe detection missed. Also moving object appears at 13.62s within 5m bearing 127°, far side. At 17.42s within 2m bearing 33°, just outside sector. So again sector too narrow.\n\nRun 10 (collision at 46.1s, first_not_on_map within 2m at 44.72s bearing -49°, outside sector. So detection missed.\n\nThus main failure cause: detection sector limited to ±30°, causing missed detection of moving objects approaching from side, leading to collisions. Also detection distance 1.2m may be too short; objects could be closer later but robot already moving fast.\n\nEvidence: each run collision data includes bearing >30°, first_not_on_map distances and bearings.\n\nThus failure mode: collision due to insufficient sensing/avoidance (sector too narrow). Could improve by expanding sector to ±90° or using full 360° scanning, and maybe increase distance threshold to 2m, and implement braking earlier.\n\nTarget: modify _detect_moving_any to use larger bearing range (e.g., ±90°) and longer distance (e.g., 2.0m), and also include back lidar detection for side? Already both. Also adjust reaction: when moving detected, reduce speed proportionally to distance, not just stop, maybe decelerate.\n\nBut we need to propose changes to code. So target: _detect_moving_any function and reaction logic in controller.\n\nDirection: Expand sector to ±90°, increase distance threshold to 2.0m, and when moving detected, set v=0 and rotate away or stop and wait until cleared; also maybe add early braking based on distance.\n\nConfidence: high.\n\nNow produce JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 20986,
+  "total_tokens": 22071,
+  "completion_tokens": 1085,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 712
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

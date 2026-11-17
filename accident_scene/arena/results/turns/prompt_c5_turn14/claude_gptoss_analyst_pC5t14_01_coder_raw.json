@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 chosen(후보 1)과 direction 1)~6)을 따라, controller 를 \"인지·트랙 갱신 → `_dynamic_pause` TTC 정지 → `_follow` + `_predictive_speed` 속도 스케일링 → `_guard`\" 한 줄기로 줄였습니다. 이렇게 VFH·VO·escape·early-stop·proximity-stop·detour·VFH stall 전환 호출을 모두 뺐습니다. 진단은 이 계층들이 정지·회전 구간을 수십 번 반복하게 해 stall(진행 중단)을 일으킨다고 지적했고, 이를 없애려는 것입니다. `pause_until` 은 초기화 항목에서 빼고 direction 3)의 TTC 정지에만 씁니다. TTC 위협이 있으면 `t + pause` 까지 (0, 0) 으로 멈추고, 위협이 없으면 바로 waypoint 주행을 이어 갑니다(속도는 `_predictive_speed`, 안전한 속도가 없으면 0, 최종 `_guard` 검사). 경유점, GOAL 정렬, 종료 조건은 기존 그대로입니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Waypoint following with TTC-based speed scaling only (diagnosis candidate 1).\n    (1) perception + mover tracking (_perceive, _track_array); (2) TTC pause from _dynamic_pause: when a mover\n    would reach the robot within _HORIZON, pause_until = t + pause and stop until then; otherwise drive on at once;\n    (3) goal alignment at the end of the path; (4) _follow toward the current waypoint, speed from\n    _predictive_speed (0 when no safe speed), final check with _guard.  No VFH / VO / escape / early-stop /\n    proximity-stop / detour layers.\"\"\"\n    if not hasattr(controller, \"st\"):\n        controller.st = {\"idx\": 0, \"prev\": None, \"vm\": 0.0, \"wz\": 0.0, \"tracks\": [],\n                         \"last_f\": None, \"last_b\": None, \"raw\": np.zeros((0, 2)), \"ttc\": float(\"inf\"),\n                         \"c3\": [], \"c3_seen\": [], \"p_t\": -1.0,\n                         \"um_src\": None, \"um\": np.zeros((0, 2))}\n    st = controller.st\n    x, y, yaw = pose\n\n    # ---- 1) perception and track update only ----\n    _update_motion(st, t, pose)\n    _perceive(st, t, pose)\n\n    # ---- 2) tracked movers and TTC pause ----\n    M = _track_array(st, t)\n    pause, _ttc = _dynamic_pause(st, pose, M)\n\n    n = len(_WAYPOINTS)\n    if st[\"idx\"] >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.45:\n        st[\"idx\"] = n - 1                           # pushed off the goal: go back\n\n    # ---- 3) pause > 0 -> stop until pause_until; pause == 0 / None -> drive on ----\n    if pause is not None and pause > 0.0:\n        st[\"pause_until\"] = t + pause\n    if t < st.get(\"pause_until\", -1.0):\n        return 0.0, 0.0, False\n\n    # ---- 4) waypoint target ----\n    aligning = st[\"idx\"] >= n\n    v_nom, w_nom = 0.0, 0.0\n    wp = (GOAL[0], GOAL[1])\n    if not aligning:\n        wp = _WAYPOINTS[st[\"idx\"]]\n        if st[\"idx\"] < n - 1 and math.hypot(wp[0] - x, wp[1] - y) < 0.35:\n            st[\"idx\"] += 1\n            wp = _WAYPOINTS[st[\"idx\"]]\n        v_nom, w_nom, dist = _follow(pose, wp)\n        if st[\"idx\"] == n - 1 and dist < 0.25:\n            st[\"idx\"] = n\n            aligning = True\n\n    # ---- goal alignment: finish only when nothing is about to reach us ----\n    if aligning:\n        e_goal = _wrap_angle(GOAL[2] - yaw)\n        if abs(e_goal) < 0.05:\n            if _margin(pose, st[\"vm\"], 0.0, 0.0, M, 4.0, 0.15)[0] >= 0.0:\n                return 0.0, 0.0, True\n            return 0.0, 0.0, False\n        v, w = _guard(st, pose, M, 0.0, _clamp(1.5 * e_goal, -0.6, 0.6))\n        return v, w, False\n\n    # ---- 5) TTC-based speed scaling, then final check with _guard ----\n    vc = _predictive_speed(st, pose, wp, v_nom, M) if v_nom > 0.0 else 0.0\n    if vc is None:\n        vc = 0.0\n    v, w = _guard(st, pose, M, vc, w_nom)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 53361,
+  "completion_tokens": 6794
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 66063,
+  "total_cost_usd": 0.5627599999999999,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6794,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 53359,
+    "webSearchRequests": 0,
+    "costUSD": 0.5627599999999999,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 5082,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 53359,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "0a6b30e8-4ddd-4e02-b6cc-25973f755850"
+ }
+}

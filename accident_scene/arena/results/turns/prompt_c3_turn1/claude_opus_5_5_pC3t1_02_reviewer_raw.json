@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"새 함수 _movers_robot_frame() 이 lidar2d_points('front')·('back') 점을 to_world 로 월드 좌표로 바꾼다\", \"implemented\": true, \"note\": \"두 스캔을 합친 뒤 to_world(rob, pose) 를 씀. 3 m 밖 점을 버리는 처리가 추가됨\"},\n  {\"instruction\": \"WALLS 안쪽 면에서 0.2 m 이내이거나 바깥인 점을 버린다\", \"implemented\": true, \"note\": \"keep 조건이 WALLS[0]+0.2 < wx < WALLS[1]-0.2 이고 y 도 같은 방식\"},\n  {\"instruction\": \"MISSION boxes 와 FIXED_OBSTACLES 를 0.2 m 부풀린 사각형 안의 점을 버린다\", \"implemented\": true, \"note\": \"_STATIC_RECTS 에 두 목록을 0.2 m 부풀려 넣고 inside 로 제외함\"},\n  {\"instruction\": \"남은 점을 로봇 기준으로 돌려준다\", \"implemented\": true, \"note\": \"rob[keep] 로 로봇 기준 점을 반환함\"},\n  {\"instruction\": \"0.3 m 안에 3점 이상 모인 점만 물체로 인정한다\", \"implemented\": true, \"note\": \"d2<0.09 인 점 수가 3 이상인 점만 남김. 이 수에 자기 자신이 들어가고, 점이 600개를 넘으면 솎아냄\"},\n  {\"instruction\": \"d_front 는 x>0.2 이고 |y|<0.6 인 점의 최소 x 로 둔다\", \"implemented\": true, \"note\": \"corr 마스크와 corr[:,0].min() 으로 구함\"},\n  {\"instruction\": \"v=min(v_wp, 0.8, 0.8*(d_front-0.9)) 로 하고 0 미만이면 0\", \"implemented\": true, \"note\": \"전진 분기에 그대로 있음\"},\n  {\"instruction\": \"회전을 ±1.2 rad/s 로 줄인다\", \"implemented\": true, \"note\": \"경유점 추종의 두 분기 모두 _clamp(...,-1.2,1.2). 정렬 단계는 ±0.6 유지\"},\n  {\"instruction\": \"제자리 회전 중 전체 방향 0.9 m 안에 물체가 있으면 회전을 멈춘다\", \"implemented\": true, \"note\": \"near_all(몸체 면까지 거리)<0.9 이면 w=0. 정렬 단계에도 적용함\"},\n  {\"instruction\": \"앞·옆 0.7 m 안에 물체가 들어오면 반대 방향으로 0.3 m/s 후진한다\", \"implemented\": true, \"note\": \"near_fs<0.7 이면 retreat 상태로 v=-0.3, w=0. 차동구동이라 직후진만 함. 뒤 0.45 m 안에 점이 있으면 정지하는 처리가 추가됨\"},\n  {\"instruction\": \"물체가 1.2 m 밖으로 나가면 경유점 추종으로 돌아간다\", \"implemented\": true, \"note\": \"near_fs>1.2 이면 retreat 를 해제함\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"d_front 를 몸체 앞면이 아니라 로봇 중심 기준 x 로 정해서, v=0 이 되는 점은 앞면에서 0.65 m 앞입니다. '1 m 앞 정지' 와 다릅니다.\",\n  \"후진 진입 거리(몸체에서 0.7 m, x≈0.95)가 정지 지점보다 멀어 정지보다 후진이 먼저 일어납니다. 그 뒤 1.2 m 에서 해제되고 다시 다가가는 진동이 생길 수 있습니다.\",\n  \"차동구동은 옆으로 갈 수 없어서, 옆에 있는 물체는 직후진으로 거리가 거의 늘지 않습니다.\",\n  \"정적 사각형을 0.2 m 부풀렸기 때문에 박스나 벽 바로 옆을 지나는 물체 점이 지워질 수 있습니다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 23351,
+  "completion_tokens": 4852
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 47136,
+  "total_cost_usd": 0.28384000000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4852,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 23349,
+    "webSearchRequests": 0,
+    "costUSD": 0.28384000000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3340,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 23349,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "3229abf5-e84a-42e5-8d05-bf0893b7b328"
+ }
+}

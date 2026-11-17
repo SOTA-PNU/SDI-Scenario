@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-bb57813f3687d6b9",
+ "object": "chat.completion",
+ "created": 1794734829,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t5_s652684458: stall_abort_t 66.07 s, stop_turn_episodes 26, first_not_on_map at t=61.12 s, robot never resumes waypoint\",\n    \"run c2t5_s107735859: stall_abort_t 60.0 s, stop_turn_episodes 34, first_not_on_map at t=55.08 s, robot spins in place\",\n    \"run c2t5_s1050263290: stall_abort_t 62.52 s, stop_turn_episodes 28, first_not_on_map at t=57.55 s, robot stays stopped\"\n  ],\n  \"target\": \"controller (감지·회피 로직 및 _DETECT_DIST/_DETECT_ANGLE 파라미터)\",\n  \"direction\": \"1) _DETECT_DIST 를 1.0 m, _DETECT_ANGLE 를 ±45°(np.deg2rad(45)) 로 축소해 불필요한 측면 감지를 억제한다. 2) 이동 물체가 감지되면 v=0, w=0 로 2 s 정지(현재 _AVOID_DURATION) 후, 여전히 물체가 있으면 1 s 동안 회전(w=±_AVOID_ROT_SPEED) 후 바로 정상 웨이포인트 추적으로 복귀한다. 3) 회전 후에도 물체가 1 m 이내에 남아 있으면 다시 정지‑대기 루프에 들어가고, 3번 연속 대기 후에는 현재 웨이포인트를 좌·우 0.5 m 옆으로 임시 이동시켜 우회하도록 한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to output JSON with failure_mode, evidence, target, direction, confidence.\n\nBased on latest aggregated data: 10 runs, 7 stalls (timeout) and 3 collisions. So most common failure is stall. Provide evidence from runs with stall_abort_t and stop_turn_episodes.\n\nTarget: controller (avoidance logic and detection thresholds). Direction: propose narrowing detection distance/angle, adding timeout, and after waiting try to bypass instead of endless rotation. Also ensure detection only when object is close and closing.\n\nLet's pick specific changes: set _DETECT_DIST = 1.0, _DETECT_ANGLE = np.deg2rad(45). In controller, when moving detected, enter stop_wait state with _AVOID_DURATION = 2.0 (already). After that, if still moving, instead of rotating indefinitely, attempt a sidestep: compute a temporary waypoint offset perpendicular to bearing (e.g., add 0.5m lateral shift) and go around, then resume original waypoint. Or simpler: after stop_wait, if moving still present, set w = sign(bearing) * _AVOID_ROT_SPEED for a limited duration (e.g., 1.0s) then resume normal.\n\nBut we need to keep within edit region. Provide direction description.\n\nNow produce JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 28523,
+  "total_tokens": 29191,
+  "completion_tokens": 668,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 266
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

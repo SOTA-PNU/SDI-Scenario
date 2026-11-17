@@ -1,0 +1,232 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "8개 실행 모두 충돌은 0회입니다. 그런데 앞 7개 통과 실행이 67.5·86.2·69.1·80.9·89.1·60.7·83.1 s, 합계 536.6 s(평균 76.7 s, 기준 60 s)를 써서 c3t6_s413035331 은 63.4 s 한도만 받았고, GOAL 7.51 m 앞에서 time_limit 로 끝났습니다.",
+   "모든 실행에서 박스 08 모서리 (2.69~2.91, 13.65~13.75) 에 속도 0 미성숙 트랙(age 0.1~1.4 s, nupd 0~3)이 거듭 다시 생겼고, 그때마다 fix(0.0)·fix(-0.3)를 골랐습니다: s177700506 66.5~72.5 s, s1040582998 63.0~67.0 s, s464345327 61.0~66.5 s, s413035331 58.5~63.0 s, s341525537 49.5~52.0 s. s413035331 의 같은 구간에서 하네스가 본 지도에 없는 가장 가까운 물체는 3.14 m 이상인데, 코드 트랙은 1.9~2.2 m 에 있었습니다.",
+   "같은 유령이 다른 정적 물체 바로 바깥에도 생겼습니다: (-0.93,12.33)·(-0.79,10.79) 박스 10, (1.31,9.72)·(2.53,9.6) 박스 07, (-3.68,7.00) 박스 09, (-10.09,-9.51) 기둥, (9.0,14.13) 박스 06. 중심은 모두 원래 사각형에서 0.21~0.27 m 떨어져 있어 0.2 m 부풀림 바로 밖입니다. 이 때문에 path(0.3/0.5) 감속이나 후진이 생겼습니다(s413035331 50.0 s, 38.5 s 등)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "정적 물체의 라이다 점은 0.2 m 부풀린 사각형 안에 모두 들어온다",
+    "holds": false,
+    "why": "박스·기둥 모서리에서 0.21~0.27 m 떨어진 덩어리가 8개 실행 모두에서 같은 자리에 트랙으로 잡혔습니다"
+   },
+   {
+    "assumption": "미성숙 트랙은 드물고 금방 성숙하므로 반경을 최악으로 키워도 시간 손실이 작다",
+    "holds": false,
+    "why": "유령 트랙이 1 s 안 보이면 지워졌다가 다시 생겨 age 가 0~1.4 s 로 되돌아갔고, 계속 미성숙인 채 반경이 최대 1.65 m 까지 커져 2~6 s 정지를 반복했습니다"
+   },
+   {
+    "assumption": "2.5 s 안에 위반이 예측되면 양보하는 방식으로도 실행당 60 s 안에 끝난다",
+    "holds": false,
+    "why": "통과 실행 평균이 76.7 s 였고 마지막 실행이 시간 한도에 걸렸습니다"
+   },
+   {
+    "assumption": "관측 왕복 구간 반사 예측과 rollout 후보 선택으로 충돌을 막을 수 있다",
+    "holds": true,
+    "why": "이번 턴 8개 실행에서 충돌이 0회였습니다"
+   },
+   {
+    "assumption": "고정 경유점 경로(약 44 m, 직각 6번)가 시간 여유를 충분히 남긴다",
+    "holds": false,
+    "why": "물체가 없어도 약 45 s 가 걸려, 실행당 여유가 15 s 남짓뿐입니다"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 없는 경유점 추종",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "앞 거리로 정지·후진하는 반응형",
+    "turns": "1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙 추적 + rollout 후보 선택 (가설·래치·선택 규칙 변형)",
+    "turns": "2,3,4,5,6",
+    "result": "6/7, 6/9, 0/3, 2/5, 7/8. 10개 전부 통과한 턴은 없음. 최근 실패는 충돌에서 시간 부족으로 바뀜"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정적 물체 근처 유령 억제: 물체 점을 거르는 부풀림을 0.4 m 로 늘리고, 정적 사각형 가까이의 미성숙 트랙은 반경을 키우지 않음",
+    "new_family": false,
+    "for": "8개 실행 모두 같은 자리에서 유령 때문에 멈췄고, 안전 판단 구조는 그대로라 충돌 위험이 늘지 않음",
+    "risk": "정적 물체에 바짝 붙어 지나는 물체의 가까운 면 점이 일부 가려짐. 유령을 없애도 평균이 60 s 아래로 충분히 내려가지 않을 수 있음"
+   },
+   {
+    "idea": "정적 지도 기준으로 더 짧은 경유점 경로와 모서리 미리 넘기기",
+    "new_family": true,
+    "for": "경로가 약 44 m 로 직선 거리 32 m 보다 길고, 물체 배치와 무관하게 매 실행 시간을 줄임",
+    "risk": "새 경로의 정적 충돌을 검증하지 않았고, 새 통로에서 물체 차선을 더 많이 가로지를 수 있음"
+   },
+   {
+    "idea": "속도만 줄이는 대신 좌우로 비켜 가는 후보를 넣어 물체 뒤로 돌아가기",
+    "new_family": true,
+    "for": "실제 물체를 기다리며 4~8 s 를 쓴 구간이 있음(s215664028 52.5~60.5 s)",
+    "risk": "정적 검사와 후보 수가 늘어 복잡해지고, 새 충돌 유형이 생길 수 있음"
+   }
+  ],
+  "chosen": "후보 1: 시간 손실 가운데 근거가 가장 분명하고 모든 실행에 공통이며, 충돌 0회를 만든 안전 구조를 건드리지 않습니다.",
+  "target": "_track_movers(물체 점 거르기), 새 상수 _MOVER_MASK_RECTS, controller 의 미성숙 트랙 movers 구성, DBG",
+  "direction": "1) _STATIC_RECTS 와 같은 방식으로 MISSION boxes 와 FIXED_OBSTACLES 를 0.4 m 부풀린 _MOVER_MASK_RECTS 를 만듭니다. _track_movers 에서 물체 후보 점(keep)을 고를 때만 이 사각형을 쓰고, stat 점과 _static_ok 는 기존 0.2 m 사각형을 그대로 씁니다. 2) controller 에서 미성숙 트랙의 중심이 부풀리지 않은 정적 사각형(boxes·FIXED_OBSTACLES)에서 0.6 m 안이면 반경 증가율을 0 으로 둡니다(반경 _MOVER_R 고정, 속도 0). 3) 경유점, 속도, _rollout, 후보 목록과 선택 규칙, 성숙 기준, 반사 예측은 바꾸지 않습니다. 4) DBG 는 지금 줄을 유지하고, 끝에 누적 정지·후진 시간과 path(<1.2) 시간, 그리고 그동안 가장 가까운 트랙이 미성숙이었던 시간을 덧붙입니다. 5) 물체 위치·구간·속도·시각 상수는 넣지 않습니다.",
+  "confidence": "medium"
+ },
+ "raw": "{\"failure_mode\": \"timeout\",\n \"evidence\": [\"8개 실행 모두 충돌은 0회입니다. 그런데 앞 7개 통과 실행이 67.5·86.2·69.1·80.9·89.1·60.7·83.1 s, 합계 536.6 s(평균 76.7 s, 기준 60 s)를 써서 c3t6_s413035331 은 63.4 s 한도만 받았고, GOAL 7.51 m 앞에서 time_limit 로 끝났습니다.\", \"모든 실행에서 박스 08 모서리 (2.69~2.91, 13.65~13.75) 에 속도 0 미성숙 트랙(age 0.1~1.4 s, nupd 0~3)이 거듭 다시 생겼고, 그때마다 fix(0.0)·fix(-0.3)를 골랐습니다: s177700506 66.5~72.5 s, s1040582998 63.0~67.0 s, s464345327 61.0~66.5 s, s413035331 58.5~63.0 s, s341525537 49.5~52.0 s. s413035331 의 같은 구간에서 하네스가 본 지도에 없는 가장 가까운 물체는 3.14 m 이상인데, 코드 트랙은 1.9~2.2 m 에 있었습니다.\", \"같은 유령이 다른 정적 물체 바로 바깥에도 생겼습니다: (-0.93,12.33)·(-0.79,10.79) 박스 10, (1.31,9.72)·(2.53,9.6) 박스 07, (-3.68,7.00) 박스 09, (-10.09,-9.51) 기둥, (9.0,14.13) 박스 06. 중심은 모두 원래 사각형에서 0.21~0.27 m 떨어져 있어 0.2 m 부풀림 바로 밖입니다. 이 때문에 path(0.3/0.5) 감속이나 후진이 생겼습니다(s413035331 50.0 s, 38.5 s 등).\"],\n \"assumptions\": [{\"assumption\": \"정적 물체의 라이다 점은 0.2 m 부풀린 사각형 안에 모두 들어온다\", \"holds\": false, \"why\": \"박스·기둥 모서리에서 0.21~0.27 m 떨어진 덩어리가 8개 실행 모두에서 같은 자리에 트랙으로 잡혔습니다\"},\n  {\"assumption\": \"미성숙 트랙은 드물고 금방 성숙하므로 반경을 최악으로 키워도 시간 손실이 작다\", \"holds\": false, \"why\": \"유령 트랙이 1 s 안 보이면 지워졌다가 다시 생겨 age 가 0~1.4 s 로 되돌아갔고, 계속 미성숙인 채 반경이 최대 1.65 m 까지 커져 2~6 s 정지를 반복했습니다\"},\n  {\"assumption\": \"2.5 s 안에 위반이 예측되면 양보하는 방식으로도 실행당 60 s 안에 끝난다\", \"holds\": false, \"why\": \"통과 실행 평균이 76.7 s 였고 마지막 실행이 시간 한도에 걸렸습니다\"},\n  {\"assumption\": \"관측 왕복 구간 반사 예측과 rollout 후보 선택으로 충돌을 막을 수 있다\", \"holds\": true, \"why\": \"이번 턴 8개 실행에서 충돌이 0회였습니다\"},\n  {\"assumption\": \"고정 경유점 경로(약 44 m, 직각 6번)가 시간 여유를 충분히 남긴다\", \"holds\": false, \"why\": \"물체가 없어도 약 45 s 가 걸려, 실행당 여유가 15 s 남짓뿐입니다\"}],\n \"approach_families\": [{\"family\": \"센서 없는 경유점 추종\", \"turns\": \"0\", \"result\": \"0/3\"},\n  {\"family\": \"앞 거리로 정지·후진하는 반응형\", \"turns\": \"1\", \"result\": \"0/3\"},\n  {\"family\": \"트랙 추적 + rollout 후보 선택 (가설·래치·선택 규칙 변형)\", \"turns\": \"2,3,4,5,6\", \"result\": \"6/7, 6/9, 0/3, 2/5, 7/8. 10개 전부 통과한 턴은 없음. 최근 실패는 충돌에서 시간 부족으로 바뀜\"}],\n \"candidates\": [{\"idea\": \"정적 물체 근처 유령 억제: 물체 점을 거르는 부풀림을 0.4 m 로 늘리고, 정적 사각형 가까이의 미성숙 트랙은 반경을 키우지 않음\", \"new_family\": false, \"for\": \"8개 실행 모두 같은 자리에서 유령 때문에 멈췄고, 안전 판단 구조는 그대로라 충돌 위험이 늘지 않음\", \"risk\": \"정적 물체에 바짝 붙어 지나는 물체의 가까운 면 점이 일부 가려짐. 유령을 없애도 평균이 60 s 아래로 충분히 내려가지 않을 수 있음\"},\n  {\"idea\": \"정적 지도 기준으로 더 짧은 경유점 경로와 모서리 미리 넘기기\", \"new_family\": true, \"for\": \"경로가 약 44 m 로 직선 거리 32 m 보다 길고, 물체 배치와 무관하게 매 실행 시간을 줄임\", \"risk\": \"새 경로의 정적 충돌을 검증하지 않았고, 새 통로에서 물체 차선을 더 많이 가로지를 수 있음\"},\n  {\"idea\": \"속도만 줄이는 대신 좌우로 비켜 가는 후보를 넣어 물체 뒤로 돌아가기\", \"new_family\": true, \"for\": \"실제 물체를 기다리며 4~8 s 를 쓴 구간이 있음(s215664028 52.5~60.5 s)\", \"risk\": \"정적 검사와 후보 수가 늘어 복잡해지고, 새 충돌 유형이 생길 수 있음\"}],\n \"chosen\": \"후보 1: 시간 손실 가운데 근거가 가장 분명하고 모든 실행에 공통이며, 충돌 0회를 만든 안전 구조를 건드리지 않습니다.\",\n \"target\": \"_track_movers(물체 점 거르기), 새 상수 _MOVER_MASK_RECTS, controller 의 미성숙 트랙 movers 구성, DBG\",\n \"direction\": \"1) _STATIC_RECTS 와 같은 방식으로 MISSION boxes 와 FIXED_OBSTACLES 를 0.4 m 부풀린 _MOVER_MASK_RECTS 를 만듭니다. _track_movers 에서 물체 후보 점(keep)을 고를 때만 이 사각형을 쓰고, stat 점과 _static_ok 는 기존 0.2 m 사각형을 그대로 씁니다. 2) controller 에서 미성숙 트랙의 중심이 부풀리지 않은 정적 사각형(boxes·FIXED_OBSTACLES)에서 0.6 m 안이면 반경 증가율을 0 으로 둡니다(반경 _MOVER_R 고정, 속도 0). 3) 경유점, 속도, _rollout, 후보 목록과 선택 규칙, 성숙 기준, 반사 예측은 바꾸지 않습니다. 4) DBG 는 지금 줄을 유지하고, 끝에 누적 정지·후진 시간과 path(<1.2) 시간, 그리고 그동안 가장 가까운 트랙이 미성숙이었던 시간을 덧붙입니다. 5) 물체 위치·구간·속도·시각 상수는 넣지 않습니다.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c3t6_s341525537",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 67.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 61.55,
+   "goal_dist_m": 0.4317,
+   "time_to_goal_s": 64.6
+  },
+  {
+   "run": "c3t6_s1040582998",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 532.5,
+   "sim_time_s": 86.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 80.17,
+   "goal_dist_m": 0.4386,
+   "time_to_goal_s": 83.167
+  },
+  {
+   "run": "c3t6_s215664028",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 446.3,
+   "sim_time_s": 69.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 63.15,
+   "goal_dist_m": 0.4424,
+   "time_to_goal_s": 66.15
+  },
+  {
+   "run": "c3t6_s1022064761",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 377.2,
+   "sim_time_s": 80.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 74.97,
+   "goal_dist_m": 0.4389,
+   "time_to_goal_s": 78.0
+  },
+  {
+   "run": "c3t6_s177700506",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 296.2,
+   "sim_time_s": 89.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 83.1,
+   "goal_dist_m": 0.4412,
+   "time_to_goal_s": 86.167
+  },
+  {
+   "run": "c3t6_s1352467532",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 207.1,
+   "sim_time_s": 60.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 54.75,
+   "goal_dist_m": 0.4431,
+   "time_to_goal_s": 57.7
+  },
+  {
+   "run": "c3t6_s464345327",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 146.5,
+   "sim_time_s": 83.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 77.12,
+   "goal_dist_m": 0.4421,
+   "time_to_goal_s": 80.1
+  },
+  {
+   "run": "c3t6_s413035331",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 63.4,
+   "sim_time_s": 64.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 7.5104,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

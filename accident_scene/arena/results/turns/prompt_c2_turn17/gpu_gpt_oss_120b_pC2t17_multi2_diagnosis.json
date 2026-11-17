@@ -1,0 +1,53 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t17_s971813595·c2t17_s1988540224: t=90.0 s, abort=no_progress, pose≈(-10,-9.8), goal_dist≈31.9 m → 목표에 전혀 접근 못함",
+   "stop_turn_episodes: 3·4 회 차례로 t≈1.2 s, 2.7 s, 44.1 s 등에서 정지·후진·회전 수행 후에도 진행 거리 증가 없음",
+   "first_not_on_map: t≈85 s, 거리 2.84 m·베어링 ≈93°, 이후 85‑90 s 로봇 상태 '정지' 지속, 이동 물체 감지 유지"
+  ],
+  "target": "controller",
+  "direction": "detect 거리와 각을 _DETECT_DIST=1.5 m, _DETECT_ANGLE=np.deg2rad(90) 로 축소한다. 회피 후 새로운 상태 avoid_wait을 추가해 이동 물체가 감지되지 않을 때까지(v=0) 대기하도록 한다. avoid_rotate 종료 시 state='avoid_wait' 로 전환하고 wait_clear_end = t+0.5 s 로 초기화한다. avoid_wait에서 moving이 없고 t>=wait_clear_end이면 normal 로 복귀하고 avoid_cooldown 적용한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c2t17_s971813595·c2t17_s1988540224: t=90.0 s, abort=no_progress, pose≈(-10,-9.8), goal_dist≈31.9 m → 목표에 전혀 접근 못함\",\n    \"stop_turn_episodes: 3·4 회 차례로 t≈1.2 s, 2.7 s, 44.1 s 등에서 정지·후진·회전 수행 후에도 진행 거리 증가 없음\",\n    \"first_not_on_map: t≈85 s, 거리 2.84 m·베어링 ≈93°, 이후 85‑90 s 로봇 상태 '정지' 지속, 이동 물체 감지 유지\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"detect 거리와 각을 _DETECT_DIST=1.5 m, _DETECT_ANGLE=np.deg2rad(90) 로 축소한다. 회피 후 새로운 상태 avoid_wait을 추가해 이동 물체가 감지되지 않을 때까지(v=0) 대기하도록 한다. avoid_rotate 종료 시 state='avoid_wait' 로 전환하고 wait_clear_end = t+0.5 s 로 초기화한다. avoid_wait에서 moving이 없고 t>=wait_clear_end이면 normal 로 복귀하고 avoid_cooldown 적용한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t17_s971813595",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 31.8804,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t17_s1988540224",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 31.8453,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

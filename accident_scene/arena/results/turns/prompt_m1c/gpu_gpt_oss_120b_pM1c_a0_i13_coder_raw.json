@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-862b6a489c434d84",
+  "object": "chat.completion",
+  "created": 1794713964,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\ndef plan_path(start_xy, goal_xy, clearance_m):\n    \"\"\"\n    8‑connected A* on a 0.5 m occupancy grid.\n    If the start or goal cell is blocked (or out of bounds) the nearest free\n    cell is found with a BFS (8‑connected).  Edge checks use ``segment_free``\n    with caching.  No geometric simplification is performed – the returned\n    path is the raw cell‑centre sequence with the exact start and goal\n    coordinates substituted (required by ``validate_plan``).\n    \"\"\"\n    plan_stage(\"grid\")\n    # use the default resolution (0.5 m) as recommended\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\n\n    h, w = blocked.shape  # rows (y), cols (x)\n\n    # ---- start / goal cell --------------------------------------------------\n    sx, sy = cell_of(start_xy, origin, res)\n    gx, gy = cell_of(goal_xy, origin, res)\n\n    # ---- helper: nearest free cell (8‑connected BFS) ------------------------\n    neighbor8 = ((1, 0), (-1, 0), (0, 1), (0, -1),\n                 (1, 1), (1, -1), (-1, 1), (-1, -1))\n\n    def nearest_free(cx, cy):\n        \"\"\"Return (ix, iy) of the closest free cell to (cx, cy) inside the grid.\"\"\"\n        if 0 <= cx < w and 0 <= cy < h and not blocked[cy, cx]:\n            return (cx, cy)\n\n        visited = np.full((h, w), False, dtype=bool)\n        dq = deque()\n        # start BFS from the given cell if it lies inside the grid,\n        # otherwise enqueue every cell (will quickly locate a free one)\n        if 0 <= cx < w and 0 <= cy < h:\n            dq.append((cx, cy))\n            visited[cy, cx] = True\n        else:\n            for iy in range(h):\n                for ix in range(w):\n                    if not visited[iy, ix]:\n                        dq.append((ix, iy))\n                        visited[iy, ix] = True\n\n        while dq:\n            x, y = dq.popleft()\n            if not blocked[y, x]:\n                return (x, y)\n            for dx, dy in neighbor8:\n                nx, ny = x + dx, y + dy\n                if 0 <= nx < w and 0 <= ny < h and not visited[ny, nx]:\n                    visited[ny, nx] = True\n                    dq.append((nx, ny))\n        return None\n\n    # ---- replace blocked / out‑of‑bounds start / goal -------------------------\n    repl = nearest_free(sx, sy)\n    if repl is None:\n        return None\n    sx, sy = repl\n    repl = nearest_free(gx, gy)\n    if repl is None:\n        return None\n    gx, gy = repl\n\n    # ---- trivial case (same cell) -------------------------------------------\n    if (sx, sy) == (gx, gy):\n        path_pts = [tuple(start_xy), tuple(goal_xy)]\n        plan_stage(\"search\", input_points=2, output_points=2)\n        plan_stage(\"simplify\", input_points=2, output_points=2)\n        plan_stage(\"validate\", input_points=2)\n        return path_pts\n\n    # ---- A* (8‑connected) ----------------------------------------------------\n    plan_stage(\"search\")\n    open_set = []\n    heapq.heappush(open_set, (0.0, 0.0, (sx, sy)))   # (f, g, cell)\n    g_score = {(sx, sy): 0.0}\n    came_from = {}\n\n    # cache segment_free results to avoid duplicate geometry checks\n    seg_cache = {}\n\n    def edge_free(c1, c2):\n        \"\"\"True if the straight line between two cell centres is free.\"\"\"\n        key = (c1, c2) if c1 <= c2 else (c2, c1)\n        if key in seg_cache:\n            return seg_cache[key]\n        p1 = xy_of(c1, origin, res)\n        p2 = xy_of(c2, origin, res)\n        ok = segment_free(p1, p2, clearance_m)\n        seg_cache[key] = ok\n        return ok\n\n    goal_center = xy_of((gx, gy), origin, res)\n\n    while open_set:\n        _, cur_g, current = heapq.heappop(open_set)\n        if current == (gx, gy):\n            break\n        cx, cy = current\n        for dx, dy in neighbor8:\n            nx, ny = cx + dx, cy + dy\n            if not (0 <= nx < w and 0 <= ny < h):\n                continue\n            if blocked[ny, nx]:\n                continue\n            neighbor = (nx, ny)\n            if not edge_free(current, neighbor):\n                continue\n            # orthogonal move = res, diagonal = sqrt(2)*res\n            step_cost = res * (math.sqrt(2) if dx != 0 and dy != 0 else 1.0)\n            tentative_g = cur_g + step_cost\n            if neighbor not in g_score or tentative_g < g_score[neighbor] - 1e-12:\n                g_score[neighbor] = tentative_g\n                nh = xy_of(neighbor, origin, res)\n                h = math.hypot(goal_center[0] - nh[0], goal_center[1] - nh[1])\n                heapq.heappush(open_set, (tentative_g + h, tentative_g, neighbor))\n                came_from[neighbor] = current\n\n    # ---- reconstruct --------------------------------------------------------\n    if (gx, gy) not in came_from and (sx, sy) != (gx, gy):\n        return None\n\n    cells = []\n    cur = (gx, gy)\n    while cur != (sx, sy):\n        cells.append(cur)\n        cur = came_from[cur]\n    cells.append((sx, sy))\n    cells.reverse()\n\n    path_pts = [xy_of(c, origin, res) for c in cells]\n    # substitute the exact start / goal coordinates required by validate_plan\n    path_pts[0] = tuple(start_xy)\n    path_pts[-1] = tuple(goal_xy)\n\n    plan_stage(\"search\", input_points=len(cells), output_points=len(cells))\n    plan_stage(\"simplify\", input_points=len(path_pts), output_points=len(path_pts))\n    plan_stage(\"validate\", input_points=len(path_pts))\n    return path_pts\n\n\ndef lookahead_target(path, pose):\n    \"\"\"\n    Use the base's forward‑target helper.  If it returns ``None`` we fall back\n    to the robot's current position – the base will then request a checked‑zero.\n    \"\"\"\n    target = _base_loop_forward_target(path, pose)\n    if target is None:\n        return (pose[0], pose[1])\n    return target\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"\n    Pure‑pursuit law as specified:\n        dist = hypot(dx, dy)\n        e    = wrap(atan2(dy, dx) - yaw)\n        v    = 0  if |e| > 0.35 rad else min(1.5, 2.5*dist + 0.5)\n        w    = clamp(7.5*e, -2.0, 2.0)\n    \"\"\"\n    dx = target_xy[0] - pose[0]\n    dy = target_xy[1] - pose[1]\n    dist = math.hypot(dx, dy)\n    e = math.atan2(dy, dx) - pose[2]\n    e = math.atan2(math.sin(e), math.cos(e))   # wrap to [-π, π]\n\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\n\ndef controller(t, pose, env): return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to implement plan_path with 8-connected A* and diagonal segment_free checks. Use occupancy_grid with default resolution 0.5 (or could be 0.5). The previous attempts used 0.5 resolution and 4-connected. Now need 8-connected.\n\nImplement similar to previous but neighbor offsets include diagonals. Diagonal cost sqrt(2)*res.\n\nNeed to ensure start/goal cells possibly blocked, find nearest free using BFS as before.\n\nWe must record plan_stage calls appropriately: grid, search, simplify, validate with appropriate input/output points.\n\nSimplify stage can just pass through.\n\nWe must use segment_free caching.\n\nReturn path with start and goal coordinates replaced.\n\nEdge cases: if start or goal not reachable, return None.\n\nImplement.\n\nAlso need to ensure we import numpy as np is available.\n\nImplement nearest_free BFS.\n\nMake sure to call plan_stage(\"grid\") before occupancy_grid, plan_stage(\"search\") before search, then after reconstruct: plan_stage(\"search\", input_points=len(cells), output_points=len(cells)), plan_stage(\"simplify\", input_points=len(path_pts), output_points=len(path_pts)), plan_stage(\"validate\", input_points=len(path_pts))\n\nReturn path_pts.\n\nImplement.\n\nNow produce code block only containing these three functions.\n\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 34589,
+    "total_tokens": 36636,
+    "completion_tokens": 2047,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 259
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794713964.1513436,
+    "wall_s": 12.397,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 13,
+    "call": 25
+  }
+}

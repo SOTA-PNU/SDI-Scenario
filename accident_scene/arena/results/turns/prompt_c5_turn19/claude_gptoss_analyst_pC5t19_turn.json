@@ -1,0 +1,331 @@
+{
+ "turn": 19,
+ "started": "2026-11-17 12:35:55",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c5_turn18/claude_gptoss_analyst_pC5t18_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t18_s1062887440: collision at 62.55 s while robot was stopped, mover_03 at [-0.14, 0.57] m, closing speed 0.66 m/s.",
+   "c5t18_s770177675: collision at 9.267 s while robot was stopped, mover_00 at [-0.89, 0.42] m, closing speed 0.42 m/s.",
+   "first_not_on_map shows unmapped object first detected (e.g., 57.55 s, 1.88 m away) but robot still collides later, indicating raw TTC stop missed the object."
+  ],
+  "assumptions": [
+   {
+    "assumption": "Moving objects generate at least three lidar points per scan within detection range.",
+    "holds": false,
+    "why": "Collisions occurred with small boxes that often produced fewer than three points, so _raw_ttc_stop and related checks never triggered."
+   },
+   {
+    "assumption": "A TTC threshold of 1 s is sufficient to stop before any collision given max robot speed 1.5 m/s and mover speed 2 m/s.",
+    "holds": false,
+    "why": "Robots stopped but were still hit by movers approaching from the side, showing that 1 s TTC does not cover lateral approaches."
+   },
+   {
+    "assumption": "After a pause the robot can safely resume waypoint following without immediate re‑evaluation of nearby movers.",
+    "holds": false,
+    "why": "In the failure runs the robot resumed motion while a mover was still within the safety envelope, leading to impact."
+   },
+   {
+    "assumption": "VO planner or predictive speed will always produce a safe command when a mover is within _SAFE_DIST.",
+    "holds": false,
+    "why": "VO and predictive speed failed to generate avoidance when the mover was very close and the robot was stationary."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "raw_ttc_stop (early binary pause)",
+    "turns": "18",
+    "result": "7 attempts, 4 passes"
+   },
+   {
+    "family": "predictive_speed / TTC scaling",
+    "turns": "2‑17 (most turns)",
+    "result": "≈15 attempts, 9 passes"
+   },
+   {
+    "family": "velocity‑obstacle (VO) planner",
+    "turns": "5‑17",
+    "result": "≈13 attempts, 27 passes (overall best performer but still misses side collisions)"
+   },
+   {
+    "family": "potential‑field avoidance",
+    "turns": "11",
+    "result": "7 attempts, 4 passes"
+   },
+   {
+    "family": "dynamic‑window approach (DWA)",
+    "turns": "12",
+    "result": "5 attempts, 2 passes"
+   },
+   {
+    "family": "vector‑field histogram (VFH)",
+    "turns": "13",
+    "result": "3 attempts, 0 passes"
+   },
+   {
+    "family": "A* re‑planning with dynamic grid",
+    "turns": "16",
+    "result": "3 attempts, 0 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Add a continuous danger‑envelope monitor that, when a pause is active, keeps the robot stopped and rotates in place away from any mover still inside a critical radius (e.g., 0.8 m).",
+    "new_family": true,
+    "for": "collisions while robot is stationary and movers approach from the side",
+    "risk": "May increase time‑to‑goal if rot‑ate‑away is over‑used; must ensure rotation does not violate static map."
+   },
+   {
+    "idea": "Implement a simple angular‑sector gap finder each step (sample 5° sectors, pick the widest gap free of unmapped points and tracked movers) and steer toward that gap while still heading to the waypoint.",
+    "new_family": true,
+    "for": "cases where VFH failed due to coarse binning",
+    "risk": "Might produce jerky steering if gap changes rapidly; needs smoothing."
+   },
+   {
+    "idea": "Introduce a Kalman‑filter based track estimator that predicts future mover positions and generates a lateral detour waypoint using linear extrapolation, independent of VO.",
+    "new_family": true,
+    "for": "improving prediction accuracy for small, fast‑moving boxes",
+    "risk": "Adds computational overhead and requires tuning of process noise."
+   }
+  ],
+  "chosen": "Candidate 1 – continuous danger‑envelope monitoring with in‑place rotation, because it directly addresses the observed collisions while the robot is stopped.",
+  "target": "controller logic and a new _evade_rotate helper (plus new state flags in st)",
+  "direction": "1. After _perceive, compute M and call _raw_ttc_stop as before; if it returns a pause, set st[\"evade_mode\"] = True and st[\"evade_until\"] = t + 0.5. 2. While st[\"evade_mode\"] is True, call a new function _evade_rotate(st, pose, M) that finds the nearest mover inside a critical radius (e.g., 0.8 m) and returns (v=0, w) with w = ±1.0 rad/s to rotate away from the mover. 3. Keep rotating until either no mover is within the critical radius or a timeout (e.g., 3 s) expires, then clear st[\"evade_mode\"] and resume normal waypoint/VO logic. 4. Ensure _evade_rotate checks _map_free and _lidar_clear so the robot does not rotate into a wall. 5. Update _guard to accept zero‑velocity commands from _evade_rotate without overriding them. 6. Reset st[\"pause_until\"] only after evasion completes, preventing premature resumption.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단은 로봇이 멈춰 있을 때 옆이나 뒤에서 다가온 물체에 받히는 충돌을 지적했고, 이번 수정은 그 \"chosen\" 후보(danger-envelope 감시와 제자리 회전)를 그대로 따릅니다. `_raw_ttc_stop` 이 걸리면 단순히 멈추는 대신 `evade_mode` 에 들어가고(`evade_until = t + 0.5`), 새 함수 `_evade_rotate` 가 0.8 m 안의 물체(비지도 라이다 점과 트랙 모두)에서 몸체가 멀어지는 쪽으로 ±1.0 rad/s 제자리 회전합니다. 회전 방향은 `_map_free`, `_traj_static_ok`, `_sweep_clear`(회전용 라이다 검사)로 벽과 박스 쪽이 아닌지 확인합니다. 어느 쪽으로 돌아도 간격이 늘지 않고 물체가 계속 다가오면, `_lidar_clear` 로 검사한 짧은 후진/전진(`_px_backup_cmd`)을 대안으로 씁니다. 0.8 m 안이 비거나 3 s 가 지나면 회피를 끝내고, 그때에만 `pause_until` 과 VO 타이머를 초기화합니다(지시 6). `_guard` 는 `evade=True` 일 때 속도 0인 회전 명령을 덮어쓰지 않습니다(지시 5).",
+   "changed": [
+    "_EVADE_ANG",
+    "_EVADE_GRACE",
+    "_EVADE_MAX_T",
+    "_EVADE_MIN_T",
+    "_EVADE_R",
+    "_EVADE_W",
+    "_body_dist_rot",
+    "_evade_rotate",
+    "_guard",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "_perceive 와 M 계산 뒤 _raw_ttc_stop 을 부르고, pause 가 나오면 evade_mode=True, evade_until=t+0.5 로 둔다",
+      "implemented": true,
+      "note": "controller 1b 에서 구현. evade_until=max(evade_until, t+_EVADE_MIN_T=0.5). 다만 타임아웃 뒤 _EVADE_GRACE 0.5 s 동안은 pause 가 와도 evade 에 들어가지 않는다(추가 동작)."
+     },
+     {
+      "instruction": "evade_mode 동안 _evade_rotate 가 0.8 m 안의 가장 가까운 물체를 찾아 (v=0, w=±1.0) 으로 물체에서 멀어지게 돈다",
+      "implemented": true,
+      "note": "_EVADE_R=0.8, _EVADE_W=1.0 이고 v=0 회전이다. 방향은 회전 뒤 몸체-점 거리와 트랙 margin 점수로 고른다. 회전이 도움이 안 되고 물체가 다가오면 짧게 후진·전진(v≠0)하는 대안이 추가되어 있다."
+     },
+     {
+      "instruction": "0.8 m 안이 비거나 3 s 타임아웃이 되면 evade_mode 를 끄고 일반 경유점/VO 로 돌아간다",
+      "implemented": true,
+      "note": "timed_out(_EVADE_MAX_T=3.0) 또는 danger>_EVADE_R 이면 해제한다. 단, 해제는 evade_until 과 pause_until 이 지난 뒤에만 한다."
+     },
+     {
+      "instruction": "_evade_rotate 가 _map_free 와 _lidar_clear 로 벽 쪽 회전을 막는다",
+      "implemented": true,
+      "note": "_traj_static_ok 와 뒤쪽 원 _map_free 를 쓴다. _lidar_clear 는 v=0 이면 항상 True 라서 회전에는 _sweep_clear 를 쓰고, _lidar_clear 는 후진 대안에만 쓴다."
+     },
+     {
+      "instruction": "_guard 가 _evade_rotate 의 속도 0 명령을 덮어쓰지 않는다",
+      "implemented": true,
+      "note": "_guard(evade=True) 에서 |v|<1e-3 이면 (0, w) 를 그대로 돌려준다."
+     },
+     {
+      "instruction": "pause_until 은 회피가 끝난 뒤에만 초기화한다",
+      "implemented": true,
+      "note": "evade 해제 분기에서만 pause_until=-1 로 둔다. evade 중에는 return 하므로 VO 블록의 초기화에 닿지 않는다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "진단은 물체 점이 3개 미만이라 _raw_ttc_stop 이 걸리지 않았다고 보면서도, evade 진입을 같은 _raw_ttc_stop(_TTC_MIN_PTS=3) 에만 맡긴다. 그래서 감지 누락 문제는 그대로 남는다.",
+     "0.8 m 안에서 0.5 rad 제자리 회전으로 몸체가 비켜나는 거리는 작다. 0.4~2 m/s 로 옆에서 오는 물체를 피하기에는 부족할 수 있다.",
+     "evidence 의 충돌 위치 [-0.14, 0.57], [-0.89, 0.42] 는 로봇 기준 옆·뒤로 보이며, 이 경우 회전하면 몸체 뒤쪽이 물체 쪽으로 휩쓸 수 있다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단은 로봇이 멈춰 있을 때 옆이나 뒤에서 다가온 물체에 받히는 충돌을 지적했고, 이번 수정은 그 \"chosen\" 후보(danger-envelope 감시와 제자리 회전)를 그대로 따릅니다. `_raw_ttc_stop` 이 걸리면 단순히 멈추는 대신 `evade_mode` 에 들어가고(`evade_until = t + 0.5`), 새 함수 `_evade_rotate` 가 0.8 m 안의 물체(비지도 라이다 점과 트랙 모두)에서 몸체가 멀어지는 쪽으로 ±1.0 rad/s 제자리 회전합니다. 회전 방향은 `_map_free`, `_traj_static_ok`, `_sweep_clear`(회전용 라이다 검사)로 벽과 박스 쪽이 아닌지 확인합니다. 어느 쪽으로 돌아도 간격이 늘지 않고 물체가 계속 다가오면, `_lidar_clear` 로 검사한 짧은 후진/전진(`_px_backup_cmd`)을 대안으로 씁니다. 0.8 m 안이 비거나 3 s 가 지나면 회피를 끝내고, 그때에만 `pause_until` 과 VO 타이머를 초기화합니다(지시 6). `_guard` 는 `evade=True` 일 때 속도 0인 회전 명령을 덮어쓰지 않습니다(지시 5).",
+ "budget_s": 600.0,
+ "seeds": [
+  1490911495,
+  1986612167,
+  2021604535,
+  1618036638
+ ],
+ "sim_used_s": 133.1,
+ "verdicts": {
+  "1490911495": "fail",
+  "1986612167": "fail",
+  "2021604535": "pass",
+  "1618036638": "fail"
+ },
+ "passes": 1,
+ "prior_chars": 17122,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t19_s1490911495: 회전 후 0.17 m/s 전진 중 충돌 (t=12.6 s)",
+   "c5t19_s1986612167: 회전 후 0.18 m/s 전진 중 충돌 (t=9.4 s)",
+   "c5t19_s1618036638: 정지 상태에서 측면 물체와 충돌 (t=7.117 s)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "제자리 회전만으로 위험 거리(_EVADE_R) 를 확보할 수 있다",
+    "holds": false,
+    "why": "회전 후에도 물체가 0.8 m 안에 남아 있어 재진입 시 충돌 발생"
+   },
+   {
+    "assumption": "_raw_ttc_stop 이 물체를 충분히 빨리 감지한다",
+    "holds": false,
+    "why": "첫 비지도 점이 2 m 이내에 보였지만 회전 시작이 늦어 충돌이 일어남"
+   },
+   {
+    "assumption": "정지·회전 구간에서 물체가 로봇에 접근하면 pause_until 만료 후 재진입하지 않는다",
+    "holds": false,
+    "why": "정지 상태에서 물체가 측면에서 접근해 충돌이 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "pause+rotate",
+    "turns": "0,1,2",
+    "result": "6/13"
+   },
+   {
+    "family": "detour side",
+    "turns": "3,4,5,6,15",
+    "result": "8/23"
+   },
+   {
+    "family": "VO planner",
+    "turns": "5,8,12,14,17,18",
+    "result": "22/40"
+   },
+   {
+    "family": "potential field",
+    "turns": "11",
+    "result": "4/7"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "VO 기반 회피 모드: raw_ttc_stop 이 트리거될 때 _vo_planner 를 strict 모드로 호출해 안전한 (v,w) 를 바로 실행",
+    "new_family": true,
+    "for": "회전만으로는 거리 확보가 부족한 상황을 실시간 속도·회전 명령으로 대체",
+    "risk": "VO 플래너가 후보를 찾지 못하면 멈춤이 길어질 수 있음"
+   },
+   {
+    "idea": "측면 후진 회피: 회전 후에도 _min_gap 가 _EVADE_R 이하이면 _px_backup_cmd 로 옆으로 후진하거나 측면 이동",
+    "new_family": true,
+    "for": "측면에서 접근하는 물체를 회전으로 피하기 어려운 경우에 사용",
+    "risk": "후진·측면 이동 중 정적 장애물과 충돌 위험"
+   },
+   {
+    "idea": "혼합 회전·VO·후진: 회전 시도 후 VO 가 실패하면 즉시 측면 후진을 수행",
+    "new_family": true,
+    "for": "다중 회피 수단을 순차적으로 적용해 회피 실패를 최소화",
+    "risk": "복잡한 상태 관리와 타이머 충돌 가능"
+   }
+  ],
+  "chosen": "VO 기반 회피 모드 를 선택한다 – 회전 대신 VO 플래너가 바로 안전한 속도·회전 명령을 제공한다.",
+  "target": "controller 내부 evasion 로직 및 _evade_rotate 함수",
+  "direction": "1) _raw_ttc_stop 가 pause 를 반환하면 st[\"evade_mode\"] 를 True 로 설정하고, 기존 _evade_rotate 호출을 _vo_planner(st, pose, wp, M, strict=True) 로 교체한다. 2) _vo_planner 로부터 (v,w) 가 반환되면 _guard(st, pose, M, v, w, evade=True) 로 최종 검증 후 바로 반환한다. 3) VO 가 후보를 찾지 못할 경우 기존 _evade_rotate 로 회전 백업을 수행한다. 4) evasion 종료 조건은 위험 물체 거리 > _EVADE_R 이거나 evasion 타임아웃(_EVADE_MAX_T) 이 지나면 evasion 모드를 해제한다. 5) st[\"evade_until\"] 를 VO 가 사용한 경우 현재 시각 + _EVADE_MAX_T 로 설정하고, pause_until 를 VO 성공 시 0 으로 초기화한다. 6) _guard 은 evade=True 일 때도 0 속도 명령을 억제하지 않도록 기존 로직을 유지한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c5t19_s1490911495",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 18.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.6,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.17m/s",
+   "partner_rel_xy": [
+    0.29,
+    0.49
+   ],
+   "closing_m_s": 0.68,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 9.43,
+   "goal_dist_m": 27.7339,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t19_s1986612167",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 581.4,
+   "sim_time_s": 15.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.4,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.18m/s",
+   "partner_rel_xy": [
+    0.21,
+    -0.62
+   ],
+   "closing_m_s": 0.62,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 4.45,
+   "goal_dist_m": 31.1557,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t19_s2021604535",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 566.0,
+   "sim_time_s": 86.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1735,
+   "time_to_goal_s": 79.7
+  },
+  {
+   "run": "c5t19_s1618036638",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 480.0,
+   "sim_time_s": 13.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 7.117,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.17,
+    -0.54
+   ],
+   "closing_m_s": 0.49,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 2.12,
+   "goal_dist_m": 28.9316,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 156 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.\" 반영, 검토 통과): 새 배치 5개 중 4개 pass, 1개 fail (시뮬 시간 합계 599 s / 한도 600 s)\n#3 이번 코드(진단 \"1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\\\"detour\\\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\\\"detour\\\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\\\"detour\\\"][0]-x, st[\\\"detour\\\"][1]-y) < 0.4`) `st[\\\"detour\\\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 593 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _predictive_speed(st, pose, tgt, v_nom, M) 를 추가해 _dynamic_pause 로 TTC를 구하고, (ttc/_HORIZON) 비율로 속도 비율을 계산한다. 2) controller에서 목표 선택 후, gap <= _SAFE_DIST 인 경우 기존 detour/pause 로직 대신 _predictive_speed 를 호출한다. 3) 반환된 속도가 None이면 기존 pause 로직을 실행하고, 속도가 있으면 v=vc, w=w_nom 로 반환한다. 4) _lidar_clear 검사를 속도에 적용해 앞에 장애물이 있으면 v를 0으로 만든다. 5) 기존 detour와 escape 로직은 fallback으로 남겨 두어 완전 차단 상황에 대비한다. 6) _SAFE_DIST 를 약간 늘려(1.7 m) 급격한 접근을 미리 감지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 506 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 286 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _perceive 안에서 lidar3d_points() 를 호출해 3D 포인트 클라우드를 얻는다. 2. 포인트를 x‑y 평면으로 투사하고 _drop_body 로 로봇 몸체를 제외한다. 3. 기존 2D 라이다와 결합해 하나의 점 집합 P 를 만든다. 4. P 로부터 정적 점을 _is_static_world 로 필터링하고, 남은 점을 기존 클러스터링 로직에 그대로 전달해 트랙을 업데이트한다. 5. _SAFE_DIST 검사를 P 기반으로 확장해 3 m까지 감지하도록 하고, pause_until 로직을 P 내 물체가 2 m 이내에 들어오면 즉시 정지하도록 수정한다. 6. VO 플래너와 predictive_speed 에도 새로운 P 를 입력해 더 긴 예측 거리와 정확한 lidar_strip 검사를 수행한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 432 s / 한도 600 s)\n#7 이번 코드(진단 \"1) _MAX_OBJECT_SPEED=2.0, _TTC_THRESHOLD=1.0 을 편집 영역 상단에 정의한다. 2) _ttc_stop_check(st, pose, raw) 를 추가해 각 비지도 라이다 점의 거리와 로봇 현재 속도(vm) 를 이용해 TTC=dist/(max(rel_speed,1e-3)+_MAX_OBJECT_SPEED) 를 계산하고, 최소 TTC가 _TTC_THRESHOLD 미만이면 st['pause_until']=max(st['pause_until'], t+0.5) 를 설정한다. 3) controller() 에서 _perceive() 뒤, _should_pause() 호출 전 _ttc_stop_check() 를 호출하고 True이면 0.0,0.0,False 를 반환한다. 4) 기존 _should_pause() 로직을 그대로 유지하되, pause_until 가 연장된 경우에도 정지 유지한다. 5) 필요 시 _mark_free() 가 pause_until 가 지나면 free_since 를 초기화하도록 유지한다. 6) 기존 VO·predictive·detour 로직은 pause 상태가 해제된 뒤에 그대로 동작한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 261 s / 한도 600 s)\n#8 이번 코드(진단 \"1) _ttc_stop_check 를 true/false 로만 반환하도록 수정하고, 정지 명령을 직접 내리지 않는다. 2) controller 에서 _ttc_stop_check 호출 후 true이면 _vo_planner 를 strict 모드로 호출한다. 3) VO 플래너가 유효한 (v,w) 를 반환하면 그 값을 사용하고, 반환이 없을 때만 기존 pause_until 로 정지한다. 4) pause_until 를 VO 플래너가 실패했을 때만 연장하도록 하고, 성공 시 초기화한다. 5) 기존 정지 로직을 유지하되, VO 회피가 가능한 경우 우선 적용한다. 6) 필요 시 _mark_free 로 이동 재개 시점을 관리한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 312 s / 한도 600 s)\n#9 이번 코드(진단 \"1) _perceive 뒤에 _unmapped_raw 로 현재 프레임의 비지도 점들을 얻는다. 2) 새 함수 _proximity_stop_and_backup(st, t, pose) 를 구현해, 점 중 거리 d<0.8 m 인 것이 있으면 로봇이 현재 전진 중이면 바로 정지하고 pause_until = t+2.0을 설정한다. 3) 로봇이 이미 정지 중이고 d<0.5 m이면 v=-0.4 m/s, w=0을 반환해 0.5 s 동안 후진하도록 하고, 이후 pause_until = t+2.0 로 유지한다. 4) controller 의 (2) _should_pause 전 단계에서 이 함수를 호출해 True이면 반환값을 바로 사용한다. 5) 기존 pause_until 로직은 이 새로운 정지·후진이 끝난 뒤에만 동작하도록 유지한다. 6) st['wait_start'] 와 st['free_since'] 를 적절히 초기화해 대기 후 정상 주행이 재개되도록 한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 37 s / 한도 600 s)\n#10 이번 코드(진단 \"1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\\\"pause_until\\\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 303 s / 한도 600 s)\n#11 이번 코드(진단 \"Add constants _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 and a helper _potential_field_avoidance(pose, raw, wp) that sums repulsive vectors from unmapped points (inverse distance weighting) and an attractive vector to wp, then returns a desired heading and speed factor; in controller, after _perceive replace the early‑stop and proximity‑stop calls with a call to _potential_field_avoidance, set v = min(v_nom, v_pf) and w = clamp(7.5*(desired_heading‑yaw), -0.6, 0.6), and only fall back to the existing VO planner if the potential‑field margin is negative; keep _guard for final safety checks; remove the 1 s binary pause logic or reduce it to a short debounce.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(진단 \"1. _DWA_HORIZON=2.0, _DWA_DT=0.1, _DWA_V_STEPS=5, _DWA_W_STEPS=7, _DWA_COST_WEIGHT={'margin':1.0,'speed':0.2,'turn':0.1} 등을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 _dwa_candidates(pose, vm) 를 추가해 허용 속도·회전 범위 내에서 (v,w) 조합을 샘플링한다. 3. 각 후보에 대해 _rollout 으로 _DWA_HORIZON 초 동안 궤적을 생성하고, _traj_margin 로 움직이는 물체와 정적 장애물에 대한 최소 마진을 계산한다. 4. 마진이 0 이상이고 _lidar_clear·_sweep_clear 가 통과하는 후보들에 대해 비용 = -margin + _DWA_COST_WEIGHT['speed']·(v_nom‑v)² + _DWA_COST_WEIGHT['turn']·|w| 로 평가한다. 5. 비용이 가장 낮은 후보를 선택하고, 선택된 (v,w) 가 없으면 (0,0) 로 정지한다. 6. 선택된 (v,w) 를 반환하기 전에 기존 _guard 로 최종 안전 검사를 수행한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 293 s / 한도 600 s)\n#13 이번 코드(진단 \"1. Add a function _vfh_histogram(pose, raw) that converts unmapped lidar points to polar bins (e.g., 5° resolution) and counts obstacles per bin. 2. Add _vfh_select_gap(hist) that finds the widest consecutive sequence of empty bins wider than the robot footprint plus safety margin and returns the central bearing. 3. In controller(), after _perceive() call _unmapped_raw() to get raw points and compute (hist, gap_bearing) via the new helpers. 4. If a gap exists, compute desired heading = yaw + gap_bearing and set w = _clamp(7.5*(desired_heading‑yaw), -_DWA_W_MAX, _DWA_W_MAX). 5. Compute v_nom from _follow() toward the waypoint, then limit v by _lidar_clear and by the distance to the nearest obstacle in that direction (e.g., v = min(v_nom, d_gap‑_R_ROBOT‑0.1)). 6. Run the final command through _guard() and return; otherwise, fall back to the original waypoint follower when no gap is found.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 436 s / 한도 600 s)\n#14 이번 코드(진단 \"1) controller 초기화에서 기존 st[\\\"pause_until\\\"], st[\\\"detour\\\"], st[\\\"vo_on\\\"] 등을 삭제하고, _perceive와 트랙 업데이트만 유지한다. 2) _perceive 후 M = _track_array(st, t) 를 얻고, _dynamic_pause(st, pose, M) 로 (pause, ttc) 를 계산한다. 3) pause>0이면 st[\\\"pause_until\\\"] = t + pause 를 설정하고 (0.0,0.0,False) 를 반환한다; pause가 0이면 바로 진행한다. 4) 현재 waypoint에 대해 _follow 로 v_nom, w_nom 을 구하고, _predictive_speed(st, pose, tgt, v_nom, M) 로 안전 속도 vc 를 얻는다. 5) vc가 None이면 vc=0.0으로 설정하고, w = w_nom 로 지정한 뒤 _guard(st, pose, M, vc, w) 로 최종 검증 후 반환한다. 6) VFH, VO, early‑stop, proximity‑stop 등 모든 호출을 코드에서 제거하거나 주석 처리한다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 428 s / 한도 600 s)\n#15 이번 코드(진단 \"1) controller 내부에서 pause가 활성화되고 현재 속도가 0일 때, _side_detour(pose, M) 를 호출해 가장 가까운 mover와 반대 방향으로 0.8 m 정도의 측면 목표점을 생성한다. 2) 해당 목표점이 _map_free와 _segment_free 로 정적 맵을 통과하면 (v, w) = _follow(pose, detour) 로 회피 명령을 반환한다. 3) 회피 중에는 _guard 로 최종 안전 검사를 수행해 라이다 스트립과 스윕 바디를 확인한다. 4) detour에 도달하면 st[\\\"detour\\\"] 를 None 으로 초기화하고 기존 waypoint 추적 로직으로 복귀한다. 5) pause_until 를 기존대로 유지하되, 회피가 진행 중일 때는 pause_until 를 연장하지 않는다. 6) 새로운 _side_detour 함수는 mover의 현재 위치와 속도를 이용해 lateral 방향을 결정하고, _map_free 로 이동 가능 여부를 검증한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 198 s / 한도 600 s)\n#16 이번 코드(진단 \"1) 편집 영역 상단에 `_PLAN_HORIZON = 3.0` 초와 `_GRID_RES = 0.2` m 를 정의한다. 2) `_build_dynamic_grid(st, pose, M)` 함수를 추가해 정적 장애물과 현재 트랙을 `_PLAN_HORIZON` 동안 외삽한 mover 위치를 2‑D 격자에 표시한다. 3) `_replan_path(pose, goal, grid)` 함수를 구현해 A* 로 새로운 웨이포인트 시퀀스를 반환한다. 4) `controller` 에서 `_perceive` 후, mover가 `_SAFE_DIST` 이내이면 `_build_dynamic_grid`와 `_replan_path` 를 호출해 `_WAYPOINTS` 를 교체하고 `st[\\\"detour\\\"]`·`st[\\\"pause_until\\\"]` 를 초기화한다. 5) 기존 `_follow` 와 `_guard` 로 첫 웨이포인트를 추적하면서 안전 검사를 수행한다. 6) 새 경로가 생성될 때마다 `st[\\\"idx\\\"]` 를 0 으로 재설정해 전체 경로를 다시 따라가게 한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 294 s / 한도 600 s)\n#17 이번 코드(진단 \"1. In controller(), after _perceive() compute M and check _min_gap(pose, M). 2. If the gap ≤ _SAFE_DIST, call _vo_planner(st, pose, wp, M) with strict=False. 3. If _vo_planner returns (v,w), set vc=v and w_nom=w, skip the A* replanning block entirely. 4. If VO returns None for more than 1.0 s, fall back to the existing A* replanner as a long‑term path generator. 5. When VO provides a command, still pass (vc,w) through _guard() for final safety checks. 6. Reset st[\\\"plan_until\\\"] and st[\\\"pause_until\\\"] appropriately when switching between VO and A* to avoid stale timers.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#18 이번 코드(진단 \"1. _raw_ttc_stop(st,t,pose) 를 추가해 _unmapped_raw 로 비지도 라이다 점들의 TTC 를 계산하고 1 s 미만이면 pause 시간을 반환한다. 2. controller() 에서 _perceive 후 바로 _raw_ttc_stop 를 호출하고, 반환값이 있으면 st['pause_until']=t+pause, return (0.0,0.0,False) 로 즉시 정지한다. 3. 기존 VO 블록은 pause_until 가 지나면 그대로 실행되도록 유지한다. 4. _dynamic_pause 를 기존 VO 블록 외부에서 사용하지 않으며, 필요 시 pause 종료 후 VO 가 재시도한다. 5. st['raw_ttc_active'] 플래그를 두어 정지 후 VO 재개 시 타이머를 초기화한다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 412 s / 한도 600 s)\n#19 이번 코드(진단 \"1. After _perceive, compute M and call _raw_ttc_stop as before; if it returns a pause, set st[\\\"evade_mode\\\"] = True and st[\\\"evade_until\\\"] = t + 0.5. 2. While st[\\\"evade_mode\\\"] is True, call a new function _evade_rotate(st, pose, M) that finds the nearest mover inside a critical radius (e.g., 0.8 m) and returns (v=0, w) with w = ±1.0 rad/s to rotate away from the mover. 3. Keep rotating until either no mover is within the critical radius or a timeout (e.g., 3 s) expires, then clear st[\\\"evade_mode\\\"] and resume normal waypoint/VO logic. 4. Ensure _evade_rotate checks _map_free and _lidar_clear so the robot does not rotate into a wall. 5. Update _guard to accept zero‑velocity commands from _evade_rotate without overriding them. 6. Reset st[\\\"pause_until\\\"] only after evasion completes, preventing premature resumption.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 133 s / 한도 600 s)",
+ "ended": "2026-11-17 12:44:53"
+}

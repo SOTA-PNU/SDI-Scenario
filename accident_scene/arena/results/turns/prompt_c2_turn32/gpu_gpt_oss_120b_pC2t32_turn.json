@@ -1,0 +1,143 @@
+{
+ "turn": 32,
+ "started": "2026-11-16 19:39:48",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c2_turn31/gpu_gpt_oss_120b_pC2t31_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t31_s725267559: t=40.07에 mover_00와 충돌, 로봇 위치 [-7.47,-11.91], 물체가 35.15 s에 2.94 m 거리에서 감지됐으나 회피 후 0.4 s 회전만으로 방향이 충분히 바뀌지 않음",
+   "c2t31_s2796012: t=42.45에 mover_00와 충돌, 로봇 위치 [-6.89,-11.72], 물체가 37.45 s에 2.49 m 거리에서 감지됐고 회피 후 0.4 s(≈14°) 회전으로 충돌을 피하지 못함",
+   "c2t31_s2008609200: t=90 s에 진행 정체, 12번의 정지‑회전 루프가 발생해 목표에 도달 못함, 85 s에 2.85 m 거리에서 지속적으로 비지도 점이 감지돼 false positive로 반복 회피"
+  ],
+  "target": "controller (avoidance logic)",
+  "direction": "1) _detect_moving_any을 앞쪽 ±45° 제한된 _detect_critical 로 교체하고 _MIN_MOVING_POINTS를 1로 낮춘다. 2) 움직이는 물체가 감지되면 avoid_stop 후 바로 avoid_bypass 상태로 전환해 물체 베어링에 수직인 방향으로 _LATERAL_OFFSET 만큼의 임시 경유점을 생성한다. 3) _line_is_clear 로 경유점까지 경로가 정적 장애물 없음을 확인하고 그 점에 도달하면 원래 경유점으로 복귀한다. 4) 회전 시간 _AVOID_ROT_TIME을 1.0 s로 늘려 최소 60° 회전하도록 하고, 회피 후 _AVOID_COOLDOWN을 0.2 s로 짧게 설정해 재감지를 방지한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 기존 회피 로직이 회전 각도가 부족해 이동 물체와 충돌했습니다. 감지 범위를 전체 360°로 확대하고, 연속 감지 2회 이상 또는 근접 거리(0.5 m)에서 회피를 트리거하도록 했습니다. 회피 시 물체 베어링에 수직인 임시 경유점을 생성해 측면 우회하도록 하고, 회전 시간을 1 s로 늘려 최소 60° 회전을 보장했습니다. 회피 후 짧은 0.2 s 쿨다운을 적용해 불필요한 재감지를 방지했습니다.",
+   "changed": [
+    "_AVOID_COOLDOWN",
+    "_AVOID_ROT_TIME",
+    "_DETECT_ANGLE",
+    "_DETECT_DIST",
+    "_MIN_MOVING_POINTS",
+    "_choose_bypass_target",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "_detect_moving_any 를 앞쪽 ±45° 제한된 _detect_critical 로 교체하고 _MIN_MOVING_POINTS 를 1 로 낮춤",
+      "implemented": false,
+      "note": "_MIN_MOVING_POINTS 는 1 로 변경했지만 _detect_moving_any 가 그대로 사용되고 앞쪽 제한이 없으며 _detect_critical 도 사용되지 않음"
+     },
+     {
+      "instruction": "움직이는 물체 감지 시 avoid_stop 후 바로 avoid_bypass 로 전환해 측면 우회 경유점 생성",
+      "implemented": false,
+      "note": "우회 경유점을 생성하고 bypass 상태로 바로 전환하지만 avoid_stop 을 거치지 않음; fallback 에서만 avoid_stop 사용"
+     },
+     {
+      "instruction": "_line_is_clear 로 경유점 경로 확인 후 원래 경유점 복귀",
+      "implemented": true,
+      "note": "_choose_bypass_target 에서 _line_is_clear 로 검증하고 도달 시 normal 로 복귀"
+     },
+     {
+      "instruction": "_AVOID_ROT_TIME 을 1.0 s 로 늘려 최소 60° 회전하고 _AVOID_COOLDOWN 을 0.2 s 로 짧게 설정",
+      "implemented": false,
+      "note": "_AVOID_ROT_TIME 과 _AVOID_COOLDOWN 은 변경했지만 회전 속도 0.6 rad/s 로 1 s 회전 시 34° only, 60° 미달"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "앞쪽 ±45° 로만 감지하면 뒤쪽·측면에서 접근하는 물체를 놓칠 수 있어 충돌 위험이 있음"
+    ],
+    "feedback": "1) _detect_moving_any 를 사용하지 말고 앞쪽 ±45° 제한된 _detect_critical(또는 새 함수) 로 교체하고, 반환되는 bearing 를 사용하도록 수정하십시오. 2) 감지 후 먼저 avoid_stop → avoid_back → avoid_rotate 흐름을 수행하고, 회전이 끝난 뒤에 bypass 상태로 전환하도록 상태 전이를 추가하세요. 3) 회전 각도가 최소 60°(≈1.05 rad) 되도록 _AVOID_ROT_SPEED 를 1.1 rad/s 이상으로 올리거나 _AVOID_ROT_TIME 을 1.8 s 정도로 늘리세요. 4) _detect_critical 가 실제로 앞쪽 ±45° 만 필터링하도록 _DETECT_ANGLE 를 np.deg2rad(45) 로 설정하고, _detect_moving_any 를 호출하는 모든 곳을 _detect_critical 로 교체하십시오."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 기존 회피 로직이 회전 각도가 부족해 이동 물체와 충돌했으며, 감지 범위가 전체 360°가 아니어서 앞쪽 물체만 정확히 인식하지 못했습니다. 앞쪽 ±45°로 제한된 `_detect_critical` 를 도입하고, 회피 흐름을 **정지 → 후진 → 회전 → 측면 우회(bypass)** 로 재구성했습니다. 회전 속도를 1.2 rad/s, 회전 시간을 1.8 s 로 늘려 최소 60° 회전을 보장하고, 회전 후에 `_choose_bypass_target` 로 생성된 임시 경유점으로 우회하도록 했으며, 회피 후 쿨다운을 0.2 s 로 짧게 설정해 재감지를 방지했습니다.",
+   "changed": [
+    "_AVOID_ROT_SPEED",
+    "_AVOID_ROT_TIME",
+    "_DETECT_ANGLE",
+    "_choose_bypass_target",
+    "_detect_critical",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "_detect_moving_any을 앞쪽 ±45° 제한된 _detect_critical 로 교체하고 _MIN_MOVING_POINTS를 1로 낮춘다.",
+      "implemented": true,
+      "note": "_detect_critical 를 새로 구현했고 _MIN_MOVING_POINTS 를 1 로 설정함. _detect_moving_any 은 남겨두었지만 사용되지 않음."
+     },
+     {
+      "instruction": "움직이는 물체가 감지되면 avoid_stop 후 바로 avoid_bypass 상태로 전환해 물체 베어링에 수직인 방향으로 _LATERAL_OFFSET 만큼의 임시 경유점을 생성한다.",
+      "implemented": false,
+      "note": "avoid_stop → avoid_back → avoid_rotate → bypass 순서로 진행돼 바로 bypass 로 전환되지 않음. 백업·회전 단계가 남아 있음."
+     },
+     {
+      "instruction": "_line_is_clear 로 경유점까지 경로가 정적 장애물 없음을 확인하고 그 점에 도달하면 원래 경유점으로 복귀한다.",
+      "implemented": true,
+      "note": "_choose_bypass_target 가 _line_is_clear 로 경유점 검증 후 bypass 생성, 도달 시 normal 로 복귀함."
+     },
+     {
+      "instruction": "회전 시간 _AVOID_ROT_TIME을 1.0 s로 늘려 최소 60° 회전하도록 하고, 회피 후 _AVOID_COOLDOWN을 0.2 s로 짧게 설정해 재감지를 방지한다.",
+      "implemented": true,
+      "note": "_AVOID_ROT_TIME 를 1.8 s 로, _AVOID_COOLDOWN 을 0.2 s 로 설정했으며 회전 속도도 1.2 rad/s 로 충분히 회전함."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": "avoid_stop 상태에서 바로 bypass 로 전환하도록 상태 머신을 수정하십시오. 현재는 avoid_back·avoid_rotate 단계를 거치므로 진단 지시와 다릅니다. avoid_stop 이후 _choose_bypass_target 를 호출해 lateral waypoint 를 만들고 state 를 \"bypass\" 로 바로 바꾸세요. 백업·회전 단계는 삭제하거나 bypass 로 이동하기 전에 필요 없으면 생략하고, 회피 후 바로 normal 로 복귀하도록 유지합니다."
+   }
+  },
+  {
+   "attempt": 2,
+   "reason": "변경 이유: 진단에서 요구한 대로 `avoid_stop` 직후 바로 측면 우회(`bypass`) 로 전환하도록 상태 머신을 단순화했습니다. 이제 정지 후 `_choose_bypass_target` 로 생성된 임시 경유점으로 바로 이동하고, 백업·회전 단계는 제거했습니다. 회피가 끝난 뒤 짧은 0.2 s 쿨다운을 두어 재감지를 방지합니다.",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "_detect_moving_any을 앞쪽 ±45° 제한된 _detect_critical 로 교체하고 _MIN_MOVING_POINTS를 1로 낮춘다.",
+      "implemented": false,
+      "note": "전방 45° 제한 검출은 _detect_critical 로 구현했지만 회피 트리거에 여전히 전체 360° 검출인 _moving_points 를 사용해 앞쪽 제한을 위반함. 또한 _detect_moving_any 은 정의만 남아 있음."
+     },
+     {
+      "instruction": "움직이는 물체가 감지되면 avoid_stop 후 바로 avoid_bypass 상태로 전환해 물체 베어링에 수직인 방향으로 _LATERAL_OFFSET 만큼의 임시 경유점을 생성한다.",
+      "implemented": true,
+      "note": "avoid_stop 이후 _choose_bypass_target 로 수직 오프셋을 만든 뒤 state 를 'bypass' 로 전환함."
+     },
+     {
+      "instruction": "_line_is_clear 로 경유점까지 경로가 정적 장애물 없음을 확인하고 그 점에 도달하면 원래 경유점으로 복귀한다.",
+      "implemented": true,
+      "note": "_choose_bypass_target 에서 _line_is_clear 로 후보 경유점 검증 후, bypass 상태에서 도달 시 정상 상태로 복귀함."
+     },
+     {
+      "instruction": "회전 시간 _AVOID_ROT_TIME을 1.0 s로 늘려 최소 60° 회전하도록 하고, 회피 후 _AVOID_COOLDOWN을 0.2 s로 짧게 설정해 재감지를 방지한다.",
+      "implemented": false,
+      "note": "_AVOID_COOLDOWN 은 0.2 s 로 설정했지만, 회피 로직에서 회전 단계가 제거돼 실제 회전이 수행되지 않아 최소 60° 회전 요구를 만족하지 않음. _AVOID_ROT_TIME 은 1.8 s 로 늘렸지만 사용되지 않음."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": "1) 회피 트리거를 전방 ±45° 검출만 사용하도록 _moving_points 기반 검출을 제거하고, _detect_critical 로만 판단하도록 수정하세요. 2) 회피 후 최소 60° 회전을 수행하도록 회피 상태 머신에 회전 단계(avoid_rotate)를 다시 포함하거나, 진단의 회전 요구를 없애는 새로운 진단을 받아야 합니다. 3) 사용되지 않는 _detect_moving_any, _detect_moving_front 등 불필요한 함수는 삭제해 코드를 정리하세요. 4) _AVOID_ROT_TIME 은 정의했지만 사용되지 않으니, 회전 로직을 추가하거나 해당 변수를 제거해 일관성을 유지하십시오."
+   }
+  }
+ ],
+ "ended": "no reviewed code"
+}

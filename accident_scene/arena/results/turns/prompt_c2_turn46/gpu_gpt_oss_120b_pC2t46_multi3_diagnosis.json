@@ -1,0 +1,197 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t46_s374614591: 충돌 t=12.833, 로봇 제자리 회전 중, first_not_on_map 0.92 m at t=7.83, TTC 계산 후에도 속도 감소 없음",
+   "run c2t46_s1990289005: 충돌 t=6.65, 로봇 제자리 회전 중, first_not_on_map 1.49 m at t=1.72, TTC 작지만 speed_factor 가 1.0으로 전진 유지",
+   "run c2t46_s1118711522: 진행 정지 t=98.4, stop_turn_episodes 45회, TTC 낮아도 속도 감소 없고 회전 루프 지속"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D 라이다 2 m 이내에서 움직이는 물체를 모두 탐지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 0.92 m·1.49 m 등 2 m 이내에서 감지됨"
+   },
+   {
+    "assumption": "TTC 계산이 정확하면 속도를 감소시켜 충돌을 피한다",
+    "holds": false,
+    "why": "speed_factor 식이 역전돼 TTC 작을수록 속도가 감소하지 않아 충돌 발생"
+   },
+   {
+    "assumption": "임계 거리(_CRITICAL_DIST) 안에서 정지·회전 0.5 s이면 물체를 피할 수 있다",
+    "holds": false,
+    "why": "두 번의 충돌 모두 로봇이 회전 중이었고 물체와 충돌"
+   },
+   {
+    "assumption": "repulsion·escape 벡터와 waypoint 방향을 합치면 충분히 회피한다",
+    "holds": false,
+    "why": "충돌 시 waypoint 방향이 여전히 앞을 가리켜 회피가 미흡"
+   },
+   {
+    "assumption": "최대 전진 속도 0.8 m/s가 감지 범위와 물체 속도에 안전하다",
+    "holds": false,
+    "why": "물체가 가까워질 때도 속도가 감소하지 않아 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지·회전 (critical stop & rotate)",
+    "turns": [
+     1,
+     2,
+     4,
+     5,
+     6
+    ],
+    "result": "5 시도, 13 통과"
+   },
+   {
+    "family": "탐지 범위 확대 + 정지·회전",
+    "turns": [
+     4,
+     6,
+     9,
+     10,
+     11,
+     12,
+     14,
+     16,
+     17,
+     20,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28
+    ],
+    "result": "17 시도, 3 통과"
+   },
+   {
+    "family": "상태머신 (avoid_wait / back / rotate / bypass)",
+    "turns": [
+     8,
+     13,
+     18,
+     19,
+     21,
+     30,
+     31,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     41,
+     42,
+     43,
+     44
+    ],
+    "result": "18 시도, 8 통과"
+   },
+   {
+    "family": "TTC 기반 속도 스케일링 + repulsion (state‑free)",
+    "turns": [
+     45,
+     46
+    ],
+    "result": "2 시도, 0 통과"
+   },
+   {
+    "family": "RVO/속도 후보 샘플링",
+    "turns": [
+     42
+    ],
+    "result": "1 시도, 0 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "speed_factor 를 ttc/_TTC_THRESH 로 바꿔 TTC 작을수록 속도를 감소시키고, ttc < 0.5*_TTC_THRESH 일 때 v=0 로 완전 정지",
+    "new_family": false,
+    "for": "현재 속도 스케일링이 역전돼 충돌이 발생함을 바로 잡는다",
+    "risk": "너무 낮은 속도로 인해 진행 정체가 늘어날 수 있음"
+   },
+   {
+    "idea": "TTC 가 임계 이하이면 _compute_bypass_target 로 2 m 측면 회피 경유점을 생성하고, 그 점까지 이동 후 원래 경로 복귀",
+    "new_family": true,
+    "for": "충돌 위험이 높은 물체를 회전만으로는 피하기 어려워 명시적인 회피 경로를 제공한다",
+    "risk": "정적 장애물에 막히면 경유점 생성에 실패해 우회가 불가능할 수 있다"
+   },
+   {
+    "idea": "3D 라이다 클러스터링으로 움직이는 물체를 구분하고, velocity‑obstacle (RVO) 샘플링으로 안전 속도를 선택한다",
+    "new_family": true,
+    "for": "2D 라이다만으로는 물체 식별이 불완전하므로 높이 정보를 활용해 더 정확한 회피를 가능하게 한다",
+    "risk": "계산량 증가와 클러스터링 파라미터 튜닝이 필요해 실시간 성능이 저하될 수 있다"
+   }
+  ],
+  "chosen": "speed_factor 를 ttc/_TTC_THRESH 로 수정해 TTC 감소 시 속도를 낮추는 것이 가장 직접적이며 현재 충돌 원인을 해결한다",
+  "target": "controller 내부 속도 스케일링 로직 (speed_factor 계산 및 v 설정)",
+  "direction": "1) _min_ttc 로부터 얻은 ttc 값을 사용한다. 2) speed_factor = max(0.0, min(1.0, ttc / _TTC_THRESH)) 로 계산한다. 3) v = max(_LOW_SPEED_MIN, _MAX_SPEED * speed_factor) * max(0, math.cos(yaw_err)) 로 설정한다. 4) ttc 가 0.5*_TTC_THRESH 이하이면 v=0 로 강제 정지한다. 5) 기존 _detect_critical 로의 회전 로직은 그대로 유지한다. 6) 코드 변경 후 시뮬레이션을 재검증한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t46_s374614591: 충돌 t=12.833, 로봇 제자리 회전 중, first_not_on_map 0.92 m at t=7.83, TTC 계산 후에도 속도 감소 없음\",\n    \"run c2t46_s1990289005: 충돌 t=6.65, 로봇 제자리 회전 중, first_not_on_map 1.49 m at t=1.72, TTC 작지만 speed_factor 가 1.0으로 전진 유지\",\n    \"run c2t46_s1118711522: 진행 정지 t=98.4, stop_turn_episodes 45회, TTC 낮아도 속도 감소 없고 회전 루프 지속\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D 라이다 2 m 이내에서 움직이는 물체를 모두 탐지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록이 0.92 m·1.49 m 등 2 m 이내에서 감지됨\"\n    },\n    {\n      \"assumption\": \"TTC 계산이 정확하면 속도를 감소시켜 충돌을 피한다\",\n      \"holds\": false,\n      \"why\": \"speed_factor 식이 역전돼 TTC 작을수록 속도가 감소하지 않아 충돌 발생\"\n    },\n    {\n      \"assumption\": \"임계 거리(_CRITICAL_DIST) 안에서 정지·회전 0.5 s이면 물체를 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"두 번의 충돌 모두 로봇이 회전 중이었고 물체와 충돌\"\n    },\n    {\n      \"assumption\": \"repulsion·escape 벡터와 waypoint 방향을 합치면 충분히 회피한다\",\n      \"holds\": false,\n      \"why\": \"충돌 시 waypoint 방향이 여전히 앞을 가리켜 회피가 미흡\"\n    },\n    {\n      \"assumption\": \"최대 전진 속도 0.8 m/s가 감지 범위와 물체 속도에 안전하다\",\n      \"holds\": false,\n      \"why\": \"물체가 가까워질 때도 속도가 감소하지 않아 충돌\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"단순 정지·회전 (critical stop & rotate)\",\n      \"turns\": [1, 2, 4, 5, 6],\n      \"result\": \"5 시도, 13 통과\"\n    },\n    {\n      \"family\": \"탐지 범위 확대 + 정지·회전\",\n      \"turns\": [4, 6, 9, 10, 11, 12, 14, 16, 17, 20, 22, 23, 24, 25, 26, 27, 28],\n      \"result\": \"17 시도, 3 통과\"\n    },\n    {\n      \"family\": \"상태머신 (avoid_wait / back / rotate / bypass)\",\n      \"turns\": [8, 13, 18, 19, 21, 30, 31, 33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44],\n      \"result\": \"18 시도, 8 통과\"\n    },\n    {\n      \"family\": \"TTC 기반 속도 스케일링 + repulsion (state‑free)\",\n      \"turns\": [45, 46],\n      \"result\": \"2 시도, 0 통과\"\n    },\n    {\n      \"family\": \"RVO/속도 후보 샘플링\",\n      \"turns\": [42],\n      \"result\": \"1 시도, 0 통과\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"speed_factor 를 ttc/_TTC_THRESH 로 바꿔 TTC 작을수록 속도를 감소시키고, ttc < 0.5*_TTC_THRESH 일 때 v=0 로 완전 정지\",\n      \"new_family\": false,\n      \"for\": \"현재 속도 스케일링이 역전돼 충돌이 발생함을 바로 잡는다\",\n      \"risk\": \"너무 낮은 속도로 인해 진행 정체가 늘어날 수 있음\"\n    },\n    {\n      \"idea\": \"TTC 가 임계 이하이면 _compute_bypass_target 로 2 m 측면 회피 경유점을 생성하고, 그 점까지 이동 후 원래 경로 복귀\",\n      \"new_family\": true,\n      \"for\": \"충돌 위험이 높은 물체를 회전만으로는 피하기 어려워 명시적인 회피 경로를 제공한다\",\n      \"risk\": \"정적 장애물에 막히면 경유점 생성에 실패해 우회가 불가능할 수 있다\"\n    },\n    {\n      \"idea\": \"3D 라이다 클러스터링으로 움직이는 물체를 구분하고, velocity‑obstacle (RVO) 샘플링으로 안전 속도를 선택한다\",\n      \"new_family\": true,\n      \"for\": \"2D 라이다만으로는 물체 식별이 불완전하므로 높이 정보를 활용해 더 정확한 회피를 가능하게 한다\",\n      \"risk\": \"계산량 증가와 클러스터링 파라미터 튜닝이 필요해 실시간 성능이 저하될 수 있다\"\n    }\n  ],\n  \"chosen\": \"speed_factor 를 ttc/_TTC_THRESH 로 수정해 TTC 감소 시 속도를 낮추는 것이 가장 직접적이며 현재 충돌 원인을 해결한다\",\n  \"target\": \"controller 내부 속도 스케일링 로직 (speed_factor 계산 및 v 설정)\",\n  \"direction\": \"1) _min_ttc 로부터 얻은 ttc 값을 사용한다. 2) speed_factor = max(0.0, min(1.0, ttc / _TTC_THRESH)) 로 계산한다. 3) v = max(_LOW_SPEED_MIN, _MAX_SPEED * speed_factor) * max(0, math.cos(yaw_err)) 로 설정한다. 4) ttc 가 0.5*_TTC_THRESH 이하이면 v=0 로 강제 정지한다. 5) 기존 _detect_critical 로의 회전 로직은 그대로 유지한다. 6) 코드 변경 후 시뮬레이션을 재검증한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t46_s374614591",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.833,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +1.2rad/s",
+   "partner_rel_xy": [
+    -0.52,
+    0.64
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 7.83,
+   "goal_dist_m": 30.2144,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t46_s1990289005",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 6.65,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -1.2rad/s",
+   "partner_rel_xy": [
+    0.1,
+    -0.68
+   ],
+   "closing_m_s": 0.28,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 1.72,
+   "goal_dist_m": 29.9326,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t46_s1118711522",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 98.4,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 45,
+   "first_seen_within_2m_t": 93.45,
+   "goal_dist_m": 30.3249,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

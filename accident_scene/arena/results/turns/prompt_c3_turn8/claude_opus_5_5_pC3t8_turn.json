@@ -1,0 +1,437 @@
+{
+ "turn": 8,
+ "started": "2026-11-17 00:55:58",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c3_turn7/claude_opus_5_5_pC3t7_block.py",
+ "diagnosis_in": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "9개 배치가 모두 pass 했지만 sim_time 이 51.9–76.2 s(평균 약 66.8 s)라 합계 601 s 에서 예산이 끝났습니다. 9번째 s1854734742 는 time_limit 68.4 s 에 69.0 s 를 써서 10번째 배치는 돌지 못했습니다.",
+   "도착이 늦은 실행일수록 정지 시간이 깁니다. s957620606 은 t_stop 2.1 s 로 48.97 s 에 도착했고, s210528907 은 t_stop 19.6 s 로 73.18 s, s138025367 은 t_stop 19.1 s 로 70.17 s 에 도착했습니다. 정지의 일부는 회전(w≥0.9) 직후 박스 08 모서리에서 약 0.55 m 떨어진 같은 자리 (2.47~2.53, 13.81~13.93) 에 생긴 미성숙 유령 트랙 때문입니다. s1214486983 t=43.48, s1799584805 t=49.98, s138025367 t=53.48, s415373947 t=42.48, s210528907 t=54.98 에서 모두 fix(0.0) 이 선택됐습니다.",
+   "모서리마다 속도가 크게 떨어집니다(s2108275793 t=42.48–43.48 v0 0.59→0.16→1.15). 끝부분도 9개 실행 모두 같은 형태로 time_to_goal 뒤 약 3 s 를 더 씁니다: 0.46 m/s 까지 감속하는 데 약 1.5 s, 제자리 정렬 회전에 1.1 s 입니다(예: s2108275793 58.55→61.5 s)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "안전 규칙만 지키면 경유점 주행 시간이 60 s 예산 안에 들어간다",
+    "holds": false,
+    "why": "경로 약 44 m 를 1.2 m/s 로 달리면 모서리 손실을 빼고도 약 43 s 입니다. 실측 대기·감속(t_stop 2–20 s, t_slow 11–19 s)을 더하면 평균 66.8 s 가 됩니다."
+   },
+   {
+    "assumption": "0.4 m 마스크로 정적 구조물 유령 트랙이 충분히 걸러진다",
+    "holds": false,
+    "why": "회전 중 스캔이 번져 박스 모서리에서 0.5–0.56 m 떨어진 (2.47,13.86), (3.05,11.98), (-0.68,10.45) 에 미성숙 트랙이 반복해 생기고 정지·감속을 일으킵니다."
+   },
+   {
+    "assumption": "모서리마다 감속·제자리 회전하고 끝에서 d<0.5·|yaw|<0.1 까지 맞춰도 시간 손실이 작다",
+    "holds": false,
+    "why": "합격 허용치는 0.75 m·0.26 rad 입니다. 그런데 모든 실행이 도착 뒤 약 3 s 를 더 쓰고, 모서리마다 v0 가 0.1–0.6 까지 떨어집니다."
+   },
+   {
+    "assumption": "등속+관측 구간 반사 예측과 0.8 m 여유로 충돌을 막을 수 있다",
+    "holds": true,
+    "why": "9개 배치 모두 충돌 0회입니다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "경유점만 주행(센서 없음)",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "전방 거리 정지·후퇴 반응형",
+    "turns": "1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙 추적+예측 rollout 후보 선택",
+    "turns": "2,3,6,7",
+    "result": "6/7, 6/9, 7/8, 9/9 이지만 매 턴 예산 초과로 턴 통과 0"
+   },
+   {
+    "family": "교차 통로 규칙·통과 래치",
+    "turns": "4,5",
+    "result": "0/3, 2/5"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "주행 기하 효율화: lookahead 로 모서리를 돌며 통과, 끝맺음 완화, 회전 중 먼 새 트랙 생성 금지",
+    "new_family": true,
+    "for": "안전 판단을 건드리지 않고 모서리 손실(코너당 약 1 s×5), 끝 꼬리(약 1.5 s), 유령 정지(실행당 1–2 s)를 줄입니다.",
+    "risk": "모서리를 0.3 m 정도 안쪽으로 자르므로 정적 여유가 줄고, 회전 중 처음 보인 먼 물체의 추적이 조금 늦어집니다."
+   },
+   {
+    "idea": "여유 간격을 τ 에 따라 키우기(0.15+0.1τ)와 후진 축소",
+    "new_family": false,
+    "for": "통로 앞 대기·후진(실행당 4–7 s)을 직접 줄입니다.",
+    "risk": "근거리 여유가 줄어 충돌이 다시 생길 수 있습니다. 지금까지 충돌을 막아 온 값입니다."
+   },
+   {
+    "idea": "주변에 트랙이 없을 때만 path(1.5) 고속 후보",
+    "new_family": false,
+    "for": "직선 16.6 m 구간 등에서 실행당 약 3–4 s 를 줄일 수 있습니다.",
+    "risk": "로봇 속도 상한이 1.5 m/s 에 못 미치면 효과가 없고, 늦게 보인 물체에 대한 제동 여유가 줄어듭니다."
+   }
+  ],
+  "chosen": "후보 1 에 조건부 고속(후보 3)을 더합니다. 충돌 0 인 안전 로직과 여유값은 그대로 두고 실행당 약 8–10 s 를 줄일 수 있기 때문입니다. 실패가 쌓인 rollout 계열 안의 선택이지만, 이번 실패는 안전이 아니라 시간입니다.",
+  "target": "_pursuit_cmd, controller(정렬·done·prim), _update_tracks",
+  "direction": "1) _pursuit_cmd 는 현재 선분 위 투영점에서 경유점 폴리라인을 따라 0.8 m 앞의 점을 추종합니다. 방향 오차가 1.2 rad 를 넘을 때만 제자리 회전하고, 0.35 rad 를 넘으면 v=vcap·cos(e), 다음 모서리까지 1.0 m 안이면 vcap≤0.7 로 둡니다. idx 는 투영점이 경유점을 지나면 올리며, _rollout 도 같은 함수를 씁니다. 2) 마지막 구간 감속은 min(vmax, 1.0·d+0.2) 로 바꿉니다. GOAL 0.6 m 안이면 정렬만 하고 0.7 m 밖으로 밀려날 때만 추종으로 돌아갑니다. 정렬 회전은 ±1.5 rad/s 로 하고 |yaw 오차|<0.2 이면 done 합니다. 3) prim 맨 앞에 path(1.5) 를 넣되, 모든 트랙이 로봇에서 3.5 m 밖이고 미성숙 트랙이 없을 때만 허용하며, 그 밖의 선택 규칙은 지금대로 둡니다. 4) _update_tracks 에서는 회전 속도가 0.6 rad/s 를 넘는 스캔의 경우 로봇에서 2.0 m 밖에 있는 짝 없는 덩어리로 새 트랙을 만들지 않습니다(2.0 m 안은 지금처럼 만듭니다). 5) 경유점 좌표, _MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측은 그대로 두고, 물체 위치·구간·속도·시각 상수는 넣지 않습니다. DBG 줄 끝에는 누적 제자리 회전 시간과 path(1.5) 시간을 덧붙입니다.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 9개 배치가 모두 충돌 없이 통과했지만 평균 66.8 s가 걸려 예산을 넘었으므로, 진단의 지시대로 안전 로직(_MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측, 선택 규칙)은 그대로 두고 주행 기하만 효율화했습니다. `_pursuit_cmd` 는 현재 선분의 투영점에서 폴리라인을 따라 0.8 m 앞의 점을 추종합니다. 1.2 rad 를 넘을 때만 제자리 회전하고, 모서리 1.0 m 안에서는 0.7 m/s 로 제한합니다. 끝 구간은 1.0·d+0.2 로 감속하고, 0.6/0.7 m 히스테리시스로 정렬하며, ±1.5 rad/s 로 돌아 |yaw|<0.2 에서 done 합니다(지시 1·2). 3.5 m 안에 트랙이 없고 미성숙 트랙도 없을 때만 path(1.5)를 맨 앞 후보로 허용합니다. 회전 중(>0.6 rad/s) 스캔에서는 2.0 m 밖의 짝 없는 덩어리로 새 트랙을 만들지 않고, DBG 끝에 누적 제자리 회전 시간과 path(1.5) 시간을 덧붙였습니다(지시 3·4·5).",
+   "changed": [
+    "_FAST_CLEAR",
+    "_LOOKAHEAD",
+    "_ROT_NEW_TRACK_R",
+    "_VFAST",
+    "_align_w",
+    "_lookahead_pt",
+    "_pursuit_cmd",
+    "_seg_proj",
+    "_seg_start",
+    "_track_movers",
+    "_update_tracks",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1a) 현재 선분 투영점에서 폴리라인을 따라 0.8 m 앞 점 추종",
+      "implemented": true,
+      "note": "_seg_proj 투영점에서 _lookahead_pt(px,py,idx,_LOOKAHEAD=0.8)를 겨눔"
+     },
+     {
+      "instruction": "1b) 방향 오차 1.2 rad 초과일 때만 제자리 회전",
+      "implemented": true,
+      "note": "_pursuit_cmd 에서 abs(e)>1.2 이면 (0, w) 반환"
+     },
+     {
+      "instruction": "1c) 0.35 rad 초과면 v=vcap·cos(e)",
+      "implemented": true,
+      "note": "abs(e)>0.35 이면 vc*=cos(e)"
+     },
+     {
+      "instruction": "1d) 다음 모서리 1.0 m 안이면 vcap≤0.7",
+      "implemented": true,
+      "note": "투영점과 _WAYPOINTS[idx] 거리가 1.0 미만이면 min(vmax,0.7)"
+     },
+     {
+      "instruction": "1e) 투영점이 경유점을 지나면 idx 증가",
+      "implemented": true,
+      "note": "u>=1.0 이면 idx+1. 기존 0.35 m 규칙과 '다음 선분이 더 가까우면 증가' 조건이 추가됐으나 지시와 충돌하지 않음"
+     },
+     {
+      "instruction": "1f) _rollout 도 같은 함수 사용",
+      "implemented": true,
+      "note": "_rollout path 분기가 같은 _pursuit_cmd 를 호출"
+     },
+     {
+      "instruction": "2a) 마지막 구간 감속 min(vmax, 1.0·d+0.2)",
+      "implemented": true,
+      "note": "idx==n-1 이면 vc=min(vmax,1.0*d_goal+0.2)"
+     },
+     {
+      "instruction": "2b) GOAL 0.6 m 안이면 정렬, 0.7 m 밖이면 추종 복귀",
+      "implemented": true,
+      "note": "controller 와 _pursuit_cmd 모두 0.6/0.7 사용"
+     },
+     {
+      "instruction": "2c) 정렬 회전 ±1.5 rad/s, |yaw 오차|<0.2 이면 done",
+      "implemented": true,
+      "note": "_align_w 를 clamp ±1.5 로 바꿈, done 조건 0.2"
+     },
+     {
+      "instruction": "3) path(1.5)를 prim 맨 앞에 두되 모든 트랙 3.5 m 밖·미성숙 없음일 때만 허용, 나머지 선택 규칙 유지",
+      "implemented": true,
+      "note": "fast_ok 조건일 때 prim 앞에 (path,_VFAST=1.5)를 넣음. 선택 루프와 best_of 는 그대로"
+     },
+     {
+      "instruction": "4) 회전 0.6 rad/s 초과 스캔에서는 2.0 m 밖의 짝 없는 덩어리로 새 트랙을 만들지 않음",
+      "implemented": true,
+      "note": "rot_ok=False 이고 robot_xy 거리>_ROT_NEW_TRACK_R(2.0)이면 continue, robot_xy 를 전달함"
+     },
+     {
+      "instruction": "5a) 경유점, _MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측 유지, 물체·시각 상수 없음",
+      "implemented": true,
+      "note": "해당 정의가 바뀌지 않았고 새 상수는 거리·속도 파라미터뿐"
+     },
+     {
+      "instruction": "5b) DBG 끝에 누적 제자리 회전 시간과 path(1.5) 시간 추가",
+      "implemented": true,
+      "note": "t_spin, t_fast 를 누적해 DBG 줄 끝에 출력"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "1.0·d+0.2 감속이면 0.6 m 에서 약 0.8 m/s 인 채로 정렬(v=0)로 바뀝니다. 허용치 0.75 m 까지 여유가 0.15 m 뿐이라 관성으로 넘어가거나 0.7 m 밖으로 밀려 추종과 정렬을 오갈 수 있습니다.",
+     "로봇 실제 속도 상한이 1.5 m/s 에 못 미치면 path(1.5)는 효과가 없습니다(진단 자체도 지적함)."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 9개 배치가 모두 충돌 없이 통과했지만 평균 66.8 s가 걸려 예산을 넘었으므로, 진단의 지시대로 안전 로직(_MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측, 선택 규칙)은 그대로 두고 주행 기하만 효율화했습니다. `_pursuit_cmd` 는 현재 선분의 투영점에서 폴리라인을 따라 0.8 m 앞의 점을 추종합니다. 1.2 rad 를 넘을 때만 제자리 회전하고, 모서리 1.0 m 안에서는 0.7 m/s 로 제한합니다. 끝 구간은 1.0·d+0.2 로 감속하고, 0.6/0.7 m 히스테리시스로 정렬하며, ±1.5 rad/s 로 돌아 |yaw|<0.2 에서 done 합니다(지시 1·2). 3.5 m 안에 트랙이 없고 미성숙 트랙도 없을 때만 path(1.5)를 맨 앞 후보로 허용합니다. 회전 중(>0.6 rad/s) 스캔에서는 2.0 m 밖의 짝 없는 덩어리로 새 트랙을 만들지 않고, DBG 끝에 누적 제자리 회전 시간과 path(1.5) 시간을 덧붙였습니다(지시 3·4·5).",
+ "budget_s": 600.0,
+ "seeds": [
+  1146557660,
+  674739449,
+  678414563,
+  817715123,
+  933439817,
+  122925109,
+  1406999977,
+  509311899
+ ],
+ "sim_used_s": 347.5,
+ "verdicts": {
+  "1146557660": "pass",
+  "674739449": "pass",
+  "678414563": "pass",
+  "817715123": "pass",
+  "933439817": "fail",
+  "122925109": "pass",
+  "1406999977": "fail",
+  "509311899": "fail"
+ },
+ "passes": 5,
+ "prior_chars": 2381,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실패 3/8이 모두 START 근처에서 mover_00 과의 충돌입니다. s933 은 t=4.68 (-7.11,-11.11), s1406 은 t=6.77 (-7.18,-10.76), s509 는 t=5.42 (-7.23,-11.19) 이고, 셋 다 출발 후 2 m 남짓 간 자리입니다. 충돌 때 상태는 '주행 0.30m/s' 인데 DBG 로 보면 fix(-0.3) 후진 중이었습니다(s933 t=4.48–5.48, s1406 t=5.98–7.98, s509 t=4.48–4.98). 물체는 앞왼쪽(0.37,0.45 등)에서 0.53–0.66 m/s 로 다가왔습니다.",
+   "직전에 트랙 속도가 회전 중이라 갱신되지 않아 낡은 값이었습니다. s933 은 v=(0.61,0.30) nupd=15 가 t=1.48–2.48 동안 그대로였고, (-0.66,-0.37) nupd=19 가 2.98–3.48 동안 그대로였습니다(w=1.53). s509 는 (0.61,0.20)→(-0.27,-0.28) nupd 20 이 2.98–3.98 동안 고정됐고, s1406 은 (0.09,0.48) nupd=20 이 2.98–3.48 동안 고정됐습니다. 그동안 path(1.2) 는 무위반으로 선택됐고, 0.5 s 뒤 모든 후보의 t_hit 가 0.1 이 되었습니다. 실제 물체는 x≈-7.1 통로를 v≈(0,-0.6~-0.8) 로 남북 왕복 중이었습니다.",
+   "새 추종 방식은 START yaw 오차 1.01 rad 가 1.2 보다 작아 제자리 회전 없이 호를 그리며 출발했습니다. w 가 -1.6 에서 +1.5 로 진동했고(s933·s509 t=1.4–3.4, s1406 1.8–3.3), 로봇은 경로선 y=-10.8 아래(-11.1~-11.2)로 흘러 통로 안에서 멈췄습니다. 통과한 5개도 54.5–68.4 s(평균 62.5 s)가 걸렸고 t_stop 이 8–17.5 s 였습니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "회전 중 갱신을 멈춘 트랙 속도도 그대로 믿을 수 있다",
+    "holds": false,
+    "why": "새 추종 방식은 물체 근처에서 |w|>0.6 을 수 초 유지합니다. 세 실패 모두 낡은 속도로 path(1.2) 를 안전하다고 판단해 통로에 들어갔습니다."
+   },
+   {
+    "assumption": "모든 후보가 위반이어도 정지나 0.3 m/s 후진이 최선의 탈출이다",
+    "holds": false,
+    "why": "물체 속력 0.6–0.8 이 후진 0.3 보다 빨라, 세 충돌이 모두 후진 중에 났습니다."
+   },
+   {
+    "assumption": "고정 경로 위 속도 조절만으로 충분하다",
+    "holds": true,
+    "why": "턴 7 은 같은 선택 규칙으로 9/9 통과했습니다. 다만 대기 시간 때문에 평균 60 s 를 넘습니다."
+   },
+   {
+    "assumption": "path rollout 이 실제 주행을 따라간다",
+    "holds": false,
+    "why": "출발 직후 조향이 ±1.5 rad/s 로 진동해 경로선에서 0.3–0.4 m 벗어났습니다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "고정 경유점, 센서 없음",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "앞 거리 기반 정지·후퇴",
+    "turns": "1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙+rollout 속도 후보 선택(고정 경로)",
+    "turns": "2,3,6,7,8",
+    "result": "6/7, 6/9, 7/8, 9/9, 5/8. 10개 전부를 600 s 안에 통과한 턴은 없음"
+   },
+   {
+    "family": "통로 판정·통과 래치",
+    "turns": "4,5",
+    "result": "0/3, 2/5"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "낡은 트랙을 불확실하게 다루고 출발 조향을 안정화. 속도가 0.3 s 넘게 갱신되지 않은 트랙은 반경을 키워 보수적으로 예측하고, 큰 오차에서는 제자리 회전, 조향 이득은 낮춤",
+    "new_family": false,
+    "for": "세 실패 모두 회전 중 고정된 속도 직후에 진입했습니다. 턴 7 은 제자리 회전 출발(임계 1.0)로 9/9 였습니다.",
+    "risk": "보수적 예측 때문에 대기가 늘어 시간이 더 걸릴 수 있음"
+   },
+   {
+    "idea": "경로 밖 (v,w) 호 후보를 넣은 DWA 식 국소 회피. 진행도와 간격을 함께 점수 매기고 정적 지도 검사",
+    "new_family": true,
+    "for": "물체 앞에서 기다리는 대신 옆으로 비켜 지나가 대기 시간을 줄일 수 있음",
+    "risk": "회전이 늘어 속도 고정 문제가 커지고, 벽 구석에서는 효과가 없으며, 정적 충돌 위험과 계산량이 늘어남"
+   },
+   {
+    "idea": "관측 왕복 구간 안에서는 정지하지 않고 가장 빨리 빠져나가는 방향(전진 1.2 또는 후진 0.6)으로 이동",
+    "new_family": false,
+    "for": "후진 0.3 이 물체보다 느려 생긴 충돌을 직접 막음",
+    "risk": "턴 4·5 의 통로·래치 계열이 0/3, 2/5 로 실패"
+   }
+  ],
+  "chosen": "후보 1을 고릅니다. 이번 실패는 턴 8 에서 바꾼 추종 방식이 회전 중 속도 고정과 맞물려 생긴 퇴행이고, 선택 규칙 자체는 턴 7 에서 9/9 를 보였기 때문입니다.",
+  "target": "_pursuit_cmd, _update_tracks, controller 의 movers 구성, DBG print",
+  "direction": "1) _pursuit_cmd 는 |e|>0.9 rad 이면 제자리 회전하고(출발 오차 1.01 rad 가 여기에 걸림), 조향 이득을 7.5 에서 3.0 으로 낮춥니다. 나머지(lookahead, 모서리 감속, 끝 구간)는 그대로 둡니다. 2) _update_tracks 는 속도를 갱신할 때 tr['vstep']=step 을 기록합니다. controller 에서 성숙 트랙이라도 (step-vstep)/60>0.3 이면 '낡음'으로 보고, 마지막 위치에 속도 0 을 두고 반경을 _MOVER_R+_GROW_RATE·τ(최대 _GROW_MAX)로 키워 예측합니다. 이때 _near_static 예외는 쓰지 않습니다. 3) 후진 후보에 fix(-0.6, 0) 을 추가하고, 허용 조건(rear_blocked, 정지 1 s 위반, _static_ok)은 기존 후진과 같게 둡니다. 4) 그 밖의 선택 규칙, _MOVER_R, _MOVER_GAP, 반사 예측, 경유점은 바꾸지 않고, 물체 위치·구간·속도·시각 상수는 넣지 않습니다. 5) DBG 줄은 300자 안으로 줄입니다. 후보는 고른 것과 path(1.2), fix(0) 의 (t_hit, cmin) 만 남기고, 가장 가까운 트랙의 위치·속도·낡은 시간·성숙 여부와 누적 t_stop·t_spin 을 앞쪽에 둡니다.",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c3t8_s1146557660",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 54.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 48.75,
+   "goal_dist_m": 0.4223,
+   "time_to_goal_s": 52.617
+  },
+  {
+   "run": "c3t8_s674739449",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 545.3,
+   "sim_time_s": 67.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 61.25,
+   "goal_dist_m": 0.4057,
+   "time_to_goal_s": 65.133
+  },
+  {
+   "run": "c3t8_s678414563",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 478.1,
+   "sim_time_s": 54.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 48.55,
+   "goal_dist_m": 0.4036,
+   "time_to_goal_s": 52.45
+  },
+  {
+   "run": "c3t8_s817715123",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 423.6,
+   "sim_time_s": 67.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 61.75,
+   "goal_dist_m": 0.4083,
+   "time_to_goal_s": 65.667
+  },
+  {
+   "run": "c3t8_s933439817",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 355.8,
+   "sim_time_s": 10.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.683,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    0.37,
+    0.45
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 32.2867,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t8_s122925109",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 345.1,
+   "sim_time_s": 68.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 62.45,
+   "goal_dist_m": 0.4073,
+   "time_to_goal_s": 66.333
+  },
+  {
+   "run": "c3t8_s1406999977",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 276.7,
+   "sim_time_s": 12.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 6.767,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    0.29,
+    0.52
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 1.83,
+   "goal_dist_m": 32.2648,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t8_s509311899",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 263.9,
+   "sim_time_s": 11.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.417,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    0.49,
+    0.37
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 1.95,
+   "goal_dist_m": 32.0227,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 29 s / 한도 600 s)\n#1 이번 코드(진단 \"새 함수가 lidar2d_points('front')·('back') 점을 to_world 로 바꾼 뒤 세 종류의 점을 버립니다. WALLS 안쪽 면에서 0.2 m 이내이거나 바깥인 점, MISSION boxes 와 FIXED_OBSTACLES 를 0.2 m 부풀린 사각형 안의 점이 그것이고, 남은 점을 로봇 기준으로 돌려줍니다. 통로 거리 d_front 는 남은 점 중 x>0.2 이고 |y|<0.6 인 점의 최소 x 로 둡니다. 0.3 m 안에서 이런 점이 3개 이상 모여 있어야 물체로 인정해 회전 중 오탐을 거릅니다. 전진 명령은 v=min(v_wp, 0.8, 0.8*(d_front-0.9)) 로 바꾸고 0 미만이면 0 으로 해서 1 m 앞에서 멈추게 합니다. 회전은 ±1.2 rad/s 로 줄이되, 제자리 회전 중에도 전체 방향 0.9 m 안에 물체가 있으면 회전을 멈춥니다. 몸체 주변 0.7 m 안(뒤쪽 제외, 앞·옆)에 물체가 들어오면 그 물체 반대 방향으로 0.3 m/s 후진해 거리를 벌리고, 물체가 1.2 m 밖으로 나가면 원래 경유점 추종으로 돌아갑니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 177 s / 한도 600 s)\n#2 이번 코드(진단 \"새 함수 _track_movers(pose) 를 만듭니다: _movers_robot_frame 의 거리 제한을 6 m 로 늘리고, 물체 점을 to_world 로 바꿔 0.5 m 연결로 덩어리를 나눕니다. 각 덩어리 중심을 직전 트랙 중 0.8 m 안 최근접과 짝지어, 스캔 점이 바뀐 호출에서만 경과 시간(호출 수×1/60, 0.08 s 이상)으로 속도를 구해 지수평균(α=0.5)하고 1.5 m/s 로 자르며, 1 s 넘게 안 보인 트랙은 버립니다. controller 에서는 경유점 추종으로 원하는 (v_wp, w) 를 구한 뒤 후보 v∈{v_wp, 0.5, 0.3, 0, -0.3} 를 둡니다(제자리 회전이면 v=0 에 w 후보 {w, 0}). 각 후보로 0–2.5 s 를 0.1 s 간격으로 굴려, 로봇 몸체 사각형(_BODY)과 각 물체(중심+속도×τ, 반경 0.45 m) 사이 최소 간격을 예측합니다. 간격이 0.35 m 이상인 후보 중 가장 빠른 전진을 고르고, 없으면 최소 간격이 가장 큰 후보를 고릅니다(전진 탈출 포함). 후진 후보는 뒤 0.45 m 안에 점이 있으면 뺍니다. 기존 retreat 상태(무조건 직선 후진)와 |y|<0.6 만 보는 d_front 감속은 지우고 정렬 단계 회전에도 같은 검사를 쓰되, 물체 위치·속도·시각을 상수로 넣지 않습니다.\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#3 이번 코드(진단 \"_track_movers, _rollout, _MOVER_R, _MOVER_GAP, 후보 목록과 순서는 그대로 둡니다. _pursuit_cmd 에서 idx==n-1 이면 속도를 min(vmax, 0.6*d+0.15) 로 줄이고, 포착 반경을 0.25 m 에서 0.35 m 로 넓힙니다. controller 에서 idx>=n 일 때 GOAL 로 복귀하는 거리 조건을 0.45 m 에서 0.6 m 로 올려 정렬과 추종이 번갈아 바뀌는 왕복을 막습니다. 정렬 단계(align)에서는 2.5 s 판정으로 align 이나 fix(0,0) 이 위험해도, 같은 rollout 의 처음 1.0 s(k≤10) 최소 간격이 0 이상이면 align 을 고릅니다. 1.0 s 안에서도 간격이 0 미만일 때만 기존처럼 간격이 가장 큰 후보(후진 포함)로 물러나고, done 판정은 지금처럼 2.5 s 정지 rollout 의 cmin>=0 을 그대로 요구합니다. 다음 진단을 위해 GOAL 까지 1.5 m 안에 있을 때만 0.5 s 마다 한 줄 print 합니다: 'DBG t, 거리, 고른 후보, 후보별 cmin, 가장 가까운 트랙 위치·속도'.\" 반영, 검토 통과): 새 배치 9개 중 6개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#4 이번 코드(진단 \"1) 시간: _pursuit_cmd 최고속을 1.2 m/s, 회전 한계를 1.5 rad/s 로 올립니다. 방향 오차 0.35–1.0 rad 에서는 v=vmax*cos(e) 로 돌며 달리고, 1.0 rad 를 넘을 때만 제자리 회전하며, path 후보는 {1.2,0.8,0.5,0.3} 로 둡니다. 2) 마무리: GOAL 0.5 m 안이면 정렬만 하고, |yaw 오차|<0.1 이면 정지 rollout 확인 없이 바로 done 을 돌려줍니다. 3) _rollout 은 직전 pose 차이로 추정한 현재 속도에서 시작해 가감속을 1.0 m/s² 로 제한해 굴립니다. 4) 속력 0.2 m/s 이상인 트랙마다 등속 가설에 더해 같은 속력으로 되돌아오는 가설을 만들고, 되돌아오는 가설은 처음 1.5 s 만 검사해 두 가설 중 작은 간격을 cmin 으로 씁니다. 5) 새 함수 _in_crossing_lane: 이동 방향이 로봇 진행 방향과 45° 넘게 엇갈리는 트랙의 이동선에서 로봇 몸체가 수직 1.0 m 안에 있으면, 0.5·0.3·정지 후보를 빼고 1.2/0.8 path 와 후진 중 cmin 이 큰 것을 고릅니다. 통로 밖에서는 기존대로 간격을 지키는 가장 빠른 후보를 고르고, 없으면 정지해 진입 전에 양보합니다. 6) 물체 위치·속도·시각 상수는 넣지 말고, DBG 는 0.5 s 마다 통로 안 판정, 고른 후보, 두 가설의 cmin 을 출력합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 210 s / 한도 600 s)\n#5 이번 코드(진단 \"1) _update_tracks에서 트랙마다 최근 15 s의 중심 위치를 기록합니다. 기록이 2 s 이상 쌓이고 속력이 0.2 m/s 이상이면, 위치를 속도 방향 축에 투영해 최소·최대를 관측 왕복 구간으로 둡니다. 2) 되돌아옴 가설(tag 1)과 _REV_* 상수를 지웁니다. _clear_at은 물체를 등속으로 움직이되, 관측 구간 끝을 넘으면 그 축에서 반사된 위치로 예측합니다. 구간이 없으면 지금처럼 등속으로만 예측합니다. 3) _in_crossing_lane 분기를 지우고 통과 확정 래치를 둡니다. 정지·통로 밖 상태에서 path(1.2)의 반사 예측 rollout cmin이 0 이상이면 committed로 바꾸고, 로봇 뒤끝이 그 물체 이동선을 1.0 m 넘거나 4 s가 지날 때까지 path(1.2)를 유지합니다. 래치 중에는 처음 0.5 s(k≤5) cmin이 -0.2 미만일 때만 간격이 가장 큰 후보로 바꿉니다. 4) 래치 밖에서는 지금처럼 간격을 지키는 가장 빠른 후보를 고르고, 없으면 정지합니다. 후진은 정지의 1.0 s cmin이 0 미만일 때만 허용합니다. 5) 물체 위치·구간·속도·시각 상수는 넣지 않습니다. DBG는 0.5 s마다 committed, 관측 구간 (min, max, 축), 고른 후보, 후보별 cmin을 출력합니다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 142 s / 한도 600 s)\n#6 이번 코드(진단 \"1) 통과 확정 래치(controller.latch, _crossing_line, _latch_done)를 지웁니다. 매 호출마다 모든 후보를 다시 평가합니다. 2) _rollout 은 cmin 과 함께 간격이 처음 0 미만이 되는 시각 t_hit(없으면 99)를 돌려줍니다. 간격 d 는 0에서 자르지 말고, 몸체 안에 들면 몸체 중심까지 거리의 음수로 계산해 동점을 없앱니다. 3) 선택 규칙은 이렇습니다. 2.5 s 동안 위반이 없는 후보 중 가장 빠른 것을 고르고, 없으면 t_hit 가 가장 늦은 후보, 같으면 cmin 이 큰 후보, 그래도 같으면 느린 후보를 고릅니다(후진 허용 조건은 지금대로). 4) _update_tracks 에서 트랙 생성 시각과 속도 갱신 횟수를 기록합니다. 생긴 지 1.0 s 미만이거나 갱신이 3회 미만인 트랙은 속도를 0으로 두고, 반경을 _MOVER_R+0.7·τ(최대 +1.2 m)로 키워 예측합니다. 5) 직전 pose 차이로 잰 회전 속도가 0.6 rad/s 를 넘는 스캔에서는 트랙 위치만 갱신하고 속도는 갱신하지 않습니다. 6) 물체 위치·속도·시각 상수는 넣지 않습니다. DBG 에는 후보별 (t_hit, cmin)과 가장 가까운 트랙의 나이·갱신 횟수를 더해 출력합니다.\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#7 이번 코드(진단 \"1) _STATIC_RECTS 와 같은 방식으로 MISSION boxes 와 FIXED_OBSTACLES 를 0.4 m 부풀린 _MOVER_MASK_RECTS 를 만듭니다. _track_movers 에서 물체 후보 점(keep)을 고를 때만 이 사각형을 쓰고, stat 점과 _static_ok 는 기존 0.2 m 사각형을 그대로 씁니다. 2) controller 에서 미성숙 트랙의 중심이 부풀리지 않은 정적 사각형(boxes·FIXED_OBSTACLES)에서 0.6 m 안이면 반경 증가율을 0 으로 둡니다(반경 _MOVER_R 고정, 속도 0). 3) 경유점, 속도, _rollout, 후보 목록과 선택 규칙, 성숙 기준, 반사 예측은 바꾸지 않습니다. 4) DBG 는 지금 줄을 유지하고, 끝에 누적 정지·후진 시간과 path(<1.2) 시간, 그리고 그동안 가장 가까운 트랙이 미성숙이었던 시간을 덧붙입니다. 5) 물체 위치·구간·속도·시각 상수는 넣지 않습니다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#8 이번 코드(진단 \"1) _pursuit_cmd 는 현재 선분 위 투영점에서 경유점 폴리라인을 따라 0.8 m 앞의 점을 추종합니다. 방향 오차가 1.2 rad 를 넘을 때만 제자리 회전하고, 0.35 rad 를 넘으면 v=vcap·cos(e), 다음 모서리까지 1.0 m 안이면 vcap≤0.7 로 둡니다. idx 는 투영점이 경유점을 지나면 올리며, _rollout 도 같은 함수를 씁니다. 2) 마지막 구간 감속은 min(vmax, 1.0·d+0.2) 로 바꿉니다. GOAL 0.6 m 안이면 정렬만 하고 0.7 m 밖으로 밀려날 때만 추종으로 돌아갑니다. 정렬 회전은 ±1.5 rad/s 로 하고 |yaw 오차|<0.2 이면 done 합니다. 3) prim 맨 앞에 path(1.5) 를 넣되, 모든 트랙이 로봇에서 3.5 m 밖이고 미성숙 트랙이 없을 때만 허용하며, 그 밖의 선택 규칙은 지금대로 둡니다. 4) _update_tracks 에서는 회전 속도가 0.6 rad/s 를 넘는 스캔의 경우 로봇에서 2.0 m 밖에 있는 짝 없는 덩어리로 새 트랙을 만들지 않습니다(2.0 m 안은 지금처럼 만듭니다). 5) 경유점 좌표, _MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측은 그대로 두고, 물체 위치·구간·속도·시각 상수는 넣지 않습니다. DBG 줄 끝에는 누적 제자리 회전 시간과 path(1.5) 시간을 덧붙입니다.\" 반영, 검토 통과): 새 배치 8개 중 5개 pass, 3개 fail (시뮬 시간 합계 347 s / 한도 600 s)",
+ "ended": "2026-11-17 01:11:25"
+}

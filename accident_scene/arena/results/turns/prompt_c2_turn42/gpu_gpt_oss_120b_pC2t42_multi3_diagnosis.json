@@ -1,0 +1,176 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t42_s701369586: t=79.95 s, robot stopped (pose [-2.599, -3.497, 1.686]), moved only 0.292 m in previous 60 s, first_not_on_map at 2.58 m indicates moving object still present.",
+   "c2t42_s545537161: t=81.5 s, robot stopped (pose [-2.696, -3.509, 1.679]), moved only 0.298 m in previous 60 s, moving object detected within 3 m (first_not_on_map 2.99 m).",
+   "c2t42_s853860054: t=3.767 s, collision with mover_00, robot speed 0.09 m/s, moving object at relative [-0.3, 0.54] with closing speed 0.69 m/s, first_not_on_map 1.71 m before start."
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D lidar reliably detects all moving objects within _DETECT_DIST and static filtering is correct",
+    "holds": false,
+    "why": "객체가 1.7 m 거리에서 감지됐지만 충돌·정지 루프가 발생해 올바르게 활용되지 않음"
+   },
+   {
+    "assumption": "Velocity estimated from two scans is accurate for short‑horizon prediction",
+    "holds": false,
+    "why": "예측 속도가 부정확해 0.6 s horizon 내에 모든 후보가 unsafe 로 판단됨"
+   },
+   {
+    "assumption": "0.6 s prediction horizon is sufficient to avoid moving objects",
+    "holds": false,
+    "why": "충돌이 3 s 이후에 일어나고, 정지 후 0.6 s 안에 안전 후보가 없어서 무한 정지"
+   },
+   {
+    "assumption": "If no safe candidate is found, stopping indefinitely will later become safe",
+    "holds": false,
+    "why": "두 번의 정지 실행에서 로봇이 영구 정지해 목표에 도달하지 못함"
+   },
+   {
+    "assumption": "RVO‑style candidate sampling always yields a safe (v,w) unless static obstacles block the path",
+    "holds": false,
+    "why": "moving_pts와 moving_vel 추정 오류로 모든 후보가 unsafe 로 판단, best_score stays -inf"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "stop_rotate",
+    "turns": [
+     0,
+     1,
+     5,
+     6,
+     8,
+     10,
+     11,
+     14,
+     16,
+     17,
+     18,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     30,
+     31,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38
+    ],
+    "result": "28 attempts, 16 passes (low overall success, only occasional passes at turns 5,8,14)"
+   },
+   {
+    "family": "rvo_candidate",
+    "turns": [
+     42
+    ],
+    "result": "1 attempt, 0 passes"
+   },
+   {
+    "family": "repulsion_vector",
+    "turns": [
+     39
+    ],
+    "result": "1 attempt, 0 passes"
+   },
+   {
+    "family": "bypass_waypoint",
+    "turns": [
+     41
+    ],
+    "result": "1 attempt, 0 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Hybrid repulsion + state‑machine: use a repulsive vector from moving points for continuous steering, add a 'stop_wait' state when a close object (<_CLOSE_STOP_DIST) is detected, wait a short timeout then rotate away before returning to normal.",
+    "new_family": true,
+    "for": "stall을 방지하고, 가까운 물체에 대해 즉시 정지·회전 후 재진입하도록 함",
+    "risk": "상태 전이와 센서 노이즈로 진동하거나 과도한 회전이 발생할 수 있음"
+   },
+   {
+    "idea": "Dynamic speed scaling: set forward speed proportional to distance to the nearest moving point (v = _MAX_SPEED * min(1, dist/_DETECT_DIST)), keep heading toward waypoint while steering away with repulsion.",
+    "new_family": true,
+    "for": "물체가 가까워질수록 속도를 줄여 충돌 위험 감소",
+    "risk": "속도가 너무 낮아 목표 시간 제한을 초과할 수 있음"
+   },
+   {
+    "idea": "Longer prediction horizon: increase _AVOID_HORIZON to 2 s and _SAFE_DIST to 0.8 m, keep RVO candidate sampling but with larger safety margin.",
+    "new_family": true,
+    "for": "짧은 horizon 때문에 모든 후보가 unsafe 로 판단되는 문제 해결",
+    "risk": "계산량 증가와 여전히 안전 후보가 없을 경우 정지 루프가 지속될 수 있음"
+   }
+  ],
+  "chosen": "Hybrid repulsion + state‑machine (candidate 1) because it adds a clear fallback when no safe motion exists and continuously steers away using repulsive forces.",
+  "target": "controller function (add state machine and repulsive steering logic)",
+  "direction": "1. controller 내부에 persistent state 변수 state('normal','stop_wait','rotate_away')와 state_end 타임스탬프를 추가한다. 2. 'normal' 상태에서는 _moving_points_repulsion(pose) 로 이동 물체의 repulsive_vec 를 구하고 waypoint_dir 와 가중치 _REPULSION_WEIGHT 로 합쳐 정규화된 dir 를 만든다; heading_error = atan2(dir_y, dir_x) - yaw, v = _MAX_SPEED * max(0, cos(heading_error)), w = _clamp(_KP_W * heading_error, -1.5, 1.5). 3. _detect_critical(pose) 가 True 이면 state='stop_wait', state_end = t + _AVOID_DURATION (1 s) 로 전환한다. 4. 'stop_wait' 상태에서는 v=w=0 유지하고 t >= state_end 이면 _detect_moving_close(pose) 로 가까운 물체 유무를 확인한다; 아직 있으면 state='rotate_away' 로 전환하고 w = sign(bearing) * _AVOID_ROT_SPEED, state_end = t + _AVOID_ROT_TIME; 없으면 state='normal' 로 복귀한다. 5. 'rotate_away' 상태에서는 회전만 수행하고 state_end 도달 시 다시 'normal' 로 돌아간다. 6. 기존 후보 샘플링 코드를 삭제하고 위 로직만 남긴다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c2t42_s701369586: t=79.95 s, robot stopped (pose [-2.599, -3.497, 1.686]), moved only 0.292 m in previous 60 s, first_not_on_map at 2.58 m indicates moving object still present.\",\n    \"c2t42_s545537161: t=81.5 s, robot stopped (pose [-2.696, -3.509, 1.679]), moved only 0.298 m in previous 60 s, moving object detected within 3 m (first_not_on_map 2.99 m).\",\n    \"c2t42_s853860054: t=3.767 s, collision with mover_00, robot speed 0.09 m/s, moving object at relative [-0.3, 0.54] with closing speed 0.69 m/s, first_not_on_map 1.71 m before start.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D lidar reliably detects all moving objects within _DETECT_DIST and static filtering is correct\",\n      \"holds\": false,\n      \"why\": \"객체가 1.7 m 거리에서 감지됐지만 충돌·정지 루프가 발생해 올바르게 활용되지 않음\"\n    },\n    {\n      \"assumption\": \"Velocity estimated from two scans is accurate for short‑horizon prediction\",\n      \"holds\": false,\n      \"why\": \"예측 속도가 부정확해 0.6 s horizon 내에 모든 후보가 unsafe 로 판단됨\"\n    },\n    {\n      \"assumption\": \"0.6 s prediction horizon is sufficient to avoid moving objects\",\n      \"holds\": false,\n      \"why\": \"충돌이 3 s 이후에 일어나고, 정지 후 0.6 s 안에 안전 후보가 없어서 무한 정지\"\n    },\n    {\n      \"assumption\": \"If no safe candidate is found, stopping indefinitely will later become safe\",\n      \"holds\": false,\n      \"why\": \"두 번의 정지 실행에서 로봇이 영구 정지해 목표에 도달하지 못함\"\n    },\n    {\n      \"assumption\": \"RVO‑style candidate sampling always yields a safe (v,w) unless static obstacles block the path\",\n      \"holds\": false,\n      \"why\": \"moving_pts와 moving_vel 추정 오류로 모든 후보가 unsafe 로 판단, best_score stays -inf\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"stop_rotate\",\n      \"turns\": [0,1,5,6,8,10,11,14,16,17,18,20,21,22,23,24,25,26,27,28,30,31,33,34,35,36,37,38],\n      \"result\": \"28 attempts, 16 passes (low overall success, only occasional passes at turns 5,8,14)\"\n    },\n    {\n      \"family\": \"rvo_candidate\",\n      \"turns\": [42],\n      \"result\": \"1 attempt, 0 passes\"\n    },\n    {\n      \"family\": \"repulsion_vector\",\n      \"turns\": [39],\n      \"result\": \"1 attempt, 0 passes\"\n    },\n    {\n      \"family\": \"bypass_waypoint\",\n      \"turns\": [41],\n      \"result\": \"1 attempt, 0 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Hybrid repulsion + state‑machine: use a repulsive vector from moving points for continuous steering, add a 'stop_wait' state when a close object (<_CLOSE_STOP_DIST) is detected, wait a short timeout then rotate away before returning to normal.\",\n      \"new_family\": true,\n      \"for\": \"stall을 방지하고, 가까운 물체에 대해 즉시 정지·회전 후 재진입하도록 함\",\n      \"risk\": \"상태 전이와 센서 노이즈로 진동하거나 과도한 회전이 발생할 수 있음\"\n    },\n    {\n      \"idea\": \"Dynamic speed scaling: set forward speed proportional to distance to the nearest moving point (v = _MAX_SPEED * min(1, dist/_DETECT_DIST)), keep heading toward waypoint while steering away with repulsion.\",\n      \"new_family\": true,\n      \"for\": \"물체가 가까워질수록 속도를 줄여 충돌 위험 감소\",\n      \"risk\": \"속도가 너무 낮아 목표 시간 제한을 초과할 수 있음\"\n    },\n    {\n      \"idea\": \"Longer prediction horizon: increase _AVOID_HORIZON to 2 s and _SAFE_DIST to 0.8 m, keep RVO candidate sampling but with larger safety margin.\",\n      \"new_family\": true,\n      \"for\": \"짧은 horizon 때문에 모든 후보가 unsafe 로 판단되는 문제 해결\",\n      \"risk\": \"계산량 증가와 여전히 안전 후보가 없을 경우 정지 루프가 지속될 수 있음\"\n    }\n  ],\n  \"chosen\": \"Hybrid repulsion + state‑machine (candidate 1) because it adds a clear fallback when no safe motion exists and continuously steers away using repulsive forces.\",\n  \"target\": \"controller function (add state machine and repulsive steering logic)\",\n  \"direction\": \"1. controller 내부에 persistent state 변수 state('normal','stop_wait','rotate_away')와 state_end 타임스탬프를 추가한다. 2. 'normal' 상태에서는 _moving_points_repulsion(pose) 로 이동 물체의 repulsive_vec 를 구하고 waypoint_dir 와 가중치 _REPULSION_WEIGHT 로 합쳐 정규화된 dir 를 만든다; heading_error = atan2(dir_y, dir_x) - yaw, v = _MAX_SPEED * max(0, cos(heading_error)), w = _clamp(_KP_W * heading_error, -1.5, 1.5). 3. _detect_critical(pose) 가 True 이면 state='stop_wait', state_end = t + _AVOID_DURATION (1 s) 로 전환한다. 4. 'stop_wait' 상태에서는 v=w=0 유지하고 t >= state_end 이면 _detect_moving_close(pose) 로 가까운 물체 유무를 확인한다; 아직 있으면 state='rotate_away' 로 전환하고 w = sign(bearing) * _AVOID_ROT_SPEED, state_end = t + _AVOID_ROT_TIME; 없으면 state='normal' 로 복귀한다. 5. 'rotate_away' 상태에서는 회전만 수행하고 state_end 도달 시 다시 'normal' 로 돌아간다. 6. 기존 후보 샘플링 코드를 삭제하고 위 로직만 남긴다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t42_s701369586",
+   "verdict": "fail",
+   "stall_abort_t": 79.95,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 22.6312,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t42_s545537161",
+   "verdict": "fail",
+   "stall_abort_t": 81.5,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 22.6875,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t42_s853860054",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.767,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.09m/s",
+   "partner_rel_xy": [
+    -0.3,
+    0.54
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 31.7443,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

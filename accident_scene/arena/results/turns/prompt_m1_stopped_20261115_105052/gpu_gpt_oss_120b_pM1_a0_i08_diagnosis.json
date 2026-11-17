@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG choose 로그에서 t=16.5 부터 지속적으로 'stop_safe' 가 선택되어 로봇이 정지함",
+    "lookahead_target 함수가 0.3~2.0 m 앞점을 반환하도록 구현했지만 base 의 guard_target 은 'target_path_limit_m'=1.0 m 를 초과하면 'off_path' 로 거부하고 fallback 을 시도함",
+    "fallback 이 segment_free 검사에 실패해 최종적으로 checked zero 가 요청되어 stop 후보가 선택되고, 이후 10 s 이상 정지해 stall 로 판단됨"
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target 에서 최대 앞거리 제한을 base 의 target_path_limit_m(1.0 m) 로 제한한다. max_ahead 를 min(cfg[\"target_max_ahead_m\"], cfg[\"target_path_limit_m\"]) 로 계산하고, 그 범위 내에서 segment_free 가 통과하는 첫 점을 반환하도록 수정한다.",
+  "not_to_change": "plan_path 와 follow_cmd 함수는 그대로 유지한다.",
+  "confidence": "high"
+}

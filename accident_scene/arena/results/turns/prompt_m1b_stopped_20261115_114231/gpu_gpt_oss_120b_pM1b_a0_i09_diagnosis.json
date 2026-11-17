@@ -1,0 +1,12 @@
+{
+  "failure_mode": "other",
+  "evidence": [
+    "DBG target_guard t=126.60 reason=no_forward_range ... repeated every 10 s shows lookahead_target returned no forward range near the goal",
+    "model_dbg stops showing \"lookahead_target found\" after t≈124 s, indicating the function fell back to returning the robot pose",
+    "final result: distance 0.815 m and yaw error 0.511 rad, i.e. robot stopped before reaching GOAL because base received a zero‑range target"
+  ],
+  "function": "lookahead_target",
+  "direction": "In lookahead_target, when the remaining path length is less than target_min_ahead_m, return the last point of the path (or the goal) instead of the robot pose. Remove the fallback that yields (pose[0], pose[1]) and let the base guard handle the short‑range case. Add a DBG line indicating this short‑range fallback.",
+  "not_to_change": "Do not modify plan_path or follow_cmd, and do not alter any code outside the [EDIT REGION].",
+  "confidence": "medium"
+}

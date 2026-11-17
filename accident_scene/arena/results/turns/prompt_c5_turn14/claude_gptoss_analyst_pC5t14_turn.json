@@ -1,0 +1,442 @@
+{
+ "turn": 14,
+ "started": "2026-11-17 11:15:30",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c5_turn13/claude_gptoss_analyst_pC5t13_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c5t13_s1200293880: 42번의 정지·회전 구간 후 t=103.45 s에 2 m 이내 물체 감지, 이후 로봇이 제자리 회전만 반복해 목표까지 30 m 남은 상태에서 진행 중단(진행 중단 t=103.83 s).",
+   "c5t13_s1619343123: 91번의 정지·회전 구간, 2 m 이내 물체는 t≈206 s에 처음 감지되지 않았으며 로봇이 회전만 수행해 목표까지 25 m 남은 채 진행 중단(t=210.85 s).",
+   "c5t13_s1291565554: 70번의 정지·회전 구간, 2 m 이내 물체가 t=115.17 s에 감지됐음에도 로봇이 정지 후 회전만 지속해 목표까지 29 m 남은 상태에서 진행 중단(t=117.88 s)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 충돌 위험이 되기 전에 라이다로 감지된다.",
+    "holds": false,
+    "why": "첫 감지는 100 s 이후에 이루어졌으며, 감지 직후 로봇은 전진을 재개하지 못하고 정지·회전만 반복한다."
+   },
+   {
+    "assumption": "VFH는 항상 충분히 넓은 빈 구간을 찾아 전진 명령을 생성한다.",
+    "holds": false,
+    "why": "다수의 stop‑turn 에피소드에서 VFH가 회전 전용 명령만 반환하거나 None을 반환해 전진이 차단된다."
+   },
+   {
+    "assumption": "동적 pause(시간‑충돌) 로직은 짧은 일시 정지를 초래하고 곧 전진을 재개한다.",
+    "holds": false,
+    "why": "pause가 길게 유지되어 로봇이 30 m 이상 남은 목표까지 전진하지 못하고 90 s 이상 정지 상태에 머문다."
+   },
+   {
+    "assumption": "정적 지도와 로봇 본체 충돌 검사는 정확히 동작한다.",
+    "holds": true,
+    "why": "정적 장애물과의 충돌 보고가 없으며, _is_static_world 필터링이 정상적으로 작동한다."
+   },
+   {
+    "assumption": "3.5 s 예측 horizon은 이동 물체와의 충돌을 충분히 예측한다.",
+    "holds": false,
+    "why": "과도한 horizon이 과보수적인 pause를 유발해 로봇이 진행을 포기한다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "VFH reactive planner",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "VO planner (fallback evasion)",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Predictive speed scaling",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Stuck detour after prolonged blockage",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Normal waypoint following",
+    "turns": "3",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "순수 TTC 기반 속도 스케일링만 사용하고 VFH·VO·정지·회전 로직을 제거한다.",
+    "new_family": true,
+    "for": "예전 turn 2의 TTC‑동적‑pause와 _predictive_speed 조합이 가장 높은 통과율을 보였으며, 로직을 단순화하면 과도한 정지·회전을 없앨 수 있다.",
+    "risk": "TTC 임계값을 낮게 잡으면 빠른 물체와 충돌 위험이 증가할 수 있다."
+   },
+   {
+    "idea": "라이다 기반 이동 물체를 일시적 정적 장애물로 간주하고 A* 재계획을 수행한다.",
+    "new_family": true,
+    "for": "현재 VFH·VO가 빈 구간을 찾지 못해 정체가 발생하므로, 전역 경로 재계획으로 명확한 우회 경로를 만든다.",
+    "risk": "재계획 연산 비용이 높아 시뮬 시간 제한을 초과할 가능성이 있다."
+   },
+   {
+    "idea": "VFH 파라미터를 완화해 _SAFE_DIST를 2 m 로 낮추고 최소 빈 구간 폭을 2 bin 으로 줄인다.",
+    "new_family": true,
+    "for": "현재 VFH가 과보수적으로 전진을 차단하고 회전만 유도하므로, 파라미터 완화가 전진을 허용할 수 있다.",
+    "risk": "좁은 구간을 통과하면서 실제 충돌 위험이 증가할 수 있다."
+   }
+  ],
+  "chosen": "우리는 후보 1을 선택한다. TTC 기반 속도 스케일링만 남기고 VFH·VO·정지·회전 로직을 모두 제거하면 현재 과도한 정체 현상을 근본적으로 해소할 수 있다.",
+  "target": "controller (VFH·VO·pause 로직 제거, TTC 기반 속도 스케일링 적용)",
+  "direction": "1) controller 초기화에서 기존 st[\"pause_until\"], st[\"detour\"], st[\"vo_on\"] 등을 삭제하고, _perceive와 트랙 업데이트만 유지한다. 2) _perceive 후 M = _track_array(st, t) 를 얻고, _dynamic_pause(st, pose, M) 로 (pause, ttc) 를 계산한다. 3) pause>0이면 st[\"pause_until\"] = t + pause 를 설정하고 (0.0,0.0,False) 를 반환한다; pause가 0이면 바로 진행한다. 4) 현재 waypoint에 대해 _follow 로 v_nom, w_nom 을 구하고, _predictive_speed(st, pose, tgt, v_nom, M) 로 안전 속도 vc 를 얻는다. 5) vc가 None이면 vc=0.0으로 설정하고, w = w_nom 로 지정한 뒤 _guard(st, pose, M, vc, w) 로 최종 검증 후 반환한다. 6) VFH, VO, early‑stop, proximity‑stop 등 모든 호출을 코드에서 제거하거나 주석 처리한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 chosen(후보 1)과 direction 1)~6)을 따라, controller 를 \"인지·트랙 갱신 → `_dynamic_pause` TTC 정지 → `_follow` + `_predictive_speed` 속도 스케일링 → `_guard`\" 한 줄기로 줄였습니다. 이렇게 VFH·VO·escape·early-stop·proximity-stop·detour·VFH stall 전환 호출을 모두 뺐습니다. 진단은 이 계층들이 정지·회전 구간을 수십 번 반복하게 해 stall(진행 중단)을 일으킨다고 지적했고, 이를 없애려는 것입니다. `pause_until` 은 초기화 항목에서 빼고 direction 3)의 TTC 정지에만 씁니다. TTC 위협이 있으면 `t + pause` 까지 (0, 0) 으로 멈추고, 위협이 없으면 바로 waypoint 주행을 이어 갑니다(속도는 `_predictive_speed`, 안전한 속도가 없으면 0, 최종 `_guard` 검사). 경유점, GOAL 정렬, 종료 조건은 기존 그대로입니다.",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1) 초기화에서 pause_until·detour·vo_on 등 삭제, _perceive와 트랙 갱신만 유지",
+      "implemented": true,
+      "note": "controller.st 초기화에서 pause_until, detour, vo_on, esc, vfh 등 키가 빠짐. pause_until은 st.get(..., -1.0)으로만 읽음. 남은 갱신은 _update_motion·_perceive 뿐"
+     },
+     {
+      "instruction": "2) _perceive 후 M=_track_array(st,t), _dynamic_pause(st,pose,M)로 (pause, ttc) 계산",
+      "implemented": true,
+      "note": "M = _track_array(st, t); pause, _ttc = _dynamic_pause(st, pose, M)"
+     },
+     {
+      "instruction": "3) pause>0이면 pause_until=t+pause 설정 후 (0,0,False) 반환, pause가 0이면 바로 진행",
+      "implemented": true,
+      "note": "pause_until을 설정하고 t<pause_until 동안 (0,0,False)를 반환함. 지시는 반환만 말했지만 pause_until까지 정지를 유지하는 것은 그 변수의 뜻과 맞음"
+     },
+     {
+      "instruction": "4) 현재 waypoint로 _follow → v_nom,w_nom, _predictive_speed(st,pose,tgt,v_nom,M) → vc",
+      "implemented": true,
+      "note": "_follow(pose, wp), _predictive_speed(st, pose, wp, v_nom, M). v_nom<=0이면 vc=0.0"
+     },
+     {
+      "instruction": "5) vc가 None이면 0.0, w=w_nom, _guard(st,pose,M,vc,w)로 검증 후 반환",
+      "implemented": true,
+      "note": "vc None→0.0, v,w = _guard(st, pose, M, vc, w_nom); return v, w, False"
+     },
+     {
+      "instruction": "6) VFH·VO·early-stop·proximity-stop 등 모든 호출 제거",
+      "implemented": true,
+      "note": "controller에 _vfh_cmd, _vo_planner, _plan_escape, _early_raw_stop, _proximity_stop_and_backup, _stuck_detour, _safe_speed 호출이 없음. 정의만 남아 있고 호출되지 않음"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "_dynamic_pause는 TTC가 3.5 s 이내이면 항상 0.5~3.0 s의 pause를 내고, 정지 중에도 매 스텝 다시 걸린다. 진단이 과보수라고 지적한 3.5 s horizon을 그대로 두어 물체가 접근하는 동안 정지가 길게 이어질 수 있다",
+     "VO·escape 회피를 모두 없애 정지가 유일한 대응이다. 정지한 로봇에게 다가오는 물체를 피할 수단이 없는데, 과제는 멈춰 있어도 닿으면 충돌로 판정한다",
+     "evidence의 두 번째 항목('처음 감지되지 않았으며')과 첫 가정('첫 감지 100 s 이후')이 정지·회전 42~91회라는 기록과 어긋나 근거 해석이 불명확하다",
+     "_predictive_speed 안에서도 _dynamic_pause의 TTC로 감속하므로 TTC가 pause와 감속에 이중으로 적용된다"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단의 chosen(후보 1)과 direction 1)~6)을 따라, controller 를 \"인지·트랙 갱신 → `_dynamic_pause` TTC 정지 → `_follow` + `_predictive_speed` 속도 스케일링 → `_guard`\" 한 줄기로 줄였습니다. 이렇게 VFH·VO·escape·early-stop·proximity-stop·detour·VFH stall 전환 호출을 모두 뺐습니다. 진단은 이 계층들이 정지·회전 구간을 수십 번 반복하게 해 stall(진행 중단)을 일으킨다고 지적했고, 이를 없애려는 것입니다. `pause_until` 은 초기화 항목에서 빼고 direction 3)의 TTC 정지에만 씁니다. TTC 위협이 있으면 `t + pause` 까지 (0, 0) 으로 멈추고, 위협이 없으면 바로 waypoint 주행을 이어 갑니다(속도는 `_predictive_speed`, 안전한 속도가 없으면 0, 최종 `_guard` 검사). 경유점, GOAL 정렬, 종료 조건은 기존 그대로입니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1416333878,
+  47971933,
+  358178082,
+  1850179236,
+  1479834652,
+  1598144880,
+  1937593746
+ ],
+ "sim_used_s": 428.4,
+ "verdicts": {
+  "1416333878": "pass",
+  "47971933": "fail",
+  "358178082": "fail",
+  "1850179236": "pass",
+  "1479834652": "pass",
+  "1598144880": "pass",
+  "1937593746": "fail"
+ },
+ "passes": 4,
+ "prior_chars": 8858,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t14_s47971933: t=11.133 s 충돌, 로봇 정지 상태, mover_00이 앞쪽 좌측( rel_xy [0.16,0.6])에서 충돌, 첫 비지도 점 6.15 s에 1.76 m 거리( bearing 51°) 발견",
+   "c5t14_s358178082: t=7.817 s 충돌, 로봇 정지, mover_00이 좌측 앞쪽( rel_xy [0.07,0.6])에서 충돌, 첫 비지도 점 2.85 s에 1.75 m 거리( bearing 49°) 발견",
+   "c5t14_s1937593746: t=24.517 s 충돌, 로봇 정지, mover_01이 좌측/후방( rel_xy [-0.89,-0.44])에서 충돌, 첫 비지도 점 19.62 s에 4.41 m( bearing 155°) → 22.9 s에 1 m( bearing -88°)까지 접근"
+  ],
+  "assumptions": [
+   {
+    "assumption": "TTC 기반 pause가 모든 충돌 위협을 포착한다",
+    "holds": false,
+    "why": "측면 이동 물체는 상대 속도가 닫히지 않아 TTC가 무한으로 판단돼 pause가 발생하지 않음"
+   },
+   {
+    "assumption": "두 개의 로봇 원(circle)만으로 로봇 전체 형태를 충분히 근사한다",
+    "holds": false,
+    "why": "충돌이 좌측에서 발생했으며 현재 원들은 전·후축에만 위치해 측면을 놓침"
+   },
+   {
+    "assumption": "정지 상태에서 로봇은 외부 물체에 의해 충돌되지 않는다",
+    "holds": false,
+    "why": "정지 후 이동 물체가 측면에서 로봇에 닿아 충돌이 발생함"
+   },
+   {
+    "assumption": "라이다 2D/3D가 0.1 s 간격으로 물체를 충분히 조기에 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 2 m 이내 물체를 2‑6 s에 감지했음"
+   },
+   {
+    "assumption": "동적 pause 후 바로 waypoint 추종으로 복귀하면 안전하다",
+    "holds": false,
+    "why": "pause 후 로봇이 정지한 채 물체가 접근해 충돌이 발생함"
+   },
+   {
+    "assumption": "움직이는 물체의 최대 속도는 2 m/s 이하이다",
+    "holds": true,
+    "why": "문제 정의와 _MAX_OBJECT_SPEED=2.0 로 설정됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "simple pause_until",
+    "turns": "1",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "dynamic pause (TTC) with extended horizon",
+    "turns": "2",
+    "result": "4/5 pass"
+   },
+   {
+    "family": "gap+detour",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": "4",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VO planner",
+    "turns": "5",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "3D lidar integration",
+    "turns": "6",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "TTC stop check",
+    "turns": "7",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "TTC stop + VO fallback",
+    "turns": "8",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "proximity stop & backup",
+    "turns": "9",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "early raw stop",
+    "turns": "10",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "potential field avoidance",
+    "turns": "11",
+    "result": "4/7 pass"
+   },
+   {
+    "family": "DWA planner",
+    "turns": "12",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VFH histogram",
+    "turns": "13",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "simplified dynamic pause + predictive speed (current)",
+    "turns": "14",
+    "result": "4/7 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "동적 pause 중 로봇이 정지하면 측면 회피 웨이포인트(좌/우 0.8 m)로 짧게 이동 후 원래 경유점 복귀",
+    "new_family": true,
+    "for": "측면에서 접근하는 물체와 정지 중 충돌을 방지",
+    "risk": "추가 회전·이동으로 목표 도달 시간이 늘어나고, 측면에도 장애물이 있으면 회피가 실패할 수 있음"
+   },
+   {
+    "idea": "로봇 원(circle) 개수를 확대해 전·후·좌·우 4개 원을 사용하고 _dynamic_pause·_margin이 모든 원을 검사하도록 수정",
+    "new_family": true,
+    "for": "측면 물체도 TTC 계산에 포함시켜 조기 pause를 유도",
+    "risk": "과도한 보수성으로 불필요한 정지·정체가 증가하고 연산량이 늘어남"
+   }
+  ],
+  "chosen": "측면 회피 웨이포인트를 추가하는 방안을 선택했습니다.",
+  "target": "controller (pause handling) 및 새로운 _side_detour 함수",
+  "direction": "1) controller 내부에서 pause가 활성화되고 현재 속도가 0일 때, _side_detour(pose, M) 를 호출해 가장 가까운 mover와 반대 방향으로 0.8 m 정도의 측면 목표점을 생성한다. 2) 해당 목표점이 _map_free와 _segment_free 로 정적 맵을 통과하면 (v, w) = _follow(pose, detour) 로 회피 명령을 반환한다. 3) 회피 중에는 _guard 로 최종 안전 검사를 수행해 라이다 스트립과 스윕 바디를 확인한다. 4) detour에 도달하면 st[\"detour\"] 를 None 으로 초기화하고 기존 waypoint 추적 로직으로 복귀한다. 5) pause_until 를 기존대로 유지하되, 회피가 진행 중일 때는 pause_until 를 연장하지 않는다. 6) 새로운 _side_detour 함수는 mover의 현재 위치와 속도를 이용해 lateral 방향을 결정하고, _map_free 로 이동 가능 여부를 검증한다.",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c5t14_s1416333878",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 87.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 81.42,
+   "goal_dist_m": 0.2304,
+   "time_to_goal_s": 83.4
+  },
+  {
+   "run": "c5t14_s47971933",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 512.7,
+   "sim_time_s": 17.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 11.133,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.16,
+    0.6
+   ],
+   "closing_m_s": 0.32,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 6.15,
+   "goal_dist_m": 32.3386,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t14_s358178082",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 495.5,
+   "sim_time_s": 13.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 7.817,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.07,
+    0.6
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 2.85,
+   "goal_dist_m": 32.1374,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t14_s1850179236",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 481.7,
+   "sim_time_s": 85.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 79.12,
+   "goal_dist_m": 0.2048,
+   "time_to_goal_s": 81.133
+  },
+  {
+   "run": "c5t14_s1479834652",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 396.7,
+   "sim_time_s": 92.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 85.217
+  },
+  {
+   "run": "c5t14_s1598144880",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 304.4,
+   "sim_time_s": 102.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2014,
+   "time_to_goal_s": 95.333
+  },
+  {
+   "run": "c5t14_s1937593746",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 202.1,
+   "sim_time_s": 30.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 24.517,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.89,
+    -0.44
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 21.42,
+   "goal_dist_m": 18.689,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 156 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.\" 반영, 검토 통과): 새 배치 5개 중 4개 pass, 1개 fail (시뮬 시간 합계 599 s / 한도 600 s)\n#3 이번 코드(진단 \"1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\\\"detour\\\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\\\"detour\\\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\\\"detour\\\"][0]-x, st[\\\"detour\\\"][1]-y) < 0.4`) `st[\\\"detour\\\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 593 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _predictive_speed(st, pose, tgt, v_nom, M) 를 추가해 _dynamic_pause 로 TTC를 구하고, (ttc/_HORIZON) 비율로 속도 비율을 계산한다. 2) controller에서 목표 선택 후, gap <= _SAFE_DIST 인 경우 기존 detour/pause 로직 대신 _predictive_speed 를 호출한다. 3) 반환된 속도가 None이면 기존 pause 로직을 실행하고, 속도가 있으면 v=vc, w=w_nom 로 반환한다. 4) _lidar_clear 검사를 속도에 적용해 앞에 장애물이 있으면 v를 0으로 만든다. 5) 기존 detour와 escape 로직은 fallback으로 남겨 두어 완전 차단 상황에 대비한다. 6) _SAFE_DIST 를 약간 늘려(1.7 m) 급격한 접근을 미리 감지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 506 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 286 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _perceive 안에서 lidar3d_points() 를 호출해 3D 포인트 클라우드를 얻는다. 2. 포인트를 x‑y 평면으로 투사하고 _drop_body 로 로봇 몸체를 제외한다. 3. 기존 2D 라이다와 결합해 하나의 점 집합 P 를 만든다. 4. P 로부터 정적 점을 _is_static_world 로 필터링하고, 남은 점을 기존 클러스터링 로직에 그대로 전달해 트랙을 업데이트한다. 5. _SAFE_DIST 검사를 P 기반으로 확장해 3 m까지 감지하도록 하고, pause_until 로직을 P 내 물체가 2 m 이내에 들어오면 즉시 정지하도록 수정한다. 6. VO 플래너와 predictive_speed 에도 새로운 P 를 입력해 더 긴 예측 거리와 정확한 lidar_strip 검사를 수행한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 432 s / 한도 600 s)\n#7 이번 코드(진단 \"1) _MAX_OBJECT_SPEED=2.0, _TTC_THRESHOLD=1.0 을 편집 영역 상단에 정의한다. 2) _ttc_stop_check(st, pose, raw) 를 추가해 각 비지도 라이다 점의 거리와 로봇 현재 속도(vm) 를 이용해 TTC=dist/(max(rel_speed,1e-3)+_MAX_OBJECT_SPEED) 를 계산하고, 최소 TTC가 _TTC_THRESHOLD 미만이면 st['pause_until']=max(st['pause_until'], t+0.5) 를 설정한다. 3) controller() 에서 _perceive() 뒤, _should_pause() 호출 전 _ttc_stop_check() 를 호출하고 True이면 0.0,0.0,False 를 반환한다. 4) 기존 _should_pause() 로직을 그대로 유지하되, pause_until 가 연장된 경우에도 정지 유지한다. 5) 필요 시 _mark_free() 가 pause_until 가 지나면 free_since 를 초기화하도록 유지한다. 6) 기존 VO·predictive·detour 로직은 pause 상태가 해제된 뒤에 그대로 동작한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 261 s / 한도 600 s)\n#8 이번 코드(진단 \"1) _ttc_stop_check 를 true/false 로만 반환하도록 수정하고, 정지 명령을 직접 내리지 않는다. 2) controller 에서 _ttc_stop_check 호출 후 true이면 _vo_planner 를 strict 모드로 호출한다. 3) VO 플래너가 유효한 (v,w) 를 반환하면 그 값을 사용하고, 반환이 없을 때만 기존 pause_until 로 정지한다. 4) pause_until 를 VO 플래너가 실패했을 때만 연장하도록 하고, 성공 시 초기화한다. 5) 기존 정지 로직을 유지하되, VO 회피가 가능한 경우 우선 적용한다. 6) 필요 시 _mark_free 로 이동 재개 시점을 관리한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 312 s / 한도 600 s)\n#9 이번 코드(진단 \"1) _perceive 뒤에 _unmapped_raw 로 현재 프레임의 비지도 점들을 얻는다. 2) 새 함수 _proximity_stop_and_backup(st, t, pose) 를 구현해, 점 중 거리 d<0.8 m 인 것이 있으면 로봇이 현재 전진 중이면 바로 정지하고 pause_until = t+2.0을 설정한다. 3) 로봇이 이미 정지 중이고 d<0.5 m이면 v=-0.4 m/s, w=0을 반환해 0.5 s 동안 후진하도록 하고, 이후 pause_until = t+2.0 로 유지한다. 4) controller 의 (2) _should_pause 전 단계에서 이 함수를 호출해 True이면 반환값을 바로 사용한다. 5) 기존 pause_until 로직은 이 새로운 정지·후진이 끝난 뒤에만 동작하도록 유지한다. 6) st['wait_start'] 와 st['free_since'] 를 적절히 초기화해 대기 후 정상 주행이 재개되도록 한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 37 s / 한도 600 s)\n#10 이번 코드(진단 \"1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\\\"pause_until\\\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 303 s / 한도 600 s)\n#11 이번 코드(진단 \"Add constants _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 and a helper _potential_field_avoidance(pose, raw, wp) that sums repulsive vectors from unmapped points (inverse distance weighting) and an attractive vector to wp, then returns a desired heading and speed factor; in controller, after _perceive replace the early‑stop and proximity‑stop calls with a call to _potential_field_avoidance, set v = min(v_nom, v_pf) and w = clamp(7.5*(desired_heading‑yaw), -0.6, 0.6), and only fall back to the existing VO planner if the potential‑field margin is negative; keep _guard for final safety checks; remove the 1 s binary pause logic or reduce it to a short debounce.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(진단 \"1. _DWA_HORIZON=2.0, _DWA_DT=0.1, _DWA_V_STEPS=5, _DWA_W_STEPS=7, _DWA_COST_WEIGHT={'margin':1.0,'speed':0.2,'turn':0.1} 등을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 _dwa_candidates(pose, vm) 를 추가해 허용 속도·회전 범위 내에서 (v,w) 조합을 샘플링한다. 3. 각 후보에 대해 _rollout 으로 _DWA_HORIZON 초 동안 궤적을 생성하고, _traj_margin 로 움직이는 물체와 정적 장애물에 대한 최소 마진을 계산한다. 4. 마진이 0 이상이고 _lidar_clear·_sweep_clear 가 통과하는 후보들에 대해 비용 = -margin + _DWA_COST_WEIGHT['speed']·(v_nom‑v)² + _DWA_COST_WEIGHT['turn']·|w| 로 평가한다. 5. 비용이 가장 낮은 후보를 선택하고, 선택된 (v,w) 가 없으면 (0,0) 로 정지한다. 6. 선택된 (v,w) 를 반환하기 전에 기존 _guard 로 최종 안전 검사를 수행한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 293 s / 한도 600 s)\n#13 이번 코드(진단 \"1. Add a function _vfh_histogram(pose, raw) that converts unmapped lidar points to polar bins (e.g., 5° resolution) and counts obstacles per bin. 2. Add _vfh_select_gap(hist) that finds the widest consecutive sequence of empty bins wider than the robot footprint plus safety margin and returns the central bearing. 3. In controller(), after _perceive() call _unmapped_raw() to get raw points and compute (hist, gap_bearing) via the new helpers. 4. If a gap exists, compute desired heading = yaw + gap_bearing and set w = _clamp(7.5*(desired_heading‑yaw), -_DWA_W_MAX, _DWA_W_MAX). 5. Compute v_nom from _follow() toward the waypoint, then limit v by _lidar_clear and by the distance to the nearest obstacle in that direction (e.g., v = min(v_nom, d_gap‑_R_ROBOT‑0.1)). 6. Run the final command through _guard() and return; otherwise, fall back to the original waypoint follower when no gap is found.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 436 s / 한도 600 s)\n#14 이번 코드(진단 \"1) controller 초기화에서 기존 st[\\\"pause_until\\\"], st[\\\"detour\\\"], st[\\\"vo_on\\\"] 등을 삭제하고, _perceive와 트랙 업데이트만 유지한다. 2) _perceive 후 M = _track_array(st, t) 를 얻고, _dynamic_pause(st, pose, M) 로 (pause, ttc) 를 계산한다. 3) pause>0이면 st[\\\"pause_until\\\"] = t + pause 를 설정하고 (0.0,0.0,False) 를 반환한다; pause가 0이면 바로 진행한다. 4) 현재 waypoint에 대해 _follow 로 v_nom, w_nom 을 구하고, _predictive_speed(st, pose, tgt, v_nom, M) 로 안전 속도 vc 를 얻는다. 5) vc가 None이면 vc=0.0으로 설정하고, w = w_nom 로 지정한 뒤 _guard(st, pose, M, vc, w) 로 최종 검증 후 반환한다. 6) VFH, VO, early‑stop, proximity‑stop 등 모든 호출을 코드에서 제거하거나 주석 처리한다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 428 s / 한도 600 s)",
+ "ended": "2026-11-17 11:29:18"
+}

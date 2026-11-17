@@ -1,0 +1,390 @@
+{
+ "turn": 42,
+ "started": "2026-11-16 21:20:24",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c2_turn41/gpu_gpt_oss_120b_pC2t41_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t41_s444751246: progress_abort_t=104.47 s, robot stopped/rotated 23 times, final distance to goal 33.09 m",
+   "c2t41_s186327105: progress_abort_t=94.9 s, robot stopped/rotated 46 times, first_not_on_map at t=89.93 s (2.15 m, bearing +139°)",
+   "c2t41_s1435341111: stall_abort_t=112.02 s after moving only 0.29 m, stop_turns=9, first_not_on_map at t=107.05 s (3.23 m, bearing +131°)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다가 _DETECT_DIST(2 m)·_DETECT_ANGLE(π) 범위 안에서 움직이는 물체를 정확히 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 2‑3 m 거리의 비지도 물체가 감지됨"
+   },
+   {
+    "assumption": "감지된 물체에 대해 _compute_bypass_target이 항상 유효한 측면 경유점을 반환한다",
+    "holds": false,
+    "why": "다수의 stop_wait 에피소드(23·46·9 회)에서 bypass_target가 None가 되어 정지만 반복"
+   },
+   {
+    "assumption": "_AVOID_DURATION(1 s)만에 물체가 충분히 지나가서 전진을 재개할 수 있다",
+    "holds": false,
+    "why": "물체가 수초 이상 감지 구역에 머무르며 동일 구간에서 반복 정지·회전 발생"
+   },
+   {
+    "assumption": "repulsion 벡터와 waypoint 벡터 결합으로 물체를 회피하면서 진행할 수 있다",
+    "holds": false,
+    "why": "정지·회전 후에도 진행 거리 개선이 거의 없으며 목표까지 30 m 이상 남음"
+   },
+   {
+    "assumption": "critical 거리(_CRITICAL_DIST 0.8 m) 내 물체가 있으면 즉시 정지해 충돌을 방지한다",
+    "holds": true,
+    "why": "실행 중 충돌이 보고되지 않았음"
+   },
+   {
+    "assumption": "움직이는 물체는 짧은 시간에 지나가므로 정지‑대기 후 재진입하면 진행이 지속된다",
+    "holds": false,
+    "why": "물체가 장시간 감지 구역에 머무르며 정지‑대기 루프에 빠짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "1/10 pass, 주로 충돌"
+   },
+   {
+    "family": "전·후 라이다 ±30° 정지‑회전",
+    "turns": "1",
+    "result": "2/10 pass, 여전히 충돌"
+   },
+   {
+    "family": "벽 판별 수정",
+    "turns": "2",
+    "result": "7/10 pass, 정적 장애물 인식 개선"
+   },
+   {
+    "family": "감지 범위 확대 + 정지‑회전 (다수 시도)",
+    "turns": "4,6,16,20,23,24,27,28,30,31,33‑39",
+    "result": "0/≈70 pass, 주로 stall·progress abort"
+   },
+   {
+    "family": "감지 범위 축소 + 정지‑대기‑회전 (다수 시도)",
+    "turns": "5,8,9,10,11,12,13,14,17,18,19,21,22,25,26",
+    "result": "15/71 pass, 여전히 정지 루프"
+   },
+   {
+    "family": "우회 경유점 생성 시도",
+    "turns": "13‑15,33‑36",
+    "result": "0‑3/15 pass, 경유점 찾지 못해 정지"
+   },
+   {
+    "family": "단순 repulsion·critical만 사용",
+    "turns": "39",
+    "result": "0/3 pass, 정지만 반복"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Reciprocal Velocity Obstacle(RVO) 기반 연속 회피: 라이다에서 최근 두 스캔을 이용해 물체 속도를 추정하고, 현재 속도와 목표 방향을 조합해 충돌 회피 가능한 속도를 선택한다.",
+    "new_family": true,
+    "for": "정지‑대기 루프를 없애고 물체가 존재해도 지속적인 전진을 유지한다",
+    "risk": "속도 추정 오류 시 진동 또는 근접 충돌 위험"
+   },
+   {
+    "idea": "Dynamic Window Approach(DWA) 로컬 플래너 도입: 후보 속도 집합을 샘플링하고, 각 후보가 일정 시간 동안 물체와 충돌하지 않을지 시뮬레이션해 최적 속도를 선택한다.",
+    "new_family": true,
+    "for": "연속적인 속도 선택으로 정지‑회전 반복을 방지한다",
+    "risk": "계산 비용 증가와 파라미터 튜닝 필요"
+   },
+   {
+    "idea": "시간‑가중 A* 경로 재계획: 움직이는 물체를 임시 장애물(시간 구간)으로 지도에 삽입하고 매 0.5 s마다 로컬 A*를 실행해 새로운 경로를 얻는다.",
+    "new_family": true,
+    "for": "정적인 waypoint 순서에 얽매이지 않고 동적 장애물 회피 경로를 제공한다",
+    "risk": "재계획 빈도가 높아 시뮬레이션 오버헤드가 커질 수 있다"
+   }
+  ],
+  "chosen": "RVO 기반 연속 회피를 선택한다 – 정지‑대기 루프를 제거하고 물체와 동시에 이동하도록 한다.",
+  "target": "controller",
+  "direction": "1) 라이다 스캔을 두 프레임 저장해 이동 물체의 속도를 추정하는 _estimate_moving_objects 함수를 추가한다. 2) _detect_moving_any 로 물체를 감지하면 RVO 제약을 계산해 현재 속도와 목표 방향을 조합한 안전 후보 속도 집합을 만든다. 3) 후보 중 목표에 가장 가까우면서 충돌 가능성이 없는 속도를 선택하고, 그 속도를 전진 속도 v와 회전 속도 w 로 변환한다. 4) _CRITICAL_DIST(0.8 m) 안에 물체가 있으면 즉시 v=0, w=0 로 정지한다. 5) 기존 stop_wait·bypass 상태와 관련 코드를 삭제하고 waypoint 추적 로직만 남긴다. 6) 매 1/60 s마다 위 로직을 실행해 지속적인 회피와 전진을 동시에 수행한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유:  \n- 기존 정지·우회 상태 머신이 물체가 장시간 감지 구역에 머무를 때 반복적인 정지·회전 루프로 stall되는 문제를 해결하기 위해, 연속적인 속도 선택을 하는 RVO‑유사 회피 방식을 도입했습니다.  \n- 라이다 스캔을 두 번 저장해 이동 물체의 평균 속도를 추정하고, 후보 속도(v, w)를 짧은 시뮬레이션으로 검증해 정적·동적 장애물을 모두 피하면서 목표 방향으로 전진하도록 구현했습니다.  \n- 이를 통해 정지‑대기 루프를 없애고, 움직이는 물체가 있어도 지속적인 전진과 부드러운 회피가 가능하도록 했습니다.",
+   "changed": [
+    "_AVOID_HORIZON",
+    "_SAFE_DIST",
+    "_V_SAMPLES",
+    "_W_SAMPLES",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "라이다 스캔을 두 프레임 저장해 이동 물체의 속도를 추정하는 _estimate_moving_objects 함수를 추가한다.",
+      "implemented": false,
+      "note": "속도 추정은 controller 내부에 직접 구현되어 있어 함수 _estimate_moving_objects 가 존재하지 않음"
+     },
+     {
+      "instruction": "_detect_moving_any 로 물체를 감지하면 RVO 제약을 계산해 현재 속도와 목표 방향을 조합한 안전 후보 속도 집합을 만든다.",
+      "implemented": false,
+      "note": "controller 가 _detect_moving_any 를 호출하지 않고 _moving_points 로 직접 점을 얻음"
+     },
+     {
+      "instruction": "후보 중 목표에 가장 가까우면서 충돌 가능성이 없는 속도를 선택하고, 그 속도를 전진 속도 v와 회전 속도 w 로 변환한다.",
+      "implemented": true,
+      "note": "v, w 후보를 시뮬레이션으로 검증하고 점수 기반으로 최적 후보를 선택함"
+     },
+     {
+      "instruction": "_CRITICAL_DIST(0.8 m) 안에 물체가 있으면 즉시 v=0, w=0 로 정지한다.",
+      "implemented": true,
+      "note": "_detect_critical 로 _CRITICAL_DIST 내 물체를 감지하면 0.0,0.0 반환"
+     },
+     {
+      "instruction": "기존 stop_wait·bypass 상태와 관련 코드를 삭제하고 waypoint 추적 로직만 남긴다.",
+      "implemented": true,
+      "note": "state 머신( stop_wait, bypass 등) 전부 제거되고 waypoint 기반 로직만 남음"
+     },
+     {
+      "instruction": "매 1/60 s마다 위 로직을 실행해 지속적인 회피와 전진을 동시에 수행한다.",
+      "implemented": true,
+      "note": "controller 가 매 시뮬레이션 스텝 호출되어 연속 회피 수행"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": "1) _estimate_moving_objects 라는 함수명을 추가하고, 현재 controller 내부에 있는 이동 물체 속도 추정 로직을 그 함수로 옮겨 주세요. 2) 움직이는 물체 감지를 위해 _detect_moving_any 를 호출하도록 controller 를 수정하고, 반환된 bearing 을 RVO 후보 생성에 활용하세요. 3) 후보 생성 로직은 현재와 동일하게 유지하되, _detect_moving_any 로 얻은 이동 물체 정보를 사용하도록 업데이트하면 진단을 완전히 만족합니다."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유:  \n- 기존 `controller` 내부에 있던 이동 물체 속도 추정 로직을 별도 함수 `_estimate_moving_objects` 로 분리하여 가독성을 높이고 재사용성을 확보했습니다.  \n- 이동 물체 감지를 `_detect_moving_any` 로 수행하고, 반환된 평균 베어링을 RVO 후보 점수에 반영해 물체와 반대 방향으로 이동하도록 유도했습니다.  \n- 후보 속도 생성 로직은 그대로 유지하면서, 새로 얻은 베어링 정보를 회피 보너스로 사용해 정지‑대기 루프 없이 연속적인 회피가 가능하도록 수정했습니다.",
+   "changed": [
+    "_estimate_moving_objects",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "라이다 스캔을 두 프레임 저장해 이동 물체의 속도를 추정하는 _estimate_moving_objects 함수를 추가한다.",
+      "implemented": true,
+      "note": "_estimate_moving_objects 함수가 정의돼 controller에서 호출됨"
+     },
+     {
+      "instruction": "_detect_moving_any 로 물체를 감지하면 RVO 제약을 계산해 현재 속도와 목표 방향을 조합한 안전 후보 속도 집합을 만든다.",
+      "implemented": true,
+      "note": "moving_any 감지 후 v·w 후보 샘플링·시뮬레이션으로 충돌 여부 검사"
+     },
+     {
+      "instruction": "후보 중 목표에 가장 가까우면서 충돌 가능성이 없는 속도를 선택하고, 그 속도를 전진 속도 v와 회전 속도 w 로 변환한다.",
+      "implemented": true,
+      "note": "score 최고 후보를 선택해 best_v, best_w 로 반환"
+     },
+     {
+      "instruction": "_CRITICAL_DIST(0.8 m) 안에 물체가 있으면 즉시 v=0, w=0 로 정지한다.",
+      "implemented": true,
+      "note": "controller 초기에 _detect_critical 호출 후 바로 0,0 반환"
+     },
+     {
+      "instruction": "기존 stop_wait·bypass 상태와 관련 코드를 삭제하고 waypoint 추적 로직만 남긴다.",
+      "implemented": true,
+      "note": "stop_wait·bypass 로직 제거, waypoint만 사용"
+     },
+     {
+      "instruction": "매 1/60 s마다 위 로직을 실행해 지속적인 회피와 전진을 동시에 수행한다.",
+      "implemented": true,
+      "note": "controller가 매 스텝 호출돼 전체 로직 수행"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유:  \n- 기존 `controller` 내부에 있던 이동 물체 속도 추정 로직을 별도 함수 `_estimate_moving_objects` 로 분리하여 가독성을 높이고 재사용성을 확보했습니다.  \n- 이동 물체 감지를 `_detect_moving_any` 로 수행하고, 반환된 평균 베어링을 RVO 후보 점수에 반영해 물체와 반대 방향으로 이동하도록 유도했습니다.  \n- 후보 속도 생성 로직은 그대로 유지하면서, 새로 얻은 베어링 정보를 회피 보너스로 사용해 정지‑대기 루프 없이 연속적인 회피가 가능하도록 수정했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  701369586,
+  545537161,
+  853860054
+ ],
+ "sim_used_s": 173.3,
+ "verdicts": {
+  "701369586": "fail",
+  "545537161": "fail",
+  "853860054": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 23949,
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t42_s701369586: t=79.95 s, robot stopped (pose [-2.599, -3.497, 1.686]), moved only 0.292 m in previous 60 s, first_not_on_map at 2.58 m indicates moving object still present.",
+   "c2t42_s545537161: t=81.5 s, robot stopped (pose [-2.696, -3.509, 1.679]), moved only 0.298 m in previous 60 s, moving object detected within 3 m (first_not_on_map 2.99 m).",
+   "c2t42_s853860054: t=3.767 s, collision with mover_00, robot speed 0.09 m/s, moving object at relative [-0.3, 0.54] with closing speed 0.69 m/s, first_not_on_map 1.71 m before start."
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D lidar reliably detects all moving objects within _DETECT_DIST and static filtering is correct",
+    "holds": false,
+    "why": "객체가 1.7 m 거리에서 감지됐지만 충돌·정지 루프가 발생해 올바르게 활용되지 않음"
+   },
+   {
+    "assumption": "Velocity estimated from two scans is accurate for short‑horizon prediction",
+    "holds": false,
+    "why": "예측 속도가 부정확해 0.6 s horizon 내에 모든 후보가 unsafe 로 판단됨"
+   },
+   {
+    "assumption": "0.6 s prediction horizon is sufficient to avoid moving objects",
+    "holds": false,
+    "why": "충돌이 3 s 이후에 일어나고, 정지 후 0.6 s 안에 안전 후보가 없어서 무한 정지"
+   },
+   {
+    "assumption": "If no safe candidate is found, stopping indefinitely will later become safe",
+    "holds": false,
+    "why": "두 번의 정지 실행에서 로봇이 영구 정지해 목표에 도달하지 못함"
+   },
+   {
+    "assumption": "RVO‑style candidate sampling always yields a safe (v,w) unless static obstacles block the path",
+    "holds": false,
+    "why": "moving_pts와 moving_vel 추정 오류로 모든 후보가 unsafe 로 판단, best_score stays -inf"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "stop_rotate",
+    "turns": [
+     0,
+     1,
+     5,
+     6,
+     8,
+     10,
+     11,
+     14,
+     16,
+     17,
+     18,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     30,
+     31,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38
+    ],
+    "result": "28 attempts, 16 passes (low overall success, only occasional passes at turns 5,8,14)"
+   },
+   {
+    "family": "rvo_candidate",
+    "turns": [
+     42
+    ],
+    "result": "1 attempt, 0 passes"
+   },
+   {
+    "family": "repulsion_vector",
+    "turns": [
+     39
+    ],
+    "result": "1 attempt, 0 passes"
+   },
+   {
+    "family": "bypass_waypoint",
+    "turns": [
+     41
+    ],
+    "result": "1 attempt, 0 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Hybrid repulsion + state‑machine: use a repulsive vector from moving points for continuous steering, add a 'stop_wait' state when a close object (<_CLOSE_STOP_DIST) is detected, wait a short timeout then rotate away before returning to normal.",
+    "new_family": true,
+    "for": "stall을 방지하고, 가까운 물체에 대해 즉시 정지·회전 후 재진입하도록 함",
+    "risk": "상태 전이와 센서 노이즈로 진동하거나 과도한 회전이 발생할 수 있음"
+   },
+   {
+    "idea": "Dynamic speed scaling: set forward speed proportional to distance to the nearest moving point (v = _MAX_SPEED * min(1, dist/_DETECT_DIST)), keep heading toward waypoint while steering away with repulsion.",
+    "new_family": true,
+    "for": "물체가 가까워질수록 속도를 줄여 충돌 위험 감소",
+    "risk": "속도가 너무 낮아 목표 시간 제한을 초과할 수 있음"
+   },
+   {
+    "idea": "Longer prediction horizon: increase _AVOID_HORIZON to 2 s and _SAFE_DIST to 0.8 m, keep RVO candidate sampling but with larger safety margin.",
+    "new_family": true,
+    "for": "짧은 horizon 때문에 모든 후보가 unsafe 로 판단되는 문제 해결",
+    "risk": "계산량 증가와 여전히 안전 후보가 없을 경우 정지 루프가 지속될 수 있음"
+   }
+  ],
+  "chosen": "Hybrid repulsion + state‑machine (candidate 1) because it adds a clear fallback when no safe motion exists and continuously steers away using repulsive forces.",
+  "target": "controller function (add state machine and repulsive steering logic)",
+  "direction": "1. controller 내부에 persistent state 변수 state('normal','stop_wait','rotate_away')와 state_end 타임스탬프를 추가한다. 2. 'normal' 상태에서는 _moving_points_repulsion(pose) 로 이동 물체의 repulsive_vec 를 구하고 waypoint_dir 와 가중치 _REPULSION_WEIGHT 로 합쳐 정규화된 dir 를 만든다; heading_error = atan2(dir_y, dir_x) - yaw, v = _MAX_SPEED * max(0, cos(heading_error)), w = _clamp(_KP_W * heading_error, -1.5, 1.5). 3. _detect_critical(pose) 가 True 이면 state='stop_wait', state_end = t + _AVOID_DURATION (1 s) 로 전환한다. 4. 'stop_wait' 상태에서는 v=w=0 유지하고 t >= state_end 이면 _detect_moving_close(pose) 로 가까운 물체 유무를 확인한다; 아직 있으면 state='rotate_away' 로 전환하고 w = sign(bearing) * _AVOID_ROT_SPEED, state_end = t + _AVOID_ROT_TIME; 없으면 state='normal' 로 복귀한다. 5. 'rotate_away' 상태에서는 회전만 수행하고 state_end 도달 시 다시 'normal' 로 돌아간다. 6. 기존 후보 샘플링 코드를 삭제하고 위 로직만 남긴다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c2t42_s701369586",
+   "verdict": "fail",
+   "stall_abort_t": 79.95,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 22.6312,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t42_s545537161",
+   "verdict": "fail",
+   "stall_abort_t": 81.5,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 22.6875,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t42_s853860054",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.767,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.09m/s",
+   "partner_rel_xy": [
+    -0.3,
+    0.54
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 31.7443,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 10개 중 1개 pass, 9개 fail (시뮬 시간 합계 223 s / 한도 600 s)\n#1 이번 코드(진단 \"controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.\" 반영, 검토 통과): 새 배치 10개 중 2개 pass, 8개 fail (시뮬 시간 합계 200 s / 한도 600 s)\n#2 이번 코드(진단 \"바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다. 해당 if 문을 수정해 외부 영역을 wall 로 인식하도록 바꾸면 움직이는 물체가 static으로 오인되지 않아 감지가 가능해진다.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 525 s / 한도 600 s)\n#4 이번 코드(진단 \"1) 확대된 탐지 범위: 거리 임계값을 2.0 m로, 방위각을 ±90°(또는 전체 360°)로 바꾼다. 2) _detect_moving_any에서 앞·뒤 라이다를 모두 사용해 위 조건을 적용한다. 3) 감지 시 v를 0으로 하고, 평균 베어링의 부호에 따라 회전(w=±0.6 rad/s)하거나, 거리 비례 감속을 추가한다. 4) 기존 1.2 m·±30° 제한을 제거해 모든 방향에서 움직이는 물체를 조기에 차단한다.\" 반영, 검토 통과): 새 배치 10개 중 0개 pass, 10개 fail (시뮬 시간 합계 523 s / 한도 600 s)\n#5 이번 코드(진단 \"1) _DETECT_DIST을 1.0 m로, _DETECT_ANGLE을 ±45°(np.deg2rad(45))로 줄여 불필요한 측면 감지를 억제한다. 2) controller에 회피 상태 타이머를 도입해 물체가 감지되면 v=0, w=0으로 최대 2 s 정지 후, 여전히 물체가 있으면 작은 좌측/우측 회피 회전(w=±0.4 rad/s) 후 전진을 재개한다. 3) 회피 후 1 m 이내에 물체가 남아 있으면 다시 정지·대기, 그렇지 않으면 waypoint 추적으로 복귀한다. 4) 기존 _detect_moving_any은 그대로 두고, 위 로직으로 과도한 제자리 회전을 방지한다.\" 반영, 검토 통과): 새 배치 10개 중 4개 pass, 6개 fail (시뮬 시간 합계 338 s / 한도 600 s)\n#6 이번 코드(진단 \"1) _DETECT_DIST 를 2.0 m 로 확대하고 _DETECT_ANGLE 을 ±90°(np.deg2rad(90)) 로 넓힌다. 2) 움직이는 물체가 감지되면 즉시 v=0, w=0 으로 정지하고 _AVOID_DURATION 를 3 s 로 늘려 충분히 물체가 지나가게 한다. 3) 정지 후 물체가 여전히 감지되면 회전(w=±0.6 rad/s)으로 방향을 바꾸고 1 s 뒤 다시 전진을 재개한다. 4) 이 로직을 controller 의 상태 머신에 적용해 waypoint 추적을 재개한다.\" 반영, 검토 통과): 새 배치 9개 중 0개 pass, 9개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#8 이번 코드(진단 \"거리 임계값을 1.0 m 로 축소하고 방위각을 ±45° 로 좁힌다. 움직이는 물체 감지 시 즉시 전진을 멈추고 0.5 s 동안 뒤로 물러난 뒤, 1 s 동안 회전하고 그 후 최소 속도 0.3 m/s 로 전진을 재개한다. 동일 물체가 연속 감지되면 최대 3번까지만 정지‑회전 루프를 수행하고, 그 이후에는 저속 전진으로 우회한다. _DETECT_DIST, _DETECT_ANGLE, _AVOID_DURATION 및 상태머신을 위와 같이 수정한다.\" 반영, 검토 통과): 새 배치 10개 중 6개 pass, 4개 fail (시뮬 시간 합계 484 s / 한도 600 s)\n#9 이번 코드(진단 \"detect_moving_any에서 사용되는 _DETECT_ANGLE를 ±90°(np.deg2rad(90)) 로 확대한다. _DETECT_DIST를 1.5 m(또는 2.0 m) 로 늘려 조기 감지를 확보한다. _MIN_MOVING_POINTS를 2로 낮춰 작은 물체도 감지한다. 이렇게 하면 측면·약간 뒤쪽 물체도 감지돼 회피 로직이 정상 작동한다.\" 반영, 검토 통과): 새 배치 7개 중 0개 pass, 7개 fail (시뮬 시간 합계 578 s / 한도 600 s)\n#10 이번 코드(진단 \"Detect moving objects earlier by raising _DETECT_DIST to 2.5 m and expanding _DETECT_ANGLE to ±120°. Add an 'avoid_wait' state that keeps v=0 while any moving object remains in the detection zone and only resumes after the object disappears for ≥1 s. If avoidance attempts exceed _MAX_AVOID_COUNT, create a temporary lateral waypoint ≈2 m opposite the object's bearing and navigate to it before returning to the original path. Lower _MIN_MOVING_POINTS to 1 and increase _AVOID_DURATION to 1 s for more reaction time.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 183 s / 한도 600 s)\n#11 이번 코드(진단 \"detect_moving_any에서 사용되는 _DETECT_DIST 를 1.0 m 로 축소해 먼 거리 비지도 점이 회피를 트리거하지 않게 한다. _AVOID_DURATION 를 2 s 로 늘려 물체가 충분히 지나갈 시간을 확보한다. controller 에서는 moving이 True이고 로봇이 아직 목표에 도달하지 않은 경우에만 정지·회전 로직을 실행하도록 조건을 추가한다. 이렇게 하면 초기 구간에서 불필요한 정지 없이 전진해 목표에 도달할 수 있다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#12 이번 코드(진단 \"1) _DETECT_DIST를 1.5 m, _DETECT_ANGLE를 np.deg2rad(60)으로 확대해 움직이는 물체를 더 일찍 포착한다. 2) _AVOID_DURATION을 3.0 s, _CLEAR_TIME을 2.0 s로 늘려 정지·대기 시간을 늘린다. 3) _AVOID_COOLDOWN을 0.2 s로 줄여 회피 후 바로 재감지할 수 있게 한다. 4) 위 값들을 상단 상수 정의에 반영하고, state‑machine에서 기존 변수명을 그대로 사용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 334 s / 한도 600 s)\n#13 이번 코드(진단 \"1) shrink detection cone to 1.2 m and ±30° and require ≥3 moving points; 2) add a counter (controller.moving_counter) so avoidance only starts after 3 consecutive detections; 3) shorten avoidance timings (_AVOID_DURATION=1.0 s, _CLEAR_TIME=1.0 s, _BACK_TIME=0.3 s, _ROT_TIME=0.5 s); 4) replace multi‑stage stop‑wait‑back‑rotate with a single stop‑rotate step then resume waypoint navigation.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 339 s / 한도 600 s)\n#14 이번 코드(진단 \"1) _DETECT_DIST 를 1.5 m 로, _DETECT_ANGLE 를 ±45° 로 확대한다. 2) _MIN_MOVING_POINTS 를 1 로 낮춰 단일 물체도 감지한다. 3) 거리 ≤0.8 m 인 점이 있으면 즉시 정지(v=0)하고 _AVOID_ROT_SPEED 로 회전하기 전 0.3 s 후진(_BACK_SPEED=-0.3) 후 회전한다. 4) 회피 후 _AVOID_COOLDOWN 을 0.5 s 로 늘려 연속 감지를 방지하고, 회피 횟수가 _MAX_AVOID_COUNT 초과되면 저속(0.3‑0.6 m/s) 전진으로 우회한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 380 s / 한도 600 s)\n#16 이번 코드(진단 \"Increase _DETECT_DIST to 2.0 m (or 2.5 m) and set _DETECT_ANGLE = np.deg2rad(120) to expand the detection sector to ±120°. This enlarges the sector used in _detect_moving_any and _moving_points, so side‑approaching moving objects are detected and the stop‑back‑rotate avoidance triggers earlier. No other logic changes are needed.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 120 s / 한도 600 s)\n#17 이번 코드(진단 \"_DETECT_ANGLE 를 np.pi 로 전체 180° 감지하도록 확대하고, _CLOSE_DETECT_DIST 를 1.2 m 로 늘린다. _BACK_TIME 을 1.0 s, _ROT_TIME 을 1.0 s 로 증가해 후진·회전 거리를 충분히 확보한다. close‑range 검사를 상태와 무관하게 수행해 언제든지 avoid_stop 로 전환하도록 state‑machine을 수정한다.\" 반영, 검토 통과): 새 배치 2개 중 0개 pass, 2개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#18 이번 코드(진단 \"detect 거리와 각을 _DETECT_DIST=1.5 m, _DETECT_ANGLE=np.deg2rad(90) 로 축소한다. 회피 후 새로운 상태 avoid_wait을 추가해 이동 물체가 감지되지 않을 때까지(v=0) 대기하도록 한다. avoid_rotate 종료 시 state='avoid_wait' 로 전환하고 wait_clear_end = t+0.5 s 로 초기화한다. avoid_wait에서 moving이 없고 t>=wait_clear_end이면 normal 로 복귀하고 avoid_cooldown 적용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 198 s / 한도 600 s)\n#19 이번 코드(진단 \"1) Reduce detection cone to ±30° and require ≥3 lidar points (_MIN_MOVING_POINTS=3) before flagging moving objects. 2) Increase _AVOID_DURATION to 0.5 s and extend _BACK_TIME to 1.5 s for greater clearance. 3) Add a short cooldown (≈1 s) after each avoidance before re‑checking moving detection. 4) If a moving object persists after one avoidance, generate a temporary lateral waypoint ≈2 m opposite the bearing and navigate around it instead of waiting.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 273 s / 한도 600 s)\n#20 이번 코드(진단 \"이동 물체를 더 멀리서 감지하도록 _DETECT_DIST를 ≥2.5 m, _CLOSE_DETECT_DIST를 ≥1.5 m 로 확대하고, _AVOID_DURATION을 1.0 s 로 늘려 정지 시간을 확보한다. 또한 _AVOID_COOLDOWN을 0.2 s 로 감소시켜 회피 후 바로 재감지하도록 한다. 이렇게 하면 이동 물체를 조기에 인식해 회피하고, 반복 정지‑회전 루프를 방지한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 209 s / 한도 600 s)\n#21 이번 코드(진단 \"① _moving_points를 앞쪽 ±30° 구역만 보는 _detect_moving_front 로 교체해 정면 물체만 정지 트리거하도록 한다. ② _CLOSE_DETECT_DIST를 1.0 m로 줄이고 _DETECT_ANGLE를 ±45°(np.deg2rad(45))로 제한해 측면·후방 물체를 무시한다. ③ avoid_wait 상태에서 moving_any 대신 앞 라이다만 검사하도록 바꾸어 뒤쪽 물체에 의해 무한 대기하지 않게 한다. ④ _AVOID_DURATION을 0.5 s 이하로 짧게 하고 회피 후 바로 waypoint 추적을 재개한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#22 이번 코드(진단 \"1) _CLOSE_DETECT_DIST 를 1.5 m 로, _CLOSE_DETECT_ANGLE 를 ±45° 로 확대한다. 2) _detect_moving_front 대신 _detect_moving_any 를 사용해 거리·각 조건을 만족하는 물체가 있으면 바로 회피 상태로 전환한다. 3) 회피 시작 시 v=0, w=0 으로 정지하고 _AVOID_DURATION 을 0.5 s 로 유지한 뒤 뒤로 물러나고 회전한다. 4) 회피 중에도 _moving_points_repulsion 로 얻은 점을 이용해 속도를 _MAX_SPEED 이하로 제한하고, 회피 횟수가 누적되면 저속 모드로 전환한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 93 s / 한도 600 s)\n#23 이번 코드(진단 \"코드에서 _DETECT_ANGLE 를 45° 로 제한해 뒤쪽·측면 물체를 놓치고 있다. 이를 np.pi(180°) 로 확대하거나 _detect_moving_any 의 sector_mask 각도 조건을 제거해 모든 방위의 움직이는 물체를 감지하도록 바꾼다. 필요 시 _CLOSE_DETECT_ANGLE 도 동일하게 확대한다. 이렇게 하면 회피 상태가 정확히 전환돼 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 213 s / 한도 600 s)\n#24 이번 코드(진단 \"Add a separate close‑range detection (≤0.8 m) for avoid_stop and use the existing _detect_moving_any only for repulsion. Replace the current close detection call with this new function so only very near objects trigger stop. Add an 'avoid_bypass' state that, after a short wait if the object persists, creates a temporary lateral waypoint offset by _LATERAL_OFFSET opposite the object's bearing and navigates around it. Limit avoid_wait to ≤3 s before switching to bypass to avoid endless stop‑rotate loops.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 173 s / 한도 600 s)\n#25 이번 코드(진단 \"increase _CLOSE_STOP_DIST to ~1.5 m and _AVOID_DURATION to 1.0 s; add controller.moving_counter that requires two consecutive close detections before entering avoid_stop; in avoid_wait replace resetting wait_clear_end with a cumulative presence timer that forces transition to avoid_bypass after a max total wait (e.g., 5 s); set _LATERAL_OFFSET to 3.0 m and ensure the generated bypass waypoint is outside static obstacles.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 184 s / 한도 600 s)\n#26 이번 코드(진단 \"1) 축소 _CLOSE_DETECT_ANGLE to 30° 및 _CLOSE_STOP_DIST to 1.0 m 로 false positive 를 감소한다. 2) avoid_wait 상태를 제거하고, avoid_stop → avoid_back → avoid_rotate 후 바로 normal 로 복귀하도록 한다. 3) bypass 로직을 수정해 회피 방향을 bearing ±90° 로 선택하고, static 장애물 검사 후 가능한 쪽을 사용한다. 4) normal 단계에서 _moving_points 로 얻은 이동 물체에 대한 repulsion 가중치를 유지해 측면 물체를 회피한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 43 s / 한도 600 s)\n#27 이번 코드(진단 \"Expand close‑range detection to full 360° by removing the angle filter and using _CLOSE_DETECT_DIST (1.5 m) as the distance limit; set _CLOSE_STOP_DIST = _CLOSE_DETECT_DIST; increase _AVOID_DURATION to 2.0 s and _BACK_TIME to 1.0 s for a longer retreat; raise _REPULSION_WEIGHT to ≈1.2 so the repulsive vector steers the robot earlier.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 108 s / 한도 600 s)\n#28 이번 코드(진단 \"1. Use _detect_moving_front for close detection and set _CLOSE_DETECT_ANGLE to ±45° so only front‑approaching objects trigger avoidance. 2. Increase retreat by setting _BACK_TIME=2.0 s and _BACK_SPEED=-0.5 m/s, and extend rotation to _AVOID_ROT_TIME=1.0 s with a cooldown _AVOID_COOLDOWN=0.5 s. 3. In avoid_bypass, sample points along the line to the lateral waypoint and accept the target only if the path is free of static obstacles; otherwise skip bypass and resume normal navigation. 4. Raise _REPULSION_WEIGHT to 2.0 to steer away from nearby moving points more aggressively.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 567 s / 한도 600 s)\n#30 이번 코드(진단 \"detect_moving_front 함수에서 최소 점 수를 3으로 요구하고, controller 에 연속 감지 카운터를 도입해 2번 연속 감지될 때만 avoid_stop 상태로 전환한다. 감지 후 카운터를 초기화하고, _CLOSE_DETECT_DIST 를 1.0 m 로 축소한다. 이렇게 하면 센서 잡음에 의한 가짜 회피를 방지하고 진행 정체를 줄인다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 220 s / 한도 600 s)\n#31 이번 코드(진단 \"Increase _CLOSE_DETECT_DIST to 1.5 m (or 2.0 m) and set _CLOSE_DETECT_ANGLE to np.pi so the detection cone covers all directions. Replace the call to _detect_moving_front with _detect_moving_any to use the larger detection sector. Extend _AVOID_DURATION to 0.8 s and _BACK_TIME to 1.0 s for more clearance before rotating. Reduce _AVOID_ROT_TIME to 0.4 s to limit rotation near static obstacles.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 186 s / 한도 600 s)\n#33 이번 코드(진단 \"1) _detect_moving_any을 앞쪽 ±45° 제한된 _detect_critical 로 교체하고 _MIN_MOVING_POINTS를 1로 낮춘다. 2) 움직이는 물체가 감지되면 avoid_stop 후 바로 avoid_bypass 상태로 전환해 물체 베어링에 수직인 방향으로 _LATERAL_OFFSET 만큼의 임시 경유점을 생성한다. 3) _line_is_clear 로 경유점까지 경로가 정적 장애물 없음을 확인하고 그 점에 도달하면 원래 경유점으로 복귀한다. 4) 회전 시간 _AVOID_ROT_TIME을 1.0 s로 늘려 최소 60° 회전하도록 하고, 회피 후 _AVOID_COOLDOWN을 0.2 s로 짧게 설정해 재감지를 방지한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 94 s / 한도 600 s)\n#34 이번 코드(진단 \"1) _detect_critical를 앞·뒤 라이다 모두 사용하고 각도 제한을 없애 180° 전체 감지하도록 바꾼다. 2) 회피 후 물체가 사라질 때까지 0.5 s 대기하는 avoid_wait 상태를 추가해 재진입을 방지한다. 3) _REPULSION_WEIGHT를 약 2.0으로 낮춰 과도한 회피 회전으로 인한 정적 충돌을 줄인다. 4) _compute_bypass_target가 좌·우 모두 평가해 더 안전한 측면을 선택하도록 수정한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 278 s / 한도 600 s)\n#35 이번 코드(진단 \"Replace the _detect_critical call with _detect_moving_any so avoidance triggers for any moving point within the 2 m detection range. Increase _CRITICAL_DIST to 0.8 m and raise _BACK_TIME to 2.0 s (keep _BACK_SPEED = ‑0.5 m/s) to back away farther. Add a max‑wait timer in the avoid_wait state (e.g., 2 s) after which the robot switches to avoid_bypass and creates a lateral waypoint using _compute_bypass_target. Reduce _REPULSION_WEIGHT to 1.0 to avoid over‑steering and ensure forward speed never drops below 0.2 m/s.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 94 s / 한도 600 s)\n#36 이번 코드(진단 \"1) _LATERAL_OFFSETS = [0.5,1.0,1.5,2.0] 로 정의한다. 2) _compute_bypass_target을 수정해 각 offset에 대해 cand_left/right 를 만들고 _in_static_obstacle·_line_is_clear 로 검증한다. 3) 가장 먼저 통과하는 후보를 반환하고, 후보가 없으면 None 를 반환한다. 4) avoid_bypass 진입 전, 반환값이 None이면 state를 \\\"avoid_wait\\\" 로 전환하고 wait_clear_end 를 None 로 초기화한다. 5) avoid_wait에서 moving이 없으면 _WAIT_CLEAR_TIME(0.5 s) 후 normal 로 복귀한다. 6) 기존 _AVOID_BACK·_AVOID_ROT 단계는 유지하되, bypass 성공 시에만 bypass 로직을 사용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 34 s / 한도 600 s)\n#37 이번 코드(진단 \"1. _MOVING_PERSIST_TIME = 3.0 (초) 를 새 상수로 정의한다. 2. controller 초기화 시 controller.last_moving_t = None 를 추가한다. 3. normal 상태에서 moving이 감지되면 controller.last_moving_t = t 로 갱신한다. 4. avoid_wait 상태에서 moving이 감지되지 않아도, t - controller.last_moving_t < _MOVING_PERSIST_TIME이면 대기 유지하고 wait_clear_end을 리셋한다. 5. moving이 감지되지 않고 t - controller.last_moving_t >= _MOVING_PERSIST_TIME 가 되면, 기존처럼 wait_clear_end = t + _WAIT_CLEAR_TIME 로 설정하고, 그 기간이 지나면 normal 로 복귀한다. 6. _WAIT_CLEAR_TIME 를 2.0 s 로 늘려 물체가 완전히 지나갈 충분한 여유를 둔다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 36 s / 한도 600 s)\n#38 이번 코드(진단 \"1. _detect_moving_any 로 물체를 감지하면 state를 \\\"stop_wait\\\" 로 전환하고 state_end = t + _AVOID_DURATION 로 설정한다. 2. \\\"stop_wait\\\" 상태에서는 v=0, w=0 로 유지하며 매 프레임 _detect_moving_any 를 재검사한다. 3. 물체가 감지되지 않을 경우 _wait_clear_end = t + _WAIT_CLEAR_TIME 로 설정하고, 그 시간이 지나면 state를 \\\"normal\\\" 로 복귀한다. 4. 기존 avoid_bypass, avoid_return, avoid_back, avoid_rotate 로직을 모두 삭제하고, 최소 전진 속도 0.2 m/s 강제 코드를 제거한다. 5. _AVOID_DURATION 를 1.0 s 로 늘려 물체가 충분히 멀어질 시간을 확보한다. 6. 필요 시 _WAIT_CLEAR_TIME 를 1.0 s 로 조정해 지나간 물체가 완전히 사라졌는지 확인한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 183 s / 한도 600 s)\n#39 이번 코드(진단 \"1. In controller, call _detect_critical(pose); if true, set v=0,w=0 and stay in a new 'critical_stop' state until clear. 2. Otherwise obtain moving points via _moving_points_repulsion(pose). 3. Compute repulsive unit vector with _repulsive_vector(pose, points). 4. Compute waypoint vector to current target. 5. Combine vectors: dir = waypoint_vec + _REPULSION_WEIGHT * repulsive_vec, then normalize. 6. Compute heading_error from dir, set v = _MAX_SPEED * max(0, cos(heading_error)) and w = _clamp(_KP_W * heading_error, -1.5, 1.5).\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 293 s / 한도 600 s)\n#41 이번 코드(진단 \"controller 초기화 시 state='normal', bypass_target=None을 추가한다. _detect_moving_any 로 물체를 감지하고, critical 거리이면 즉시 정지한다. critical이 아니고 moving이 있으면 _compute_bypass_target(pose, bearing) 로 우회점을 얻고 state='bypass' 로 전환한다. bypass 상태에서는 목표를 bypass_target 로 설정하고 repulsion을 적용해 이동한다. 우회점에 도달하면 state='normal' 로 돌아가 기존 waypoint 인덱스를 유지한다. 우회점이 없을 경우 기존 stop‑wait 로 fallback한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 314 s / 한도 600 s)\n#42 이번 코드(진단 \"1) 라이다 스캔을 두 프레임 저장해 이동 물체의 속도를 추정하는 _estimate_moving_objects 함수를 추가한다. 2) _detect_moving_any 로 물체를 감지하면 RVO 제약을 계산해 현재 속도와 목표 방향을 조합한 안전 후보 속도 집합을 만든다. 3) 후보 중 목표에 가장 가까우면서 충돌 가능성이 없는 속도를 선택하고, 그 속도를 전진 속도 v와 회전 속도 w 로 변환한다. 4) _CRITICAL_DIST(0.8 m) 안에 물체가 있으면 즉시 v=0, w=0 로 정지한다. 5) 기존 stop_wait·bypass 상태와 관련 코드를 삭제하고 waypoint 추적 로직만 남긴다. 6) 매 1/60 s마다 위 로직을 실행해 지속적인 회피와 전진을 동시에 수행한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 173 s / 한도 600 s)",
+ "ended": "2026-11-16 21:29:42"
+}

@@ -1,0 +1,11 @@
+{
+  "failure_mode": "collision",
+  "evidence": [
+    "첫 충돌 시점 t=31.433에 '/World/arena_mover_00'와 27번 충돌, 최종 위치 -8.37,-10.22 (목표와 31.33 m 거리) 로 실패 (실행 요약).",
+    "DBG choose 로그에서 t=28.5~32.0 구간에 연속적으로 'turn_r'·'back'·'forward_slow' 선택 후, base의 target_guard은 목표를 거부하고 로봇 위치 자체를 반환, follow_cmd이 거리 0으로 v=0.5 m/s를 내보내며 blind 전진을 유발."
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target에서 반환하는 앞점이 base의 target_path_limit_m(1.0 m) 를 초과하면 guard이 거부하고 로봇이 현재 위치를 목표로 삼아 blind 전진한다. 앞점 거리 제한을 1.0 m 이하로 클램프하고, 필요 시 다음 구간으로 넘어가면서도 Euclidean 거리 ≤1.0 m 인 점을 반환하도록 수정한다.",
+  "not_to_change": "plan_path와 follow_cmd는 현재 구현이 올바르므로 건드리지 않는다.",
+  "confidence": "medium"
+}

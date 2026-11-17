@@ -1,0 +1,165 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t41_s444751246: progress_abort_t=104.47 s, robot stopped/rotated 23 times, final distance to goal 33.09 m",
+   "c2t41_s186327105: progress_abort_t=94.9 s, robot stopped/rotated 46 times, first_not_on_map at t=89.93 s (2.15 m, bearing +139°)",
+   "c2t41_s1435341111: stall_abort_t=112.02 s after moving only 0.29 m, stop_turns=9, first_not_on_map at t=107.05 s (3.23 m, bearing +131°)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다가 _DETECT_DIST(2 m)·_DETECT_ANGLE(π) 범위 안에서 움직이는 물체를 정확히 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 2‑3 m 거리의 비지도 물체가 감지됨"
+   },
+   {
+    "assumption": "감지된 물체에 대해 _compute_bypass_target이 항상 유효한 측면 경유점을 반환한다",
+    "holds": false,
+    "why": "다수의 stop_wait 에피소드(23·46·9 회)에서 bypass_target가 None가 되어 정지만 반복"
+   },
+   {
+    "assumption": "_AVOID_DURATION(1 s)만에 물체가 충분히 지나가서 전진을 재개할 수 있다",
+    "holds": false,
+    "why": "물체가 수초 이상 감지 구역에 머무르며 동일 구간에서 반복 정지·회전 발생"
+   },
+   {
+    "assumption": "repulsion 벡터와 waypoint 벡터 결합으로 물체를 회피하면서 진행할 수 있다",
+    "holds": false,
+    "why": "정지·회전 후에도 진행 거리 개선이 거의 없으며 목표까지 30 m 이상 남음"
+   },
+   {
+    "assumption": "critical 거리(_CRITICAL_DIST 0.8 m) 내 물체가 있으면 즉시 정지해 충돌을 방지한다",
+    "holds": true,
+    "why": "실행 중 충돌이 보고되지 않았음"
+   },
+   {
+    "assumption": "움직이는 물체는 짧은 시간에 지나가므로 정지‑대기 후 재진입하면 진행이 지속된다",
+    "holds": false,
+    "why": "물체가 장시간 감지 구역에 머무르며 정지‑대기 루프에 빠짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "1/10 pass, 주로 충돌"
+   },
+   {
+    "family": "전·후 라이다 ±30° 정지‑회전",
+    "turns": "1",
+    "result": "2/10 pass, 여전히 충돌"
+   },
+   {
+    "family": "벽 판별 수정",
+    "turns": "2",
+    "result": "7/10 pass, 정적 장애물 인식 개선"
+   },
+   {
+    "family": "감지 범위 확대 + 정지‑회전 (다수 시도)",
+    "turns": "4,6,16,20,23,24,27,28,30,31,33‑39",
+    "result": "0/≈70 pass, 주로 stall·progress abort"
+   },
+   {
+    "family": "감지 범위 축소 + 정지‑대기‑회전 (다수 시도)",
+    "turns": "5,8,9,10,11,12,13,14,17,18,19,21,22,25,26",
+    "result": "15/71 pass, 여전히 정지 루프"
+   },
+   {
+    "family": "우회 경유점 생성 시도",
+    "turns": "13‑15,33‑36",
+    "result": "0‑3/15 pass, 경유점 찾지 못해 정지"
+   },
+   {
+    "family": "단순 repulsion·critical만 사용",
+    "turns": "39",
+    "result": "0/3 pass, 정지만 반복"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Reciprocal Velocity Obstacle(RVO) 기반 연속 회피: 라이다에서 최근 두 스캔을 이용해 물체 속도를 추정하고, 현재 속도와 목표 방향을 조합해 충돌 회피 가능한 속도를 선택한다.",
+    "new_family": true,
+    "for": "정지‑대기 루프를 없애고 물체가 존재해도 지속적인 전진을 유지한다",
+    "risk": "속도 추정 오류 시 진동 또는 근접 충돌 위험"
+   },
+   {
+    "idea": "Dynamic Window Approach(DWA) 로컬 플래너 도입: 후보 속도 집합을 샘플링하고, 각 후보가 일정 시간 동안 물체와 충돌하지 않을지 시뮬레이션해 최적 속도를 선택한다.",
+    "new_family": true,
+    "for": "연속적인 속도 선택으로 정지‑회전 반복을 방지한다",
+    "risk": "계산 비용 증가와 파라미터 튜닝 필요"
+   },
+   {
+    "idea": "시간‑가중 A* 경로 재계획: 움직이는 물체를 임시 장애물(시간 구간)으로 지도에 삽입하고 매 0.5 s마다 로컬 A*를 실행해 새로운 경로를 얻는다.",
+    "new_family": true,
+    "for": "정적인 waypoint 순서에 얽매이지 않고 동적 장애물 회피 경로를 제공한다",
+    "risk": "재계획 빈도가 높아 시뮬레이션 오버헤드가 커질 수 있다"
+   }
+  ],
+  "chosen": "RVO 기반 연속 회피를 선택한다 – 정지‑대기 루프를 제거하고 물체와 동시에 이동하도록 한다.",
+  "target": "controller",
+  "direction": "1) 라이다 스캔을 두 프레임 저장해 이동 물체의 속도를 추정하는 _estimate_moving_objects 함수를 추가한다. 2) _detect_moving_any 로 물체를 감지하면 RVO 제약을 계산해 현재 속도와 목표 방향을 조합한 안전 후보 속도 집합을 만든다. 3) 후보 중 목표에 가장 가까우면서 충돌 가능성이 없는 속도를 선택하고, 그 속도를 전진 속도 v와 회전 속도 w 로 변환한다. 4) _CRITICAL_DIST(0.8 m) 안에 물체가 있으면 즉시 v=0, w=0 로 정지한다. 5) 기존 stop_wait·bypass 상태와 관련 코드를 삭제하고 waypoint 추적 로직만 남긴다. 6) 매 1/60 s마다 위 로직을 실행해 지속적인 회피와 전진을 동시에 수행한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c2t41_s444751246: progress_abort_t=104.47 s, robot stopped/rotated 23 times, final distance to goal 33.09 m\",\n    \"c2t41_s186327105: progress_abort_t=94.9 s, robot stopped/rotated 46 times, first_not_on_map at t=89.93 s (2.15 m, bearing +139°)\",\n    \"c2t41_s1435341111: stall_abort_t=112.02 s after moving only 0.29 m, stop_turns=9, first_not_on_map at t=107.05 s (3.23 m, bearing +131°)\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다가 _DETECT_DIST(2 m)·_DETECT_ANGLE(π) 범위 안에서 움직이는 물체를 정확히 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 2‑3 m 거리의 비지도 물체가 감지됨\"\n    },\n    {\n      \"assumption\": \"감지된 물체에 대해 _compute_bypass_target이 항상 유효한 측면 경유점을 반환한다\",\n      \"holds\": false,\n      \"why\": \"다수의 stop_wait 에피소드(23·46·9 회)에서 bypass_target가 None가 되어 정지만 반복\"\n    },\n    {\n      \"assumption\": \"_AVOID_DURATION(1 s)만에 물체가 충분히 지나가서 전진을 재개할 수 있다\",\n      \"holds\": false,\n      \"why\": \"물체가 수초 이상 감지 구역에 머무르며 동일 구간에서 반복 정지·회전 발생\"\n    },\n    {\n      \"assumption\": \"repulsion 벡터와 waypoint 벡터 결합으로 물체를 회피하면서 진행할 수 있다\",\n      \"holds\": false,\n      \"why\": \"정지·회전 후에도 진행 거리 개선이 거의 없으며 목표까지 30 m 이상 남음\"\n    },\n    {\n      \"assumption\": \"critical 거리(_CRITICAL_DIST 0.8 m) 내 물체가 있으면 즉시 정지해 충돌을 방지한다\",\n      \"holds\": true,\n      \"why\": \"실행 중 충돌이 보고되지 않았음\"\n    },\n    {\n      \"assumption\": \"움직이는 물체는 짧은 시간에 지나가므로 정지‑대기 후 재진입하면 진행이 지속된다\",\n      \"holds\": false,\n      \"why\": \"물체가 장시간 감지 구역에 머무르며 정지‑대기 루프에 빠짐\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"baseline (no control)\",\n      \"turns\": \"0\",\n      \"result\": \"1/10 pass, 주로 충돌\"\n    },\n    {\n      \"family\": \"전·후 라이다 ±30° 정지‑회전\",\n      \"turns\": \"1\",\n      \"result\": \"2/10 pass, 여전히 충돌\"\n    },\n    {\n      \"family\": \"벽 판별 수정\",\n      \"turns\": \"2\",\n      \"result\": \"7/10 pass, 정적 장애물 인식 개선\"\n    },\n    {\n      \"family\": \"감지 범위 확대 + 정지‑회전 (다수 시도)\",\n      \"turns\": \"4,6,16,20,23,24,27,28,30,31,33‑39\",\n      \"result\": \"0/≈70 pass, 주로 stall·progress abort\"\n    },\n    {\n      \"family\": \"감지 범위 축소 + 정지‑대기‑회전 (다수 시도)\",\n      \"turns\": \"5,8,9,10,11,12,13,14,17,18,19,21,22,25,26\",\n      \"result\": \"15/71 pass, 여전히 정지 루프\"\n    },\n    {\n      \"family\": \"우회 경유점 생성 시도\",\n      \"turns\": \"13‑15,33‑36\",\n      \"result\": \"0‑3/15 pass, 경유점 찾지 못해 정지\"\n    },\n    {\n      \"family\": \"단순 repulsion·critical만 사용\",\n      \"turns\": \"39\",\n      \"result\": \"0/3 pass, 정지만 반복\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Reciprocal Velocity Obstacle(RVO) 기반 연속 회피: 라이다에서 최근 두 스캔을 이용해 물체 속도를 추정하고, 현재 속도와 목표 방향을 조합해 충돌 회피 가능한 속도를 선택한다.\",\n      \"new_family\": true,\n      \"for\": \"정지‑대기 루프를 없애고 물체가 존재해도 지속적인 전진을 유지한다\",\n      \"risk\": \"속도 추정 오류 시 진동 또는 근접 충돌 위험\"\n    },\n    {\n      \"idea\": \"Dynamic Window Approach(DWA) 로컬 플래너 도입: 후보 속도 집합을 샘플링하고, 각 후보가 일정 시간 동안 물체와 충돌하지 않을지 시뮬레이션해 최적 속도를 선택한다.\",\n      \"new_family\": true,\n      \"for\": \"연속적인 속도 선택으로 정지‑회전 반복을 방지한다\",\n      \"risk\": \"계산 비용 증가와 파라미터 튜닝 필요\"\n    },\n    {\n      \"idea\": \"시간‑가중 A* 경로 재계획: 움직이는 물체를 임시 장애물(시간 구간)으로 지도에 삽입하고 매 0.5 s마다 로컬 A*를 실행해 새로운 경로를 얻는다.\",\n      \"new_family\": true,\n      \"for\": \"정적인 waypoint 순서에 얽매이지 않고 동적 장애물 회피 경로를 제공한다\",\n      \"risk\": \"재계획 빈도가 높아 시뮬레이션 오버헤드가 커질 수 있다\"\n    }\n  ],\n  \"chosen\": \"RVO 기반 연속 회피를 선택한다 – 정지‑대기 루프를 제거하고 물체와 동시에 이동하도록 한다.\",\n  \"target\": \"controller\",\n  \"direction\": \"1) 라이다 스캔을 두 프레임 저장해 이동 물체의 속도를 추정하는 _estimate_moving_objects 함수를 추가한다. 2) _detect_moving_any 로 물체를 감지하면 RVO 제약을 계산해 현재 속도와 목표 방향을 조합한 안전 후보 속도 집합을 만든다. 3) 후보 중 목표에 가장 가까우면서 충돌 가능성이 없는 속도를 선택하고, 그 속도를 전진 속도 v와 회전 속도 w 로 변환한다. 4) _CRITICAL_DIST(0.8 m) 안에 물체가 있으면 즉시 v=0, w=0 로 정지한다. 5) 기존 stop_wait·bypass 상태와 관련 코드를 삭제하고 waypoint 추적 로직만 남긴다. 6) 매 1/60 s마다 위 로직을 실행해 지속적인 회피와 전진을 동시에 수행한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t41_s444751246",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 104.47,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 33.0909,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t41_s186327105",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 94.9,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 46,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.9331,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t41_s1435341111",
+   "verdict": "fail",
+   "stall_abort_t": 112.02,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.5487,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "c2t41_s444751246 는 정체 중단이 없습니다. 실제 c2t41_s444751246: verdict=fail, stall_abort_t=None, progress_abort_t=104.47, collision_t=None, partner=None, robot_at_collision=None, stop_turns=23",
+    "c2t41_s186327105 는 정체 중단이 없습니다. 실제 c2t41_s186327105: verdict=fail, stall_abort_t=None, progress_abort_t=94.9, collision_t=None, partner=None, robot_at_collision=None, stop_turns=46"
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

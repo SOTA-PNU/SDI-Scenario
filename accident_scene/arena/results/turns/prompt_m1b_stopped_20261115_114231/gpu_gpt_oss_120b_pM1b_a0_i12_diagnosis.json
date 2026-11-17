@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary ... reason=empty_path ... input_points=0 shows plan_path returned None",
+    "plan_path returns None when start_cell or goal_cell is None, which occurs because nearest_free_cell fails to find a free cell within 0.5 m of the start/goal",
+    "A* never runs because start_cell/goal_cell are None, leading to repeated no_path attempts"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 nearest_free_cell 로직을 제거하고, cell_of 로 직접 시작·목표 셀을 구한다. 시작·목표 셀이 blocked 이더라도 허용하도록 in_bounds 확인만 수행하고, 이후 A*와 validate_plan이 연결 검사를 처리하도록 한다.",
+  "not_to_change": "lookahead_target와 follow_cmd는 현재 구현을 그대로 유지한다.",
+  "confidence": "high"
+}

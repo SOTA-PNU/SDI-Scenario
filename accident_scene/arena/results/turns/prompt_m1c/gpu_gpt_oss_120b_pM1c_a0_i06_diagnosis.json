@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary ... status=no_path attempts=0.50:check_path|0.45:check_path|0.40:check_path|0.35:check_path ... min_gap=-0.25 ... segment_points=[(-8.999787330627441, -10.799661636352539), (8.0, 16.5)]",
+    "plan_path always returns a two‑point straight line (fallback) because A* never finds a path, leading to validate_plan rejecting with reason=check_path",
+    "All four clearance attempts (0.5, 0.45, 0.4, 0.35) produce the same rejected straight line, so the robot never obtains a usable path and stalls"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 occupancy_grid 호출 시 해상도를 0.25 m 대신 기본 0.5 m 로 되돌리고, 시작·목표가 blocked인 경우에만 최근접 자유 셀을 찾도록 유지한다. A*가 실패했을 때는 None을 반환해 base가 재시도하도록 하고, 무조건 직선 fallback을 반환하지 않도록 수정한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 그대로 유지한다.",
+  "confidence": "high"
+}

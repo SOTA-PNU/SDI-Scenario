@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject ... reason=empty_path ... input_points=0 ... stage=validate",
+    "plan_summary shows status=no_path for all clearances, meaning plan_path returned None or [] each attempt",
+    "Start position (-9.0,-10.8) is within 0.5 m of the pillar obstacle (-10.45..-10.00, -9.25..-8.80), so its grid cell is marked blocked by occupancy_grid"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 격자 셀 차단 검사를 할 때 시작·목표 셀을 예외 처리한다. blocked[ny, nx] 검사를 수행하기 전에 (nx,ny) 가 시작 셀(sx,sy) 또는 목표 셀(gx,gy)인 경우는 통과하도록 조건을 추가한다. 이렇게 하면 base가 이후에 연결 검사를 수행해도 경로가 채택될 수 있다.",
+  "not_to_change": "occupancy_grid 호출이나 clearance 값 자체를 바꾸지 말고, 기존 그리드와 segment_free 로직은 그대로 유지한다.",
+  "confidence": "high"
+}

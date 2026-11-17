@@ -1,0 +1,378 @@
+{
+ "turn": 1,
+ "started": "2026-11-17 07:36:44",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c5_turn0/claude_gptoss_analyst_pC5t0_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t0_s506008166 실행에서 2 m 이내 이동 물체가 t=1.15 s에 감지됐지만 로봇은 t=3.283 s에 충돌했다.",
+   "c5t0_s1661556297 실행에서는 이동 물체가 t=13.42 s에 2 m 이내로 들어왔고, 로봇은 t=14.817 s에 1.52 m/s 속도로 충돌했으며, closing speed 0.41 m/s였다.",
+   "c5t0_s1559922607 실행에서는 이동 물체가 t=46.72 s에 처음 보였고, 로봇은 48.767 s에 목표에 도착해 통과했으며, 대기 시간 2 s 내에 충돌이 없었다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "환경에 움직이는 물체가 없으며 모든 장애물은 정적이다",
+    "holds": false,
+    "why": "여러 실행에서 mover_00·01 과 충돌이 발생했음"
+   },
+   {
+    "assumption": "경유점만으로 모든 상황을 안전하게 통과할 수 있다",
+    "holds": false,
+    "why": "움직이는 물체가 경유점 경로와 교차해 충돌이 발생함"
+   },
+   {
+    "assumption": "센서를 사용하지 않아도 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "first_not_on_map 기록이 0.8~1.2 s에 존재하지만 코드가 무시함"
+   },
+   {
+    "assumption": "로봇 속도 1.5 m/s는 이동 물체와 안전한 마진을 제공한다",
+    "holds": false,
+    "why": "충돌 시 로봇 속도가 1.2~1.5 m/s이며 물체와 0.2~0.5 m 거리에서 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static waypoint (no sensor)",
+    "turns": "4",
+    "result": "1/4"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정적 거리 기반 정지‑대기 전략",
+    "new_family": true,
+    "for": "앞·뒤 라이다가 1 m 이내 움직이는 물체를 감지하면 정지하고 물체가 사라질 때까지 대기",
+    "risk": "물체가 오래 머무르면 시간 제한 초과 위험"
+   },
+   {
+    "idea": "방향 전환 회피 전략",
+    "new_family": true,
+    "for": "물체가 앞쪽에 있을 때 좌우 회전으로 우회",
+    "risk": "정적 구조물과 충돌하거나 경로 이탈 가능"
+   },
+   {
+    "idea": "동적 경유점 삽입",
+    "new_family": true,
+    "for": "감지된 물체를 우회하기 위해 임시 경유점을 삽입",
+    "risk": "복잡한 구현과 경유점 관리 오류 가능"
+   }
+  ],
+  "chosen": "정적 거리 기반 정지‑대기 전략을 선택했습니다. 감지된 물체가 안전 거리 안에 있으면 로봇을 멈추고 물체가 지나갈 때까지 기다립니다.",
+  "target": "controller",
+  "direction": "controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 정지-대기 지시에 따라 `controller`가 매 호출마다 앞·뒤 2D 라이다를 합칩니다. 점들을 월드 좌표로 바꾼 뒤 `WALLS`·`FIXED_OBSTACLES`·`MISSION[\"boxes\"]`에 있는 정적 점을 지웁니다(`_drop_body`는 로봇 몸체만 지우므로 지도 필터를 따로 넣었습니다). 남은 점은 묶어 위치와 속도를 추적하고, 위험하면 `pause_until`로 멈추며 `last_seen`과 10 s 강제 재개도 넣었습니다. 진단의 \"1.0 m 이내이고 0.5 s 동안 가까워지면\" 조건은 추정 속도로 앞으로의 거리를 예측하는 검사로 바꿨습니다. 1.5 m/s에서는 1 m 안에 멈출 수 없고, 물체가 로봇을 피하지 않아 멈춘 로봇도 부딪히기 때문에 이럴 때는 전진·후진으로 피하고, 정면으로 오는 물체는 진단 후보 3의 임시 경유점으로 비켜 갑니다. 강제 재개는 무작정 달리지 않고 우회 경유점이나 줄인 여유 거리로 하고, 대기 시간은 1.0 s 대신 0.5 s로 줄여 실행당 평균 60 s 예산을 지킵니다.",
+   "changed": [
+    "_ROBOT_CIRCLES",
+    "_R_MOVER",
+    "_R_ROBOT",
+    "_STATIC_RECTS",
+    "_follow",
+    "_is_static_world",
+    "_lidar_clear",
+    "_map_free",
+    "_margin",
+    "_perceive",
+    "_plan_detour",
+    "_segment_free",
+    "_track_array",
+    "_update_motion",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "controller 안에 정적 변수 pause_until, last_seen 초기화",
+      "implemented": true,
+      "note": "controller.st 에 pause_until=-1.0, last_seen=-1.0 으로 초기화함. last_seen 은 갱신만 하고 쓰지 않음"
+     },
+     {
+      "instruction": "매 호출 앞·뒤 2D 라이다 점 결합",
+      "implemented": true,
+      "note": "_perceive 가 매 호출 lidar2d_points('front'), ('back') 를 불러 concatenate 함"
+     },
+     {
+      "instruction": "_drop_body 로 정적 장애물 제거",
+      "implemented": true,
+      "note": "_drop_body 는 몸체만 지우며 lidar2d_points 안에서 이미 적용됨. 대신 _is_static_world 지도 필터를 씀"
+     },
+     {
+      "instruction": "지도에 없는 점만 남기기",
+      "implemented": true,
+      "note": "to_world 후 WALLS·_STATIC_RECTS 여유 mg 로 정적 점 제거"
+     },
+     {
+      "instruction": "최근접 비지도 점이 1.0 m 이하이고 최근 0.5 s 동안 거리가 줄면 정지",
+      "implemented": false,
+      "note": "최근접 점 거리와 0.5 s 감소 판정이 없음. 트랙 예측 _margin(3 s, 요구 간격 약 1.05 m) 으로 바꿈"
+     },
+     {
+      "instruction": "정지 조건에서 pause_until = t + 1.0",
+      "implemented": false,
+      "note": "pause_until = t + 0.5 로 줄임"
+     },
+     {
+      "instruction": "정지 시 v=0, w=0 반환",
+      "implemented": false,
+      "note": "대기 중 (0.0, w_nom) 을 반환해 제자리 회전함. hold<0 이면 멈추지 않고 전진 1.0·후진 -0.8 으로 회피 주행함"
+     },
+     {
+      "instruction": "t > pause_until 이면 기존 경유점 추종",
+      "implemented": true,
+      "note": "_follow 가 기존 추종 법칙과 같음. 다만 속도 배율 0.6·0.3 과 임시 우회 경유점이 추가됨"
+     },
+     {
+      "instruction": "pause_until 이 지나면 자동 재개",
+      "implemented": true,
+      "note": "t >= pause_until 이면 주행 판정으로 넘어감"
+     },
+     {
+      "instruction": "최대 대기 10 s 초과 시 강제 재개",
+      "implemented": false,
+      "note": "forced 는 base 를 0.05 로 낮추고 우회 계획만 시도함. _margin<0, _lidar_clear 실패, j0<0 이면 계속 대기해 재개가 보장되지 않음"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "_drop_body 는 로봇 몸체 점만 지우는 함수라 정적 장애물 제거에 쓸 수 없음",
+     "'거리와 방위가 1.0 m 이하' 에서 방위에 m 기준을 쓰는 것은 의미가 맞지 않음",
+     "1.5 m/s 에서 감속 1.2 m/s² 면 정지 거리가 약 0.94 m 라 1.0 m 감지로는 몸체 여유가 부족함",
+     "물체가 로봇을 피하지 않으므로 정지·대기만으로는 멈춘 상태에서 부딪힐 수 있음",
+     "1 s 대기 반복과 10 s 강제 재개는 실행당 평균 60 s 예산을 넘길 위험이 있음"
+    ],
+    "feedback": "진단 지시대로 다음을 고치십시오. 1) _perceive 에서 지도 필터 뒤 남은 점 중 로봇 기준 최근접 거리를 매 스캔 기록하고, 0.5 s 이력을 유지하십시오. 최근접 거리가 1.0 m 이하이고 0.5 s 전보다 줄었으면 pause_until = t + 1.0 으로 두십시오. 2) t < pause_until 인 동안은 (0.0, 0.0, False) 를 반환하십시오(w_nom 금지). 3) 대기 시간을 1.0 s 로 되돌리십시오(0.5 s 금지). 4) wait_start 부터 10 s 가 지나면 _margin, _lidar_clear, pause 조건과 상관없이 _follow 의 (v, w) 로 주행을 재개하십시오. pause 에 다시 묶이지 않게 일정 시간 재진입을 막으십시오. 5) hold<0 회피 주행과 임시 우회 경유점은 진단에 없는 지시입니다. 제거하거나, 남기려면 1)의 정지 조건이 걸린 동안에는 작동하지 않게 하십시오."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 검토 지시 1~3에 따라 `_perceive`가 매 스캔마다 지도 필터 뒤 남은 점의 로봇 기준 최근접 거리를 기록하고 0.5 s 이력을 유지합니다. 최근접 거리가 1.0 m 이하이고 0.5 s 전보다 줄었으면 `pause_until = t + 1.0`으로 두고, 그동안 `controller`는 (0.0, 0.0, False)만 반환합니다. 예측 검사로 막힐 때의 대기도 1.0 s로 되돌렸고, 거리 감소 판정에는 라이다 잡음 때문에 2 cm 문턱만 두었습니다. 지시 4에 따라 `wait_start`에서 10 s가 지나면 2.5 s 동안 pause·`_margin`·`_lidar_clear`를 모두 무시하고 `_follow`의 (v, w)로 달리며, 그동안 pause 재진입을 막습니다. 짧은 주행과 pause가 번갈아 나와도 `wait_start`가 지워지지 않도록, 2 s 넘게 막힘 없이 움직였을 때만 `wait_start`를 지웁니다. 지시 5에 따라 임시 우회 경유점은 제거했고, hold<0 회피는 pause가 걸린 동안과 강제 재개 동안에는 작동하지 않게 했습니다.",
+   "changed": [
+    "_mark_free",
+    "_perceive",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "controller 안에 정적 변수 pause_until, last_seen 초기화",
+      "implemented": true,
+      "note": "controller.st 에 pause_until=-1.0, last_seen=-1.0 을 둠. last_seen 은 확정 트랙이 있을 때 t 로 갱신"
+     },
+     {
+      "instruction": "매 호출 시 앞·뒤 2D 라이다 점을 합치고 몸체 점을 빼고 지도에 없는 점만 남김",
+      "implemented": true,
+      "note": "_perceive 가 lidar2d_points('front'/'back') 를 concatenate 하고 _is_static_world 로 WALLS·박스·FIXED_OBSTACLES 점을 제외. _drop_body 는 lidar2d_points 안에서 이미 적용됨. 새 스캔이 없으면 재처리를 건너뜀"
+     },
+     {
+      "instruction": "가장 가까운 비지도 점이 1.0 m 이하이고 최근 0.5 s 동안 거리가 줄면 pause_until=t+1.0, v=w=0",
+      "implemented": true,
+      "note": "near<=1.0 이고 0.5 s 이력의 가장 오래된 값보다 2 cm 넘게 줄면 pause_until=t+1.0. controller 는 t<pause_until 동안 (0,0,False) 반환. 2 cm 잡음 문턱은 작은 차이. 방위 조건은 쓰지 않음"
+     },
+     {
+      "instruction": "t 가 pause_until 을 넘으면 기존 경유점 추종 수행",
+      "implemented": true,
+      "note": "_follow 는 기존 추종 법칙과 같음. 다만 예측 감속(fac 0.6/0.3), hold<0 회피, 예측 막힘 시 1 s 추가 정지가 덧붙어 있음"
+     },
+     {
+      "instruction": "pause_until 이 지나면 자동 재개",
+      "implemented": true,
+      "note": "pause_until 은 시간 비교로만 판정하므로 지나면 바로 주행 분기로 감"
+     },
+     {
+      "instruction": "최대 대기 10 s 를 넘으면 강제 재개",
+      "implemented": true,
+      "note": "wait_start 후 10 s 가 지나면 force_until=t+2.5 를 두고, 그동안 pause·_margin·_lidar_clear 를 무시한 채 (v_nom, w_nom) 반환. wait_start 는 2 s 연속 주행 뒤에만 지워지므로 대기 누적 기준이 조금 느슨함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "_drop_body 는 로봇 몸체 점만 빼는 함수이고 정적 장애물을 지우지 않음. 지시 문구가 함수 역할과 맞지 않음",
+     "'거리와 방위가 1.0 m 이하' 는 방위에 m 단위를 붙인 표현이라 의미가 불분명함",
+     "과제상 멈춰 있어도 물체가 닿으면 충돌임. 다가오는 물체 앞에서 서기만 하는 정지-대기는 충돌을 막지 못할 수 있음. 정지 중에는 회피도 꺼져 있음",
+     "1.5 m/s 에서 감속 1.2 m/s² 이면 정지 거리가 약 0.94 m. 1.0 m 문턱으로는 정지 여유가 거의 없음",
+     "10 s 강제 재개는 센서를 무시하고 달리므로 물체가 남아 있으면 충돌 위험이 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 검토 지시 1~3에 따라 `_perceive`가 매 스캔마다 지도 필터 뒤 남은 점의 로봇 기준 최근접 거리를 기록하고 0.5 s 이력을 유지합니다. 최근접 거리가 1.0 m 이하이고 0.5 s 전보다 줄었으면 `pause_until = t + 1.0`으로 두고, 그동안 `controller`는 (0.0, 0.0, False)만 반환합니다. 예측 검사로 막힐 때의 대기도 1.0 s로 되돌렸고, 거리 감소 판정에는 라이다 잡음 때문에 2 cm 문턱만 두었습니다. 지시 4에 따라 `wait_start`에서 10 s가 지나면 2.5 s 동안 pause·`_margin`·`_lidar_clear`를 모두 무시하고 `_follow`의 (v, w)로 달리며, 그동안 pause 재진입을 막습니다. 짧은 주행과 pause가 번갈아 나와도 `wait_start`가 지워지지 않도록, 2 s 넘게 막힘 없이 움직였을 때만 `wait_start`를 지웁니다. 지시 5에 따라 임시 우회 경유점은 제거했고, hold<0 회피는 pause가 걸린 동안과 강제 재개 동안에는 작동하지 않게 했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  639567638,
+  1797941841,
+  371982087,
+  295520308
+ ],
+ "sim_used_s": 156.1,
+ "verdicts": {
+  "639567638": "fail",
+  "1797941841": "fail",
+  "371982087": "pass",
+  "295520308": "fail"
+ },
+ "passes": 1,
+ "prior_chars": 131,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c5t1_s639567638: 거리 0.94 m에서 1 s 정지 후 0.17 m/s 재개, 0.66 m/s 접촉 속도로 충돌 (t=25.333)",
+   "run c5t1_s1797941841: 거리 0.96 m에서 1 s 정지 후 0.09 m/s 재개, 0.57 m/s 접촉 속도로 충돌 (t=26.183)",
+   "run c5t1_s295520308: 정지 상태에서 0.95 m 거리 물체가 0.66 m/s 속도로 접근, 충돌 발생 (t=17.583)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "1 s 정지와 1 m 감지 거리면 모든 움직이는 물체를 피할 수 있다",
+    "holds": false,
+    "why": "충돌 시점에서 거리 ≤0.96 m, 정지 1 s 후 물체가 여전히 근접해 충돌"
+   },
+   {
+    "assumption": "움직이는 물체는 0.66 m/s 이하 속도로 접근한다",
+    "holds": true,
+    "why": "모든 충돌 기록의 closing_m_s가 0.57~0.66 m/s"
+   },
+   {
+    "assumption": "라이다 감지는 정적 장애물을 완전히 제거한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 물체가 정확히 나타남"
+   },
+   {
+    "assumption": "pause_until 이후 10 s 강제 재개는 필요 없다",
+    "holds": true,
+    "why": "충돌은 강제 재개 전 단계에서 발생"
+   },
+   {
+    "assumption": "evade 로직은 pause 중에 필요 없으며 정지만 하면 안전하다",
+    "holds": false,
+    "why": "pause 중에 물체가 여전히 접근해 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "fixed pause‑wait",
+    "turns": "0,1",
+    "result": "1/4 통과, 3 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "거리·상대속도 기반 동적 정지 시간 계산 후 가변 pause_until 설정",
+    "new_family": true,
+    "for": "접근 물체를 조기에 감지하고 정지 시간을 물체 속도에 맞게 조정",
+    "risk": "정지 시간이 길어져 전체 수행 시간이 늘어나고 정체 가능"
+   },
+   {
+    "idea": "감지 거리 2 m, 정지 시간 2 s 로 고정값 확대",
+    "new_family": false,
+    "for": "간단히 반응 시간을 늘려 충돌 회피",
+    "risk": "여전히 빠른 물체에 부족하거나 과도한 대기"
+   },
+   {
+    "idea": "pause 중에도 _plan_detour 로 측면 우회 경로 생성 후 회피",
+    "new_family": true,
+    "for": "정지만으로 부족할 때 측면 이동으로 회피",
+    "risk": "정적 장애물과 충돌 위험, 경로 계획 복잡"
+   }
+  ],
+  "chosen": "거리·상대속도 기반 동적 정지 시간 계산을 선택, 물체 속도에 따라 정지 시간을 조절해 충돌 방지",
+  "target": "controller (및 보조 함수 _dynamic_pause, _should_pause)",
+  "direction": "1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c5t1_s639567638",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 31.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 25.333,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.17m/s",
+   "partner_rel_xy": [
+    0.2,
+    -0.55
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 22.55,
+   "goal_dist_m": 23.9942,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t1_s1797941841",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 568.7,
+   "sim_time_s": 32.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.183,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.09m/s",
+   "partner_rel_xy": [
+    0.34,
+    -0.55
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 22.82,
+   "goal_dist_m": 23.1477,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t1_s371982087",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 536.5,
+   "sim_time_s": 69.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 63.02,
+   "goal_dist_m": 0.2232,
+   "time_to_goal_s": 64.983
+  },
+  {
+   "run": "c5t1_s295520308",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 467.5,
+   "sim_time_s": 23.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.583,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.05,
+    -0.55
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 15.92,
+   "goal_dist_m": 23.8766,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 156 s / 한도 600 s)",
+ "ended": "2026-11-17 07:50:53"
+}

@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary … status=no_path … attempts=0.50:check_path|0.45:check_path|0.40:check_path|0.35:check_path",
+    "DBG plan_reject t=0.00 reason=check_path … segment=1 min_gap=-0.1667 … fix=check_failed_segment_keep_last_visible_anchor",
+    "choose_command 로그에서 매 틱마다 pick=follow why=follow_safe 이지만 nominal 명령이 (0,0) 으로 설정돼 있어 로봇이 전혀 움직이지 않음"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 반환하는 경로에 실제 START와 GOAL 좌표를 포함하도록 수정한다. 셀 중심만 반환하면 시작·목표 연결 구간이 segment_free 검사에서 차단돼 reject 되므로, raw_path 앞에 start_xy, 뒤에 goal_xy 를 삽입하고 각각에 대해 segment_free(start_xy, first, clearance_m) 와 segment_free(last, goal_xy, clearance_m) 를 확인해 차단되면 None을 반환한다. 이렇게 하면 validate_plan 의 연결 검사와 endpoint_gap 제한을 만족해 경로가 채택된다.",
+  "not_to_change": "base 루프, chooser, 그리고 lookahead_target / follow_cmd 함수는 건드리지 않는다.",
+  "confidence": "high"
+}

@@ -1,0 +1,12 @@
+{
+  "failure_mode": "other",
+  "evidence": [
+    "최종 yaw 오차 0.5456 rad > 허용 0.26 rad (verdict= yaw_misaligned)",
+    "DBG follow 가 지도에 막힘 로그가 여러 번 발생, 특히 t=85.07 이후 회전(목표 정렬) 차단 가능성",
+    "plan_path 가 반환한 경로는 GOAL 좌표에 거의 바로 도달해 벽·구조물과 최소 여유 0.25m 이하, 회전 시 지도 충돌 판단"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 목표점을 실제 GOAL에서 약 0.3 m 정도 시작점 방향으로 이동시켜 계획한다. 즉, goal_xy 를 (goal_xy + 0.3 * normalize(start_xy - goal_xy)) 로 변환하고, 이 보정된 목표를 사용해 A* 탐색·검증·연결을 수행한다. 이렇게 하면 최종 위치는 여전히 GOAL 반경 0.75 m 안에 머물면서 회전 시 지도 여유가 확보돼 yaw 정렬이 가능해진다.",
+  "not_to_change": "base 루프, choose_command, lookahead_target, follow_cmd 내부 로직을 건드리지 않는다.",
+  "confidence": "medium"
+}

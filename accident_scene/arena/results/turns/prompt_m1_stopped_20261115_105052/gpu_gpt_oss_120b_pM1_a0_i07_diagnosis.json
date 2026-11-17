@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG choose t=10.00 pick=stop why=stop_safe ... map=0.32 shows stop chosen due to map collision prediction",
+    "DBG follow 가 지도에 막힘: 경로 여유 부족 t=20.30 stop_for=10.00 indicates guard rejected target because connector not free",
+    "choose_all shows stop selected 382 times out of 400, causing robot to remain stopped"
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target에서 _base_loop_forward_target 로 얻은 전방 목표점이 로봇 자세와의 segment_free 검사에 실패한다. 앞점 후보를 앞거리 2.0 m부터 0.3 m까지 단계적으로 감소시키며 segment_free(pose[:2], 후보, 0.5) 가 True 인 첫 점을 반환하도록 수정한다. 모든 거리에서도 연결이 안되면 현재 로봇 위치를 반환해 안전 정지를 유지한다.",
+  "not_to_change": "plan_path와 follow_cmd는 그대로 유지하고 수정하지 않는다.",
+  "confidence": "high"
+}

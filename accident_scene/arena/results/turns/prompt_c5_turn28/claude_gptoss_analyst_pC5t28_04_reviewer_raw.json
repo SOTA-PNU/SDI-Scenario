@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"상수 _CLEAR_TTC = 2.0, _CLEAR_TTC_MARGIN = 0.5 추가\", \"implemented\": true, \"note\": \"두 상수가 모듈 수준에 새로 정의됨\"},\n  {\"instruction\": \"_arm_clear_hold 에서 _dynamic_pause(또는 raw TTC)로 TTC 계산, clear_hold_until = t + max(_CLEAR_TTC, ttc + _CLEAR_TTC_MARGIN)\", \"implemented\": true, \"note\": \"_clear_ttc 가 _dynamic_pause 와 rt_rate 로 TTC 계산. ttc 를 _HORIZON 으로 자른 뒤 margin 을 더함. ttc 가 inf 이면 _CLEAR_TTC 사용. 지시와 같은 방향의 작은 변형\"},\n  {\"instruction\": \"_clear_hold 에서 _CLEAR_MAX 상한 제거, min(d, gap) ≤ _CLEAR_R 또는 TTC < _CLEAR_TTC 이면 계속 정지\", \"implemented\": true, \"note\": \"safe = calm and min(d, gap) > _CLEAR_R 이고, safe 가 아니면 _CLEAR_EXT 만큼 연장. 상한 없음\"},\n  {\"instruction\": \"고정 시간 뒤 푸는 grace 로직 제거, TTC 조건이 _CLEAR_OK_T 동안 유지돼야 해제\", \"implemented\": true, \"note\": \"clear_skip_until·capped 해제 분기와 t ≥ hold_until 자동 해제를 제거. safe 상태가 _CLEAR_OK_T 이어지고 최소 정지 시간이 지나야만 해제\"},\n  {\"instruction\": \"_arm_clear_hold 를 부르는 모든 곳에서 현재 M 전달\", \"implemented\": true, \"note\": \"_ttc_stop_backup 은 M, _rear_backup 은 st[\\\"cur_M\\\"], _px_hold 는 cur_pose 와 cur_M 을 넘김. controller 가 매 프레임 cur_pose 와 cur_M 을 저장\"},\n  {\"instruction\": \"정지 후 TTC 가 임계값을 넘을 때까지 멈춰 있다가 정상 VO/예측 속도 제어로 복귀하는지 시험\", \"implemented\": true, \"note\": \"코드 구조는 맞음. hold 가 풀리면 2)~6) 단계로 진행. 실제 동작은 시뮬에서 확인할 항목\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"t + max(_CLEAR_TTC, ttc + margin) 은 TTC 가 클수록(더 안전할수록) 더 오래 서 있게 만드는 거꾸로 된 식임\",\n  \"상한을 완전히 없애면 2 m 안에 지도에 없는 정지물이나 반환점에서 멈춘 물체가 있을 때 영구 정지(stall) 위험이 있음. 근거 3의 stall 중단, 600초 합계 예산과 충돌\",\n  \"근거에 'runs 2 and 4' 라 적었으나 근거 목록에는 3개 실행뿐임. 'VO 실패 후 predictive fallback 충돌' 가정은 선택한 후보 A로 다뤄지지 않음\",\n  \"변경 이유가 현재 코드에 없는 static_ok·clear_static_since 를 지웠다고 적음. _CLEAR_STATIC_T·_clear_moving 은 '남은 것'이 아니라 이번에 새로 추가된 미사용 정의임. 동작에는 영향이 없음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 120645,
+  "completion_tokens": 3860
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 36897,
+  "total_cost_usd": 1.042352,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3860,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 120643,
+    "webSearchRequests": 0,
+    "costUSD": 1.042352,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2517,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 120643,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b24c1d63-6ef2-4423-9e09-984d1d43ce76"
+ }
+}

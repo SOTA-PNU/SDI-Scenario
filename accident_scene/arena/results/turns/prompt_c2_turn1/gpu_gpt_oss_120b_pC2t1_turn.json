@@ -1,0 +1,293 @@
+{
+ "turn": 1,
+ "started": "2026-11-15 17:08:43",
+ "code_in": "results/turns/prompt_c2_turn0/start_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t0_s1554098519: first_not_on_map 2 m at t=1.05 s, robot still moving 1.5 m/s and collides at t=3.33 s",
+   "run c2t0_s1302393766: first_not_on_map 2 m at t=27.85 s, robot speed 1.09 m/s, collision at t=29.38 s",
+   "모든 실패 실행에서 controller는 센서를 전혀 사용하지 않아 움직이는 물체를 감지·회피하지 못함"
+  ],
+  "target": "controller",
+  "direction": "controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유:  \n- 기존 코드는 센서를 전혀 사용하지 않아 움직이는 물체를 감지하지 못하고 충돌했습니다.  \n- 앞 2D 라이다 데이터를 읽어 전방 ±30°·1.2 m 이내에 있는 점들을 월드 좌표로 변환하고, 정적 지도(벽·고정 구조·박스)와 겹치지 않는 점을 움직이는 물체로 판단하도록 로직을 추가했습니다.  \n- 움직이는 물체가 감지되면 전진을 멈추고 회전(±0.5 rad/s)하여 물체가 사라길 기다리게 하고, 물체가 없을 때는 기존 웨이포인트 추종 로직으로 복귀하도록 구현했습니다.",
+   "changed": [
+    "_detect_moving_front",
+    "_in_static_box",
+    "_in_static_obstacle",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체 감지",
+      "implemented": false,
+      "note": "코드에서는 front 라이다만 사용하고 back 라이다는 읽지 않음"
+     },
+     {
+      "instruction": "정적 지도와 겹치지 않는 점만 움직이는 물체로 판단",
+      "implemented": true,
+      "note": "_in_static_obstacle 로 static map 필터링 구현"
+     },
+     {
+      "instruction": "물체 감지 시 v=0, w=±0.5 rad/s 로 회전",
+      "implemented": true,
+      "note": "has_moving 시 v=0, w는 ±0.5 rad/s 로 반환"
+     },
+     {
+      "instruction": "물체가 사라지면 기존 웨이포인트 추종 로직 복귀",
+      "implemented": true,
+      "note": "감지 없을 때 기존 waypoint 로직으로 바로 진행"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": "진단에서 요구한 앞·뒤 2D 라이다 모두를 사용하도록 코드를 수정하세요. 현재는 front 라이다만 읽고 있어 진단을 완전히 만족하지 못합니다. back 라이다를 읽는 함수를 추가하고, 두 센서 중 어느 하나라도 전방 ±30°, 1.2 m 이내에 static map에 없는 점이 있으면 동일한 회피 로직(v=0, w=±0.5 rad/s)으로 동작하도록 구현하십시오. 필요하면 _detect_moving_front 를 확장하거나 _detect_moving_back 함수를 만들어 합쳐 사용하면 됩니다."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유:  \n- 진단에서 앞·뒤 2D 라이다 모두를 사용해 전방 ±30°·1.2 m 이내에 움직이는 물체를 감지하도록 요구했습니다.  \n- 기존 `_detect_moving_front` 함수는 front 라이다만 읽었으므로 back 라이다 정보를 놓치고 있었습니다.  \n- 두 라이다에서 얻은 점들을 합쳐 동일한 거리·방위 필터와 정적 지도 배제 로직을 적용하도록 `_detect_moving_any` 함수를 추가하고, `controller`에서 이를 호출하도록 수정했습니다.",
+   "changed": [
+    "_detect_moving_any",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "앞·뒤 2D 라이다 사용 및 전방 ±30°·1.2 m 필터링",
+      "implemented": true,
+      "note": "_detect_moving_any reads both lidar, filters distance ≤1.2 m and |bearing|≤30°"
+     },
+     {
+      "instruction": "정적 지도와 겹치지 않는 점만 이동 물체로 판단",
+      "implemented": true,
+      "note": "_in_static_obstacle checks MISSION boxes, WALLS, FIXED_OBSTACLES"
+     },
+     {
+      "instruction": "물체 감지 시 v=0, w=±0.5 rad/s 회전",
+      "implemented": true,
+      "note": "controller returns (0.0, -0.5*sign(mean_bearing)) when moving object detected"
+     },
+     {
+      "instruction": "물체 사라지면 기존 waypoint‑추종 로직 복귀",
+      "implemented": true,
+      "note": "has_moving false → 기존 waypoint 로직 실행"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유:  \n- 진단에서 앞·뒤 2D 라이다 모두를 사용해 전방 ±30°·1.2 m 이내에 움직이는 물체를 감지하도록 요구했습니다.  \n- 기존 `_detect_moving_front` 함수는 front 라이다만 읽었으므로 back 라이다 정보를 놓치고 있었습니다.  \n- 두 라이다에서 얻은 점들을 합쳐 동일한 거리·방위 필터와 정적 지도 배제 로직을 적용하도록 `_detect_moving_any` 함수를 추가하고, `controller`에서 이를 호출하도록 수정했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1716666872,
+  953913961,
+  1351165071,
+  2105148086,
+  1326888879,
+  25719344,
+  1225660529,
+  2093867646,
+  1341990845,
+  152224510
+ ],
+ "sim_used_s": 199.6,
+ "verdicts": {
+  "1716666872": "fail",
+  "953913961": "fail",
+  "1351165071": "fail",
+  "2105148086": "fail",
+  "1326888879": "pass",
+  "25719344": "fail",
+  "1225660529": "pass",
+  "2093867646": "fail",
+  "1341990845": "fail",
+  "152224510": "fail"
+ },
+ "passes": 2,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "첫 번째 비정적 물체가 2 m 이내에 보였지만 bearing 48°~79° (예: run c2t1_s1351165071, first_not_on_map within_2m bearing 79° at t=1.55s) → ±30° 필터에 걸리지 않음",
+   "감지 거리 제한 1.2 m 때문에 최초 2 m 거리 물체는 무시됨 (run c2t1_s1716666872, first_not_on_map within_2m dist 1.99 m at t=0.85s)",
+   "충돌 시점 로봇이 여전히 전진(v≈1 m/s)이며 has_moving=False였음 (run c2t1_s2105148086, collision_t=3.717s, robot_state 전진 1.26 m/s)"
+  ],
+  "target": "detect_moving_any / controller",
+  "direction": "1) _detect_moving_any의 거리 임계값을 2.5 m로 확대하고, 방위 필터를 ±60°(또는 전체 360°)로 넓힌다. 2) back 라이다도 전체 방위로 사용하도록 필터를 제거한다. 3) 움직이는 물체 감지 시 v=0, w=0 로 완전 정지하고, 물체가 안전 거리(예: 1.5 m) 이상 멀어질 때까지 대기한다. 4) 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c2t1_s1716666872",
+   "verdict": "fail",
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.47,
+    0.13
+   ],
+   "closing_m_s": 0.0,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.85,
+   "goal_dist_m": 31.1173,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s953913961",
+   "verdict": "fail",
+   "collision_t": 3.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.36m/s 회전 -1.5",
+   "partner_rel_xy": [
+    0.46,
+    -0.38
+   ],
+   "closing_m_s": -0.49,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 1.05,
+   "goal_dist_m": 30.6707,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s1351165071",
+   "verdict": "fail",
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.5,
+    0.03
+   ],
+   "closing_m_s": -0.16,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 1.55,
+   "goal_dist_m": 28.9229,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s2105148086",
+   "verdict": "fail",
+   "collision_t": 3.717,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.26m/s",
+   "partner_rel_xy": [
+    0.51,
+    -0.08
+   ],
+   "closing_m_s": -0.27,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 1.15,
+   "goal_dist_m": 29.8752,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s1326888879",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 44.22,
+   "goal_dist_m": 0.2026,
+   "time_to_goal_s": 46.15
+  },
+  {
+   "run": "c2t1_s25719344",
+   "verdict": "fail",
+   "collision_t": 13.867,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.52m/s",
+   "partner_rel_xy": [
+    -0.24,
+    0.55
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 12.52,
+   "goal_dist_m": 16.6744,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s1225660529",
+   "verdict": "pass",
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 46.85,
+   "goal_dist_m": 0.2218,
+   "time_to_goal_s": 48.767
+  },
+  {
+   "run": "c2t1_s2093867646",
+   "verdict": "fail",
+   "collision_t": 13.4,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.27m/s 회전 +0.6",
+   "partner_rel_xy": [
+    0.46,
+    0.47
+   ],
+   "closing_m_s": -0.52,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 12.28,
+   "goal_dist_m": 18.4814,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s1341990845",
+   "verdict": "fail",
+   "collision_t": 3.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.98m/s 회전 +0.3",
+   "partner_rel_xy": [
+    0.45,
+    0.08
+   ],
+   "closing_m_s": 0.06,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.35,
+   "goal_dist_m": 31.2193,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t1_s152224510",
+   "verdict": "fail",
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.47,
+    0.13
+   ],
+   "closing_m_s": -0.0,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.5135,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 10개 중 1개 pass, 9개 fail (시뮬 시간 합계 223 s / 한도 600 s)\n#1 이번 코드(진단 \"controller에 앞·뒤 2D 라이다를 읽어 전방 ±30° 내 1.2 m 이하 물체가 있으면 v를 0으로 하고 w=±0.5 rad/s 로 회전해 물체가 사라질 때까지 대기한다. 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다. 이를 위해 라이다 점을 받아 거리·베어링을 계산하고, static map에 없는 점(즉 움직이는 물체)만 판단하도록 기존 MISSION 박스·WALLS·FIXED_OBSTACLES와 겹치지 않는지 필터링한다.\" 반영, 검토 통과): 새 배치 10개 중 2개 pass, 8개 fail (시뮬 시간 합계 200 s / 한도 600 s)",
+ "ended": "2026-11-15 17:16:31"
+}

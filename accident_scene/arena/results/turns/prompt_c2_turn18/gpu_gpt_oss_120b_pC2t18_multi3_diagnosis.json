@@ -1,0 +1,77 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t18_s1696674200: progress abort at 90 s after 33 stop‑turn episodes; moving object first seen at t≈85 s (1.22 m, bearing ≈ 59°) but robot remained in avoid_wait indefinitely.",
+   "c2t18_s978939114: progress abort at 90 s after 26 stop‑turn episodes; first_not_on_map at 2.62 m (outside detection radius) yet robot still entered avoidance loops, indicating false moving‑object detections.",
+   "c2t18_s856316629: collision at t=9.983 s after close detection triggered around t=7 s; avoidance (0 s stop, 1 s back, 1 s rotate) was too brief to clear a mover approaching at 0.32 m/s."
+  ],
+  "target": "controller",
+  "direction": "1) Reduce detection cone to ±30° and require ≥3 lidar points (_MIN_MOVING_POINTS=3) before flagging moving objects. 2) Increase _AVOID_DURATION to 0.5 s and extend _BACK_TIME to 1.5 s for greater clearance. 3) Add a short cooldown (≈1 s) after each avoidance before re‑checking moving detection. 4) If a moving object persists after one avoidance, generate a temporary lateral waypoint ≈2 m opposite the bearing and navigate around it instead of waiting.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c2t18_s1696674200: progress abort at 90 s after 33 stop‑turn episodes; moving object first seen at t≈85 s (1.22 m, bearing ≈ 59°) but robot remained in avoid_wait indefinitely.\",\n    \"c2t18_s978939114: progress abort at 90 s after 26 stop‑turn episodes; first_not_on_map at 2.62 m (outside detection radius) yet robot still entered avoidance loops, indicating false moving‑object detections.\",\n    \"c2t18_s856316629: collision at t=9.983 s after close detection triggered around t=7 s; avoidance (0 s stop, 1 s back, 1 s rotate) was too brief to clear a mover approaching at 0.32 m/s.\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"1) Reduce detection cone to ±30° and require ≥3 lidar points (_MIN_MOVING_POINTS=3) before flagging moving objects. 2) Increase _AVOID_DURATION to 0.5 s and extend _BACK_TIME to 1.5 s for greater clearance. 3) Add a short cooldown (≈1 s) after each avoidance before re‑checking moving detection. 4) If a moving object persists after one avoidance, generate a temporary lateral waypoint ≈2 m opposite the bearing and navigate around it instead of waiting.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t18_s856316629",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.983,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.28m/s",
+   "partner_rel_xy": [
+    0.36,
+    0.56
+   ],
+   "closing_m_s": 0.32,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 5.02,
+   "goal_dist_m": 30.9754,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t18_s1696674200",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 33,
+   "first_seen_within_2m_t": 85.05,
+   "goal_dist_m": 31.6262,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t18_s978939114",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 33.4509,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "c2t18_s978939114 는 정체 중단이 없습니다. 실제 c2t18_s978939114: verdict=fail, stall_abort_t=None, progress_abort_t=90.0, collision_t=None, partner=None, robot_at_collision=None, stop_turns=26"
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

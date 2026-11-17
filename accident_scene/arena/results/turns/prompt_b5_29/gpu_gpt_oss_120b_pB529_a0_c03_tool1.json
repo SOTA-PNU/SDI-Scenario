@@ -1,0 +1,644 @@
+{
+  "tool_call": {
+    "id": "chatcmpl-tool-9ebd7f9307225066",
+    "type": "function",
+    "function": {
+      "name": "run_isaac_sim",
+      "arguments": "{\"code\": \"# [EDIT REGION] mission controller - modify ONLY this block\\n# ===========================================================================\\nimport math\\nimport heapq\\n\\ndef plan_path(start_xy, goal_xy, clearance_m):\\n    \\\"\\\"\\\"A* planner (4\\u2011connected) that finds a path whose endpoints are within\\n    0.5\\u202fm of the requested start and goal positions and respects the clearance.\\n    Returns a list of world (x, y) points (grid cell centres). The base adds the\\n    exact start/goal connectors during validation.\\n    \\\"\\\"\\\"\\n    plan_stage(\\\"grid\\\")\\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\\n    plan_stage(\\\"search\\\")\\n    start_cell = cell_of(start_xy, origin, res)\\n    ny, nx = blocked.shape\\n    def in_bounds(c):\\n        ix, iy = c\\n        return 0 <= ix < nx and 0 <= iy < ny\\n    if not in_bounds(start_cell) or blocked[start_cell[1], start_cell[0]]:\\n        return None\\n    def centre(cell):\\n        return xy_of(cell, origin, res)\\n    open_set = []\\n    heapq.heappush(open_set, (0.0, start_cell))\\n    came_from = {}\\n    g_score = {start_cell: 0.0}\\n    goal_reached = None\\n    while open_set:\\n        _, current = heapq.heappop(open_set)\\n        cur_pt = centre(current)\\n        # Goal condition: within 0.5\\u202fm and a clear segment to the exact goal.\\n        if math.hypot(cur_pt[0] - goal_xy[0], cur_pt[1] - goal_xy[1]) <= 0.5 and \\\\\\n           segment_free(cur_pt, goal_xy, clearance_m):\\n            goal_reached = current\\n            break\\n        cx, cy = current\\n        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):\\n            neighbor = (cx + dx, cy + dy)\\n            if not in_bounds(neighbor):\\n                continue\\n            if blocked[neighbor[1], neighbor[0]]:\\n                continue\\n            p = centre(current)\\n            q = centre(neighbor)\\n            if not segment_free(p, q, clearance_m):\\n                continue\\n            tentative_g = g_score[current] + res\\n            if neighbor not in g_score or tentative_g < g_score[neighbor] - 1e-12:\\n                came_from[neighbor] = current\\n                g_score[neighbor] = tentative_g\\n                h = math.hypot(q[0] - goal_xy[0], q[1] - goal_xy[1])\\n                heapq.heappush(open_set, (tentative_g + h, neighbor))\\n    if goal_reached is None:\\n        return None\\n    # Reconstruct path.\\n    path_cells = []\\n    cur = goal_reached\\n    while cur != start_cell:\\n        path_cells.append(cur)\\n        cur = came_from.get(cur)\\n        if cur is None:\\n            return None\\n    path_cells.append(start_cell)\\n    path_cells.reverse()\\n    raw_path = [centre(c) for c in path_cells]\\n    # Simple collinear simplification.\\n    plan_stage(\\\"simplify\\\", input_points=len(raw_path))\\n    simplified = []\\n    for pt in raw_path:\\n        if not simplified:\\n            simplified.append(pt)\\n            continue\\n        if len(simplified) >= 2:\\n            a = simplified[-2]\\n            b = simplified[-1]\\n            c = pt\\n            if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) < 1e-6:\\n                simplified[-1] = c\\n                continue\\n        simplified.append(pt)\\n    plan_stage(\\\"simplify\\\", input_points=len(raw_path), output_points=len(simplified))\\n    plan_stage(\\\"validate\\\")\\n    return simplified\\n\\n\\ndef lookahead_target(path, pose):\\n    \\\"\\\"\\\"Return a forward look\\u2011ahead point 0.3\\u20132.0\\u202fm ahead on *path*.\\n    Uses the base's projection and forward\\u2011target helpers.\\n    \\\"\\\"\\\"\\n    proj = _base_loop_projection(path, pose[:2], _BASE_LOOP_ST.get(\\\"path_progress_s\\\"))\\n    target = _base_loop_forward_target(path, pose, proj)\\n    if target is None:\\n        return pose[:2]\\n    return target\\n\\n\\ndef follow_cmd(pose, target_xy):\\n    \\\"\\\"\\\"Pure\\u2011pursuit style controller.\\n    Returns (v, w) before the base clamps them.\\n    \\\"\\\"\\\"\\n    tx, ty = target_xy\\n    x, y, yaw = pose\\n    dx, dy = tx - x, ty - y\\n    dist = math.hypot(dx, dy)\\n    e = math.atan2(dy, dx) - yaw\\n    e = math.atan2(math.sin(e), math.cos(e))\\n    if abs(e) > 0.35:\\n        v = 0.0\\n    else:\\n        v = min(1.5, 2.5 * dist + 0.5)\\n    w = max(-2.0, min(2.0, 7.5 * e))\\n    return v, w\\n\\ndef controller(t, pose, env):\\n    return _base_control_loop(t, pose, env)\\n# ========================= [END EDIT REGION] ===============================\"}"
+    }
+  },
+  "arguments": {
+    "code": "# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\nimport math\nimport heapq\n\ndef plan_path(start_xy, goal_xy, clearance_m):\n    \"\"\"A* planner (4‑connected) that finds a path whose endpoints are within\n    0.5 m of the requested start and goal positions and respects the clearance.\n    Returns a list of world (x, y) points (grid cell centres). The base adds the\n    exact start/goal connectors during validation.\n    \"\"\"\n    plan_stage(\"grid\")\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\n    plan_stage(\"search\")\n    start_cell = cell_of(start_xy, origin, res)\n    ny, nx = blocked.shape\n    def in_bounds(c):\n        ix, iy = c\n        return 0 <= ix < nx and 0 <= iy < ny\n    if not in_bounds(start_cell) or blocked[start_cell[1], start_cell[0]]:\n        return None\n    def centre(cell):\n        return xy_of(cell, origin, res)\n    open_set = []\n    heapq.heappush(open_set, (0.0, start_cell))\n    came_from = {}\n    g_score = {start_cell: 0.0}\n    goal_reached = None\n    while open_set:\n        _, current = heapq.heappop(open_set)\n        cur_pt = centre(current)\n        # Goal condition: within 0.5 m and a clear segment to the exact goal.\n        if math.hypot(cur_pt[0] - goal_xy[0], cur_pt[1] - goal_xy[1]) <= 0.5 and \\\n           segment_free(cur_pt, goal_xy, clearance_m):\n            goal_reached = current\n            break\n        cx, cy = current\n        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):\n            neighbor = (cx + dx, cy + dy)\n            if not in_bounds(neighbor):\n                continue\n            if blocked[neighbor[1], neighbor[0]]:\n                continue\n            p = centre(current)\n            q = centre(neighbor)\n            if not segment_free(p, q, clearance_m):\n                continue\n            tentative_g = g_score[current] + res\n            if neighbor not in g_score or tentative_g < g_score[neighbor] - 1e-12:\n                came_from[neighbor] = current\n                g_score[neighbor] = tentative_g\n                h = math.hypot(q[0] - goal_xy[0], q[1] - goal_xy[1])\n                heapq.heappush(open_set, (tentative_g + h, neighbor))\n    if goal_reached is None:\n        return None\n    # Reconstruct path.\n    path_cells = []\n    cur = goal_reached\n    while cur != start_cell:\n        path_cells.append(cur)\n        cur = came_from.get(cur)\n        if cur is None:\n            return None\n    path_cells.append(start_cell)\n    path_cells.reverse()\n    raw_path = [centre(c) for c in path_cells]\n    # Simple collinear simplification.\n    plan_stage(\"simplify\", input_points=len(raw_path))\n    simplified = []\n    for pt in raw_path:\n        if not simplified:\n            simplified.append(pt)\n            continue\n        if len(simplified) >= 2:\n            a = simplified[-2]\n            b = simplified[-1]\n            c = pt\n            if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) < 1e-6:\n                simplified[-1] = c\n                continue\n        simplified.append(pt)\n    plan_stage(\"simplify\", input_points=len(raw_path), output_points=len(simplified))\n    plan_stage(\"validate\")\n    return simplified\n\n\ndef lookahead_target(path, pose):\n    \"\"\"Return a forward look‑ahead point 0.3–2.0 m ahead on *path*.\n    Uses the base's projection and forward‑target helpers.\n    \"\"\"\n    proj = _base_loop_projection(path, pose[:2], _BASE_LOOP_ST.get(\"path_progress_s\"))\n    target = _base_loop_forward_target(path, pose, proj)\n    if target is None:\n        return pose[:2]\n    return target\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"Pure‑pursuit style controller.\n    Returns (v, w) before the base clamps them.\n    \"\"\"\n    tx, ty = target_xy\n    x, y, yaw = pose\n    dx, dy = tx - x, ty - y\n    dist = math.hypot(dx, dy)\n    e = math.atan2(dy, dx) - yaw\n    e = math.atan2(math.sin(e), math.cos(e))\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ==============================="
+  },
+  "result": {
+    "test": 3,
+    "static_check": "ok",
+    "sim_seconds": 600.0,
+    "result": {
+      "level": "accident_arena",
+      "variant": "gpu_gpt_oss_120b_pB529_a0_t1_test03",
+      "verdict": "fail",
+      "goal": {
+        "x": 8.0,
+        "y": 16.5,
+        "yaw": 1.0138
+      },
+      "criteria": {
+        "position_tolerance_m": 0.75,
+        "yaw_tolerance_rad": 0.26,
+        "max_time_to_goal_s": null,
+        "timeout_s": 600.0,
+        "no_collision": true
+      },
+      "oracles": [
+        {
+          "name": "reached_goal",
+          "passed": false,
+          "reason": "timeout",
+          "detail": "final_dist=26.547m (tol 0.75), yaw_err=0.553rad (tol 0.26)"
+        },
+        {
+          "name": "no_collision",
+          "passed": true,
+          "reason": null,
+          "detail": "collision_count=0, partners=[]"
+        }
+      ],
+      "metrics": {
+        "time_to_goal_s": null,
+        "min_goal_dist_m": 26.5471,
+        "final_dist_m": 26.5471,
+        "final_yaw_err_rad": 0.5533,
+        "final_pose": [
+          -8.9598,
+          -3.9234,
+          1.5671
+        ],
+        "collision_count": 0,
+        "collision_partners": [],
+        "first_collision_t": null,
+        "contact_all_links": true,
+        "collision_robot_links": [],
+        "sim_time_s": 601.0,
+        "wall_time_s": 611.4,
+        "frames": 36060
+      },
+      "aborted_after_collision": false,
+      "seed": 42,
+      "_wall_s": 633.5
+    },
+    "trajectory": [
+      [
+        0.0,
+        -9.0,
+        -10.8,
+        1.014
+      ],
+      [
+        7.8,
+        -8.88,
+        -10.138,
+        1.154
+      ],
+      [
+        15.6,
+        -9.03,
+        -4.574,
+        1.665
+      ],
+      [
+        23.4,
+        -9.031,
+        -4.566,
+        1.663
+      ],
+      [
+        31.2,
+        -9.032,
+        -4.558,
+        1.661
+      ],
+      [
+        39.0,
+        -9.033,
+        -4.549,
+        1.659
+      ],
+      [
+        46.8,
+        -9.033,
+        -4.541,
+        1.657
+      ],
+      [
+        54.6,
+        -9.034,
+        -4.532,
+        1.655
+      ],
+      [
+        62.4,
+        -9.035,
+        -4.524,
+        1.653
+      ],
+      [
+        70.2,
+        -9.035,
+        -4.516,
+        1.651
+      ],
+      [
+        78.0,
+        -9.036,
+        -4.508,
+        1.649
+      ],
+      [
+        85.8,
+        -9.036,
+        -4.5,
+        1.647
+      ],
+      [
+        93.6,
+        -9.037,
+        -4.491,
+        1.645
+      ],
+      [
+        101.4,
+        -9.038,
+        -4.483,
+        1.643
+      ],
+      [
+        109.2,
+        -9.038,
+        -4.476,
+        1.641
+      ],
+      [
+        117.0,
+        -9.039,
+        -4.467,
+        1.638
+      ],
+      [
+        124.8,
+        -9.039,
+        -4.459,
+        1.636
+      ],
+      [
+        132.6,
+        -9.04,
+        -4.45,
+        1.633
+      ],
+      [
+        140.4,
+        -9.04,
+        -4.442,
+        1.631
+      ],
+      [
+        148.2,
+        -9.04,
+        -4.433,
+        1.628
+      ],
+      [
+        156.0,
+        -9.041,
+        -4.425,
+        1.626
+      ],
+      [
+        163.8,
+        -9.041,
+        -4.416,
+        1.623
+      ],
+      [
+        171.6,
+        -9.042,
+        -4.408,
+        1.62
+      ],
+      [
+        179.4,
+        -9.042,
+        -4.399,
+        1.617
+      ],
+      [
+        187.2,
+        -9.043,
+        -4.391,
+        1.615
+      ],
+      [
+        195.0,
+        -9.043,
+        -4.383,
+        1.612
+      ],
+      [
+        202.8,
+        -9.043,
+        -4.375,
+        1.609
+      ],
+      [
+        210.6,
+        -9.043,
+        -4.367,
+        1.607
+      ],
+      [
+        218.4,
+        -9.044,
+        -4.358,
+        1.603
+      ],
+      [
+        226.2,
+        -9.044,
+        -4.35,
+        1.6
+      ],
+      [
+        234.0,
+        -9.044,
+        -4.341,
+        1.597
+      ],
+      [
+        241.8,
+        -9.044,
+        -4.333,
+        1.594
+      ],
+      [
+        249.6,
+        -9.045,
+        -4.324,
+        1.591
+      ],
+      [
+        257.4,
+        -9.045,
+        -4.315,
+        1.588
+      ],
+      [
+        265.2,
+        -9.045,
+        -4.307,
+        1.584
+      ],
+      [
+        273.0,
+        -9.045,
+        -4.298,
+        1.581
+      ],
+      [
+        280.8,
+        -9.045,
+        -4.29,
+        1.577
+      ],
+      [
+        288.6,
+        -9.045,
+        -4.281,
+        1.574
+      ],
+      [
+        296.4,
+        -9.045,
+        -4.273,
+        1.57
+      ],
+      [
+        304.2,
+        -9.045,
+        -4.264,
+        1.567
+      ],
+      [
+        312.0,
+        -9.045,
+        -4.256,
+        1.563
+      ],
+      [
+        319.8,
+        -9.045,
+        -4.247,
+        1.559
+      ],
+      [
+        327.6,
+        -9.045,
+        -4.239,
+        1.555
+      ],
+      [
+        335.4,
+        -9.044,
+        -4.231,
+        1.552
+      ],
+      [
+        343.2,
+        -9.044,
+        -4.222,
+        1.547
+      ],
+      [
+        351.0,
+        -9.044,
+        -4.214,
+        1.543
+      ],
+      [
+        358.8,
+        -9.044,
+        -4.205,
+        1.539
+      ],
+      [
+        366.6,
+        -9.043,
+        -4.197,
+        1.535
+      ],
+      [
+        374.4,
+        -9.043,
+        -4.188,
+        1.531
+      ],
+      [
+        382.2,
+        -9.043,
+        -4.18,
+        1.526
+      ],
+      [
+        390.0,
+        -9.042,
+        -4.171,
+        1.522
+      ],
+      [
+        397.8,
+        -9.042,
+        -4.163,
+        1.517
+      ],
+      [
+        405.6,
+        -9.041,
+        -4.154,
+        1.512
+      ],
+      [
+        413.4,
+        -9.041,
+        -4.146,
+        1.507
+      ],
+      [
+        421.2,
+        -9.04,
+        -4.137,
+        1.502
+      ],
+      [
+        429.0,
+        -9.04,
+        -4.129,
+        1.497
+      ],
+      [
+        436.8,
+        -9.039,
+        -4.12,
+        1.492
+      ],
+      [
+        444.6,
+        -9.038,
+        -4.112,
+        1.487
+      ],
+      [
+        452.4,
+        -9.037,
+        -4.103,
+        1.482
+      ],
+      [
+        460.2,
+        -9.037,
+        -4.095,
+        1.476
+      ],
+      [
+        468.0,
+        -9.036,
+        -4.086,
+        1.471
+      ],
+      [
+        475.8,
+        -9.035,
+        -4.078,
+        1.465
+      ],
+      [
+        483.6,
+        -9.034,
+        -4.069,
+        1.459
+      ],
+      [
+        491.4,
+        -9.033,
+        -4.061,
+        1.453
+      ],
+      [
+        499.2,
+        -9.032,
+        -4.052,
+        1.447
+      ],
+      [
+        507.0,
+        -9.031,
+        -4.044,
+        1.441
+      ],
+      [
+        514.8,
+        -9.03,
+        -4.035,
+        1.435
+      ],
+      [
+        522.6,
+        -9.028,
+        -4.027,
+        1.428
+      ],
+      [
+        530.4,
+        -9.027,
+        -4.019,
+        1.422
+      ],
+      [
+        538.2,
+        -9.026,
+        -4.01,
+        1.415
+      ],
+      [
+        546.0,
+        -9.025,
+        -4.003,
+        1.411
+      ],
+      [
+        553.8,
+        -9.023,
+        -3.995,
+        1.412
+      ],
+      [
+        561.6,
+        -9.022,
+        -3.987,
+        1.412
+      ],
+      [
+        569.4,
+        -9.021,
+        -3.978,
+        1.413
+      ],
+      [
+        577.2,
+        -9.019,
+        -3.97,
+        1.412
+      ],
+      [
+        585.0,
+        -8.96,
+        -3.923,
+        1.567
+      ],
+      [
+        592.8,
+        -8.96,
+        -3.923,
+        1.567
+      ],
+      [
+        600.0,
+        -8.96,
+        -3.923,
+        1.567
+      ]
+    ],
+    "harness_events": [
+      "[mission] TIMEOUT at t=600.00s"
+    ],
+    "controller_output": [
+      "DBG plan_summary t=0.00 status=accepted attempts=0.50:accepted ms=266.7 batch_ms=267.4 repeat=1 adopted_clearance=0.5 path_points=49 next_retry=None details=[{\"c\":0.5,\"accepted\":true,\"reason\":null,\"plan_ms\":266.68793603312224,\"segment\":null",
+      "DBG choose t=0.00 pick=follow why=follow_safe f=- s=- obj_min=inf rob=inf map=0.71",
+      "DBG choose t=0.50 pick=follow why=follow_safe f=- s=- obj_min=1.24 rob=0.35 map=0.71",
+      "DBG choose t=1.00 pick=turn_l why=map_clearance_object_gap f=0.5 s=0.7 obj_min=0.03 rob=-1.12 map=0.72",
+      "DBG choose t=1.50 pick=back why=map_clearance_object_gap f=0.0 s=0.0 obj_min=-0.22 rob=-0.93 map=0.36",
+      "DBG choose t=2.00 pick=back why=map_clearance_object_gap f=0.0 s=0.0 obj_min=-0.23 rob=-0.87 map=0.25",
+      "DBG choose t=2.50 pick=turn_l why=map_clearance_object_gap f=0.0 s=0.0 obj_min=0.37 rob=-0.78 map=0.65",
+      "DBG choose t=3.00 pick=back why=map_clearance_object_gap f=0.0 s=0.0 obj_min=-0.07 rob=-0.64 map=0.46",
+      "DBG choose t=3.50 pick=back why=map_clearance_object_gap f=0.0 s=0.0 obj_min=-0.24 rob=-0.54 map=0.46",
+      "DBG choose t=4.00 pick=turn_r why=map_clearance_object_gap f=0.0 s=0.0 obj_min=0.28 rob=-0.23 map=0.55",
+      "DBG choose t=4.50 pick=slow why=map_clearance_object_gap f=0.0 s=0.0 obj_min=0.31 rob=0.10 map=0.60",
+      "DBG choose t=5.00 pick=slow why=slow_safe f=1.1 s=- obj_min=0.59 rob=0.39 map=0.67",
+      "DBG choose t=5.50 pick=slow why=slow_safe f=1.0 s=- obj_min=0.94 rob=0.73 map=0.83",
+      "DBG choose t=6.00 pick=follow why=follow_safe f=- s=- obj_min=1.25 rob=0.93 map=0.58",
+      "DBG choose t=6.50 pick=follow why=follow_safe f=- s=- obj_min=1.58 rob=1.01 map=0.55",
+      "DBG choose t=7.00 pick=slow why=map_clearance_object_gap f=0.7 s=1.2 obj_min=0.04 rob=-1.11 map=0.58",
+      "DBG choose t=7.50 pick=back why=map_clearance_object_gap f=0.6 s=0.5 obj_min=0.64 rob=-0.51 map=0.23",
+      "DBG choose t=8.00 pick=forward_fast why=map_clearance_object_gap f=0.0 s=0.0 obj_min=-0.10 rob=-1.02 map=0.98",
+      "DBG choose t=8.50 pick=forward_fast why=map_clearance_object_gap f=0.0 s=0.0 obj_min=0.17 rob=-0.98 map=0.77",
+      "DBG choose t=9.00 pick=follow why=map_clearance_object_gap f=0.0 s=0.0 obj_min=0.19 rob=-0.96 map=1.18",
+      "DBG choose t=9.50 pick=back why=map_clearance_object_gap f=0.0 s=0.0 obj_min=0.32 rob=-0.65 map=1.36",
+      "DBG choose t=10.00 pick=follow why=follow_safe f=- s=- obj_min=0.64 rob=0.48 map=0.93",
+      "DBG choose t=10.50 pick=slow why=slow_safe f=2.7 s=- obj_min=1.06 rob=0.86 map=0.97",
+      "DBG choose t=11.00 pick=slow why=slow_safe f=2.4 s=- obj_min=1.22 rob=1.07 map=0.97",
+      "DBG choose t=11.50 pick=follow why=follow_safe f=- s=- obj_min=0.36 rob=0.21 map=0.98",
+      "DBG choose t=12.00 pick=follow why=follow_safe f=- s=- obj_min=0.36 rob=0.21 map=0.87",
+      "DBG choose t=12.50 pick=follow why=follow_safe f=- s=- obj_min=3.56 rob=3.35 map=0.44",
+      "DBG choose t=13.00 pick=slow why=slow_safe f=1.1 s=- obj_min=4.34 rob=4.13 map=1.06",
+      "DBG choose t=14.00 pick=slow why=slow_safe f=0.6 s=- obj_min=5.53 rob=5.33 map=0.39",
+      "DBG choose t=14.50 pick=stop why=stop_safe f=0.4 s=- obj_min=6.09 rob=5.83 map=0.69",
+      "DBG choose t=15.00 pick=stop why=stop_safe f=1.2 s=- obj_min=6.12 rob=5.81 map=0.62",
+      "DBG choose t=15.50 pick=stop why=stop_safe f=1.2 s=- obj_min=4.36 rob=3.54 map=0.62",
+      "DBG choose t=16.00 pick=stop why=stop_safe f=1.2 s=- obj_min=4.07 rob=3.21 map=0.62",
+      "DBG choose t=16.50 pick=stop why=stop_safe f=1.2 s=- obj_min=4.08 rob=3.35 map=0.62",
+      "DBG choose t=17.00 pick=stop why=stop_safe f=1.2 s=- obj_min=3.58 rob=2.69 map=0.62",
+      "DBG choose t=17.50 pick=stop why=stop_safe f=1.2 s=- obj_min=3.59 rob=2.86 map=0.62",
+      "DBG choose t=18.00 pick=stop why=stop_safe f=1.2 s=- obj_min=3.13 rob=2.26 map=0.62",
+      "DBG choose t=18.50 pick=stop why=stop_safe f=1.2 s=- obj_min=3.12 rob=2.38 map=0.62",
+      "DBG choose t=19.00 pick=stop why=stop_safe f=1.2 s=- obj_min=2.73 rob=1.87 map=0.62",
+      "DBG choose t=19.50 pick=stop why=stop_safe f=1.2 s=- obj_min=2.67 rob=1.88 map=0.62",
+      "DBG choose t=578.50 pick=follow why=map_filtered_map_gap f=0.0 s=0.0 obj_min=4.61 rob=4.36 map=0.00",
+      "DBG choose t=579.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.82 rob=4.62 map=0.00",
+      "DBG target_guard t=579.40 reason=unsafe_fallback ahead=0.300 path_distance=0.000 action=checked_zero",
+      "DBG choose t=579.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.10 rob=4.89 map=0.00",
+      "DBG choose t=580.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.59 rob=5.38 map=0.00",
+      "DBG choose t=581.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.79 rob=5.59 map=0.00",
+      "DBG choose t=581.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.07 rob=5.86 map=0.00",
+      "DBG choose t=582.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.32 rob=6.12 map=0.00",
+      "DBG choose t=582.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.58 rob=6.38 map=0.00",
+      "DBG choose t=583.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.78 rob=6.57 map=0.00",
+      "DBG choose t=584.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.35 rob=6.14 map=0.00",
+      "DBG choose t=584.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.14 rob=5.94 map=0.00",
+      "DBG choose t=585.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.88 rob=5.68 map=0.00",
+      "DBG choose t=585.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.62 rob=5.42 map=0.00",
+      "DBG choose t=586.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.41 rob=5.20 map=0.00",
+      "DBG choose t=586.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.16 rob=4.95 map=0.00",
+      "DBG choose t=587.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.69 rob=4.49 map=0.00",
+      "DBG choose t=588.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.45 rob=4.24 map=0.00",
+      "DBG choose t=588.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.22 rob=4.01 map=0.00",
+      "DBG choose t=589.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=3.98 rob=3.77 map=0.00",
+      "DBG target_guard t=589.40 reason=unsafe_fallback ahead=0.300 path_distance=0.000 action=checked_zero",
+      "DBG choose t=589.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.32 rob=4.14 map=0.00",
+      "DBG choose t=590.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.82 rob=4.61 map=0.00",
+      "DBG choose t=591.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.05 rob=4.84 map=0.00",
+      "DBG choose t=591.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.31 rob=5.10 map=0.00",
+      "DBG choose t=592.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.52 rob=5.32 map=0.00",
+      "DBG choose t=592.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.78 rob=5.56 map=0.00",
+      "DBG choose t=593.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.00 rob=5.80 map=0.00",
+      "DBG choose t=594.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.48 rob=6.27 map=0.00",
+      "DBG choose t=594.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.75 rob=6.55 map=0.00",
+      "DBG choose t=595.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.76 rob=6.57 map=0.00",
+      "DBG choose t=595.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.43 rob=6.22 map=0.00",
+      "DBG choose t=596.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=6.17 rob=5.96 map=0.00",
+      "DBG choose t=596.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.94 rob=5.73 map=0.00",
+      "DBG choose t=597.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.45 rob=5.24 map=0.00",
+      "DBG choose t=598.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=5.22 rob=5.01 map=0.00",
+      "DBG choose t=598.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.98 rob=4.77 map=0.00",
+      "DBG choose t=599.00 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.73 rob=4.52 map=0.00",
+      "DBG target_guard t=599.40 reason=unsafe_fallback ahead=0.300 path_distance=0.000 action=checked_zero",
+      "DBG choose t=599.50 pick=forward_fast why=emergency_map_gap f=0.0 s=0.0 obj_min=4.50 rob=4.30 map=0.00"
+    ],
+    "controller_output_omitted_lines": 1126,
+    "wall_s": 633.5
+  },
+  "record": {
+    "variant": "gpu_gpt_oss_120b_pB529_a0_t1_test03",
+    "sim_seconds": 600.0,
+    "static_ok": true,
+    "verdict": "fail",
+    "final_dist_m": 26.5471,
+    "collisions": 0,
+    "partners": [],
+    "first_collision_t": null,
+    "time_to_goal_s": null,
+    "sim_time_s": 601.0,
+    "runtime_error": null,
+    "wall_s": 633.5,
+    "dbg_lines": 1206,
+    "test": 3
+  }
+}

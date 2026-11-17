@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary 에서 모든 clearance 에 대해 reason=empty_path, input_issue=none_return 로 표시되어 plan_path 가 None 을 반환함",
+    "choose 로그에서 로봇이 계속 follow_safe 로 선택되지만 실제 속도 v=0 이며 위치가 시작점(-9.0,-10.8) 에서 거의 움직이지 않음",
+    "final_pose 가 시작점 근처에 머물며 목표에 도달하지 못함"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에 A* 검색이 실패했을 때 직선(start‑goal) 경로를 시도하도록 fallback 로직을 추가한다. segment_free(start_xy, goal_xy, clearance_m) 가 True이면 [(start_xy), (goal_xy)] 를 반환하고, 그렇지 않으면 None 를 반환한다. fallback 전후에 plan_stage('fallback') 을 기록해 로그에 나타나게 한다.",
+  "not_to_change": "기존 A* 구현과 8‑연결 탐색, lookahead_target 및 follow_cmd 로직을 삭제하거나 구조를 바꾸지 않는다.",
+  "confidence": "medium"
+}

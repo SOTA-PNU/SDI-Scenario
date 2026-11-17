@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG choose 로그에서 6 s 이후 대부분 \"stop_safe\" 로 선택돼 로봇이 정지함",
+    "stall 구간의 map 최소 여유가 0.2 m (< margin 0.25 m) 로 경로가 너무 좁아 segment_free 검사에 실패",
+    "lookahead_target 함수가 앞점 후보를 segment_free 로 미리 필터링해 모든 후보가 차단되면 로봇 위치를 반환, 이후 guard 에서도 차단돼 stop 으로 이어짐"
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target에서 segment_free 검사를 제거하고, _base_loop_forward_target 로부터 반환된 전방 목표를 그대로 사용한다. 후보가 없을 경우 로봇 현재 위치를 반환하도록 수정한다.",
+  "not_to_change": "plan_path와 follow_cmd는 현재 구현을 유지한다.",
+  "confidence": "high"
+}

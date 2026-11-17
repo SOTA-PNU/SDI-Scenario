@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG choose t=10.50 pick=follow why=follow_safe … 이후 t=11.00 pick=stop why=stop_safe",
+    "follow_cmd returns v=0 when |error|>0.35 rad, causing stop_safe selection",
+    "lookahead_target computes ahead by crossing segment boundary when remaining_seg < 0.3 m, producing a target far around a corner"
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target에서 remaining_seg이 최소 앞거리(0.3 m)보다 짧을 때 현재 세그먼트를 넘어가지 말고 None을 반환하도록 수정한다. 이렇게 하면 base가 _base_loop_forward_target 로 전방 목표를 재계산해 작은 앞점을 얻고, 큰 회전오차로 인한 v=0 상황을 방지한다.",
+  "not_to_change": "plan_path와 follow_cmd는 그대로 유지한다.",
+  "confidence": "medium"
+}

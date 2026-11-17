@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG target_guard t=6.72 reason=unsafe_fallback ahead=2.000 path_distance=0.000 action=checked_zero",
+    "stall_total_s 185.8 with pick list showing repeated stop_safe choices after t≈14 s",
+    "choose_command 로그에서 stop 선택이 지속되고 _base_note_map_stop 경고가 10 s 간격으로 발생"
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target 를 수정해 로봇 pose와 segment_free 검사를 통과하는 앞점만 반환하도록 합니다. 현재 투사 위치에서 min_ahead~max_ahead 사이를 0.1 m 간격으로 앞쪽으로 이동하며 segment_free(pose[:2], candidate, 현재 clearance) 가 True 인 첫 점을 target 으로 선택하고, 없으면 현재 pose 자체를 반환해 안전한 checked_zero 로 이어지게 합니다. 또한 선택된 점을 DBG 로 출력해 추적합니다.",
+  "not_to_change": "plan_path와 follow_cmd 함수는 그대로 두고, base 루프와 chooser 로직을 건드리지 마세요.",
+  "confidence": "medium"
+}

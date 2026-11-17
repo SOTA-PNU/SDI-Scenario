@@ -1,0 +1,445 @@
+{
+ "turn": 13,
+ "started": "2026-11-17 10:53:21",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c5_turn12/claude_gptoss_analyst_pC5t12_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t12_s1952301689: collision at t=9.717 while robot moving 0.08 m/s; first unmapped point detected at t=4.73 at 1.0 m, bearing -21°, DWA active only until t≈5.03 (0.3 s window) → no avoidance.",
+   "c5t12_s2000876769: collision at t=51.7 while robot stopped; unmapped point entered 2 m range at t=48.35 (bearing -48°) but DWA deactivated after short debounce, so robot remained stationary and was hit.",
+   "c5t12_s471324936: stall abort at t=99.48 after 99 s with only 0.295 m movement; gap to tracked movers stayed > _SAFE_DIST and unmapped points never triggered DWA, leaving robot idle."
+  ],
+  "assumptions": [
+   {
+    "assumption": "Moving objects will be clustered into tracks (M) and used for avoidance",
+    "holds": false,
+    "why": "In collisions (runs 1,2) the mover was not reliably tracked, so DWA never considered it."
+   },
+   {
+    "assumption": "A 0.3 s DWA activation window is sufficient to plan safe motion until the threat passes",
+    "holds": false,
+    "why": "Collisions occurred many seconds after the window closed, showing the window is too short."
+   },
+   {
+    "assumption": "Margin base 0.15 m plus robot/mover radii provides enough safety buffer",
+    "holds": false,
+    "why": "Collision at 0.56 m lateral offset indicates the margin was insufficient for fast‑approaching objects."
+   },
+   {
+    "assumption": "Unmapped raw points filtered by _unmapped_raw correctly represent moving objects",
+    "holds": true,
+    "why": "first_not_on_map timestamps show unmapped points were seen early, but they were not used persistently."
+   },
+   {
+    "assumption": "Robot can resume normal waypoint following after a brief pause without re‑evaluating threats",
+    "holds": false,
+    "why": "Threats persisted after pause, leading to collisions and stalls."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "0/1 pass"
+   },
+   {
+    "family": "simple pause based on unmapped points",
+    "turns": "1,2",
+    "result": "5/9 passes"
+   },
+   {
+    "family": "gap‑based detour",
+    "turns": "3",
+    "result": "0/3 passes"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": "4",
+    "result": "2/5 passes"
+   },
+   {
+    "family": "velocity‑obstacle planner",
+    "turns": "5,6,7,8",
+    "result": "8/14 passes"
+   },
+   {
+    "family": "3D‑lidar integration (with VO)",
+    "turns": "6",
+    "result": "3/6 passes"
+   },
+   {
+    "family": "TTC binary stop / early stop",
+    "turns": "7,8,9,10",
+    "result": "0/12 passes"
+   },
+   {
+    "family": "potential‑field avoidance",
+    "turns": "11",
+    "result": "4/7 passes"
+   },
+   {
+    "family": "dynamic‑window (DWA) short‑window",
+    "turns": "12",
+    "result": "2/5 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Make DWA persistent: reset st[\"dwa_until\"] each step while any unmapped point is within _PF_RANGE, so DWA runs continuously until the threat clears.",
+    "new_family": true,
+    "for": "Collisions where the short DWA window missed later approach of the same object.",
+    "risk": "Higher CPU load; may cause oscillations if DWA keeps switching commands."
+   },
+   {
+    "idea": "Replace DWA with a Vector‑Field‑Histogram (VFH) reactive planner that builds a polar histogram from unmapped lidar points each cycle, selects the widest gap > robot width, and steers toward the goal through that gap.",
+    "new_family": true,
+    "for": "Robust gap detection without relying on tracking; handles sudden appearance of moving boxes.",
+    "risk": "May become overly conservative in cluttered aisles, causing stalls if no gap meets the width threshold."
+   },
+   {
+    "idea": "Hybrid approach: use the existing potential‑field to compute a desired heading, then feed that heading into a simplified DWA that only varies speed, keeping the heading fixed for the horizon.",
+    "new_family": false,
+    "for": "Leverages successful PF heading while preserving DWA speed optimization.",
+    "risk": "Complex interaction between PF and DWA could produce conflicting commands and instability."
+   }
+  ],
+  "chosen": "VFH reactive planner was selected because it directly addresses the missed gap detection that caused collisions and does not depend on fragile tracking or short‑window activation.",
+  "target": "controller logic and addition of VFH helper functions (histogram building, gap selection, steering command).",
+  "direction": "1. Add a function _vfh_histogram(pose, raw) that converts unmapped lidar points to polar bins (e.g., 5° resolution) and counts obstacles per bin. 2. Add _vfh_select_gap(hist) that finds the widest consecutive sequence of empty bins wider than the robot footprint plus safety margin and returns the central bearing. 3. In controller(), after _perceive() call _unmapped_raw() to get raw points and compute (hist, gap_bearing) via the new helpers. 4. If a gap exists, compute desired heading = yaw + gap_bearing and set w = _clamp(7.5*(desired_heading‑yaw), -_DWA_W_MAX, _DWA_W_MAX). 5. Compute v_nom from _follow() toward the waypoint, then limit v by _lidar_clear and by the distance to the nearest obstacle in that direction (e.g., v = min(v_nom, d_gap‑_R_ROBOT‑0.1)). 6. Run the final command through _guard() and return; otherwise, fall back to the original waypoint follower when no gap is found.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 선택안(VFH)에 따라 짧은 창(0.3 s)으로만 켜지던 DWA 층을 VFH 반응형 플래너로 바꿨습니다. `_vfh_histogram` 은 비지도 라이다 점(`_unmapped_raw`)을 5° 구간에 세고, 추적된 물체의 1.2 s 예측 위치를 더한 뒤 로봇 크기만큼 넓혀 막힌 구간을 만듭니다. `_vfh_select_gap` 은 정적 지도로 열린 구간 가운데 로봇 폭보다 넓은 빈 구간을 고르고, 목표 방향에 가장 가까우면서 가장자리에서 한 구간 떨어진 방위를 돌려줍니다. 회전은 `_clamp(7.5·e, ±_DWA_W_MAX)`, 속도는 `_follow` 기반 v_nom 을 그 방향의 빈 거리와 `_lidar_clear` 로 줄인 뒤 `_guard` 를 거치며, 빈 구간이 없으면 원래 경유점 추종으로 돌아갑니다(진단 1–6). 진단의 \"창이 너무 짧다\"와 \"정지 상태 방치(stall)\" 지적에 대응해, 위협이 있는 동안 매 스텝 다시 켜고 사라진 뒤에도 1 s 유지하며, 일반 주행이 1.5 s 이상 막혀 있으면 VFH 를 켭니다.",
+   "changed": [
+    "_VFH_ANG",
+    "_VFH_BIN",
+    "_VFH_CX",
+    "_VFH_ENLARGE",
+    "_VFH_HALF_L",
+    "_VFH_HALF_W",
+    "_VFH_HOLD",
+    "_VFH_LOOK",
+    "_VFH_MIN_PTS",
+    "_VFH_MIN_WIDTH",
+    "_VFH_N",
+    "_VFH_PRED_T",
+    "_VFH_RANGE",
+    "_VFH_STALL_T",
+    "_VFH_TRIGGER",
+    "_vfh_cmd",
+    "_vfh_gap_dist",
+    "_vfh_histogram",
+    "_vfh_select_gap",
+    "_vfh_static_free",
+    "_vfh_wrap",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _vfh_histogram 추가: 비지도 라이다 점을 5° 극좌표 구간으로 나누고 구간마다 점 수를 셈",
+      "implemented": true,
+      "note": "_vfh_histogram(st, pose, M) 가 _unmapped_raw 점을 72구간(5°)에 np.add.at 으로 셈. 인자는 (pose, raw) 대신 (st, pose, M) 이고, 추적 물체의 1.2 s 예측 위치가 추가됨"
+     },
+     {
+      "instruction": "2. _vfh_select_gap: 로봇 폭+여유보다 넓은 연속 빈 구간 중 가장 넓은 것을 찾아 그 중앙 방위를 반환",
+      "implemented": false,
+      "note": "폭 3구간 이상인 모든 빈 구간에서 목표 방향 비용이 가장 작은 구간을 고름. 가장 넓은 빈 구간 선택이 없고, 넓이는 비용에서 최대 0.05 가산점뿐임. 반환값도 빈 구간 중앙이 아니라 목표 쪽 구간 방위이거나 eg 자체임"
+     },
+     {
+      "instruction": "3. controller 에서 _perceive 뒤 _unmapped_raw 로 점을 얻어 (hist, gap_bearing) 계산",
+      "implemented": true,
+      "note": "_vfh_cmd 안에서 계산함. 매 스텝 계산하지는 않고, 위협 트리거·정체 1.5 s·회피/정렬 우선순위를 거친 뒤에만 계산함"
+     },
+     {
+      "instruction": "4. 빈 구간이 있으면 w = _clamp(7.5*(desired-yaw), ±_DWA_W_MAX)",
+      "implemented": true,
+      "note": "w = _clamp(7.5 * th, -_DWA_W_MAX, _DWA_W_MAX) 이고 th 는 로봇 기준 방위임"
+     },
+     {
+      "instruction": "5. _follow 기반 v_nom 을 _lidar_clear 와 그 방향 장애물 거리로 제한",
+      "implemented": true,
+      "note": "v_nom 은 _follow 의 거리로 계산하고, v = min(v_nom, 0.9*(d_th-0.475-0.2)) 뒤 _lidar_clear 를 적용함. 여유는 지시(_R_ROBOT+0.1)보다 보수적임. |th|>0.35 이면 v=0 이고 물체 예측 감속을 추가함"
+     },
+     {
+      "instruction": "6. 최종 명령을 _guard 로 거르고, 빈 구간이 없으면 원래 경유점 추종으로 복귀",
+      "implemented": true,
+      "note": "_guard(st, pose, M, cmd[0], cmd[1]) 를 거침. cmd 가 None 이면 (4) 일반 주행으로 넘어감"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 2 는 가장 넓은 빈 구간의 중앙으로 가라고 해서 목표 반대쪽으로 돌 수 있음. 후보 설명의 '목표 쪽으로 빈 구간을 통과'와도 맞지 않음",
+     "현재 코드도 위협이 있는 동안 dwa_until 을 매 스텝 다시 켰음. '0.3 s 창이 짧아 충돌'이라는 근거는 정확하지 않을 수 있음"
+    ],
+    "feedback": "_vfh_select_gap 을 진단 지시 2 대로 고치십시오. (a) 원형으로 이어지는 빈 구간마다 폭(구간 수)과 중앙 방위를 구하십시오. 중앙 방위는 감싸기(wrap)를 고려한 원형 평균으로 계산합니다. (b) _VFH_MIN_WIDTH 이상인 빈 구간 중 폭이 가장 큰 것을 고르고, 폭이 같으면 중앙이 eg 에 가까운 것을 고르십시오. (c) 그 빈 구간의 중앙 방위를 반환하십시오. 모든 구간이 비어 있으면 eg 를 반환해도 됩니다. 목표 쪽으로 치우치고 싶다면 고른 가장 넓은 빈 구간 안에서만 치우치고, 변경 이유에 진단과 다른 점으로 적으십시오. 나머지 부분은 그대로 두어도 됩니다."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 검토 지적과 진단 지시 2에 맞춰 `_vfh_select_gap` 을 다시 썼습니다. 원형으로 이어지는 빈 구간마다 폭(구간 수)과 중앙 방위를 구하고, 중앙 방위는 감싸기를 고려한 원형 평균(sin·cos 합의 atan2)으로 계산합니다. 그다음 `_VFH_MIN_WIDTH` 이상인 구간 중 폭이 가장 큰 것을 고르고, 폭이 같으면 중앙이 eg 에 가까운 것을 고릅니다. 모든 구간이 비어 있으면 eg 를, 빈 구간이 없으면 None 을 돌려줍니다. 진단과 다른 점은 하나입니다. 고른 가장 넓은 구간 안에서만, 양쪽 가장자리에서 한 구간 이상 떨어진 범위로 중앙 방위를 eg 쪽으로 치우칩니다(폭 3이면 중앙 그대로). `prev_r`, `dg` 인자는 `_vfh_cmd` 의 호출 형식을 유지하려고 남겼고 선택에는 쓰지 않습니다.",
+   "changed": [
+    "_vfh_select_gap"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. 맵에 없는 라이다 점을 5° 극좌표 구간으로 나누고 구간별 점 수를 세는 _vfh_histogram 추가",
+      "implemented": true,
+      "note": "_vfh_histogram(st, pose, M) 가 _unmapped_raw 점을 72구간(5°)으로 나누고 np.add.at 으로 셉니다. 인자 형태는 다르고 추적 물체 예측 위치도 더하지만 지시 내용은 갖췄습니다."
+     },
+     {
+      "instruction": "2. 로봇 폭과 여유보다 넓게 이어진 빈 구간 중 가장 넓은 것을 찾아 그 중앙 방위를 돌려주는 _vfh_select_gap 추가",
+      "implemented": false,
+      "note": "가장 넓은 구간을 고르는 것과 원형 평균 중앙 계산은 맞고, 폭 조건은 _VFH_ENLARGE 확장과 최소 3구간으로 처리했습니다. 그러나 lim·off 로 중앙을 eg 쪽으로 치우쳐 돌려줍니다. 넓은 구간에서는 사실상 목표 방위가 나오므로 '중앙 방위 반환'과 다릅니다."
+     },
+     {
+      "instruction": "3. controller 에서 _perceive 다음에 _unmapped_raw 로 점을 얻어 새 함수로 (hist, gap_bearing) 계산",
+      "implemented": true,
+      "note": "_vfh_cmd 안에서 _unmapped_raw 를 거쳐 히스토그램과 방위를 계산합니다. 위협이 2.5 m 안에 있거나 막힘이 1.5 s 넘을 때만 돌고 매 스텝 다시 켜지므로, 지시 취지는 지켰습니다."
+     },
+     {
+      "instruction": "4. 빈 구간이 있으면 목표 방향 = yaw + gap_bearing, w = clamp(7.5*오차, ±_DWA_W_MAX)",
+      "implemented": true,
+      "note": "w = _clamp(7.5 * th, -_DWA_W_MAX, _DWA_W_MAX) 로, th 가 로봇 기준 방위이므로 같은 식입니다."
+     },
+     {
+      "instruction": "5. _follow 기준 v_nom 을 _lidar_clear 와 그 방향 가장 가까운 장애물 거리로 제한",
+      "implemented": true,
+      "note": "v = min(v_nom, 0.9*(d_th-0.475-0.2)) 에 _lidar_clear 로 한 번 더 자릅니다. 진단식보다 항상 보수적입니다. v_nom 은 _follow 의 거리로 계산합니다."
+     },
+     {
+      "instruction": "6. 최종 명령을 _guard 에 통과시켜 반환, 빈 구간이 없으면 원래 경유점 추종으로 복귀",
+      "implemented": true,
+      "note": "cmd 가 있으면 _guard 를 거쳐 반환하고, None 이면 (4) 일반 주행으로 넘어갑니다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "목표와 상관없이 가장 넓은 구간의 중앙을 고르면, 목표 쪽에 더 좁은 구간이 있어도 뒤쪽 넓은 구간으로 돌아 정체나 진동이 생길 수 있습니다.",
+     "지시 5의 d_gap-R_ROBOT-0.1 은 거리[m]를 속도[m/s] 상한으로 그대로 쓰는 식이라 단위가 맞지 않습니다.",
+     "'로봇 폭+여유보다 넓은 구간'을 각도 구간 수로 볼지 거리 기준으로 볼지 지시가 모호합니다."
+    ],
+    "feedback": "_vfh_select_gap 끝의 lim/off 치우침을 없애고, 고른 구간의 원형 평균 중앙(centre)을 그대로 돌려주십시오. 모든 구간이 비었을 때 eg 반환, 폭이 같을 때 eg 에 가까운 구간 우선, 빈 구간이 없으면 None 반환은 유지해도 됩니다. docstring 의 'biased toward eg' 설명도 지우십시오. 다른 부분은 바꾸지 마십시오."
+   }
+  },
+  {
+   "attempt": 2,
+   "reason": "변경 이유: 검토 지적에 따라 `_vfh_select_gap` 끝의 lim/off 치우침을 없앴습니다. 이제 고른 빈 구간의 원형 평균 중앙(centre)을 그대로 돌려주므로 진단 지시 2(가장 넓은 빈 구간의 중앙 방위로 조향)와 같습니다. 다음 동작은 바꾸지 않았습니다: 모든 구간이 비면 eg 반환, 폭이 같으면 중앙이 eg 에 가까운 구간 우선, 쓸 만한 빈 구간이 없으면 None 반환. docstring 의 'biased toward eg' 설명도 지웠습니다.",
+   "changed": [
+    "_vfh_select_gap"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. 비지도 라이다 점을 5° 극좌표 빈으로 바꿔 빈마다 개수를 세는 _vfh_histogram 추가",
+      "implemented": true,
+      "note": "_vfh_histogram(st, pose, M) 추가. _VFH_N=72(5°)이고 _unmapped_raw 점을 np.add.at 으로 빈마다 셈. 인자 형태가 진단과 다르고 추적 물체의 예측 위치도 더하지만 지시 내용은 충족"
+     },
+     {
+      "instruction": "2. 로봇 폭+여유보다 넓은 연속 빈 구간 중 가장 넓은 것의 중앙 방위를 돌려주는 _vfh_select_gap 추가",
+      "implemented": true,
+      "note": "원형으로 연속된 빈 구간을 만들고 폭이 가장 큰 구간의 원형 평균 중앙을 반환. 폭 조건은 장애물을 _VFH_ENLARGE 0.78 m 만큼 키운 것과 _VFH_MIN_WIDTH 3빈으로 구현. 이전 지적인 lim/off 치우침은 제거됨"
+     },
+     {
+      "instruction": "3. controller 에서 _perceive 뒤 _unmapped_raw 로 점을 얻어 (hist, gap_bearing) 계산",
+      "implemented": true,
+      "note": "_perceive 뒤 (3)단계의 _vfh_cmd 안에서 _vfh_histogram→_unmapped_raw 순으로 호출. 다만 위협 조건(gap<=_SAFE_DIST, d_raw<_VFH_TRIGGER) 또는 정체 1.5 s 일 때만 실행되며, 매 스텝 재무장되고 _VFH_HOLD 1 s 동안 유지됨"
+     },
+     {
+      "instruction": "4. 구간이 있으면 w = clamp(7.5*(yaw+gap−yaw), ±_DWA_W_MAX)",
+      "implemented": true,
+      "note": "w = _clamp(7.5 * th, -_DWA_W_MAX, _DWA_W_MAX) 로 같은 식"
+     },
+     {
+      "instruction": "5. _follow 기준 v_nom 을 _lidar_clear 와 그 방향 장애물 거리로 제한",
+      "implemented": true,
+      "note": "v_nom 은 _follow 의 dist 로 계산. 0.9*(d_th−0.475−0.2) 로 제한(진단 식 d−_R_ROBOT−0.1 보다 보수적)하고 _lidar_clear 로 차단. |th|>0.35 이면 전진하지 않고 추적 물체 rollout 감속을 추가"
+     },
+     {
+      "instruction": "6. 최종 명령을 _guard 로 거쳐 반환, 빈 구간이 없으면 원래 경유점 추종으로 복귀",
+      "implemented": true,
+      "note": "cmd 가 있으면 _guard 를 거쳐 반환. None 이면 (4) 정상 주행으로 넘어감"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "가장 넓은 구간을 고르면 목표 반대쪽의 넓은 빈 공간으로 향할 수 있음. 일반 VFH 는 목표에 가까운 구간을 고름",
+     "5번 식 v = d_gap−_R_ROBOT−0.1 은 거리(m)를 속도(m/s)로 쓰는 단위 혼용이라 감속 한계 근거가 약함",
+     "근거 1의 실패는 창 길이보다 _px_dist 의 3점 조건·트리거 거리 문제일 수 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 검토 지적에 따라 `_vfh_select_gap` 끝의 lim/off 치우침을 없앴습니다. 이제 고른 빈 구간의 원형 평균 중앙(centre)을 그대로 돌려주므로 진단 지시 2(가장 넓은 빈 구간의 중앙 방위로 조향)와 같습니다. 다음 동작은 바꾸지 않았습니다: 모든 구간이 비면 eg 반환, 폭이 같으면 중앙이 eg 에 가까운 구간 우선, 쓸 만한 빈 구간이 없으면 None 반환. docstring 의 'biased toward eg' 설명도 지웠습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1200293880,
+  1619343123,
+  1291565554
+ ],
+ "sim_used_s": 435.6,
+ "verdicts": {
+  "1200293880": "fail",
+  "1619343123": "fail",
+  "1291565554": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 7444,
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c5t13_s1200293880: 42번의 정지·회전 구간 후 t=103.45 s에 2 m 이내 물체 감지, 이후 로봇이 제자리 회전만 반복해 목표까지 30 m 남은 상태에서 진행 중단(진행 중단 t=103.83 s).",
+   "c5t13_s1619343123: 91번의 정지·회전 구간, 2 m 이내 물체는 t≈206 s에 처음 감지되지 않았으며 로봇이 회전만 수행해 목표까지 25 m 남은 채 진행 중단(t=210.85 s).",
+   "c5t13_s1291565554: 70번의 정지·회전 구간, 2 m 이내 물체가 t=115.17 s에 감지됐음에도 로봇이 정지 후 회전만 지속해 목표까지 29 m 남은 상태에서 진행 중단(t=117.88 s)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 충돌 위험이 되기 전에 라이다로 감지된다.",
+    "holds": false,
+    "why": "첫 감지는 100 s 이후에 이루어졌으며, 감지 직후 로봇은 전진을 재개하지 못하고 정지·회전만 반복한다."
+   },
+   {
+    "assumption": "VFH는 항상 충분히 넓은 빈 구간을 찾아 전진 명령을 생성한다.",
+    "holds": false,
+    "why": "다수의 stop‑turn 에피소드에서 VFH가 회전 전용 명령만 반환하거나 None을 반환해 전진이 차단된다."
+   },
+   {
+    "assumption": "동적 pause(시간‑충돌) 로직은 짧은 일시 정지를 초래하고 곧 전진을 재개한다.",
+    "holds": false,
+    "why": "pause가 길게 유지되어 로봇이 30 m 이상 남은 목표까지 전진하지 못하고 90 s 이상 정지 상태에 머문다."
+   },
+   {
+    "assumption": "정적 지도와 로봇 본체 충돌 검사는 정확히 동작한다.",
+    "holds": true,
+    "why": "정적 장애물과의 충돌 보고가 없으며, _is_static_world 필터링이 정상적으로 작동한다."
+   },
+   {
+    "assumption": "3.5 s 예측 horizon은 이동 물체와의 충돌을 충분히 예측한다.",
+    "holds": false,
+    "why": "과도한 horizon이 과보수적인 pause를 유발해 로봇이 진행을 포기한다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "VFH reactive planner",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "VO planner (fallback evasion)",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Predictive speed scaling",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Stuck detour after prolonged blockage",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Normal waypoint following",
+    "turns": "3",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "순수 TTC 기반 속도 스케일링만 사용하고 VFH·VO·정지·회전 로직을 제거한다.",
+    "new_family": true,
+    "for": "예전 turn 2의 TTC‑동적‑pause와 _predictive_speed 조합이 가장 높은 통과율을 보였으며, 로직을 단순화하면 과도한 정지·회전을 없앨 수 있다.",
+    "risk": "TTC 임계값을 낮게 잡으면 빠른 물체와 충돌 위험이 증가할 수 있다."
+   },
+   {
+    "idea": "라이다 기반 이동 물체를 일시적 정적 장애물로 간주하고 A* 재계획을 수행한다.",
+    "new_family": true,
+    "for": "현재 VFH·VO가 빈 구간을 찾지 못해 정체가 발생하므로, 전역 경로 재계획으로 명확한 우회 경로를 만든다.",
+    "risk": "재계획 연산 비용이 높아 시뮬 시간 제한을 초과할 가능성이 있다."
+   },
+   {
+    "idea": "VFH 파라미터를 완화해 _SAFE_DIST를 2 m 로 낮추고 최소 빈 구간 폭을 2 bin 으로 줄인다.",
+    "new_family": true,
+    "for": "현재 VFH가 과보수적으로 전진을 차단하고 회전만 유도하므로, 파라미터 완화가 전진을 허용할 수 있다.",
+    "risk": "좁은 구간을 통과하면서 실제 충돌 위험이 증가할 수 있다."
+   }
+  ],
+  "chosen": "우리는 후보 1을 선택한다. TTC 기반 속도 스케일링만 남기고 VFH·VO·정지·회전 로직을 모두 제거하면 현재 과도한 정체 현상을 근본적으로 해소할 수 있다.",
+  "target": "controller (VFH·VO·pause 로직 제거, TTC 기반 속도 스케일링 적용)",
+  "direction": "1) controller 초기화에서 기존 st[\"pause_until\"], st[\"detour\"], st[\"vo_on\"] 등을 삭제하고, _perceive와 트랙 업데이트만 유지한다. 2) _perceive 후 M = _track_array(st, t) 를 얻고, _dynamic_pause(st, pose, M) 로 (pause, ttc) 를 계산한다. 3) pause>0이면 st[\"pause_until\"] = t + pause 를 설정하고 (0.0,0.0,False) 를 반환한다; pause가 0이면 바로 진행한다. 4) 현재 waypoint에 대해 _follow 로 v_nom, w_nom 을 구하고, _predictive_speed(st, pose, tgt, v_nom, M) 로 안전 속도 vc 를 얻는다. 5) vc가 None이면 vc=0.0으로 설정하고, w = w_nom 로 지정한 뒤 _guard(st, pose, M, vc, w) 로 최종 검증 후 반환한다. 6) VFH, VO, early‑stop, proximity‑stop 등 모든 호출을 코드에서 제거하거나 주석 처리한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c5t13_s1200293880",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 104.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 103.83,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": 103.45,
+   "goal_dist_m": 30.2207,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t13_s1619343123",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 495.1,
+   "sim_time_s": 211.9,
+   "stall_abort_t": null,
+   "progress_abort_t": 210.85,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 91,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 25.3401,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t13_s1291565554",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 283.3,
+   "sim_time_s": 118.9,
+   "stall_abort_t": null,
+   "progress_abort_t": 117.88,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 70,
+   "first_seen_within_2m_t": 115.17,
+   "goal_dist_m": 29.3363,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 156 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.\" 반영, 검토 통과): 새 배치 5개 중 4개 pass, 1개 fail (시뮬 시간 합계 599 s / 한도 600 s)\n#3 이번 코드(진단 \"1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\\\"detour\\\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\\\"detour\\\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\\\"detour\\\"][0]-x, st[\\\"detour\\\"][1]-y) < 0.4`) `st[\\\"detour\\\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 593 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _predictive_speed(st, pose, tgt, v_nom, M) 를 추가해 _dynamic_pause 로 TTC를 구하고, (ttc/_HORIZON) 비율로 속도 비율을 계산한다. 2) controller에서 목표 선택 후, gap <= _SAFE_DIST 인 경우 기존 detour/pause 로직 대신 _predictive_speed 를 호출한다. 3) 반환된 속도가 None이면 기존 pause 로직을 실행하고, 속도가 있으면 v=vc, w=w_nom 로 반환한다. 4) _lidar_clear 검사를 속도에 적용해 앞에 장애물이 있으면 v를 0으로 만든다. 5) 기존 detour와 escape 로직은 fallback으로 남겨 두어 완전 차단 상황에 대비한다. 6) _SAFE_DIST 를 약간 늘려(1.7 m) 급격한 접근을 미리 감지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 506 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 286 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _perceive 안에서 lidar3d_points() 를 호출해 3D 포인트 클라우드를 얻는다. 2. 포인트를 x‑y 평면으로 투사하고 _drop_body 로 로봇 몸체를 제외한다. 3. 기존 2D 라이다와 결합해 하나의 점 집합 P 를 만든다. 4. P 로부터 정적 점을 _is_static_world 로 필터링하고, 남은 점을 기존 클러스터링 로직에 그대로 전달해 트랙을 업데이트한다. 5. _SAFE_DIST 검사를 P 기반으로 확장해 3 m까지 감지하도록 하고, pause_until 로직을 P 내 물체가 2 m 이내에 들어오면 즉시 정지하도록 수정한다. 6. VO 플래너와 predictive_speed 에도 새로운 P 를 입력해 더 긴 예측 거리와 정확한 lidar_strip 검사를 수행한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 432 s / 한도 600 s)\n#7 이번 코드(진단 \"1) _MAX_OBJECT_SPEED=2.0, _TTC_THRESHOLD=1.0 을 편집 영역 상단에 정의한다. 2) _ttc_stop_check(st, pose, raw) 를 추가해 각 비지도 라이다 점의 거리와 로봇 현재 속도(vm) 를 이용해 TTC=dist/(max(rel_speed,1e-3)+_MAX_OBJECT_SPEED) 를 계산하고, 최소 TTC가 _TTC_THRESHOLD 미만이면 st['pause_until']=max(st['pause_until'], t+0.5) 를 설정한다. 3) controller() 에서 _perceive() 뒤, _should_pause() 호출 전 _ttc_stop_check() 를 호출하고 True이면 0.0,0.0,False 를 반환한다. 4) 기존 _should_pause() 로직을 그대로 유지하되, pause_until 가 연장된 경우에도 정지 유지한다. 5) 필요 시 _mark_free() 가 pause_until 가 지나면 free_since 를 초기화하도록 유지한다. 6) 기존 VO·predictive·detour 로직은 pause 상태가 해제된 뒤에 그대로 동작한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 261 s / 한도 600 s)\n#8 이번 코드(진단 \"1) _ttc_stop_check 를 true/false 로만 반환하도록 수정하고, 정지 명령을 직접 내리지 않는다. 2) controller 에서 _ttc_stop_check 호출 후 true이면 _vo_planner 를 strict 모드로 호출한다. 3) VO 플래너가 유효한 (v,w) 를 반환하면 그 값을 사용하고, 반환이 없을 때만 기존 pause_until 로 정지한다. 4) pause_until 를 VO 플래너가 실패했을 때만 연장하도록 하고, 성공 시 초기화한다. 5) 기존 정지 로직을 유지하되, VO 회피가 가능한 경우 우선 적용한다. 6) 필요 시 _mark_free 로 이동 재개 시점을 관리한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 312 s / 한도 600 s)\n#9 이번 코드(진단 \"1) _perceive 뒤에 _unmapped_raw 로 현재 프레임의 비지도 점들을 얻는다. 2) 새 함수 _proximity_stop_and_backup(st, t, pose) 를 구현해, 점 중 거리 d<0.8 m 인 것이 있으면 로봇이 현재 전진 중이면 바로 정지하고 pause_until = t+2.0을 설정한다. 3) 로봇이 이미 정지 중이고 d<0.5 m이면 v=-0.4 m/s, w=0을 반환해 0.5 s 동안 후진하도록 하고, 이후 pause_until = t+2.0 로 유지한다. 4) controller 의 (2) _should_pause 전 단계에서 이 함수를 호출해 True이면 반환값을 바로 사용한다. 5) 기존 pause_until 로직은 이 새로운 정지·후진이 끝난 뒤에만 동작하도록 유지한다. 6) st['wait_start'] 와 st['free_since'] 를 적절히 초기화해 대기 후 정상 주행이 재개되도록 한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 37 s / 한도 600 s)\n#10 이번 코드(진단 \"1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\\\"pause_until\\\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 303 s / 한도 600 s)\n#11 이번 코드(진단 \"Add constants _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 and a helper _potential_field_avoidance(pose, raw, wp) that sums repulsive vectors from unmapped points (inverse distance weighting) and an attractive vector to wp, then returns a desired heading and speed factor; in controller, after _perceive replace the early‑stop and proximity‑stop calls with a call to _potential_field_avoidance, set v = min(v_nom, v_pf) and w = clamp(7.5*(desired_heading‑yaw), -0.6, 0.6), and only fall back to the existing VO planner if the potential‑field margin is negative; keep _guard for final safety checks; remove the 1 s binary pause logic or reduce it to a short debounce.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(진단 \"1. _DWA_HORIZON=2.0, _DWA_DT=0.1, _DWA_V_STEPS=5, _DWA_W_STEPS=7, _DWA_COST_WEIGHT={'margin':1.0,'speed':0.2,'turn':0.1} 등을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 _dwa_candidates(pose, vm) 를 추가해 허용 속도·회전 범위 내에서 (v,w) 조합을 샘플링한다. 3. 각 후보에 대해 _rollout 으로 _DWA_HORIZON 초 동안 궤적을 생성하고, _traj_margin 로 움직이는 물체와 정적 장애물에 대한 최소 마진을 계산한다. 4. 마진이 0 이상이고 _lidar_clear·_sweep_clear 가 통과하는 후보들에 대해 비용 = -margin + _DWA_COST_WEIGHT['speed']·(v_nom‑v)² + _DWA_COST_WEIGHT['turn']·|w| 로 평가한다. 5. 비용이 가장 낮은 후보를 선택하고, 선택된 (v,w) 가 없으면 (0,0) 로 정지한다. 6. 선택된 (v,w) 를 반환하기 전에 기존 _guard 로 최종 안전 검사를 수행한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 293 s / 한도 600 s)\n#13 이번 코드(진단 \"1. Add a function _vfh_histogram(pose, raw) that converts unmapped lidar points to polar bins (e.g., 5° resolution) and counts obstacles per bin. 2. Add _vfh_select_gap(hist) that finds the widest consecutive sequence of empty bins wider than the robot footprint plus safety margin and returns the central bearing. 3. In controller(), after _perceive() call _unmapped_raw() to get raw points and compute (hist, gap_bearing) via the new helpers. 4. If a gap exists, compute desired heading = yaw + gap_bearing and set w = _clamp(7.5*(desired_heading‑yaw), -_DWA_W_MAX, _DWA_W_MAX). 5. Compute v_nom from _follow() toward the waypoint, then limit v by _lidar_clear and by the distance to the nearest obstacle in that direction (e.g., v = min(v_nom, d_gap‑_R_ROBOT‑0.1)). 6. Run the final command through _guard() and return; otherwise, fall back to the original waypoint follower when no gap is found.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 436 s / 한도 600 s)",
+ "ended": "2026-11-17 11:14:14"
+}

@@ -1,0 +1,32 @@
+{
+ "turn": 15,
+ "started": "2026-11-16 16:00:17",
+ "code_in": "results/turns/prompt_c2_turn14/gpu_gpt_oss_120b_pC2t14_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t14_s1523629072: first_not_on_map 1.81 m, bearing 49° at t=1.15 s (outside _DETECT_DIST=1.5 m, _DETECT_ANGLE=45°) → object not detected before collision at t=6.1 s",
+   "c2t14_s1434803498: nearest not on map 0.9 m, bearing 87° at t=10.6 s while robot still moving 0.59 m/s → side object outside detection cone caused collision at t=11.85 s",
+   "All pass runs show ≥30 stop‑turn episodes (detection active), whereas fail runs show ≤10 episodes, indicating detection missed side‑approaching movers"
+  ],
+  "target": "_DETECT_DIST and _DETECT_ANGLE (detection parameters)",
+  "direction": "Increase _DETECT_DIST to 2.0 m (or 2.5 m) and set _DETECT_ANGLE = np.deg2rad(120) to expand the detection sector to ±120°. This enlarges the sector used in _detect_moving_any and _moving_points, so side‑approaching moving objects are detected and the stop‑back‑rotate avoidance triggers earlier. No other logic changes are needed.",
+  "confidence": "high"
+ },
+ "coder": [],
+ "reused_block": "results/turns/prompt_c2_turn15/gpu_gpt_oss_120b_pC2t15_block.py",
+ "reason": "변경 이유: 기존 탐지 각도(±45°)와 거리(1.5 m)로는 측면에서 접근하는 이동 물체를 놓쳐 충돌이 발생했습니다. 따라서 이동 물체를 더 일찍 포착하도록 탐지 범위를 확대하고, 회피 전 잠시 정지해 물체가 지나가도록 시간을 확보했습니다. 이는 진단이 제시한 “_DETECT_DIST와 _DETECT_ANGLE 확대”에 직접 대응한 수정입니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  672260368,
+  2132839529,
+  1832076341
+ ],
+ "sim_used_s": 217.2,
+ "verdicts": {
+  "672260368": "fail",
+  "2132839529": "fail",
+  "1832076341": "fail"
+ },
+ "passes": 0
+}

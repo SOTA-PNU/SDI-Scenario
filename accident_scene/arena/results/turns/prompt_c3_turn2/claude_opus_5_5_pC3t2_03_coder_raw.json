@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적 1~4에 맞춰 진단 direction 의 기준을 그대로 적용했습니다. 모든 트랙에 반경 0.45 m(`_MOVER_R`)와 요구 간격 0.35 m(`_MOVER_GAP`)를 씁니다. 후보 선택과 done 판정은 똑같이 `cmin >= 0` 을 요구하고, 기존 `req` 완화와 느린 트랙용 0.15 m 간격은 지웠습니다. 후보는 경유점 추종 v∈{v_wp(≤0.8), 0.5, 0.3}, 정지 0, 직선 후진 −0.3 만 둡니다. 제자리 회전 중에는 경유점 후보가 (0, w)가 되고 정지 후보가 (0, 0)이 되어 w∈{w, 0} 이 되며, esc 회피 호는 삭제했습니다. 조건을 만족하는 후보가 없으면 첫 후보가 아니라 prim 전체에서 최소 간격이 가장 큰 후보를 고릅니다. 후진은 뒤 0.45 m 안에 점이 있거나 정적 검사에 걸리면 뺍니다.\n\n```python\n_MOVER_R = 0.45     # 움직이는 물체 반경 [m] (0.6 x 0.6 상자의 대각 반경 0.42 m 를 덮음)\n_MOVER_GAP = 0.35   # 모든 트랙에 똑같이 요구하는 몸체-물체 간격 [m]\n\n\ndef _clusters(m, adj):\n    \"\"\"월드 점 m (K, 2) 를 인접 행렬 adj(0.5 m 연결)로 덩어리로 나눕니다. 반환: [(중심 x, 중심 y, 반경 _MOVER_R)].\"\"\"\n    n = m.shape[0]\n    lab = np.full(n, -1)\n    out = []\n    for i in range(n):\n        if lab[i] >= 0:\n            continue\n        lab[i] = 0\n        mem = [i]\n        stack = [i]\n        while stack:\n            j = stack.pop()\n            nb = np.nonzero(adj[j] & (lab < 0))[0]\n            if nb.size:\n                lab[nb] = 0\n                nl = nb.tolist()\n                mem.extend(nl)\n                stack.extend(nl)\n        if len(mem) >= 3:\n            c = m[mem].mean(axis=0)\n            out.append((float(c[0]), float(c[1]), _MOVER_R))\n    return out\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 물체 추적·등속 예측 기반 속도 선택(후보 v∈{v_wp, 0.5, 0.3, 0, -0.3}, 제자리 회전 시 w∈{w, 0}).\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.ready = 0\n\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    tracks, raw, stat, ok = _track_movers(pose)\n    controller.ready = controller.ready + 1 if ok else 0\n    if controller.ready < 12:          # 라이다가 들어오고 트랙이 잡힐 때까지 대기\n        return 0.0, 0.0, False\n\n    # ---- 현재 시점으로 예측한 물체 (x, y, vx, vy, 반경 0.45, 요구 간격 0.35) : 모든 트랙 동일 ----\n    step = _TRK[\"step\"]\n    movers = []\n    for tr in tracks:\n        age = (step - tr[\"seen\"]) / 60.0\n        vx, vy = tr[\"v\"]\n        movers.append((tr[\"p\"][0] + vx * age, tr[\"p\"][1] + vy * age, vx, vy, _MOVER_R, _MOVER_GAP))\n\n    # ---- 경유점 진행 ----\n    if controller.idx >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.45:\n        controller.idx = n - 1         # 피하느라 밀려났으면 GOAL 로 복귀\n    if controller.idx < n:\n        _, _, controller.idx = _pursuit_cmd(x, y, yaw, controller.idx, 0.8)\n    align = controller.idx >= n\n\n    rear_blocked = raw.shape[0] > 0 and bool(\n        ((raw[:, 0] < _BODY[0]) & (raw[:, 0] > _BODY[0] - 0.45) & (np.abs(raw[:, 1]) < 0.45)).any())\n\n    # ---- GOAL 정렬 완료: 정지한 채 2.5 s 동안 간격 0.35 m 가 지켜질 때만 끝냄 ----\n    if align and abs(_wrap_angle(GOAL[2] - yaw)) < 0.05:\n        cmin, _ = _rollout(pose, (\"fix\", 0.0, 0.0), controller.idx, movers)\n        if cmin >= 0.0:\n            return 0.0, 0.0, True\n\n    # ---- 후보: 경유점 추종 v_wp/0.5/0.3 (제자리 회전 중이면 (0, w)), 정지 (0, 0), 후진 (-0.3, 0) ----\n    if align:\n        prim = [(\"align\", 0.0, 0.0), (\"fix\", 0.0, 0.0), (\"fix\", -0.3, 0.0)]\n    else:\n        prim = [(\"path\", 0.8, 0.0), (\"path\", 0.5, 0.0), (\"path\", 0.3, 0.0),\n                (\"fix\", 0.0, 0.0), (\"fix\", -0.3, 0.0)]\n\n    chosen = None\n    best = None\n    for cand in prim:\n        kind, v, w = cand\n        if v < 0.0 and rear_blocked:\n            continue\n        cmin, traj = _rollout(pose, cand, controller.idx, movers)\n        if kind == \"fix\" and v < 0.0 and not _static_ok(traj, stat):\n            continue\n        if cmin >= 0.0:                # 간격 0.35 m 를 지키는 가장 빠른 후보\n            chosen = cand\n            break\n        if best is None or cmin > best[0] + 1e-6:\n            best = (cmin, cand)\n    if chosen is None:                 # 모두 위험하면 prim 전체에서 최소 간격이 가장 큰 후보\n        chosen = best[1] if best is not None else (\"fix\", 0.0, 0.0)\n\n    kind, v, w = chosen\n    if kind == \"path\":\n        v, w, _ = _pursuit_cmd(x, y, yaw, controller.idx, v)\n    elif kind == \"align\":\n        e = _wrap_angle(GOAL[2] - yaw)\n        v, w = 0.0, (0.0 if abs(e) < 0.05 else _clamp(1.5 * e, -0.6, 0.6))\n    return float(v), float(w), False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 24679,
+  "completion_tokens": 5543
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 48535,
+  "total_cost_usd": 0.308284,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 5543,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 24677,
+    "webSearchRequests": 0,
+    "costUSD": 0.308284,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3147,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 24677,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "386e7012-aac3-444b-af9c-a3e5e0404da5"
+ }
+}

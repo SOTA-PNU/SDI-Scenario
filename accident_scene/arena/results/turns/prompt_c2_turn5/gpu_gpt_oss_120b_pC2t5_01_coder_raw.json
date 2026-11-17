@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-b467a3a3826dcdf4",
+ "object": "chat.completion",
+ "created": 1794734223,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유:  \n1. 지나치게 넓은 탐지 범위와 회전 회피 로직으로 물체를 감지하면 로봇이 지속적으로 회전하거나 멈춰 버려 스톨이 발생했습니다.  \n2. 탐지 거리를 1 m, 각도를 ±45° 로 축소해 실제 진행 경로에 가까운 물체만 반응하도록 하고, 회피 상태에 타이머를 도입해 일정 시간 정지·회전 후 다시 진행하도록 했습니다.  \n3. 회피 중에도 물체가 남아 있으면 같은 방향으로 회전을 유지하고, 물체가 사라지면 정상적인 웨이포인트 추적으로 복귀합니다.  \n\n```python\n# detection parameters (reduced to avoid false stalls)\n_DETECT_DIST = 1.0                     # [m] consider points up to 1 m away\n_DETECT_ANGLE = np.deg2rad(45.0)       # [rad] half‑plane (±45°) in front of robot\n\n# avoidance state parameters\n_AVOID_DURATION = 2.0                  # [s] how long to stay stopped before rotating\n_AVOID_ROT_SPEED = 0.4                 # [rad/s] rotation speed during avoidance\n\n\ndef controller(t, pose, env):\n    \"\"\"Waypoint‑following with timed reactive avoidance of moving objects.\"\"\"\n    # ---- one‑time static initialisation ---------------------------------\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0          # current waypoint index\n        controller.state = \"normal\" # \"normal\" or \"avoid\"\n        controller.avoid_end = 0.0  # time when avoidance stop ends\n        controller.avoid_dir = 0.0  # rotation direction during avoidance\n\n    # ---- avoidance logic -------------------------------------------------\n    if controller.state == \"avoid\":\n        # keep rotating while timer not elapsed or object still present\n        has_moving, _ = _detect_moving_any(pose)\n        if t >= controller.avoid_end and not has_moving:\n            controller.state = \"normal\"\n        else:\n            # continue rotating away from the last detected bearing\n            return 0.0, float(controller.avoid_dir * _AVOID_ROT_SPEED), False\n\n    # ---- detect moving objects (front & back lidar) -----------------------\n    has_moving, mean_bearing = _detect_moving_any(pose)\n    if has_moving:\n        # enter avoidance state: stop, then rotate away after _AVOID_DURATION\n        controller.state = \"avoid\"\n        controller.avoid_end = t + _AVOID_DURATION\n        # positive bearing = object on left → rotate right (negative w)\n        dir_sign = -np.sign(mean_bearing)\n        controller.avoid_dir = dir_sign if dir_sign != 0 else 1.0\n        return 0.0, float(controller.avoid_dir * _AVOID_ROT_SPEED), False\n\n    # ---- goal‑alignment phase (after last waypoint) -----------------------\n    x, y, yaw = pose\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # ---- normal waypoint‑following ---------------------------------------\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # advance to next waypoint if close enough (except for the goal)\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # ---- control law (same as proven static version) --------------------\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # trigger alignment after reaching the final waypoint\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return float(v), float(w), False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to modify code to address stall: detection too sensitive causing robot to stop and spin. Need to add avoidance state with timer, reduce detection distance/angle, and ensure after avoidance resumes.\n\nWe can edit only within [EDIT REGION]. We need to output changed reasons and then only the definitions we changed/added.\n\nWe need to add new state variables in controller, maybe using attributes. Also adjust detection thresholds _DETECT_DIST and _DETECT_ANGLE.\n\nAlso need to fix wall detection logic? Already earlier attempt 2 fixed that, and passes improved. The current code uses _in_static_obstacle which checks walls as points outside interior rectangle are walls. That is correct.\n\nNow we need to implement avoidance logic with timer.\n\nApproach: add constants: _AVOID_TIME = 2.0 seconds, _AVOID_ROT_SPEED = 0.4 rad/s, _AVOID_SPEED = 0.0 (stop), maybe after detection we set controller.avoid_until = t + _AVOID_TIME, store avoid_dir = sign(mean_bearing) (rotate away). While t < avoid_until, set v=0, w = avoid_dir * _AVOID_ROT_SPEED. After timer, check again detection; if still moving, maybe rotate again for short period.\n\nSimplify: detection triggers avoidance state with timer; during avoidance, ignore waypoint following. After timer, if moving still detected, continue rotating (maybe same direction) until clear, then resume.\n\nImplementation details:\n\nAdd constants: _DETECT_DIST = 1.0, _DETECT_ANGLE = np.deg2rad(45). Add _AVOID_DURATION = 2.0, _AVOID_ROT_SPEED = 0.4.\n\nAdd to controller: if not hasattr(controller, \"state\"): controller.state = \"normal\"; controller.avoid_end = 0.0; controller.avoid_dir = 0.0.\n\nIn each call:\n\nif controller.state == \"avoid\":\n   # check if still moving\n   has_moving, mean_bearing = _detect_moving_any(pose)\n   if not has_moving or t >= controller.avoid_end:\n        # exit avoidance\n        controller.state = \"normal\"\n   else:\n        # continue rotating\n        return 0.0, controller.avoid_dir * _AVOID_ROT_SPEED, False\n\nIf state normal:\n\n   has_moving, mean_bearing = _detect_moving_any(pose)\n   if has_moving:\n        controller.state = \"avoid\"\n        controller.avoid_end = t + _AVOID_DURATION\n        # rotate away from object: direction = -sign(mean_bearing) (positive bearing = left, rotate right negative)\n        dir = -np.sign(mean_bearing)\n        if dir == 0: dir = 1.0\n        controller.avoid_dir = dir\n        return 0.0, dir * _AVOID_ROT_SPEED, False\n\nProceed with waypoint logic.\n\nAlso adjust detection thresholds earlier constants.\n\nMake sure imports: np already imported.\n\nAdd definitions for new constants and modify _DETECT_DIST/_DETECT_ANGLE values.\n\nThus we need to output changed definitions: _DETECT_DIST, _DETECT_ANGLE, maybe add new constants, modify controller function, maybe add new helper functions? Only changed/added top-level definitions.\n\nWe need to include the entire controller function definition with new logic, plus the constants definitions.\n\nThus output:\n\n변경 이유: ... (2-4 sentences)\n\nThen code fence with:\n\n_DETECT_DIST = 1.0\n_DETECT_ANGLE = np.deg2rad(45.0)\n_AVOID_DURATION = 2.0\n_AVOID_ROT_SPEED = 0.4\n\ndef controller(...): ... (full updated)\n\nMake sure we keep other helper functions unchanged.\n\nPotential edge: need to import np already imported.\n\nMake sure we use math for wrap.\n\nAlso need to ensure we reference GOAL defined earlier.\n\nImplement.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 10501,
+  "total_tokens": 12357,
+  "completion_tokens": 1856,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 806
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

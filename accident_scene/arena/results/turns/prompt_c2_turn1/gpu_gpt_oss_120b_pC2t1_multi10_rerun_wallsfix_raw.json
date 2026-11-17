@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-8ba3328e7ee68bb6",
+ "object": "chat.completion",
+ "created": 1794730805,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"wall check in _in_static_obstacle treats points inside WALLS rectangle as wall, filtering out all lidar points in the arena (e.g., run c2t1_s1716666872 first_not_on_map shows moving object at 0.96 m but detection never triggered).\",\n    \"collisions occur at ~3 s when moving objects are within 1 m, yet controller never stops (robot state shows forward speed at 0.24 m/s at 2.85 s).\",\n    \"pass runs only when moving objects appear much later (first_not_on_map >44 s), indicating detection works only when objects are outside the mistaken wall region.\"\n  ],\n  \"target\": \"_in_static_obstacle\",\n  \"direction\": \"바깥쪽 벽을 판별하는 조건을 반전한다. 현재는 wx_min <= x <= wx_max && wy_min <= y <= wy_max 를 wall 로 판단하지만, 실제는 x <= wx_min 또는 x >= wx_max 또는 y <= wy_min 또는 y >= wy_max 일 때 wall이다. 해당 if 문을 수정해 외부 영역을 wall 로 인식하도록 바꾸면 움직이는 물체가 static으로 오인되지 않아 감지가 가능해진다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to determine failure mode based on multiple runs. The code attempts reactive avoidance: if moving object detected within 1.2m and ±30°, stop and rotate away. However many failures still occur, especially early collisions at t~3-4s with mover_00, which appears within 2m at t~0.85-1.55 etc. The detection first_not_on_map shows first detection within 2m at ~0.85-1.55s, but robot still collides at 3.7s. The controller's detection maybe not catching because detection only within 1.2m and ±30°. The moving objects may be slightly off center or beyond 30°, or detection may be hindered by static obstacles? The logs show nearest not on map distances decreasing from ~2m to 0.3m at collision. But detection may have missed earlier because bearing maybe outside ±30°? The log shows bearing degrees for nearest not on map: at 0.85s bearing 29deg (within 30) distance 1.99m, but detection threshold is <=1.2m, so not yet. At 2.85s distance 0.96m bearing -15deg, within detection zone. However robot still moving and collides at 3.7s. At 2.85s robot state is \"주행 0.24m/s 회전 -1.8\" (moving) not stopped. Means detection didn't trigger? The code _detect_moving_any uses both front and back lidar points. But maybe moving object points are filtered out because they are inside static obstacle bounding boxes due to static map overlapping? The moving objects travel within corridors that are free of static obstacles; but they might be close to static obstacles causing some points to be inside static map? However detection uses world coordinates and checks not inside static obstacles. Should be fine.\n\nMaybe issue: lidar2d_points returns only points within 30°? No, returns all. But front lidar has 360°, back also. The detection uses bearing = arctan2(y,x) in robot frame. However for back lidar, points behind robot have bearing near π or -π. The sector filter uses abs(bearing) <= 30°, which will exclude back lidar points because they are around ±π. So moving objects behind robot are ignored. But collisions happen with mover_00 which is ahead? At start robot heading roughly 1.0138 rad (~58 deg). The mover_00 appears from front? In logs first_not_on_map bearing 29deg positive left. That is within front sector. So detection should catch when within 1.2m. At 2.85s distance 0.96m, bearing -15deg, within sector. Yet detection didn't stop. Possibly because moving object points are also detected by front lidar but filtered out because they are inside static map? The moving object may be inside corridor between static boxes, but static obstacles list includes boxes and walls; the corridor is free. So not inside static.\n\nMaybe the issue is that detection returns has_moving True but controller sets w = -0.5 * sign(mean_bearing) and returns (0, w). That rotates while stopped. But robot may still have some forward velocity due to previous command? The controller returns v=0, w non-zero, so robot should stop forward motion. However maybe robot inertia continues? But simulation likely respects immediate velocity command.\n\nBut logs show robot still moving at 0.24 m/s at 2.85s, meaning controller didn't set v=0. So detection likely returned False. Why? Maybe because points are filtered by distance <=1.2 and abs(bearing)<=30°, but the moving object point may be slightly beyond 1.2m until 3.7s, then collides. At 2.85s distance 0.96m, but that's nearest not on map point, but maybe that point is not captured by lidar due to occlusion or missed because of scan resolution? However logs show nearest not on map distance from lidar. So should be captured.\n\nPotential cause: The code uses lidar2d_points which returns points after dropping robot body but not filtering static obstacles. The detection then transforms to world and checks static obstacles. However static obstacles include walls defined as rectangle interior (they treat inside as wall). The condition if wx_min <= p[0] <= wx_max and wy_min <= p[1] <= wy_max: return True. That means any point inside the inner warehouse rectangle is considered a wall! That's wrong: they intended outside rectangle is wall. Indeed earlier comment says walls are outer region; but code treats inside as wall, causing all points inside the warehouse to be considered static obstacle, thus moving objects are filtered out as static, never detected. Therefore detection always returns False, leading to collisions. Some runs passed when moving objects appear far away or later (like pass runs have first_not_on_map at 44s). Those had no moving objects early, so path succeeded.\n\nThus failure mode is collision due to incorrect static wall detection causing moving objects not detected.\n\nTarget: fix _in_static_obstacle wall check to treat points outside rectangle as wall, not inside.\n\nDirection: modify _in_static_obstacle to invert wall condition, e.g., if p[0] <= wx_min or p[0] >= wx_max or p[1] <= wy_min or p[1] >= wy_max: return True.\n\nAlso ensure early detection works.\n\nNow produce JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 20313,
+  "total_tokens": 21741,
+  "completion_tokens": 1428,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 1135
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

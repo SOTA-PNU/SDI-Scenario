@@ -1,0 +1,238 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t18_s1062887440: collision at 62.55 s while robot was stopped, mover_03 at [-0.14, 0.57] m, closing speed 0.66 m/s.",
+   "c5t18_s770177675: collision at 9.267 s while robot was stopped, mover_00 at [-0.89, 0.42] m, closing speed 0.42 m/s.",
+   "first_not_on_map shows unmapped object first detected (e.g., 57.55 s, 1.88 m away) but robot still collides later, indicating raw TTC stop missed the object."
+  ],
+  "assumptions": [
+   {
+    "assumption": "Moving objects generate at least three lidar points per scan within detection range.",
+    "holds": false,
+    "why": "Collisions occurred with small boxes that often produced fewer than three points, so _raw_ttc_stop and related checks never triggered."
+   },
+   {
+    "assumption": "A TTC threshold of 1 s is sufficient to stop before any collision given max robot speed 1.5 m/s and mover speed 2 m/s.",
+    "holds": false,
+    "why": "Robots stopped but were still hit by movers approaching from the side, showing that 1 s TTC does not cover lateral approaches."
+   },
+   {
+    "assumption": "After a pause the robot can safely resume waypoint following without immediate re‑evaluation of nearby movers.",
+    "holds": false,
+    "why": "In the failure runs the robot resumed motion while a mover was still within the safety envelope, leading to impact."
+   },
+   {
+    "assumption": "VO planner or predictive speed will always produce a safe command when a mover is within _SAFE_DIST.",
+    "holds": false,
+    "why": "VO and predictive speed failed to generate avoidance when the mover was very close and the robot was stationary."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "raw_ttc_stop (early binary pause)",
+    "turns": "18",
+    "result": "7 attempts, 4 passes"
+   },
+   {
+    "family": "predictive_speed / TTC scaling",
+    "turns": "2‑17 (most turns)",
+    "result": "≈15 attempts, 9 passes"
+   },
+   {
+    "family": "velocity‑obstacle (VO) planner",
+    "turns": "5‑17",
+    "result": "≈13 attempts, 27 passes (overall best performer but still misses side collisions)"
+   },
+   {
+    "family": "potential‑field avoidance",
+    "turns": "11",
+    "result": "7 attempts, 4 passes"
+   },
+   {
+    "family": "dynamic‑window approach (DWA)",
+    "turns": "12",
+    "result": "5 attempts, 2 passes"
+   },
+   {
+    "family": "vector‑field histogram (VFH)",
+    "turns": "13",
+    "result": "3 attempts, 0 passes"
+   },
+   {
+    "family": "A* re‑planning with dynamic grid",
+    "turns": "16",
+    "result": "3 attempts, 0 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Add a continuous danger‑envelope monitor that, when a pause is active, keeps the robot stopped and rotates in place away from any mover still inside a critical radius (e.g., 0.8 m).",
+    "new_family": true,
+    "for": "collisions while robot is stationary and movers approach from the side",
+    "risk": "May increase time‑to‑goal if rot‑ate‑away is over‑used; must ensure rotation does not violate static map."
+   },
+   {
+    "idea": "Implement a simple angular‑sector gap finder each step (sample 5° sectors, pick the widest gap free of unmapped points and tracked movers) and steer toward that gap while still heading to the waypoint.",
+    "new_family": true,
+    "for": "cases where VFH failed due to coarse binning",
+    "risk": "Might produce jerky steering if gap changes rapidly; needs smoothing."
+   },
+   {
+    "idea": "Introduce a Kalman‑filter based track estimator that predicts future mover positions and generates a lateral detour waypoint using linear extrapolation, independent of VO.",
+    "new_family": true,
+    "for": "improving prediction accuracy for small, fast‑moving boxes",
+    "risk": "Adds computational overhead and requires tuning of process noise."
+   }
+  ],
+  "chosen": "Candidate 1 – continuous danger‑envelope monitoring with in‑place rotation, because it directly addresses the observed collisions while the robot is stopped.",
+  "target": "controller logic and a new _evade_rotate helper (plus new state flags in st)",
+  "direction": "1. After _perceive, compute M and call _raw_ttc_stop as before; if it returns a pause, set st[\"evade_mode\"] = True and st[\"evade_until\"] = t + 0.5. 2. While st[\"evade_mode\"] is True, call a new function _evade_rotate(st, pose, M) that finds the nearest mover inside a critical radius (e.g., 0.8 m) and returns (v=0, w) with w = ±1.0 rad/s to rotate away from the mover. 3. Keep rotating until either no mover is within the critical radius or a timeout (e.g., 3 s) expires, then clear st[\"evade_mode\"] and resume normal waypoint/VO logic. 4. Ensure _evade_rotate checks _map_free and _lidar_clear so the robot does not rotate into a wall. 5. Update _guard to accept zero‑velocity commands from _evade_rotate without overriding them. 6. Reset st[\"pause_until\"] only after evasion completes, preventing premature resumption.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t18_s1062887440: collision at 62.55 s while robot was stopped, mover_03 at [-0.14, 0.57] m, closing speed 0.66 m/s.\",\n    \"c5t18_s770177675: collision at 9.267 s while robot was stopped, mover_00 at [-0.89, 0.42] m, closing speed 0.42 m/s.\",\n    \"first_not_on_map shows unmapped object first detected (e.g., 57.55 s, 1.88 m away) but robot still collides later, indicating raw TTC stop missed the object.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Moving objects generate at least three lidar points per scan within detection range.\",\n      \"holds\": false,\n      \"why\": \"Collisions occurred with small boxes that often produced fewer than three points, so _raw_ttc_stop and related checks never triggered.\"\n    },\n    {\n      \"assumption\": \"A TTC threshold of 1 s is sufficient to stop before any collision given max robot speed 1.5 m/s and mover speed 2 m/s.\",\n      \"holds\": false,\n      \"why\": \"Robots stopped but were still hit by movers approaching from the side, showing that 1 s TTC does not cover lateral approaches.\"\n    },\n    {\n      \"assumption\": \"After a pause the robot can safely resume waypoint following without immediate re‑evaluation of nearby movers.\",\n      \"holds\": false,\n      \"why\": \"In the failure runs the robot resumed motion while a mover was still within the safety envelope, leading to impact.\"\n    },\n    {\n      \"assumption\": \"VO planner or predictive speed will always produce a safe command when a mover is within _SAFE_DIST.\",\n      \"holds\": false,\n      \"why\": \"VO and predictive speed failed to generate avoidance when the mover was very close and the robot was stationary.\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"raw_ttc_stop (early binary pause)\",\n      \"turns\": \"18\",\n      \"result\": \"7 attempts, 4 passes\"\n    },\n    {\n      \"family\": \"predictive_speed / TTC scaling\",\n      \"turns\": \"2‑17 (most turns)\",\n      \"result\": \"≈15 attempts, 9 passes\"\n    },\n    {\n      \"family\": \"velocity‑obstacle (VO) planner\",\n      \"turns\": \"5‑17\",\n      \"result\": \"≈13 attempts, 27 passes (overall best performer but still misses side collisions)\"\n    },\n    {\n      \"family\": \"potential‑field avoidance\",\n      \"turns\": \"11\",\n      \"result\": \"7 attempts, 4 passes\"\n    },\n    {\n      \"family\": \"dynamic‑window approach (DWA)\",\n      \"turns\": \"12\",\n      \"result\": \"5 attempts, 2 passes\"\n    },\n    {\n      \"family\": \"vector‑field histogram (VFH)\",\n      \"turns\": \"13\",\n      \"result\": \"3 attempts, 0 passes\"\n    },\n    {\n      \"family\": \"A* re‑planning with dynamic grid\",\n      \"turns\": \"16\",\n      \"result\": \"3 attempts, 0 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Add a continuous danger‑envelope monitor that, when a pause is active, keeps the robot stopped and rotates in place away from any mover still inside a critical radius (e.g., 0.8 m).\",\n      \"new_family\": true,\n      \"for\": \"collisions while robot is stationary and movers approach from the side\",\n      \"risk\": \"May increase time‑to‑goal if rot‑ate‑away is over‑used; must ensure rotation does not violate static map.\"\n    },\n    {\n      \"idea\": \"Implement a simple angular‑sector gap finder each step (sample 5° sectors, pick the widest gap free of unmapped points and tracked movers) and steer toward that gap while still heading to the waypoint.\",\n      \"new_family\": true,\n      \"for\": \"cases where VFH failed due to coarse binning\",\n      \"risk\": \"Might produce jerky steering if gap changes rapidly; needs smoothing.\"\n    },\n    {\n      \"idea\": \"Introduce a Kalman‑filter based track estimator that predicts future mover positions and generates a lateral detour waypoint using linear extrapolation, independent of VO.\",\n      \"new_family\": true,\n      \"for\": \"improving prediction accuracy for small, fast‑moving boxes\",\n      \"risk\": \"Adds computational overhead and requires tuning of process noise.\"\n    }\n  ],\n  \"chosen\": \"Candidate 1 – continuous danger‑envelope monitoring with in‑place rotation, because it directly addresses the observed collisions while the robot is stopped.\",\n  \"target\": \"controller logic and a new _evade_rotate helper (plus new state flags in st)\",\n  \"direction\": \"1. After _perceive, compute M and call _raw_ttc_stop as before; if it returns a pause, set st[\\\"evade_mode\\\"] = True and st[\\\"evade_until\\\"] = t + 0.5. 2. While st[\\\"evade_mode\\\"] is True, call a new function _evade_rotate(st, pose, M) that finds the nearest mover inside a critical radius (e.g., 0.8 m) and returns (v=0, w) with w = ±1.0 rad/s to rotate away from the mover. 3. Keep rotating until either no mover is within the critical radius or a timeout (e.g., 3 s) expires, then clear st[\\\"evade_mode\\\"] and resume normal waypoint/VO logic. 4. Ensure _evade_rotate checks _map_free and _lidar_clear so the robot does not rotate into a wall. 5. Update _guard to accept zero‑velocity commands from _evade_rotate without overriding them. 6. Reset st[\\\"pause_until\\\"] only after evasion completes, preventing premature resumption.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t18_s1929597464",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 74.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 68.08,
+   "goal_dist_m": 0.0496,
+   "time_to_goal_s": 70.05
+  },
+  {
+   "run": "c5t18_s829125667",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 526.0,
+   "sim_time_s": 77.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 71.72,
+   "goal_dist_m": 0.103,
+   "time_to_goal_s": 73.367
+  },
+  {
+   "run": "c5t18_s1062887440",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 448.3,
+   "sim_time_s": 68.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 62.55,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.14,
+    0.57
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 57.55,
+   "goal_dist_m": 5.1539,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t18_s770177675",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 379.7,
+   "sim_time_s": 15.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.267,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.89,
+    0.42
+   ],
+   "closing_m_s": 0.42,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 4.33,
+   "goal_dist_m": 29.5198,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t18_s606919696",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 364.5,
+   "sim_time_s": 51.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 45.75,
+   "goal_dist_m": 0.092,
+   "time_to_goal_s": 47.817
+  },
+  {
+   "run": "c5t18_s614982479",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 312.7,
+   "sim_time_s": 65.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 59.35,
+   "goal_dist_m": 0.0496,
+   "time_to_goal_s": 61.417
+  },
+  {
+   "run": "c5t18_s1293660107",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 247.5,
+   "sim_time_s": 59.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 53.267,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.19m/s",
+   "partner_rel_xy": [
+    -0.76,
+    0.52
+   ],
+   "closing_m_s": 0.27,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 49.55,
+   "goal_dist_m": 0.071,
+   "time_to_goal_s": 57.15
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

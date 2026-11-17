@@ -1,0 +1,211 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c5t22_s124942050: first unmapped point entered <1 m at t=3.23 s (bearing -67°) but collision occurred at t=7.38 s with mover ahead (partner_rel_xy [0.24, -0.52])",
+   "run c5t22_s1843695807: mover behind detected only at t=52.23 s (2 m away) and collision at t=54.83 s (partner_rel_xy [-0.39, -0.53]) – rear backup never triggered (x>-0.5)",
+   "all three runs use the same controller logic (VO, predictive speed, rear backup) yet collisions happen despite mover being visible in raw lidar <2 s before impact"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Clustering‑tracking reliably detects a mover before it is <1 m from the robot",
+    "holds": false,
+    "why": "First_not_on_map shows unmapped points <1 m appear 2–3 s before collision, but M is still empty or inaccurate"
+   },
+   {
+    "assumption": "VO planner can find a safe (v,w) when any mover is inside _SAFE_DIST (3 m)",
+    "holds": false,
+    "why": "Collisions occur while VO is active; the planner either returns None or a command that still leads to impact"
+   },
+   {
+    "assumption": "Rear‑backup suffices for collisions caused by objects behind the robot",
+    "holds": false,
+    "why": "Two collisions involve objects in front/right; rear backup never activates"
+   },
+   {
+    "assumption": "Predictive speed scaling based on tracked movers prevents high‑speed impacts",
+    "holds": true,
+    "why": "When tracking works, speed is reduced; however failures happen when tracking is delayed"
+   },
+   {
+    "assumption": "Lidar‑strip and swept‑body checks in _guard catch all imminent contacts",
+    "holds": false,
+    "why": "Movers not yet tracked appear in raw points and can breach the robot body before _guard sees them"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "rear backup (only behind)",
+    "turns": [
+     0,
+     22
+    ],
+    "result": "0/2 passes – never prevented front collisions"
+   },
+   {
+    "family": "predictive speed / dynamic pause (based on tracked TTC)",
+    "turns": [
+     2,
+     4,
+     5
+    ],
+    "result": "4/5 passes in turn 2, but later attempts fell back to collisions"
+   },
+   {
+    "family": "VO planner with side‑detour fallback",
+    "turns": [
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21
+    ],
+    "result": "mixed; best 7/10 passes in turn 17, still several front‑collision failures"
+   },
+   {
+    "family": "potential‑field avoidance",
+    "turns": [
+     11
+    ],
+    "result": "4/7 passes – some time‑limit aborts"
+   },
+   {
+    "family": "DWA (dynamic‑window)",
+    "turns": [
+     12
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "VFH (polar histogram)",
+    "turns": [
+     13
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "A* replanning on dynamic grid",
+    "turns": [
+     16
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "raw‑point TTC stop (early emergency stop)",
+    "turns": [
+     18
+    ],
+    "result": "4/7 passes – still some collisions when stop not followed by safe retreat"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Hybrid raw‑point TTC stop + predictive speed: call _raw_ttc_stop right after perception, enforce a pause when TTC<0.8 s, then resume using existing _predictive_speed logic",
+    "new_family": true,
+    "for": "detects imminent front collisions before tracking can identify the mover",
+    "risk": "may cause frequent short stops on noisy points, reducing overall throughput"
+   },
+   {
+    "idea": "Full‑direction backup using raw unmapped points: when any point is within 0.8 m of the robot body, compute a reverse command with _px_backup_cmd (front or side) and execute it for 0.5 s, independent of tracking",
+    "new_family": true,
+    "for": "reacts to close obstacles from any direction, not only behind",
+    "risk": "backup could drive into another obstacle or wall if guard checks miss a fast‑moving object"
+   },
+   {
+    "idea": "Increase VO horizon to 4 s and tighten VO‑fail timeout to 0.3 s, forcing a quicker fallback to side‑detour when VO cannot find a safe command",
+    "new_family": false,
+    "for": "gives VO more look‑ahead while reducing time spent in an unsafe dead‑end",
+    "risk": "longer horizon may be too conservative, causing unnecessary detours or stalls"
+   }
+  ],
+  "chosen": "Candidate 1 (Hybrid raw‑point TTC stop + predictive speed) is selected because it directly addresses the observed delay between raw point appearance and tracking, and it re‑uses the already‑tested predictive‑speed module to resume motion safely.",
+  "target": "controller (insert early TTC stop logic and pause handling)",
+  "direction": "1. After _perceive(st, t, pose) add a call: pause = _raw_ttc_stop(st, t, pose). 2. If pause is not None, set st['pause_until'] = max(st.get('pause_until', -1.0), t + pause) and return (0.0, 0.0, False). 3. When t >= st['pause_until'], clear st['vo_until'] and st['detour'] to avoid stale commands. 4. Keep the existing predictive‑speed call for normal motion (vc = _predictive_speed(...)). 5. Adjust _raw_ttc_stop thresholds (TTC_THRESHOLD = 0.8 s, distance limit = 1.5 m) to be more aggressive. 6. All commands still pass through _guard for final swept‑body and lidar‑strip safety.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c5t22_s124942050: first unmapped point entered <1 m at t=3.23 s (bearing -67°) but collision occurred at t=7.38 s with mover ahead (partner_rel_xy [0.24, -0.52])\",\n    \"run c5t22_s1843695807: mover behind detected only at t=52.23 s (2 m away) and collision at t=54.83 s (partner_rel_xy [-0.39, -0.53]) – rear backup never triggered (x>-0.5)\",\n    \"all three runs use the same controller logic (VO, predictive speed, rear backup) yet collisions happen despite mover being visible in raw lidar <2 s before impact\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Clustering‑tracking reliably detects a mover before it is <1 m from the robot\",\n      \"holds\": false,\n      \"why\": \"First_not_on_map shows unmapped points <1 m appear 2–3 s before collision, but M is still empty or inaccurate\"\n    },\n    {\n      \"assumption\": \"VO planner can find a safe (v,w) when any mover is inside _SAFE_DIST (3 m)\",\n      \"holds\": false,\n      \"why\": \"Collisions occur while VO is active; the planner either returns None or a command that still leads to impact\"\n    },\n    {\n      \"assumption\": \"Rear‑backup suffices for collisions caused by objects behind the robot\",\n      \"holds\": false,\n      \"why\": \"Two collisions involve objects in front/right; rear backup never activates\"\n    },\n    {\n      \"assumption\": \"Predictive speed scaling based on tracked movers prevents high‑speed impacts\",\n      \"holds\": true,\n      \"why\": \"When tracking works, speed is reduced; however failures happen when tracking is delayed\"\n    },\n    {\n      \"assumption\": \"Lidar‑strip and swept‑body checks in _guard catch all imminent contacts\",\n      \"holds\": false,\n      \"why\": \"Movers not yet tracked appear in raw points and can breach the robot body before _guard sees them\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"rear backup (only behind)\",\n      \"turns\": [0, 22],\n      \"result\": \"0/2 passes – never prevented front collisions\"\n    },\n    {\n      \"family\": \"predictive speed / dynamic pause (based on tracked TTC)\",\n      \"turns\": [2, 4, 5],\n      \"result\": \"4/5 passes in turn 2, but later attempts fell back to collisions\"\n    },\n    {\n      \"family\": \"VO planner with side‑detour fallback\",\n      \"turns\": [5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21],\n      \"result\": \"mixed; best 7/10 passes in turn 17, still several front‑collision failures\"\n    },\n    {\n      \"family\": \"potential‑field avoidance\",\n      \"turns\": [11],\n      \"result\": \"4/7 passes – some time‑limit aborts\"\n    },\n    {\n      \"family\": \"DWA (dynamic‑window)\",\n      \"turns\": [12],\n      \"result\": \"2/5 passes\"\n    },\n    {\n      \"family\": \"VFH (polar histogram)\",\n      \"turns\": [13],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"A* replanning on dynamic grid\",\n      \"turns\": [16],\n      \"result\": \"0/3 passes\"\n    },\n    {\n      \"family\": \"raw‑point TTC stop (early emergency stop)\",\n      \"turns\": [18],\n      \"result\": \"4/7 passes – still some collisions when stop not followed by safe retreat\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Hybrid raw‑point TTC stop + predictive speed: call _raw_ttc_stop right after perception, enforce a pause when TTC<0.8 s, then resume using existing _predictive_speed logic\",\n      \"new_family\": true,\n      \"for\": \"detects imminent front collisions before tracking can identify the mover\",\n      \"risk\": \"may cause frequent short stops on noisy points, reducing overall throughput\"\n    },\n    {\n      \"idea\": \"Full‑direction backup using raw unmapped points: when any point is within 0.8 m of the robot body, compute a reverse command with _px_backup_cmd (front or side) and execute it for 0.5 s, independent of tracking\",\n      \"new_family\": true,\n      \"for\": \"reacts to close obstacles from any direction, not only behind\",\n      \"risk\": \"backup could drive into another obstacle or wall if guard checks miss a fast‑moving object\"\n    },\n    {\n      \"idea\": \"Increase VO horizon to 4 s and tighten VO‑fail timeout to 0.3 s, forcing a quicker fallback to side‑detour when VO cannot find a safe command\",\n      \"new_family\": false,\n      \"for\": \"gives VO more look‑ahead while reducing time spent in an unsafe dead‑end\",\n      \"risk\": \"longer horizon may be too conservative, causing unnecessary detours or stalls\"\n    }\n  ],\n  \"chosen\": \"Candidate 1 (Hybrid raw‑point TTC stop + predictive speed) is selected because it directly addresses the observed delay between raw point appearance and tracking, and it re‑uses the already‑tested predictive‑speed module to resume motion safely.\",\n  \"target\": \"controller (insert early TTC stop logic and pause handling)\",\n  \"direction\": \"1. After _perceive(st, t, pose) add a call: pause = _raw_ttc_stop(st, t, pose). 2. If pause is not None, set st['pause_until'] = max(st.get('pause_until', -1.0), t + pause) and return (0.0, 0.0, False). 3. When t >= st['pause_until'], clear st['vo_until'] and st['detour'] to avoid stale commands. 4. Keep the existing predictive‑speed call for normal motion (vc = _predictive_speed(...)). 5. Adjust _raw_ttc_stop thresholds (TTC_THRESHOLD = 0.8 s, distance limit = 1.5 m) to be more aggressive. 6. All commands still pass through _guard for final swept‑body and lidar‑strip safety.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t22_s124942050",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 13.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 7.383,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.49m/s 회전 -0.6",
+   "partner_rel_xy": [
+    0.24,
+    -0.52
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 2.43,
+   "goal_dist_m": 28.9988,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t22_s1843695807",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 586.6,
+   "sim_time_s": 60.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 54.833,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.26m/s 회전 +0.6",
+   "partner_rel_xy": [
+    -0.39,
+    -0.53
+   ],
+   "closing_m_s": 0.26,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 52.23,
+   "goal_dist_m": 3.6586,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t22_s663785287",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 525.8,
+   "sim_time_s": 7.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 1.833,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.63m/s",
+   "partner_rel_xy": [
+    0.48,
+    -0.16
+   ],
+   "closing_m_s": 0.35,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 28.3554,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

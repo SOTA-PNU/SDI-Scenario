@@ -1,0 +1,236 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "s398008658: 10.2 s 에 물체가 2.03 m, -25° 에 있었음(로봇 기준 x≈1.84, y≈-0.86, 앞 통로 밖). 로봇은 1.52 m/s 를 유지했고, 10.88 s 에 DBG stop d=0.95 를 낸 뒤 11.67 s 에 '정지' 상태에서 mover_01 과 충돌. 충돌 상대 위치 (0.45,-0.52), 물체 속도 +y 0.41 m/s(옆으로 가로지름).",
+   "s1311225271: 물체는 33.65 s 에 이미 3 m 안 -48° 에 보였음. 로봇은 37.5 s(0.92 m, -42°)까지 1.52 m/s 로 달렸고, 37.78 s 에야 back d=0.53 을 냄. 38.03 s 에 mover_03 과 충돌. 상대 위치 (0.3,-0.54), 물체 속도 +y 0.79 m/s.",
+   "s1052000100: 39.4 s 에 물체가 0.52 m, -93°(바로 오른쪽)에 있었는데 로봇은 1.52 m/s 로 달렸고 DBG 반응이 없었음. 39.93 s 에 mover_03 과 충돌. 상대 위치 (-0.66,-0.47), 물체 속도 +y 0.77 m/s. 세 충돌 모두 옆에서 가로질러 오는 물체임."
+  ],
+  "assumptions": [
+   {
+    "assumption": "위험한 물체는 앞 통로(x 0.25~3 m, |y|<0.6 m) 안에 나타난다",
+    "holds": false,
+    "why": "충돌 3건 모두 bearing -42°~-93° 의 옆에서 다가옴. 통로 폭 0.6 m 는 몸 반폭 0.34 m 에 비해 여유가 0.26 m 뿐임."
+   },
+   {
+    "assumption": "물체 속도를 몰라도 거리만으로 판단하면 충분하다",
+    "holds": false,
+    "why": "물체가 0.4~0.8 m/s 로 옆에서 들어와 통로에 들어온 뒤 0.3~0.5 s 만에 충돌함."
+   },
+   {
+    "assumption": "멈추면 안전하다",
+    "holds": false,
+    "why": "s398 에서 로봇이 물체 진로 위에 멈춘 채 충돌함. 과제에서도 물체는 로봇을 피하지 않는다고 함."
+   },
+   {
+    "assumption": "2D 라이다(0.42 m)로 물체가 일찍 보인다",
+    "holds": true,
+    "why": "충돌한 세 실행 모두 충돌 1.3~4 s 전에 물체가 3 m 안에서 보였음."
+   },
+   {
+    "assumption": "목표 정렬 단계에서는 감지가 필요 없다",
+    "holds": false,
+    "why": "정렬 분기가 감지보다 먼저 return 함. 목표 근처는 mover_03 이 다니는 곳이라 정지해 회전하는 동안 맞을 수 있음."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 없는 경유점 추종",
+    "turns": "0",
+    "result": "1/4 통과"
+   },
+   {
+    "family": "앞 통로 거리 기반 감속·정지·후진",
+    "turns": "1",
+    "result": "5/8 통과, 옆에서 오는 물체에 3번 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체 덩어리 속도를 추정하고, 여러 v 후보마다 2.5 s 를 예측해 안전한 가장 빠른 v 를 고른다",
+    "new_family": true,
+    "for": "충돌이 모두 옆에서 등속으로 가로지르는 물체였고 1.3~4 s 전부터 보였음. 정지도 후보로 검사하므로 멈춘 채 맞는 경우(s398)를 피할 수 있음.",
+    "risk": "덩어리 짝짓기 오류나 회전 중 오탐으로 속도가 틀릴 수 있음. 양보가 길어지면 600 s 예산을 넘을 수 있음."
+   },
+   {
+    "idea": "전 방향 1.2 m 안전 반경 안에 물체가 들어오면 정지하거나 반대쪽으로 피한다",
+    "new_family": false,
+    "for": "옆 물체도 잡고 구현이 단순함.",
+    "risk": "속도를 모르면 진로 위 물체와 지나가는 물체를 구분하지 못함. 멈춘 채 맞을 수 있고, 불필요한 정지로 시간을 씀."
+   },
+   {
+    "idea": "물체 궤적 직선과 로봇 경로 구간의 교차점을 구해 교차점 앞에서 양보한다",
+    "new_family": true,
+    "for": "물체가 통로를 직선으로 왕복함.",
+    "risk": "기하 계산이 복잡함. 물체가 방향을 바꾸거나 경로가 나란할 때 판단이 틀림."
+   }
+  ],
+  "chosen": "후보 1: 충돌 원인이 옆에서 가로지르는 물체의 속도를 무시한 것과 진로 위에 정지한 것이므로, 속도 예측으로 v 를 고르는 방식이 두 원인을 함께 다룸.",
+  "target": "controller(감지 블록 교체, 정렬 단계 포함), 새 함수 _track_movers·_pick_speed, _mover_points 는 유지",
+  "direction": "_mover_points 의 물체 점을 월드 좌표로 바꾸고, 0.5 m 안에서 이어지는 점끼리 덩어리로 묶어 점이 3개 이상인 덩어리의 중심을 구합니다. 새 스캔마다 이전 중심과 0.6 m 안에서 짝지어 속도를 (위치 차/dt)로 구하고, 지수평균(α 0.5)으로 거른 뒤 크기를 1.5 m/s 이하로 자릅니다(짝이 없으면 0). 매 호출(정렬 단계 포함)에서 경유점 추종의 w 는 그대로 두고, v 후보 [1.5, 1.0, 0.6, 0.3, 0.0, -0.3, -0.5] 마다 로봇을 2.5 s 동안 0.1 s 간격의 유니사이클로 굴리고 물체는 등속으로 옮겨, 로봇 몸 두 원(로봇 기준 x=0.0, x=-0.45)과 물체 중심 사이의 최소 거리를 구합니다. 최소 거리가 1.0 m 이상인 후보 중 가장 빠른 것을 고르고, 없으면 최소 거리가 가장 큰 후보를 고릅니다. 이때 v=0 도 똑같이 검사해 멈춘 채 맞는 것을 피하고, 후진 후보는 뒤 통로(x -1.3~-0.7, |y|<0.6) raw 점이 비었을 때만 씁니다. 기존 앞 통로 정지·후진 규칙은 지우고, 제자리 회전(v_nom=0)이나 정렬 중이라도 v=0 이 위험하면 고른 v 로 움직인 뒤 다음 호출에서 다시 회전합니다. 상태가 바뀔 때마다 'DBG t 덩어리수 최근접거리 그속도 고른v 예측최소거리' 를 print 합니다.",
+  "confidence": "medium"
+ },
+ "raw": "{\"failure_mode\": \"collision\",\n \"evidence\": [\"s398008658: 10.2 s 에 물체가 2.03 m, -25° 에 있었음(로봇 기준 x≈1.84, y≈-0.86, 앞 통로 밖). 로봇은 1.52 m/s 를 유지했고, 10.88 s 에 DBG stop d=0.95 를 낸 뒤 11.67 s 에 '정지' 상태에서 mover_01 과 충돌. 충돌 상대 위치 (0.45,-0.52), 물체 속도 +y 0.41 m/s(옆으로 가로지름).\", \"s1311225271: 물체는 33.65 s 에 이미 3 m 안 -48° 에 보였음. 로봇은 37.5 s(0.92 m, -42°)까지 1.52 m/s 로 달렸고, 37.78 s 에야 back d=0.53 을 냄. 38.03 s 에 mover_03 과 충돌. 상대 위치 (0.3,-0.54), 물체 속도 +y 0.79 m/s.\", \"s1052000100: 39.4 s 에 물체가 0.52 m, -93°(바로 오른쪽)에 있었는데 로봇은 1.52 m/s 로 달렸고 DBG 반응이 없었음. 39.93 s 에 mover_03 과 충돌. 상대 위치 (-0.66,-0.47), 물체 속도 +y 0.77 m/s. 세 충돌 모두 옆에서 가로질러 오는 물체임.\"],\n \"assumptions\": [{\"assumption\": \"위험한 물체는 앞 통로(x 0.25~3 m, |y|<0.6 m) 안에 나타난다\", \"holds\": false, \"why\": \"충돌 3건 모두 bearing -42°~-93° 의 옆에서 다가옴. 통로 폭 0.6 m 는 몸 반폭 0.34 m 에 비해 여유가 0.26 m 뿐임.\"},\n  {\"assumption\": \"물체 속도를 몰라도 거리만으로 판단하면 충분하다\", \"holds\": false, \"why\": \"물체가 0.4~0.8 m/s 로 옆에서 들어와 통로에 들어온 뒤 0.3~0.5 s 만에 충돌함.\"},\n  {\"assumption\": \"멈추면 안전하다\", \"holds\": false, \"why\": \"s398 에서 로봇이 물체 진로 위에 멈춘 채 충돌함. 과제에서도 물체는 로봇을 피하지 않는다고 함.\"},\n  {\"assumption\": \"2D 라이다(0.42 m)로 물체가 일찍 보인다\", \"holds\": true, \"why\": \"충돌한 세 실행 모두 충돌 1.3~4 s 전에 물체가 3 m 안에서 보였음.\"},\n  {\"assumption\": \"목표 정렬 단계에서는 감지가 필요 없다\", \"holds\": false, \"why\": \"정렬 분기가 감지보다 먼저 return 함. 목표 근처는 mover_03 이 다니는 곳이라 정지해 회전하는 동안 맞을 수 있음.\"}],\n \"approach_families\": [{\"family\": \"센서 없는 경유점 추종\", \"turns\": \"0\", \"result\": \"1/4 통과\"}, {\"family\": \"앞 통로 거리 기반 감속·정지·후진\", \"turns\": \"1\", \"result\": \"5/8 통과, 옆에서 오는 물체에 3번 충돌\"}],\n \"candidates\": [{\"idea\": \"물체 덩어리 속도를 추정하고, 여러 v 후보마다 2.5 s 를 예측해 안전한 가장 빠른 v 를 고른다\", \"new_family\": true, \"for\": \"충돌이 모두 옆에서 등속으로 가로지르는 물체였고 1.3~4 s 전부터 보였음. 정지도 후보로 검사하므로 멈춘 채 맞는 경우(s398)를 피할 수 있음.\", \"risk\": \"덩어리 짝짓기 오류나 회전 중 오탐으로 속도가 틀릴 수 있음. 양보가 길어지면 600 s 예산을 넘을 수 있음.\"},\n  {\"idea\": \"전 방향 1.2 m 안전 반경 안에 물체가 들어오면 정지하거나 반대쪽으로 피한다\", \"new_family\": false, \"for\": \"옆 물체도 잡고 구현이 단순함.\", \"risk\": \"속도를 모르면 진로 위 물체와 지나가는 물체를 구분하지 못함. 멈춘 채 맞을 수 있고, 불필요한 정지로 시간을 씀.\"},\n  {\"idea\": \"물체 궤적 직선과 로봇 경로 구간의 교차점을 구해 교차점 앞에서 양보한다\", \"new_family\": true, \"for\": \"물체가 통로를 직선으로 왕복함.\", \"risk\": \"기하 계산이 복잡함. 물체가 방향을 바꾸거나 경로가 나란할 때 판단이 틀림.\"}],\n \"chosen\": \"후보 1: 충돌 원인이 옆에서 가로지르는 물체의 속도를 무시한 것과 진로 위에 정지한 것이므로, 속도 예측으로 v 를 고르는 방식이 두 원인을 함께 다룸.\",\n \"target\": \"controller(감지 블록 교체, 정렬 단계 포함), 새 함수 _track_movers·_pick_speed, _mover_points 는 유지\",\n \"direction\": \"_mover_points 의 물체 점을 월드 좌표로 바꾸고, 0.5 m 안에서 이어지는 점끼리 덩어리로 묶어 점이 3개 이상인 덩어리의 중심을 구합니다. 새 스캔마다 이전 중심과 0.6 m 안에서 짝지어 속도를 (위치 차/dt)로 구하고, 지수평균(α 0.5)으로 거른 뒤 크기를 1.5 m/s 이하로 자릅니다(짝이 없으면 0). 매 호출(정렬 단계 포함)에서 경유점 추종의 w 는 그대로 두고, v 후보 [1.5, 1.0, 0.6, 0.3, 0.0, -0.3, -0.5] 마다 로봇을 2.5 s 동안 0.1 s 간격의 유니사이클로 굴리고 물체는 등속으로 옮겨, 로봇 몸 두 원(로봇 기준 x=0.0, x=-0.45)과 물체 중심 사이의 최소 거리를 구합니다. 최소 거리가 1.0 m 이상인 후보 중 가장 빠른 것을 고르고, 없으면 최소 거리가 가장 큰 후보를 고릅니다. 이때 v=0 도 똑같이 검사해 멈춘 채 맞는 것을 피하고, 후진 후보는 뒤 통로(x -1.3~-0.7, |y|<0.6) raw 점이 비었을 때만 씁니다. 기존 앞 통로 정지·후진 규칙은 지우고, 제자리 회전(v_nom=0)이나 정렬 중이라도 v=0 이 위험하면 고른 v 로 움직인 뒤 다음 호출에서 다시 회전합니다. 상태가 바뀔 때마다 'DBG t 덩어리수 최근접거리 그속도 고른v 예측최소거리' 를 print 합니다.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c4t1_s462149256",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 47.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 41.25,
+   "goal_dist_m": 0.1977,
+   "time_to_goal_s": 43.333
+  },
+  {
+   "run": "c4t1_s1311225271",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 552.8,
+   "sim_time_s": 44.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 38.033,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.07m/s",
+   "partner_rel_xy": [
+    0.3,
+    -0.54
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 36.95,
+   "goal_dist_m": 0.9213,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c4t1_s1742603222",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 508.7,
+   "sim_time_s": 47.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 41.42,
+   "goal_dist_m": 0.2028,
+   "time_to_goal_s": 43.417
+  },
+  {
+   "run": "c4t1_s398008658",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 461.4,
+   "sim_time_s": 17.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 11.667,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.45,
+    -0.52
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 10.32,
+   "goal_dist_m": 20.9914,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c4t1_s1396146446",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 443.7,
+   "sim_time_s": 59.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 53.95,
+   "goal_dist_m": 0.2261,
+   "time_to_goal_s": 56.017
+  },
+  {
+   "run": "c4t1_s457899608",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 383.8,
+   "sim_time_s": 42.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 36.02,
+   "goal_dist_m": 0.227,
+   "time_to_goal_s": 38.05
+  },
+  {
+   "run": "c4t1_s365065653",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 341.8,
+   "sim_time_s": 60.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 54.65,
+   "goal_dist_m": 0.2241,
+   "time_to_goal_s": 56.717
+  },
+  {
+   "run": "c4t1_s1052000100",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 281.2,
+   "sim_time_s": 45.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 39.933,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.51m/s",
+   "partner_rel_xy": [
+    -0.66,
+    -0.47
+   ],
+   "closing_m_s": 0.44,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 38.35,
+   "goal_dist_m": 0.2321,
+   "time_to_goal_s": 41.733
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

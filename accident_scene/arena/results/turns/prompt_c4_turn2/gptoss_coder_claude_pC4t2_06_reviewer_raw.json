@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_mover_points 의 물체 점을 월드 좌표로 바꾸고 0.5 m 연결로 덩어리를 묶어, 점 3개 이상인 덩어리의 중심을 구한다\", \"implemented\": true, \"note\": \"_track_movers 가 to_world 로 바꾸고, _cluster_points 가 BFS 로 0.5 m 연결 덩어리를 만든 뒤 len(comp_idx)>=3 인 덩어리만 남기고 중심을 구함\"},\n  {\"instruction\": \"새 스캔마다 이전 중심과 0.6 m 안에서 짝지어 속도를 위치 차/dt 로 구하고, α 0.5 지수평균, 1.5 m/s 상한, 짝이 없으면 0\", \"implemented\": true, \"note\": \"_S['count'] 가 바뀔 때만 갱신함. d<0.6 인 최근접 이전 덩어리와 짝지음. alpha=0.5, speed>1.5 이면 잘라냄, 짝이 없으면 zeros(2)\"},\n  {\"instruction\": \"정렬 단계를 포함해 매 호출 경유점 추종의 w 를 그대로 두고 v 후보 [1.5,1.0,0.6,0.3,0.0,-0.3,-0.5] 를 검사한다\", \"implemented\": true, \"note\": \"정렬 분기가 더는 먼저 return 하지 않고, 매 호출 _track_movers 와 _pick_speed 를 부름. 반환하는 w 는 w_nom. 지시와 다른 점: v_nom 을 후보에 더하고, v_nom>0 이면 v_nom 보다 빠른 후보를 뺌(속도 상한 역할)\"},\n  {\"instruction\": \"후보마다 2.5 s 를 0.1 s 간격 유니사이클로 굴리고 물체는 등속으로 옮겨, 몸 두 원(x=0, x=-0.45)과 물체 중심의 최소 거리를 구한다\", \"implemented\": true, \"note\": \"steps=25, yaw+=w_nom*dt, front_pt 와 rear_pt(-0.45), obj_pos=pos+vel*elapsed 로 계산함\"},\n  {\"instruction\": \"최소 거리 1.0 m 이상인 후보 중 가장 빠른 것, 없으면 최소 거리가 가장 큰 후보를 고른다\", \"implemented\": true, \"note\": \"safe_candidates 에서 v 가 최대인 후보, 없으면 unsafe 에서 min_dist 가 최대인 후보. 0.0 후보가 항상 있어 빈 목록이 생기지 않음\"},\n  {\"instruction\": \"v=0 도 똑같이 검사해 멈춘 채 맞는 것을 피한다\", \"implemented\": true, \"note\": \"0.0 은 항상 후보에 들어가고 zero_dist 로 따로 기록함\"},\n  {\"instruction\": \"후진 후보는 뒤 통로(x -1.3~-0.7, |y|<0.6)의 raw 점이 비었을 때만 쓴다\", \"implemented\": true, \"note\": \"_pick_speed 의 rear_mask.any() 이면 v<0 후보를 건너뜀\"},\n  {\"instruction\": \"기존 앞 통로 정지·후진 규칙을 지운다\", \"implemented\": true, \"note\": \"fwd_mask 와 v=-0.4 블록이 diff 에서 삭제됨\"},\n  {\"instruction\": \"제자리 회전이나 정렬 중(v_nom=0)이라도 v=0 이 위험하면 고른 v 로 움직이고 다음 호출에서 다시 회전한다\", \"implemented\": true, \"note\": \"v_nom==0 일 때 zero_dist>=1.0 이면 v=0, 아니면 v=v_safe. 단, 정렬로 넘어가는 호출에서는 e 가 GOAL yaw 오차가 아니라 목표점 방향 오차인데도 종료 조건에 쓰임\"},\n  {\"instruction\": \"상태가 바뀔 때마다 'DBG t 덩어리수 최근접거리 그속도 고른v 예측최소거리' 를 print 한다\", \"implemented\": true, \"note\": \"new_state 필드 하나가 더 있음. 정렬에서 v=0 을 고른 경우 pred_min_dist 는 v_safe 후보의 값이 찍힘\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"_S['count'] 는 앞·뒤 라이다 중 하나만 와도 오르므로 dt 가 약 0.05 s 임. 다른 라이다의 묵은 스캔을 현재 pose 로 월드 변환하면 주행·회전 중 중심이 흔들려 가짜 속도가 생길 수 있음(2 rad/s 회전이면 2 m 거리에서 약 0.4 m 어긋남)\",\n  \"보이는 면의 점 중심은 보는 각도와 가림에 따라 움직여, 정지 물체나 정적 잔여 점에도 속도가 붙을 수 있음\",\n  \"중심 간 1.0 m 와 2.5 s 예측은 여유가 큼(몸 모서리 0.42 + 물체 반대각 0.42 = 0.84 m). 양보가 잦아지면 600 s 예산을 넘을 위험이 있음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 29780,
+  "completion_tokens": 7899
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 76948,
+  "total_cost_usd": 0.396212,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 7899,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 29778,
+    "webSearchRequests": 0,
+    "costUSD": 0.396212,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 5981,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 29778,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "9fdc9f2f-c3cd-4e1f-a01a-803344a3df48"
+ }
+}

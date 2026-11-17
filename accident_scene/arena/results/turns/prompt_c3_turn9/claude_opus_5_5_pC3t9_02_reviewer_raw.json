@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1a) _pursuit_cmd 는 |e|>0.9 rad 이면 제자리 회전\", \"implemented\": true, \"note\": \"if abs(e) > 0.9: return 0.0, w, idx 로 바뀌어 출발 오차 1.01 rad 가 제자리 회전에 걸림\"},\n  {\"instruction\": \"1b) 조향 이득 7.5→3.0\", \"implemented\": true, \"note\": \"w = _clamp(3.0 * e, -_WMAX, _WMAX)\"},\n  {\"instruction\": \"1c) lookahead·모서리 감속·끝 구간은 그대로\", \"implemented\": true, \"note\": \"_LOOKAHEAD, vcap 0.7, 1.0*d+0.2, cos(e) 감속 모두 그대로\"},\n  {\"instruction\": \"2a) _update_tracks 가 속도 갱신 때 tr['vstep']=step 기록\", \"implemented\": true, \"note\": \"nupd 증가 바로 뒤에 tr['vstep'] = step 추가\"},\n  {\"instruction\": \"2b) 성숙 트랙이라도 (step-vstep)/60>0.3 이면 마지막 위치·속도 0·반경 _MOVER_R+_GROW_RATE·τ(최대 _GROW_MAX)\", \"implemented\": true, \"note\": \"stale_s > _STALE_S(0.3) 이면 tr['p'], v=0, grow=_GROW_RATE 로 넣음. _clear_at 의 min(m[8]*tau,_GROW_MAX) 로 반경이 커짐\"},\n  {\"instruction\": \"2c) 낡은 트랙에는 _near_static 예외를 쓰지 않음\", \"implemented\": true, \"note\": \"낡은 트랙 분기는 _near_static 없이 grow 를 _GROW_RATE 로 고정\"},\n  {\"instruction\": \"3) 후진 후보 fix(-0.6,0) 추가, 허용 조건은 기존 후진과 같게\", \"implemented\": true, \"note\": \"prim 에 ('fix',-0.6,0.0) 추가(align 쪽 포함). allowed() 의 cand[1]<0 분기(rear_blocked, stop1, _static_ok)를 그대로 거침\"},\n  {\"instruction\": \"4) 선택 규칙·_MOVER_R·_MOVER_GAP·반사 예측·경유점 유지, 물체 위치·구간·속도·시각 상수 없음\", \"implemented\": true, \"note\": \"선택 루프, best_of, _mover_pos, _WAYPOINTS, 상수 그대로. 추가 상수는 _STALE_S 뿐\"},\n  {\"instruction\": \"5) DBG 300자 이내, 최근접 트랙(위치·속도·낡은 시간·성숙)·t_stop·t_spin 을 앞에, 후보는 고른 것·path(1.2)·fix(0) 의 (t_hit,cmin) 만\", \"implemented\": true, \"note\": \"line[:300] 로 잘라 출력하고 순서도 지시대로임. 다만 낡은·미성숙 트랙의 속도는 movers 값인 0 으로 찍혀 실제 트랙 속도가 아님\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"낡은 트랙의 반경이 τ=0 에서 _MOVER_R 로 시작함. 이미 지난 낡은 시간(stale_s) 동안 물체가 움직인 거리가 반경에 들어가지 않아, 낡은 직후 실제 위치를 과소평가할 수 있음\",\n  \"_GROW_RATE 0.7 m/s 는 진단 근거의 물체 속력 0.6–0.8 m/s 보다 낮을 수 있음\",\n  \"fix(-0.6) 는 가감속 1.0 m/s² 때문에 0.6 m/s 에 이르는 데 약 0.6 s 가 걸리고, 0.8 m/s 물체보다 여전히 느림\",\n  \"제자리 회전 임계를 0.9 로 낮추면 회전 시간이 늘어남. 그동안 트랙이 낡음으로 바뀌고 반경이 최대 1.65 m 까지 커져 정지 대기가 늘 수 있음(평균 60 s 목표에 불리)\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 54612,
+  "completion_tokens": 3889
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 37090,
+  "total_cost_usd": 0.514668,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3889,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 54610,
+    "webSearchRequests": 0,
+    "costUSD": 0.514668,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2345,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 54610,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "45a1b959-26f2-4631-a2c7-77debcc621bd"
+ }
+}

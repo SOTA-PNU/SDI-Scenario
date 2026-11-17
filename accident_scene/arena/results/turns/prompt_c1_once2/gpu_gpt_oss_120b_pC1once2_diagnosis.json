@@ -1,0 +1,195 @@
+{
+ "seed": 3058876,
+ "variant": "gpu_gpt_oss_120b_pC1once2_a0_t1_test01",
+ "run": {
+  "variant": "gpu_gpt_oss_120b_pC1once2_a0_t1_test01",
+  "sim_seconds": 200.0,
+  "static_ok": true,
+  "verdict": "fail",
+  "final_dist_m": 30.5385,
+  "collisions": 799,
+  "partners": [
+   "/World/arena_mover_00"
+  ],
+  "first_collision_t": 3.283,
+  "time_to_goal_s": null,
+  "sim_time_s": 9.283,
+  "runtime_error": null,
+  "wall_s": 30.1,
+  "dbg_lines": 0
+ },
+ "movers_vs_robot": {
+  "note": "물체 중심과 로봇 중심 사이 거리(m). 물체는 0.6 m 정사각, 로봇 몸체는 약 0.95 x 0.68 m.",
+  "closest": [
+   {
+    "mover": "arena_mover_00 (start_zone)",
+    "min_center_dist_m": 0.44,
+    "t": 5.58,
+    "robot_xy": [
+     -7.44,
+     -10.27
+    ],
+    "mover_xy": [
+     -7.0,
+     -10.27
+    ]
+   },
+   {
+    "mover": "arena_mover_01 (west_corridor)",
+    "min_center_dist_m": 9.22,
+    "t": 7.4,
+    "robot_xy": [
+     -7.42,
+     -10.0
+    ],
+    "mover_xy": [
+     -5.45,
+     -1.0
+    ]
+   },
+   {
+    "mover": "arena_mover_02 (center)",
+    "min_center_dist_m": 19.83,
+    "t": 4.15,
+    "robot_xy": [
+     -7.45,
+     -10.33
+    ],
+    "mover_xy": [
+     -1.53,
+     8.6
+    ]
+   },
+   {
+    "mover": "arena_mover_03 (goal_west)",
+    "min_center_dist_m": 27.1,
+    "t": 6.5,
+    "robot_xy": [
+     -7.43,
+     -10.18
+    ],
+    "mover_xy": [
+     4.0,
+     14.4
+    ]
+   },
+   {
+    "mover": "arena_mover_04 (goal_south)",
+    "min_center_dist_m": 25.02,
+    "t": 3.3,
+    "robot_xy": [
+     -7.43,
+     -10.64
+    ],
+    "mover_xy": [
+     5.13,
+     11.0
+    ]
+   }
+  ],
+  "collision": {
+   "t": 3.283,
+   "partners": [
+    "/World/arena_mover_00"
+   ],
+   "robot_pose": [
+    -7.45,
+    -10.63,
+    -0.03
+   ],
+   "robot_speed_m_s": 1.5,
+   "movers_at_t": [
+    {
+     "mover": "arena_mover_00 (start_zone)",
+     "xy": [
+      -7.0,
+      -11.02
+     ]
+    },
+    {
+     "mover": "arena_mover_01 (west_corridor)",
+     "xy": [
+      -7.18,
+      -1.0
+     ]
+    },
+    {
+     "mover": "arena_mover_02 (center)",
+     "xy": [
+      -1.93,
+      8.6
+     ]
+    },
+    {
+     "mover": "arena_mover_03 (goal_west)",
+     "xy": [
+      4.0,
+      16.49
+     ]
+    },
+    {
+     "mover": "arena_mover_04 (goal_south)",
+     "xy": [
+      5.12,
+      11.0
+     ]
+    }
+   ]
+  }
+ },
+ "lidar_first_not_on_map": {
+  "within_5m": {
+   "t": -0.08,
+   "lidar": "back",
+   "dist_m": 1.68,
+   "bearing_deg": -59.0,
+   "world_xy": [
+    -7.32,
+    -10.83
+   ]
+  },
+  "within_3m": {
+   "t": -0.08,
+   "lidar": "back",
+   "dist_m": 1.68,
+   "bearing_deg": -59.0,
+   "world_xy": [
+    -7.32,
+    -10.83
+   ]
+  },
+  "within_2m": {
+   "t": -0.08,
+   "lidar": "back",
+   "dist_m": 1.68,
+   "bearing_deg": -59.0,
+   "world_xy": [
+    -7.32,
+    -10.83
+   ]
+  },
+  "within_1m": {
+   "t": 2.82,
+   "lidar": "front",
+   "dist_m": 0.92,
+   "bearing_deg": -28.0,
+   "world_xy": [
+    -7.22,
+    -10.91
+   ]
+  }
+ },
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "collision t=3.283, partner arena_mover_00, robot pose [-7.45, -10.63, -0.03], speed 1.5 m/s (execution summary)",
+   "front 2D lidar at t=2.82 reports non‑map point at dist 0.92 m, bearing -28° (first_not_on_map)",
+   "front 2D lidar at t=3.02 reports non‑map point at dist 0.64 m, bearing -28° (scan record)"
+  ],
+  "target": "controller",
+  "direction": "① lidar2d_points('front') 를 매 호출마다 읽어 최소 거리와 방위각을 구한다. ② 거리 < 0.8 m 이면 v=0 로 정지하고, 방위각이 왼쪽이면 w>0 (좌회전), 오른쪽이면 w<0 로 회피 회전한다. ③ 장애물이 사라지면 기존 웨이포인트 추종 로직으로 복귀한다. ④ 장애물 회피 상태를 플래그(state) 로 관리해, 목표 정렬 단계에서도 동일 로직을 적용한다.",
+  "confidence": "high"
+ },
+ "raw_content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"collision t=3.283, partner arena_mover_00, robot pose [-7.45, -10.63, -0.03], speed 1.5 m/s (execution summary)\",\n    \"front 2D lidar at t=2.82 reports non‑map point at dist 0.92 m, bearing -28° (first_not_on_map)\",\n    \"front 2D lidar at t=3.02 reports non‑map point at dist 0.64 m, bearing -28° (scan record)\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"① lidar2d_points('front') 를 매 호출마다 읽어 최소 거리와 방위각을 구한다. ② 거리 < 0.8 m 이면 v=0 로 정지하고, 방위각이 왼쪽이면 w>0 (좌회전), 오른쪽이면 w<0 로 회피 회전한다. ③ 장애물이 사라지면 기존 웨이포인트 추종 로직으로 복귀한다. ④ 장애물 회피 상태를 플래그(state) 로 관리해, 목표 정렬 단계에서도 동일 로직을 적용한다.\",\n  \"confidence\": \"high\"\n}",
+ "missing": []
+}

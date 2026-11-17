@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-a14cc20ef4948829",
+ "object": "chat.completion",
+ "created": 1794730148,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유:  \n- 진단에서 앞·뒤 2D 라이다 모두를 사용해 전방 ±30°·1.2 m 이내에 움직이는 물체를 감지하도록 요구했습니다.  \n- 기존 `_detect_moving_front` 함수는 front 라이다만 읽었으므로 back 라이다 정보를 놓치고 있었습니다.  \n- 두 라이다에서 얻은 점들을 합쳐 동일한 거리·방위 필터와 정적 지도 배제 로직을 적용하도록 `_detect_moving_any` 함수를 추가하고, `controller`에서 이를 호출하도록 수정했습니다.  \n\n```python\ndef _detect_moving_any(pose):\n    \"\"\"\n    Scan both front and back 2D lidars, return (has_moving, mean_bearing) for points that satisfy:\n      * distance ≤ 1.2 m,\n      * absolute bearing ≤ 30° relative to the robot's forward axis,\n      * NOT inside any static obstacle (boxes, walls, fixed obstacles).\n    mean_bearing is the average bearing (rad) of the detected moving points\n    (positive = left of forward direction).\n    \"\"\"\n    # collect points from both lidars\n    pts_front = lidar2d_points(\"front\")\n    pts_back = lidar2d_points(\"back\")\n    if pts_front.shape[0] == 0 and pts_back.shape[0] == 0:\n        return False, 0.0\n    pts = np.vstack([pts_front, pts_back]) if pts_front.shape[0] and pts_back.shape[0] else (\n        pts_front if pts_front.shape[0] else pts_back\n    )\n\n    # distance and bearing in robot frame\n    d2 = np.einsum(\"ij,ij->i\", pts, pts)\n    dist = np.sqrt(d2)\n    bearing = np.arctan2(pts[:, 1], pts[:, 0])\n\n    # sector filter: within 1.2 m and ±30°\n    sector_mask = (dist <= 1.2) & (np.abs(bearing) <= np.deg2rad(30.0))\n    if not np.any(sector_mask):\n        return False, 0.0\n\n    # convert candidate points to world coordinates\n    cand_robot = pts[sector_mask]\n    cand_world = to_world(cand_robot, pose)[:, :2]   # (x, y) in world\n\n    # keep only those not inside any static obstacle\n    moving_mask = np.array([not _in_static_obstacle(p) for p in cand_world])\n    if not np.any(moving_mask):\n        return False, 0.0\n\n    moving_bearings = bearing[sector_mask][moving_mask]\n    mean_bearing = float(np.mean(moving_bearings))\n    return True, mean_bearing\n\n\ndef controller(t, pose, env):\n    \"\"\"Waypoint‑following with reactive avoidance of moving objects using both 2‑D lidars.\"\"\"\n    # initialise static state on first call\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0          # current waypoint index\n\n    # ------------------------------------------------------------------\n    # 1️⃣  Reactive avoidance of moving objects (front or back lidar)\n    # ------------------------------------------------------------------\n    has_moving, mean_bearing = _detect_moving_any(pose)\n    if has_moving:\n        # stop forward motion, rotate away from the object (max 0.5 rad/s)\n        w = -0.5 * np.sign(mean_bearing) if mean_bearing != 0.0 else 0.5\n        return 0.0, float(w), False\n\n    # ------------------------------------------------------------------\n    # 2️⃣  Goal‑alignment phase (after reaching the last waypoint)\n    # ------------------------------------------------------------------\n    x, y, yaw = pose\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # ------------------------------------------------------------------\n    # 3️⃣  Normal waypoint‑following\n    # ------------------------------------------------------------------\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # advance to next waypoint if close enough (except for the goal)\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # ------------------------------------------------------------------\n    # 4️⃣  Control law (same as proven static version)\n    # ------------------------------------------------------------------\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # trigger alignment after reaching the final waypoint\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return float(v), float(w), False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to modify code to use both front and back lidar. Provide change reason and new/modified definitions. Likely need to add a function _detect_moving_any or modify _detect_moving_front to consider both. Provide new function _detect_moving(pose) that checks both front and back lidar. Also need to adjust controller to call that function instead of front only.\n\nWe must output \"변경 이유:\" then code block with only top-level definitions changed/added. So we need to include updated _detect_moving_front (maybe rename) or new _detect_moving function, plus maybe import np already imported. Also need to add back lidar detection.\n\nWe need to keep existing helper functions _in_static_box, _in_static_obstacle, _wrap_angle, _clamp, _WAYPOINTS unchanged.\n\nWe will add a new function _detect_moving(pose) that scans both front and back, but only cares about points that are within forward sector (±30°) relative to robot forward direction? The spec says \"앞·뒤 2D 라이다 모두를 사용\" and \"두 센서 중 어느 하나라도 전방 ±30°, 1.2 m 이내에 static map에 없는 점이 있으면\". For back lidar, its forward direction is opposite? Actually back lidar points are oriented with its own mounting (0 yaw). The back lidar scans 360° around robot, but its coordinate frame is oriented same as robot? In _LIDAR2D, back lidar has mounting (x=-0.489,0,0). Its scan points are robot frame with same orientation (0 yaw). So points behind robot will have negative x. But we need to detect moving objects in front sector regardless of which lidar sees them. So we can just combine points from both sensors, then apply same sector filter.\n\nThus create _detect_moving_any(pose) that gets front and back points, concatenate, then filter.\n\nImplement as:\n\ndef _detect_moving_any(pose):\n    pts_front = lidar2d_points(\"front\")\n    pts_back = lidar2d_points(\"back\")\n    pts = np.vstack([pts_front, pts_back]) if pts_front.size and pts_back.size else (pts_front if pts_front.size else pts_back)\n    ... same as before.\n\nReturn has_moving, mean_bearing.\n\nThen modify controller to call that function instead of _detect_moving_front.\n\nThus we need to add new function _detect_moving_any and modify controller to call it. Provide both definitions.\n\nWe need to output only changed/added top-level definitions. That includes new function and modified controller (since we change call). Also maybe we need to remove old _detect_moving_front if not used; but can keep it. But we must replace call.\n\nThus we will output changed reason and code block with:\n\n- new function _detect_moving_any (or rename _detect_moving_front to generic)\n- updated controller definition (modified line where detection is called)\nPotentially also need to import np already imported.\n\nProvide code.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 10259,
+  "total_tokens": 12111,
+  "completion_tokens": 1852,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 626
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

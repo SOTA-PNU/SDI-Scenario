@@ -1,0 +1,71 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t25_s357409332: robot 정지 상태가 85‑90 s 구간에 지속, stop_turn_episodes=5, first_not_on_map at t=85.03 s (2.85 m, bearing -176°) → progress abort at 90 s",
+   "run c2t25_s1280370070: stall abort at t=71.32 s after 2 stop‑turn episodes, first_not_on_map at t=66.4 s (2.4 m, bearing 134°) and robot remains 정지 thereafter",
+   "run c2t25_s225743617: collision at t=14.867 s while moving object first seen at t=9.92 s (bearing 109°) – close‑range detection uses only front cone (±60°) so object not caught early, leading to collision"
+  ],
+  "target": "controller state machine (avoid_wait / avoid_bypass) and close‑range detection thresholds",
+  "direction": "1) 축소 _CLOSE_DETECT_ANGLE to 30° 및 _CLOSE_STOP_DIST to 1.0 m 로 false positive 를 감소한다. 2) avoid_wait 상태를 제거하고, avoid_stop → avoid_back → avoid_rotate 후 바로 normal 로 복귀하도록 한다. 3) bypass 로직을 수정해 회피 방향을 bearing ±90° 로 선택하고, static 장애물 검사 후 가능한 쪽을 사용한다. 4) normal 단계에서 _moving_points 로 얻은 이동 물체에 대한 repulsion 가중치를 유지해 측면 물체를 회피한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t25_s357409332: robot 정지 상태가 85‑90 s 구간에 지속, stop_turn_episodes=5, first_not_on_map at t=85.03 s (2.85 m, bearing -176°) → progress abort at 90 s\",\n    \"run c2t25_s1280370070: stall abort at t=71.32 s after 2 stop‑turn episodes, first_not_on_map at t=66.4 s (2.4 m, bearing 134°) and robot remains 정지 thereafter\",\n    \"run c2t25_s225743617: collision at t=14.867 s while moving object first seen at t=9.92 s (bearing 109°) – close‑range detection uses only front cone (±60°) so object not caught early, leading to collision\"\n  ],\n  \"target\": \"controller state machine (avoid_wait / avoid_bypass) and close‑range detection thresholds\",\n  \"direction\": \"1) 축소 _CLOSE_DETECT_ANGLE to 30° 및 _CLOSE_STOP_DIST to 1.0 m 로 false positive 를 감소한다. 2) avoid_wait 상태를 제거하고, avoid_stop → avoid_back → avoid_rotate 후 바로 normal 로 복귀하도록 한다. 3) bypass 로직을 수정해 회피 방향을 bearing ±90° 로 선택하고, static 장애물 검사 후 가능한 쪽을 사용한다. 4) normal 단계에서 _moving_points 로 얻은 이동 물체에 대한 repulsion 가중치를 유지해 측면 물체를 회피한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t25_s357409332",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 32.8114,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t25_s225743617",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.867,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.06m/s",
+   "partner_rel_xy": [
+    -0.56,
+    0.53
+   ],
+   "closing_m_s": 0.25,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 9.92,
+   "goal_dist_m": 31.6197,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t25_s1280370070",
+   "verdict": "fail",
+   "stall_abort_t": 71.32,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 33.2063,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

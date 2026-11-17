@@ -1,0 +1,356 @@
+<|channel|>analysis<|message|>We need to implement three functions: plan_path, lookahead_target, follow_cmd. Use occupancy_grid, cell_of, xy_of, segment_free, check_path, etc. Need to produce a path from start to goal using A* on grid, then simplify maybe optional. Must be deterministic. Use clearance_m as provided. Need to call plan_stage appropriately at each stage.
+
+Simplify: we can skip simplification and just return raw path points (grid centers) from A* including start and goal connectors (maybe need to ensure within 0.5m). A* must consider 8-connectivity, and check segment_free for each neighbor edge. Use heapq.
+
+Implementation steps in plan_path:
+
+- Mark plan_stage("grid") before generating grid.
+- Get blocked, origin, res = occupancy_grid(clearance_m, 0.5)
+- Convert start_xy and goal_xy to cells: start_cell = cell_of(start_xy, origin, res), goal_cell similarly.
+- Ensure cells in bounds; if start or goal cell occupied, we still can attempt connection via segment_free from start_xy to its cell centre if free; but base will later add connectors. For simplicity, we can treat start and goal as nodes at their exact positions, but A* works on cells. We'll include start and goal as separate nodes? Simpler: A* on cells, then later connectors will be added by validate_plan. So we need path of cell centers from start_cell to goal_cell. If start or goal cell blocked, we can still attempt to find path from neighbor? But validate_plan will add connectors and check segment_free, so if start cell blocked but start within 0.5m of a free cell, we could still succeed. We'll just treat blocked cells as not traversable; if start or goal cell blocked, we can still consider them traversable? Might cause path invalid. Better to check if blocked at start_cell: if so, we can try to find nearest free cell within some radius? Simpler: if blocked, return None so base will retry with lower clearance maybe succeed later. That's okay.
+
+- A* implementation: use heap with (f, g, cell). Heuristic = Euclidean distance to goal * res? Actually cell coordinates * res? Compute world distance: use xy_of(cell). Use Euclidean.
+
+- Neighbors: 8 directions (dx, dy) in [-1,0,1] except (0,0). For each neighbor, check bounds, not blocked, and segment_free between cell centers (p,q) using clearance_m. Since cells are adjacent, segment will be short, but diagonal may cross obstacle; segment_free will check.
+
+- Reconstruct path: list of world points (xy_of) for each cell in order.
+
+- plan_stage calls: at start grid, then after search (plan_stage("search")). After path found, optionally simplify (skip) but need to call plan_stage("simplify", input_points=len(raw_path), output_points=len(path)) maybe same.
+
+- Then validate: plan_stage("validate", input_points=len(path)) then call validate_plan(path) to ensure acceptance. If not accepted, return None (or empty). But the base loop will call validate_plan again anyway. But we need to ensure we return something that passes validate_plan. So after we compute path, we can call validate_plan(path) and if accepted, return path; else return None.
+
+- Use try/except to catch errors and let base handle.
+
+Implement lookahead_target:
+
+- Input path (list of (x,y) points). Need to find projection of robot pose onto path, then ahead distance between 0.3 and 2.0 m (target_min_ahead_m, max). Use base functions? There is _base_loop_projection and _base_loop_point_at_s but they are internal. However we can implement own simple version.
+
+Simplify: Use same logic as _base_loop_forward_target: compute projection onto path, then compute ahead distance.
+
+Implementation:
+
+- Compute projection onto each segment: find nearest point on segment to robot position (pose[:2]), compute distance along path (arc length) to that point. Keep the one with smallest distance; if tie, choose earliest arc (lowest s). Compute total path length cumulative.
+
+- Then compute remaining distance to end of segment: length - fraction*segment_length. If remaining < 0.3 -> need to look ahead to next segment: we need to accumulate distance across segments until we have at least 0.3m ahead, but not exceed 2.0m. Use loop.
+
+- Compute target point at s = projection_s + ahead, where ahead = clamp between min_ahead and max_ahead, but also not exceed total path length. Use helper to get point at given arc length.
+
+- Ensure that target point is not beyond goal? It's okay.
+
+- If path length remaining from projection is less than 0.3, and we can't get 0.3 ahead (i.e., end of path less than 0.3), then return None? According to spec, if total remaining <0.3, use next segment etc. If overall remaining <0.3 and goal not within ahead range, then no valid ahead point -> return None (base will request checked zero). So we can return None.
+
+Implementation details: path is list of points. Compute cumulative lengths array.
+
+Pseudo:
+
+def lookahead_target(path, pose):
+    # compute projection
+    x,y = pose[:2]
+    best = None
+    total_s = 0.0
+    cum_lengths = [0.0]
+    for i in range(len(path)-1):
+        p,q = path[i], path[i+1]
+        seg_len = math.hypot(q[0]-p[0], q[1]-p[1])
+        cum_lengths.append(cum_lengths[-1]+seg_len)
+    # find projection
+    min_dist = float('inf')
+    proj_s = 0.0
+    proj_point = None
+    for i in range(len(path)-1):
+        p,q = path[i], path[i+1]
+        dx,dy = q[0]-p[0], q[1]-p[1]
+        seg_len2 = dx*dx+dy*dy
+        if seg_len2 == 0: continue
+        t = ((x-p[0])*dx + (y-p[1])*dy)/seg_len2
+        t = max(0.0, min(1.0, t))
+        proj = (p[0]+t*dx, p[1]+t*dy)
+        d = math.hypot(x-proj[0], y-proj[1])
+        if d < min_dist - 1e-12 or (abs(d-min_dist)<1e-12 and cum_lengths[i]+t*math.sqrt(seg_len2) < proj_s):
+            min_dist = d
+            proj_s = cum_lengths[i] + t*math.sqrt(seg_len2)
+            proj_point = proj
+    # if projection distance > target_path_limit (1.0) maybe base will reject later. We just return point.
+    # compute ahead distance
+    min_ahead = 0.3
+    max_ahead = 2.0
+    remaining_path_len = cum_lengths[-1] - proj_s
+    if remaining_path_len < min_ahead:
+        return None
+    ahead = min(max_ahead, max(min_ahead, remaining_path_len))
+    # target s
+    target_s = proj_s + ahead
+    # clamp to total length
+    if target_s > cum_lengths[-1]:
+        target_s = cum_lengths[-1]
+    # find segment containing target_s
+    for i in range(len(cum_lengths)-1):
+        if cum_lengths[i] <= target_s <= cum_lengths[i+1]:
+            seg_start = path[i]
+            seg_end = path[i+1]
+            seg_len = cum_lengths[i+1]-cum_lengths[i]
+            if seg_len == 0:
+                return seg_start
+            t = (target_s - cum_lengths[i]) / seg_len
+            return (seg_start[0] + t*(seg_end[0]-seg_start[0]), seg_start[1] + t*(seg_end[1]-seg_start[1]))
+    return path[-1]
+
+But need to ensure we respect the rule about not crossing segment end if remaining <0.3: we already handle by returning None if insufficient.
+
+Also ensure that we don't return a point beyond 2.0 ahead.
+
+Return (x,y) tuple.
+
+Implement follow_cmd:
+
+Given pose (x,y,yaw) and target_xy (x,y). Compute dist, e as described. Use wrap.
+
+If abs(e) > 0.35 rad: v=0 else v = min(1.5, 2.5*dist+0.5). w = clamp(7.5*e, -2.0, 2.0). Return (v,w). Use math functions.
+
+Edge cases: target_xy may be None? In base they ensure target is always a tuple. We'll assume valid.
+
+Now code implementation.
+
+We must include plan_stage calls.
+
+Implementation details for A*:
+
+- Use dict for came_from.
+
+- Use heuristic = Euclidean distance between cell centers.
+
+- Use g cost = number of steps * res maybe actual distance (sqrt(dx^2+dy^2)*res). Since cells are spaced res apart, we can compute cost = distance between cell centers (res for orthogonal, res*sqrt(2) for diagonal). Simpler: use Euclidean distance in world coordinates.
+
+- In neighbor loop, compute neighbor cell world coords via xy_of.
+
+- segment_free between current cell world point and neighbor world point using clearance_m.
+
+- Use heap with (f, g, cell). f = g + heuristic.
+
+- When goal reached, reconstruct path.
+
+- After reconstruct, path list of world points.
+
+- Then call plan_stage("search") before search? Actually after grid generation, before search start: plan_stage("search").
+
+- After path found, maybe call plan_stage("simplify", input_points=len(raw_path), output_points=len(simplified_path)). We'll just set simplified_path = raw_path.
+
+- Then plan_stage("validate", input_points=len(simplified_path))
+
+- Then validation = validate_plan(simplified_path). If accepted, return simplified_path else return None.
+
+Edge Cases: occupancy_grid may return blocked array with shape (ny,nx). Use cell_of to get indices.
+
+Check bounds: need to ensure start_cell and goal_cell within grid and not blocked.
+
+If start or goal out of bounds, return None.
+
+Implementation.
+
+Now produce final code block.
+
+We need to output only the EDIT REGION code with comments start/end. Include the three functions and any helper functions inside.
+
+Let's craft code.
+
+<|end|><|start|>assistant<|channel|>final<|message|>```python
+# [EDIT REGION] mission controller - modify ONLY this block
+# ===========================================================================
+import math
+import heapq
+
+def plan_path(start_xy, goal_xy, clearance_m):
+    """
+    A* on the occupancy grid (8‑connectivity) with segment_free edge checks.
+    Returns a list of world (x, y) points including the start and goal
+    (or their connectors) that passes validate_plan, otherwise None.
+    """
+    # ---- grid generation -------------------------------------------------
+    plan_stage("grid")
+    blocked, origin, res = occupancy_grid(clearance_m, 0.5)
+
+    # ---- start / goal cells ---------------------------------------------
+    try:
+        start_cell = cell_of(start_xy, origin, res)
+        goal_cell = cell_of(goal_xy, origin, res)
+    except Exception:
+        return None
+
+    ny, nx = blocked.shape
+    def in_bounds(c):
+        ix, iy = c
+        return 0 <= ix < nx and 0 <= iy < ny
+
+    # start or goal inside a blocked cell -> cannot plan at this clearance
+    if not in_bounds(start_cell) or not in_bounds(goal_cell):
+        return None
+    if blocked[start_cell[1], start_cell[0]] or blocked[goal_cell[1], goal_cell[0]]:
+        return None
+
+    # ---- A* search -------------------------------------------------------
+    plan_stage("search")
+    start_pt = xy_of(start_cell, origin, res)
+    goal_pt = xy_of(goal_cell, origin, res)
+
+    # heuristic: Euclidean distance in world space
+    def heuristic(cell):
+        wx, wy = xy_of(cell, origin, res)
+        return math.hypot(wx - goal_pt[0], wy - goal_pt[1])
+
+    frontier = [(heuristic(start_cell), 0.0, start_cell)]
+    came_from = {start_cell: None}
+    cost_so_far = {start_cell: 0.0}
+    # cache segment_free results to avoid duplicate geometry checks
+    seg_cache = {}
+
+    while frontier:
+        _, g, current = heapq.heappop(frontier)
+
+        if current == goal_cell:
+            break
+
+        cx, cy = current
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                neighbor = (cx + dx, cy + dy)
+                if not in_bounds(neighbor):
+                    continue
+                if blocked[neighbor[1], neighbor[0]]:
+                    continue
+
+                # world coordinates of the two cells
+                p = xy_of(current, origin, res)
+                q = xy_of(neighbor, origin, res)
+
+                # edge clearance test (cached)
+                key = (p, q)
+                free = seg_cache.get(key)
+                if free is None:
+                    free = segment_free(p, q, clearance_m)
+                    seg_cache[key] = free
+                if not free:
+                    continue
+
+                # movement cost (real Euclidean distance)
+                step_cost = math.hypot(q[0] - p[0], q[1] - p[1])
+                new_cost = g + step_cost
+                if neighbor not in cost_so_far or new_cost < cost_so_far[neighbor]:
+                    cost_so_far[neighbor] = new_cost
+                    priority = new_cost + heuristic(neighbor)
+                    heapq.heappush(frontier, (priority, new_cost, neighbor))
+                    came_from[neighbor] = current
+
+    # ---- reconstruct path ------------------------------------------------
+    if goal_cell not in came_from:
+        return None  # no path found
+
+    raw_path = []
+    cur = goal_cell
+    while cur is not None:
+        raw_path.append(xy_of(cur, origin, res))
+        cur = came_from[cur]
+    raw_path.reverse()  # from start to goal
+
+    # ---- (optional) simplification ---------------------------------------
+    # For determinism we skip aggressive simplification; we just pass the raw path.
+    plan_stage("simplify", input_points=len(raw_path), output_points=len(raw_path))
+    simplified_path = raw_path
+
+    # ---- validation -------------------------------------------------------
+    plan_stage("validate", input_points=len(simplified_path))
+    result = validate_plan(simplified_path)
+    if result.get("accepted"):
+        return result["path"]  # already a list/tuple of (x, y)
+    return None
+
+
+def lookahead_target(path, pose):
+    """
+    Return a point on the given polyline that lies 0.3‑2.0 m ahead of the robot
+    projection onto the path. If insufficient forward distance exists, return
+    None so the base will request a checked‑zero.
+    """
+    # helper: compute cumulative arc‑lengths of the path
+    cum_len = [0.0]
+    for a, b in zip(path, path[1:]):
+        seg = math.hypot(b[0] - a[0], b[1] - a[1])
+        cum_len.append(cum_len[-1] + seg)
+
+    # find nearest point on the polyline (projection)
+    rx, ry = pose[0], pose[1]
+    best_dist = float("inf")
+    best_s = 0.0
+    for i, (a, b) in enumerate(zip(path, path[1:])):
+        ax, ay = a
+        bx, by = b
+        dx, dy = bx - ax, by - ay
+        seg_len2 = dx * dx + dy * dy
+        if seg_len2 == 0.0:
+            continue
+        t = ((rx - ax) * dx + (ry - ay) * dy) / seg_len2
+        t = max(0.0, min(1.0, t))
+        proj_x = ax + t * dx
+        proj_y = ay + t * dy
+        d = math.hypot(rx - proj_x, ry - proj_y)
+        s = cum_len[i] + t * math.sqrt(seg_len2)
+        if d < best_dist - 1e-12 or (abs(d - best_dist) < 1e-12 and s < best_s):
+            best_dist = d
+            best_s = s
+
+    # forward distance limits
+    MIN_AHEAD = _BASE_LOOP_CFG["target_min_ahead_m"]
+    MAX_AHEAD = _BASE_LOOP_CFG["target_max_ahead_m"]
+
+    remaining = cum_len[-1] - best_s
+    if remaining < MIN_AHEAD - 1e-12:
+        return None  # not enough path ahead
+
+    ahead = max(MIN_AHEAD, min(MAX_AHEAD, remaining))
+    target_s = best_s + ahead
+    if target_s > cum_len[-1]:
+        target_s = cum_len[-1]
+
+    # locate the segment containing target_s
+    for i in range(len(cum_len) - 1):
+        if cum_len[i] <= target_s <= cum_len[i + 1]:
+            a = path[i]
+            b = path[i + 1]
+            seg_len = cum_len[i + 1] - cum_len[i]
+            if seg_len == 0.0:
+                return tuple(a)
+            t = (target_s - cum_len[i]) / seg_len
+            return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+    # fallback (should not happen)
+    return tuple(path[-1])
+
+
+def follow_cmd(pose, target_xy):
+    """
+    Pure pursuit law:
+        v = 0                     if |e| > 0.35 rad
+        v = min(1.5, 2.5·dist+0.5) otherwise
+        w = clamp(7.5·e, -2.0, 2.0)
+    where e is the wrapped yaw error to the target.
+    """
+    tx, ty = target_xy
+    x, y, yaw = pose
+    dx, dy = tx - x, ty - y
+    dist = math.hypot(dx, dy)
+    angle_to_target = math.atan2(dy, dx)
+    e = angle_to_target - yaw
+    e = math.atan2(math.sin(e), math.cos(e))  # wrap to [-π, π]
+
+    if abs(e) > 0.35:
+        v = 0.0
+    else:
+        v = min(1.5, 2.5 * dist + 0.5)
+
+    w = max(-2.0, min(2.0, 7.5 * e))
+    return v, w
+
+
+def controller(t, pose, env): return _base_control_loop(t, pose, env)
+# ========================= [END EDIT REGION] ===============================
+```<|return|>

@@ -1,0 +1,152 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c2t36_s2012364392: collision at t=5.483 s with mover_00, robot speed 0.80 m/s, partner relative pos [0.49, -0.03] (close)",
+   "first_not_on_map: moving object first seen at t=0.52 s (1.68 m, bearing -56°), robot stopped then resumed at ~1.2 s while object still within ~1.6 m",
+   "all three runs: collision after an initial stop/wait, indicating robot resumed navigation before the moving object cleared the path"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Moving objects are reliably seen by 2D lidar within 2 m before collision",
+    "holds": true,
+    "why": "first_not_on_map shows detection at 0.52 s in all runs"
+   },
+   {
+    "assumption": "A short stop (0.8 s) plus a lateral bypass ≤2 m clears any moving object",
+    "holds": false,
+    "why": "collisions still occur after bypass logic, implying offset insufficient or bypass not found"
+   },
+   {
+    "assumption": "When the object is no longer detected, it is safe to resume motion",
+    "holds": false,
+    "why": "robot resumed at 1.2 s while object remained within ~1.6 m, leading to later collision"
+   },
+   {
+    "assumption": "A single detection event is enough; no need to remember past detections",
+    "holds": false,
+    "why": "object disappears from view temporarily, robot resumes too early, then collides"
+   },
+   {
+    "assumption": "Lateral offset generation using fixed _LATERAL_OFFSETS finds a free waypoint",
+    "holds": false,
+    "why": "target often None, causing fallback to wait; wait period too short"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "stop‑and‑turn (detect → stop → rotate)",
+    "turns": "다수 (≈23)",
+    "result": "전체 10% 이하 통과, 주로 충돌·정지 실패"
+   },
+   {
+    "family": "벽 판별 수정 (static obstacle detection fix)",
+    "turns": "1",
+    "result": "7/10 통과 (정적 장애물만 해결)"
+   },
+   {
+    "family": "우회 경유점 (lateral bypass)",
+    "turns": "5",
+    "result": "0/5 통과, 우회 실패"
+   },
+   {
+    "family": "critical‑detect + 즉시 정지",
+    "turns": "5",
+    "result": "몇 차례 통과 (2/5, 3/6) 있으나 일관성 부족"
+   },
+   {
+    "family": "repulsion 가중치 강화",
+    "turns": "2",
+    "result": "0/2 통과, 회피 미흡"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "이동 물체 메모리 도입: 마지막 감지 시각을 저장하고, _MOVING_PERSIST_TIME(≈3 s) 동안 물체가 존재한다고 간주해 avoid_wait을 연장",
+    "new_family": true,
+    "for": "초기 정지 후 물체가 일시적으로 사라져도 조기 복귀하지 않게 함",
+    "risk": "물체가 오래 머무르면 불필요한 대기·시간 초과 가능"
+   },
+   {
+    "idea": "우회 오프셋 범위 확대(0.5‑3 m)하고, 정지 후 무조건 bypass 시도(대기 단계 삭제)",
+    "new_family": false,
+    "for": "우회 경로 확보가 더 쉬워져 충돌 회피 가능",
+    "risk": "큰 오프셋이 정적 장애물과 충돌하거나 경로 비효율 증가"
+   },
+   {
+    "idea": "_detect_critical 를 사용해 _CRITICAL_DIST(0.8 m) 이내 물체를 즉시 정지하고, repulsion 가중치를 2.0으로 높여 회피 방향을 강제",
+    "new_family": false,
+    "for": "근거리 물체에 대한 즉시 정지와 강한 회피 유도",
+    "risk": "과도한 정지·회전으로 진행 속도 크게 감소, 여전히 측면 물체 놓칠 수 있음"
+   }
+  ],
+  "chosen": "첫 번째 후보(이동 물체 메모리 도입)를 선택, 이유는 현재 충돌 원인이 물체가 사라졌다가 다시 나타나는 타이밍에 재개가 너무 빠른 점이므로 지속적인 존재 인식을 추가하면 근본적인 문제를 해결할 수 있기 때문",
+  "target": "controller (state machine) – avoid_wait 로직 및 새로운 상수",
+  "direction": "1. _MOVING_PERSIST_TIME = 3.0 (초) 를 새 상수로 정의한다. 2. controller 초기화 시 controller.last_moving_t = None 를 추가한다. 3. normal 상태에서 moving이 감지되면 controller.last_moving_t = t 로 갱신한다. 4. avoid_wait 상태에서 moving이 감지되지 않아도, t - controller.last_moving_t < _MOVING_PERSIST_TIME이면 대기 유지하고 wait_clear_end을 리셋한다. 5. moving이 감지되지 않고 t - controller.last_moving_t >= _MOVING_PERSIST_TIME 가 되면, 기존처럼 wait_clear_end = t + _WAIT_CLEAR_TIME 로 설정하고, 그 기간이 지나면 normal 로 복귀한다. 6. _WAIT_CLEAR_TIME 를 2.0 s 로 늘려 물체가 완전히 지나갈 충분한 여유를 둔다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t36_s2012364392: collision at t=5.483 s with mover_00, robot speed 0.80 m/s, partner relative pos [0.49, -0.03] (close)\",\n    \"first_not_on_map: moving object first seen at t=0.52 s (1.68 m, bearing -56°), robot stopped then resumed at ~1.2 s while object still within ~1.6 m\",\n    \"all three runs: collision after an initial stop/wait, indicating robot resumed navigation before the moving object cleared the path\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Moving objects are reliably seen by 2D lidar within 2 m before collision\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map shows detection at 0.52 s in all runs\"\n    },\n    {\n      \"assumption\": \"A short stop (0.8 s) plus a lateral bypass ≤2 m clears any moving object\",\n      \"holds\": false,\n      \"why\": \"collisions still occur after bypass logic, implying offset insufficient or bypass not found\"\n    },\n    {\n      \"assumption\": \"When the object is no longer detected, it is safe to resume motion\",\n      \"holds\": false,\n      \"why\": \"robot resumed at 1.2 s while object remained within ~1.6 m, leading to later collision\"\n    },\n    {\n      \"assumption\": \"A single detection event is enough; no need to remember past detections\",\n      \"holds\": false,\n      \"why\": \"object disappears from view temporarily, robot resumes too early, then collides\"\n    },\n    {\n      \"assumption\": \"Lateral offset generation using fixed _LATERAL_OFFSETS finds a free waypoint\",\n      \"holds\": false,\n      \"why\": \"target often None, causing fallback to wait; wait period too short\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"stop‑and‑turn (detect → stop → rotate)\",\n      \"turns\": \"다수 (≈23)\",\n      \"result\": \"전체 10% 이하 통과, 주로 충돌·정지 실패\"\n    },\n    {\n      \"family\": \"벽 판별 수정 (static obstacle detection fix)\",\n      \"turns\": \"1\",\n      \"result\": \"7/10 통과 (정적 장애물만 해결)\"\n    },\n    {\n      \"family\": \"우회 경유점 (lateral bypass)\",\n      \"turns\": \"5\",\n      \"result\": \"0/5 통과, 우회 실패\"\n    },\n    {\n      \"family\": \"critical‑detect + 즉시 정지\",\n      \"turns\": \"5\",\n      \"result\": \"몇 차례 통과 (2/5, 3/6) 있으나 일관성 부족\"\n    },\n    {\n      \"family\": \"repulsion 가중치 강화\",\n      \"turns\": \"2\",\n      \"result\": \"0/2 통과, 회피 미흡\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"이동 물체 메모리 도입: 마지막 감지 시각을 저장하고, _MOVING_PERSIST_TIME(≈3 s) 동안 물체가 존재한다고 간주해 avoid_wait을 연장\",\n      \"new_family\": true,\n      \"for\": \"초기 정지 후 물체가 일시적으로 사라져도 조기 복귀하지 않게 함\",\n      \"risk\": \"물체가 오래 머무르면 불필요한 대기·시간 초과 가능\"\n    },\n    {\n      \"idea\": \"우회 오프셋 범위 확대(0.5‑3 m)하고, 정지 후 무조건 bypass 시도(대기 단계 삭제)\",\n      \"new_family\": false,\n      \"for\": \"우회 경로 확보가 더 쉬워져 충돌 회피 가능\",\n      \"risk\": \"큰 오프셋이 정적 장애물과 충돌하거나 경로 비효율 증가\"\n    },\n    {\n      \"idea\": \"_detect_critical 를 사용해 _CRITICAL_DIST(0.8 m) 이내 물체를 즉시 정지하고, repulsion 가중치를 2.0으로 높여 회피 방향을 강제\",\n      \"new_family\": false,\n      \"for\": \"근거리 물체에 대한 즉시 정지와 강한 회피 유도\",\n      \"risk\": \"과도한 정지·회전으로 진행 속도 크게 감소, 여전히 측면 물체 놓칠 수 있음\"\n    }\n  ],\n  \"chosen\": \"첫 번째 후보(이동 물체 메모리 도입)를 선택, 이유는 현재 충돌 원인이 물체가 사라졌다가 다시 나타나는 타이밍에 재개가 너무 빠른 점이므로 지속적인 존재 인식을 추가하면 근본적인 문제를 해결할 수 있기 때문\",\n  \"target\": \"controller (state machine) – avoid_wait 로직 및 새로운 상수\",\n  \"direction\": \"1. _MOVING_PERSIST_TIME = 3.0 (초) 를 새 상수로 정의한다. 2. controller 초기화 시 controller.last_moving_t = None 를 추가한다. 3. normal 상태에서 moving이 감지되면 controller.last_moving_t = t 로 갱신한다. 4. avoid_wait 상태에서 moving이 감지되지 않아도, t - controller.last_moving_t < _MOVING_PERSIST_TIME이면 대기 유지하고 wait_clear_end을 리셋한다. 5. moving이 감지되지 않고 t - controller.last_moving_t >= _MOVING_PERSIST_TIME 가 되면, 기존처럼 wait_clear_end = t + _WAIT_CLEAR_TIME 로 설정하고, 그 기간이 지나면 normal 로 복귀한다. 6. _WAIT_CLEAR_TIME 를 2.0 s 로 늘려 물체가 완전히 지나갈 충분한 여유를 둔다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t36_s2012364392",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.483,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.80m/s",
+   "partner_rel_xy": [
+    0.49,
+    -0.03
+   ],
+   "closing_m_s": 0.08,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 0.52,
+   "goal_dist_m": 30.2996,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t36_s2025363168",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.73m/s",
+   "partner_rel_xy": [
+    0.46,
+    0.2
+   ],
+   "closing_m_s": -0.08,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.2524,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t36_s422651337",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 6.417,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.66m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.47,
+    -0.07
+   ],
+   "closing_m_s": 0.11,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 1.52,
+   "goal_dist_m": 30.3088,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

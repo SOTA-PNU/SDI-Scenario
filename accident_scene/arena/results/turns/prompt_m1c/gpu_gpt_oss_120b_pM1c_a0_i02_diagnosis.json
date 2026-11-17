@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=exception error_type=NotImplementedError message=fill the model path-planning hook",
+    "plan_summary status=no_path attempts=0.50:exception|0.45:exception|0.40:exception|0.35:exception",
+    "전체 시뮬레이션 동안 v,w 모두 0이어서 speed_mean=0, robot 199 s 정지 → stall_rule 트리거"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path 함수에 기존에 제거된 A* 탐색 구현을 복원한다. occupancy_grid 로 격자를 얻고, cell_of 로 시작·목표 셀을 찾은 뒤 8‑연결 A* 로 경로를 탐색하고, segment_free 로 이웃 연결을 검증한다. 경로를 재구성한 뒤 plan_stage('grid'),('search'),('simplify'),('validate') 호출을 유지하고, 최종 world 좌표 리스트를 반환한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 현재 구현을 그대로 유지한다.",
+  "confidence": "high"
+}

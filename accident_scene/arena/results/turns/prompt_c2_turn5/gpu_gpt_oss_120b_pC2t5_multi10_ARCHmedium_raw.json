@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-901fd8cd4ca4f793",
+ "object": "chat.completion",
+ "created": 1794734997,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c2t5_s47553594: first_not_on_map 2 m at t=16.85 s (bearing -24°), collision at t=18.07 s – detection distance 1.0 m missed the object early.\",\n    \"run c2t5_s1621011119: first_not_on_map 1.86 m at t=16.65 s (bearing 40°), collision at t=18.13 s – object was outside the 1.0 m range when it entered the robot’s path.\",\n    \"run c2t5_s1324881932: first_not_on_map 1.91 m at t=15.02 s (bearing 33°), collision at t=16.13 s – same early‑range miss.\"\n  ],\n  \"target\": \"controller (detection parameters & avoidance logic)\",\n  \"direction\": \"1) _DETECT_DIST 를 2.0 m 로 확대하고 _DETECT_ANGLE 를 ±60°(np.deg2rad(60)) 로 넓힌다. 2) 움직이는 물체가 감지되면 즉시 v=0, w=0 로 정지하고, 물체가 안전 거리(>1.5 m) 밖으로 이동할 때까지 타이머(≤3 s)만큼 대기한다. 3) 대기 후 물체가 여전히 가까우면 작은 좌우 회전(w=±0.4 rad/s) 후 다시 정지‑대기 루프를 반복하고, 물체가 사라지면 waypoint 추적로 복귀한다. 4) 기존 rotate 상태를 제거해 불필요한 회전으로 인한 충돌을 방지한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to output JSON with failure_mode, evidence, target, direction, confidence.\n\nBased on latest multi-run summary: 10 runs, 3 collisions, 7 stalls (timeout after ~60s). So most frequent failure is stall. Provide evidence from runs with stall_abort_t and stop_turn_episodes. Choose a few runs: e.g., c2t5_s652684458 (collision) not stall. Need stall runs: from table, stall_abort_t is null for all listed? Actually table entries have \"stall_abort_t\": null for all except maybe none. Wait the table includes \"stall_abort_t\": null for all entries. But later in runs details there is \"stall_abort_t\": null for all as well. However in previous analysis, there were stall abort times. In this dataset, the \"stall_abort_t\" column is null for all runs; but \"stop_turn_episodes\" count is high for passes as well. However passes have goal reached, not stall. The failures are collisions (3) and passes (7). There are no stall aborts in this dataset. Wait the earlier runs with stalls were earlier attempts. The current runs (the summary) show 7 passes, 3 fails (collisions). No stall abort. So the most common failure now is collision (3 vs 0 stall). So we should focus on collision.\n\nThus failure_mode: collision.\n\nEvidence: Provide three runs where collision occurred, with bearing > detection angle etc. Use evidence from table: e.g., run c2t5_s47553594 collision at 18.067, bearing from robot? partner_rel_xy [0.45,-0.37] gives bearing approx arctan2(-0.37,0.45) = -0.69 rad (-39 deg). That's within ±45? Actually detection angle is 45°, so -39 deg within. But detection distance? robot at collision at 0.72 m/s, moving object distance at first_not_on_map within 2m at 16.85s bearing -24 deg. At collision time distance 0.26m. So detection should have caught earlier? But maybe detection didn't because moving object was filtered as static due to wall bug? But wall bug was fixed earlier (turn 2). In current code, wall bug is fixed? The code includes _in_static_obstacle with correct wall condition? The code uses:\n\nwx_min, wx_max, wy_min, wy_max = WALLS\nif p[0] < wx_min or p[0] > wx_max or p[1] < wy_min or p[1] > wy_max: return True\n\nYes, that is correct (outside rectangle). So detection should work.\n\nWhy still collisions? Possibly detection sector too narrow (±45°) and distance 1.0m. At first detection within 2m at 16.85s bearing -24°, distance 2m, not within 1.0m. At 17.55s distance 0.87m, bearing -25°, within detection distance and angle, so detection should trigger. But robot still moving and collides at 18.067s. The logs show stop_turn_episodes count 4, indicating robot performed some stop-turn behavior earlier. In collision runs, stop_turn_episodes count 4 (similar to passes). So detection triggered but maybe rotation didn't clear object, leading to collision. The code rotates away based on bearing sign, but may rotate in wrong direction? In collision run, bearing negative (right side), dir_sign = -np.sign(bearing) => -(-1) = 1 => rotate right? Actually positive bearing = left, negative = right. For negative bearing, dir_sign = -(-1)=1, so rotate right? Wait w = avoid_dir * _AVOID_ROT_SPEED, avoid_dir = dir_sign (1) => positive rotation (counterclockwise) which is left turn. That is opposite: object on right (negative bearing) should rotate left (positive w) to turn away. That seems correct. But maybe rotation speed insufficient to clear before collision.\n\nAlso after rotate, they check moving points still within _DETECT_DIST, and may re-enter stop_wait. Could cause repeated stop-wait and rotate cycles, but maybe not enough time to let object pass.\n\nThus failure due to detection distance too short and limited avoidance behavior. The moving object approaches quickly; robot needs to stop earlier (maybe at 2m) to allow clearance.\n\nThus propose: increase detection distance to 2.0m, and when moving detected, set v=0 and w=0 (stop) for a wait period, then after object cleared beyond safe distance, resume. Or implement deceleration based on distance.\n\nThus target: detection parameters and avoidance state machine.\n\nNow produce JSON with evidence from three collision runs, referencing bearing > detection angle or detection distance too short. Use evidence: first_not_on_map within 2m at t ~16.85 with distance 2m, detection distance 1.0 => missed early. Also bearing -24 within angle but distance >1.0, so detection too late.\n\nProvide evidence lines: from run c2t5_s47553594: first_not_on_map within 2m at 16.85s distance 2.0m bearing -24°, collision at 18.067s. Similarly run c2t5_s1621011119: first_not_on_map within 2m at 16.65s distance 1.86m bearing 40°, detection distance 1.0, missed. Run c2t5_s1324881932: first_not_on_map within 2m at 15.02s distance 1.91m bearing 33°, detection distance 1.0, missed. These three show detection distance insufficient.\n\nThus failure_mode collision.\n\nDirection: increase _DETECT_DIST to 2.0m, optionally widen angle to ±60°, and modify avoidance: when moving detected, stop (v=0) and wait for object to clear beyond safe distance before resuming waypoint following; remove rotate state or make rotation after clearance.\n\nNow produce JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 28599,
+  "total_tokens": 30277,
+  "completion_tokens": 1678,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 1266
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

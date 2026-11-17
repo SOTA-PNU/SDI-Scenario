@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-92fea2bf702e048c",
+ "object": "chat.completion",
+ "created": 1794734118,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t4_s1207646714: stall_abort_t 66.07 s, stop_turn_episodes 26, first_not_on_map at 61.12 s (object detected but robot never resumes)\",\n    \"run c2t4_s228997367: stall_abort_t 60.0 s, stop_turn_episodes 34, first_not_on_map at 55.08 s, robot stays in place despite detection\",\n    \"run c2t4_s664111211: stall_abort_t 62.52 s, stop_turn_episodes 28, first_not_on_map at 57.55 s, robot spins continuously\"\n  ],\n  \"target\": \"controller (reactive avoidance logic and detection thresholds)\",\n  \"direction\": \"1) _DETECT_DIST을 1.0 m로, _DETECT_ANGLE을 ±45°(np.deg2rad(45))로 줄여 불필요한 측면 감지를 억제한다. 2) controller에 회피 상태 타이머를 도입해 물체가 감지되면 v=0, w=0으로 최대 2 s 정지 후, 여전히 물체가 있으면 작은 좌측/우측 회피 회전(w=±0.4 rad/s) 후 전진을 재개한다. 3) 회피 후 1 m 이내에 물체가 남아 있으면 다시 정지·대기, 그렇지 않으면 waypoint 추적으로 복귀한다. 4) 기존 _detect_moving_any은 그대로 두고, 위 로직으로 과도한 제자리 회전을 방지한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to output final JSON with failure_mode, evidence, target, direction, confidence based on analysis of all runs. The latest data shows many runs failing due to stall (no movement) and some collisions. But after fixing wall condition (turn 2), many passes (7/10). Remaining failures (3) are collisions due to detection sector too narrow. So the most common failure now is collisions (3 out of 10) while stalls are also many (stop-turn episodes). However stalls are due to detection causing robot to spin in place waiting for moving object to clear, but never proceeds because detection may keep triggering? Actually many runs abort due to stall after 60s, with many stop-turn episodes, but no collisions. The failure mode could be stall (timeout) as well. Which is more frequent? In table, 10 runs: 3 collisions, 7 stalls (stall_abort_t present). So stall is more frequent. However stalls are caused by detection logic that keeps rotating because moving object remains within detection range (maybe because detection radius too large, causing perpetual detection of static obstacles? Actually they detect moving objects but maybe static points not filtered correctly? The detection may treat static obstacles as moving due to wall bug fixed, but still many stop-turn episodes. The first_not_on_map appears at around 55-63s, after which robot spins for long time but never proceeds to goal. That suggests detection sees moving object continuously (maybe moving object stays in detection zone because robot is stuck near start). The robot never moves because detection triggers and it rotates but doesn't progress.\n\nThus failure mode: stall due to over-conservative reactive avoidance causing robot to never resume waypoint following. Need to improve logic: after detection, instead of rotating indefinitely, implement a timeout or try to move around object (e.g., sidestep) or wait only until object clears beyond safe distance, then resume. Also detection may be too sensitive: includes any point within 2m even if moving object is far away laterally, causing unnecessary stop. Could require closing speed > threshold.\n\nThus the most common failure is stall (timeout). But the prompt says \"실패 유형이 여러 가지면 가장 많은 실패를 일으킨 원인부터 다룹니다.\" So we should prioritize stall.\n\nEvidence: many runs have stall_abort_t at ~60s with many stop_turn_episodes, first_not_on_map seen at ~55-63s, robot never reaches goal (goal_dist ~32m). No collisions. So stall due to detection causing indefinite rotation.\n\nThus failure_mode: stall. Provide evidence lines from runs showing stall_abort_t and stop_turn_episodes counts.\n\nTarget: controller reactive avoidance logic (specifically detection threshold and reaction). Direction: modify detection to require object within closer safety distance (e.g., 1.0m) and only if relative closing speed positive, also add a timeout for avoidance: after rotating for e.g., 3 seconds without clearance, try to bypass by steering around (e.g., set a temporary waypoint offset). Or implement a state machine: when moving detected, stop and wait until object passes beyond safe distance for a short period, then resume. Also reduce detection angle to front only to avoid side objects causing unnecessary stalls.\n\nBut we need to propose specific changes: adjust _DETECT_DIST to 1.0m, _DETECT_ANGLE to np.deg2rad(60) maybe, and in controller when has_moving, set a timer to wait up to 2 seconds, if still moving, perform a small lateral offset waypoint (e.g., shift x by +/-0.5) then continue.\n\nSimplify: add a cooldown counter: if has_moving, set a pause counter; while pause_counter>0, set v=0, w=0, decrement; after pause, resume.\n\nBut need to stay within edit region only. We can add a global variable controller.wait_until = None etc.\n\nProvide target: controller logic and detection parameters.\n\nDirection: Reduce detection distance to 1.0m, narrow angle to ±45°, add a clearance timer so robot only pauses briefly; after timer, if still moving, attempt to steer around by setting temporary waypoint offset.\n\nConfidence high.\n\nNow produce JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 26696,
+  "total_tokens": 27943,
+  "completion_tokens": 1247,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 859
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

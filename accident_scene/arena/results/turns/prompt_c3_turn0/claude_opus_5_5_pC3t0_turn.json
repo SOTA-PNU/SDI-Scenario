@@ -1,0 +1,137 @@
+{
+ "turn": 0,
+ "started": "2026-11-16 22:44:44",
+ "code_in": "results/turns/prompt_c3_turn0/start_block.py",
+ "diagnosis_in": {},
+ "coder": [],
+ "reused_block": "results/turns/prompt_c3_turn0/start_block.py",
+ "reason": "출발점 코드: A-4 경유점 추종, 속도 5배, 센서 미사용",
+ "budget_s": 600.0,
+ "seeds": [
+  1379915974,
+  2125396996,
+  1459703858
+ ],
+ "sim_used_s": 28.7,
+ "verdicts": {
+  "1379915974": "fail",
+  "2125396996": "fail",
+  "1459703858": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 0,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3개 실행 모두 출발 3.3~3.7 s 뒤 같은 mover_00 과 충돌했습니다. 충돌 위치는 로봇 (-7.49,-10.75), (-7.49,-10.75), (-7.45,-10.63)으로 START 에서 약 1.5 m 지점이고, 로봇은 0.97~0.98 m/s 로 첫 경유점 (-5.0,-10.8) 을 향해 달리던 중이었습니다.",
+   "충돌 순간 물체는 로봇 바로 앞(rel x 0.39~0.47, y 0.05~0.45 m)에 있었고 주로 옆으로 움직였습니다(vel_rel y +0.46~+0.79). closing 이 -0.03~-0.27 이므로 물체가 다가온 것이 아니라 로봇이 옆으로 지나가는 물체에 들이받은 것입니다.",
+   "2D 라이다는 t≈0 에 이미 지도에 없는 물체를 1.68~1.95 m 에서 보았고, 1 m 안에 든 때는 t=2.75~2.92 s 로 충돌 0.5~0.9 s 전입니다. 그런데 이번 코드는 센서를 전혀 읽지 않아 이 근거리 감지 상태에서도 0.6~1.5 m/s 로 계속 달렸습니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "경유점 사이 경로에는 정적 지도의 장애물만 있다",
+    "holds": false,
+    "why": "과제 조건상 움직이는 물체가 통로를 왕복하고, 3개 실행 모두 첫 구간에서 mover_00 이 경로를 가로질렀습니다."
+   },
+   {
+    "assumption": "센서 없이 위치만 보고 최대 1.5 m/s 로 달려도 안전하다",
+    "holds": false,
+    "why": "물체가 1 m 안에 들어온 뒤에도 0.6~1.5 m/s 를 유지해 0.5~0.9 s 만에 충돌했습니다."
+   },
+   {
+    "assumption": "제자리 회전이나 정지 중에는 부딪히지 않는다",
+    "holds": false,
+    "why": "과제는 멈춰 있어도 물체가 닿으면 충돌로 봅니다. 출발 직후 회전 중에도 물체는 1.4~1.9 m 거리에 있었습니다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 미사용 고정 경유점 추종(속도·게인만 조정)",
+    "turns": "#0",
+    "result": "1턴, 새 배치 3개 중 0 pass (모두 t<4 s 에 mover_00 과 충돌)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "2D 라이다 앞·뒤 점에서 정적 지도 점을 빼고, 진행 방향 통로 안의 가장 가까운 물체 거리로 감속·정지하는 안전 계층",
+    "new_family": true,
+    "for": "3개 실행 모두 물체를 2 m 안에서 0 s 부터 보았고, 충돌은 로봇이 옆으로 지나가는 물체에 들이받은 형태(closing<0)라 앞 통로에서 멈추기만 해도 피할 수 있었습니다.",
+    "risk": "정지한 동안 물체가 로봇 쪽으로 오면 맞을 수 있습니다. 또 지도 빼기가 부정확하면 벽·박스를 물체로 보고 계속 멈출 수 있습니다."
+   },
+   {
+    "idea": "물체 점 덩어리를 프레임마다 추적해 속도를 추정하고, 충돌 예상 시간(TTC)이 짧으면 양보하거나 반대쪽으로 물러나기",
+    "new_family": true,
+    "for": "멈춰 있어도 닿으면 충돌이므로, 다가오는 물체를 피해 움직이는 동작까지 다룰 수 있습니다.",
+    "risk": "덩어리 연결과 속도 추정이 회전 중 흔들리면 오판합니다. 구현이 복잡해 첫 수정으로는 오류 위험이 큽니다."
+   },
+   {
+    "idea": "VFH나 퍼텐셜 장처럼 감지한 물체를 돌아가도록 조향하는 국소 회피",
+    "new_family": true,
+    "for": "물체가 오래 경로를 막고 있어도 진행할 수 있습니다.",
+    "risk": "좁은 통로에서 정적 장애물과 얽혀 진동하거나 경로를 이탈할 수 있습니다. 물체는 왕복하므로 기다리는 쪽이 더 단순합니다."
+   }
+  ],
+  "chosen": "후보 1을 고르고, 근접 시 물러나는 동작만 덧붙입니다. 세 실패 모두 물체가 미리 보였는데도 앞으로 들이받은 경우라 가장 직접적이고 구현 위험이 낮기 때문입니다.",
+  "target": "새 감지 함수 _movers_robot_frame() 과 controller 의 속도 결정부(최대 속도 낮춤 포함)",
+  "direction": "새 함수가 lidar2d_points('front')·('back') 점을 to_world 로 바꾼 뒤 세 종류의 점을 버립니다. WALLS 안쪽 면에서 0.2 m 이내이거나 바깥인 점, MISSION boxes 와 FIXED_OBSTACLES 를 0.2 m 부풀린 사각형 안의 점이 그것이고, 남은 점을 로봇 기준으로 돌려줍니다. 통로 거리 d_front 는 남은 점 중 x>0.2 이고 |y|<0.6 인 점의 최소 x 로 둡니다. 0.3 m 안에서 이런 점이 3개 이상 모여 있어야 물체로 인정해 회전 중 오탐을 거릅니다. 전진 명령은 v=min(v_wp, 0.8, 0.8*(d_front-0.9)) 로 바꾸고 0 미만이면 0 으로 해서 1 m 앞에서 멈추게 합니다. 회전은 ±1.2 rad/s 로 줄이되, 제자리 회전 중에도 전체 방향 0.9 m 안에 물체가 있으면 회전을 멈춥니다. 몸체 주변 0.7 m 안(뒤쪽 제외, 앞·옆)에 물체가 들어오면 그 물체 반대 방향으로 0.3 m/s 후진해 거리를 벌리고, 물체가 1.2 m 밖으로 나가면 원래 경유점 추종으로 돌아갑니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c3t0_s1379915974",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.39,
+    0.45
+   ],
+   "closing_m_s": -0.27,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.6113,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t0_s2125396996",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.47,
+    0.15
+   ],
+   "closing_m_s": -0.03,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.6239,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t0_s1459703858",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.98m/s 회전 +0.3",
+   "partner_rel_xy": [
+    0.45,
+    0.05
+   ],
+   "closing_m_s": -0.06,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.05,
+   "goal_dist_m": 30.3755,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 29 s / 한도 600 s)",
+ "ended": "2026-11-16 22:46:53"
+}

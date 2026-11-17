@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-a03da8c1efacca63",
+ "object": "chat.completion",
+ "created": 1794812960,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단이 제시한 대로 탐지 각을 ±120°(np.deg2rad(120)) 로 제한해 과도한 360° 탐지를 방지하고, 움직이는 물체가 최소 1개의 라이다 점만으로도 감지되도록 _MIN_MOVING_POINTS 를 원래값인 1 로 되돌렸습니다. 이는 검토 담당이 요구한 설정과 일치하며, 기존 회피 로직과 waypoint 추적에 바로 적용됩니다.\n\n```python\n_DETECT_ANGLE = np.deg2rad(120.0)   # [rad] detection sector ±120° (total 240°)\n\n_MIN_MOVING_POINTS = 1            # 최소 라이다 점 개수 (원래값)으로 감지 민감도 회복\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "The user says: The reviewer has sent back the code before Isaac execution. They say: _DETECT_ANGLE should be changed to np.deg2rad(120) instead of np.pi. Also, if needed, _MIN_MOVING_POINTS should be reverted to original 1. Currently we set _DETECT_ANGLE = np.pi (full 360°) and _MIN_MOVING_POINTS = 3. The reviewer says: change _DETECT_ANGLE to np.deg2rad(120) (which is ±120° detection angle). Also revert _MIN_MOVING_POINTS to original 1 if needed.\n\nWe need to output \"변경 이유:\" 2-4 sentences, then a code fence with only top-level definitions changed or added. The definitions we need to change: _DETECT_ANGLE, maybe _MIN_MOVING_POINTS (set to 1). Also we may need to adjust detection range? The reviewer only mentions _DETECT_ANGLE and optionally _MIN_MOVING_POINTS. The rest of the code is fine.\n\nWe need to output the changed reason and then code fence with the definitions.\n\nThe code we previously provided had:\n\n_DETECT_DIST = 2.5\n_DETECT_ANGLE = np.pi\n_MIN_MOVING_POINTS = 3\n_CLEAR_TIME = 0.5\n\nNow we need to change _DETECT_ANGLE = np.deg2rad(120) and maybe _MIN_MOVING_POINTS = 1.\n\nPotentially also adjust _DETECT_DIST? The reviewer didn't mention change to _DETECT_DIST, so keep as is (2.5). The detection distance is okay. The detection angle is now ±120°, i.e., 240° sector. That matches the diagnostic suggestion: \"Increase _DETECT_ANGLE = np.deg2rad(120)\".\n\nThe reviewer says \"if needed, revert _MIN_MOVING_POINTS to original 1\". Our earlier code set it to 3 to reduce noise. The reviewer seems to think that using 3 may be too restrictive. So set _MIN_MOVING_POINTS = 1.\n\nThus the top-level definitions to change: _DETECT_ANGLE and _MIN_MOVING_POINTS.\n\nWe should also update the comment maybe. But only need to output definitions.\n\nThus final answer: change reason: adjust detection angle to 120°, revert min moving points to 1 to meet diagnostic.\n\nProvide code:\n\n_DETECT_ANGLE = np.deg2rad(120.0)\n_MIN_MOVING_POINTS = 1\n\nPotentially also need to adjust import of np? Already imported.\n\nThus output."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-96dcc7f3",
+ "usage": {
+  "prompt_tokens": 14761,
+  "total_tokens": 15472,
+  "completion_tokens": 711,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 530
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

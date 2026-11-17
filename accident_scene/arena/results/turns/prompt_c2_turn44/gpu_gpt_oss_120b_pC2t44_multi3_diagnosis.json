@@ -1,0 +1,179 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t44_s89333205: 충돌 t=12.483 s, mover_00 상대 위치 [-0.97,0.2] (거리≈1 m), 접근 속도 0.56 m/s, 로봇 속도 0.09 m/s",
+   "c2t44_s830573644: 충돌 t=14.583 s, mover_00 상대 위치 [-0.37,-0.55] (거리≈0.66 m), 접근 속도 0.27 m/s, 로봇 속도 0.08 m/s",
+   "c2t44_s1687967877: 정지·제자리 회전 22회, first_not_on_map 2 m 안에 물체 탐지 t≈63.85 s 이후에도 회전 지속, 목표까지 32 m 남아 스톨 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_detect_critical이 물체를 _CRITICAL_DIST(0.8 m) 안에서 감지해 회피 회전을 시작한다",
+    "holds": false,
+    "why": "first_not_on_map 기록에 물체가 2 m 안에 보였지만 충돌 시점까지 0.8 m 이내 감지가 이루어지지 않아 회피가 늦어짐"
+   },
+   {
+    "assumption": "0.5 s 회전(_AVOID_ROT_SPEED 1.2 rad/s)으로 충분히 방향을 바꾸면 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "충돌이 발생한 두 경우 모두 회전 후에도 물체와 근접해 정면 충돌이 발생, 회전 시간·각도가 부족함"
+   },
+   {
+    "assumption": "역제곱 거리 가중치의 _repulsive_vector가 waypoint 방향과 결합하면 물체를 피할 수 있다",
+    "holds": false,
+    "why": "충돌 시점에 가장 가까운 moving point 거리 0.66~1 m이었음에도 repulsion이 충분히 큰 회피 방향을 만들지 못함"
+   },
+   {
+    "assumption": "nearest 거리 기반 속도 스케일링(_MAX_SPEED * nearest/_SAFE_DIST)으로 충분히 감속하면 충돌을 방지한다",
+    "holds": false,
+    "why": "충돌 직전 로봇 속도가 0.08~0.09 m/s에 머물며 물체와의 닫히는 속도가 여전히 양수라 정지 거리를 확보하지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no control",
+    "turns": "0",
+    "result": "1/10 pass"
+   },
+   {
+    "family": "simple front stop‑turn",
+    "turns": "1,5",
+    "result": "6/20 pass (30% success)"
+   },
+   {
+    "family": "wall detection fix",
+    "turns": "2",
+    "result": "7/10 pass (70% success)"
+   },
+   {
+    "family": "expanded detection + immediate stop/rotate",
+    "turns": "4,6,9,14,16,17,20,23,24,27,30,31,33,34,35",
+    "result": "15 attempts, 3 passes (only turn 14 had 3/6 pass)"
+   },
+   {
+    "family": "stop‑wait state",
+    "turns": "10,11,12,18,22,38",
+    "result": "6 attempts, 0 pass"
+   },
+   {
+    "family": "backward retreat + rotate",
+    "turns": "8,28",
+    "result": "2 attempts, 6/13 passes (turn 8: 6/10, turn 28: 0/3)"
+   },
+   {
+    "family": "consecutive detection & reduced cone",
+    "turns": "13,19,21,30",
+    "result": "4 attempts, 2 passes (turn 13: 2/5)"
+   },
+   {
+    "family": "bypass waypoint generation",
+    "turns": "41",
+    "result": "1 attempt, 0 pass"
+   },
+   {
+    "family": "RVO‑style sampled velocity selection",
+    "turns": "42",
+    "result": "1 attempt, 0 pass"
+   },
+   {
+    "family": "state machine with critical_stop",
+    "turns": "39,43",
+    "result": "2 attempts, 0 pass"
+   },
+   {
+    "family": "moving persistence time",
+    "turns": "37",
+    "result": "1 attempt, 0 pass"
+   },
+   {
+    "family": "repulsion only (no state)",
+    "turns": "44",
+    "result": "1 attempt, 0 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "두 번 연속 라이다 스캔으로 물체 속도 추정 후 TTC(time‑to‑collision) 계산, TTC < 1.5 s이면 정지 후 2 m 옆으로 우회 목표 생성",
+    "new_family": true,
+    "for": "충돌을 사전에 예측해 회피 시점을 앞당김",
+    "risk": "속도 추정 오차가 있으면 불필요한 회피 또는 놓침 발생"
+   },
+   {
+    "idea": "V_SAMPLES·W_SAMPLES 로 후보 (v,w) 샘플링, 각 후보를 0.6 s horizon에 물체 위치 선형 예측해 충돌 여부 검사, 안전한 후보 선택",
+    "new_family": true,
+    "for": "다중 후보 중 안전한 속도 선택으로 급격 회전 없이 회피",
+    "risk": "계산량 증가와 과보수적 선택으로 진행 속도 감소 가능"
+   },
+   {
+    "idea": "동적 물체의 예측 궤적을 고려한 전역 우회 경로 생성(A*) 후 임시 경유점으로 이동, 목표 도달 후 원래 경로 복귀",
+    "new_family": true,
+    "for": "정적인 지도와 움직이는 물체를 모두 고려한 우회 경로 제공",
+    "risk": "우회 경로가 과도하게 길어 시간 초과, 구현 복잡도 상승"
+   }
+  ],
+  "chosen": "Candidate 1: TTC 기반 예측 회피를 선택, 왜냐하면 현재 감지가 늦고 회전·정지 시간이 부족해 충돌이 발생하므로 사전 예측으로 회피 시점을 앞당길 수 있기 때문",
+  "target": "controller (새로운 예측 TTC 회피 로직 및 _estimate_moving_objects 연동)",
+  "direction": "controller 초기화 시 state='normal', t_last_est=None, bypass_target=None을 만든다. 매 프레임 _estimate_moving_objects(pose,t) 로 moving_pts와 moving_vel를 얻는다. 각 점에 대해 로봇‑점 벡터와 relative velocity를 사용해 closing speed와 TTC를 계산한다. 가장 작은 TTC가 _TTC_THRESH(1.5s) 이하이면 v=0, 회전 없이 옆으로 2m 오프셋된 임시 목표를 생성하고 state='bypass' 로 전환한다. bypass 상태에서는 해당 목표를 향해 이동하고, 목표 도달 혹은 TTC가 안전해지면 state를 'normal' 로 복귀한다. 정상 상태에서는 기존 waypoint‑추적·repulsion·속도 스케일링을 유지한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c2t44_s89333205: 충돌 t=12.483 s, mover_00 상대 위치 [-0.97,0.2] (거리≈1 m), 접근 속도 0.56 m/s, 로봇 속도 0.09 m/s\",\n    \"c2t44_s830573644: 충돌 t=14.583 s, mover_00 상대 위치 [-0.37,-0.55] (거리≈0.66 m), 접근 속도 0.27 m/s, 로봇 속도 0.08 m/s\",\n    \"c2t44_s1687967877: 정지·제자리 회전 22회, first_not_on_map 2 m 안에 물체 탐지 t≈63.85 s 이후에도 회전 지속, 목표까지 32 m 남아 스톨 발생\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"_detect_critical이 물체를 _CRITICAL_DIST(0.8 m) 안에서 감지해 회피 회전을 시작한다\",\n      \"holds\": false,\n      \"why\": \"first_not_on_map 기록에 물체가 2 m 안에 보였지만 충돌 시점까지 0.8 m 이내 감지가 이루어지지 않아 회피가 늦어짐\"\n    },\n    {\n      \"assumption\": \"0.5 s 회전(_AVOID_ROT_SPEED 1.2 rad/s)으로 충분히 방향을 바꾸면 충돌을 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"충돌이 발생한 두 경우 모두 회전 후에도 물체와 근접해 정면 충돌이 발생, 회전 시간·각도가 부족함\"\n    },\n    {\n      \"assumption\": \"역제곱 거리 가중치의 _repulsive_vector가 waypoint 방향과 결합하면 물체를 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"충돌 시점에 가장 가까운 moving point 거리 0.66~1 m이었음에도 repulsion이 충분히 큰 회피 방향을 만들지 못함\"\n    },\n    {\n      \"assumption\": \"nearest 거리 기반 속도 스케일링(_MAX_SPEED * nearest/_SAFE_DIST)으로 충분히 감속하면 충돌을 방지한다\",\n      \"holds\": false,\n      \"why\": \"충돌 직전 로봇 속도가 0.08~0.09 m/s에 머물며 물체와의 닫히는 속도가 여전히 양수라 정지 거리를 확보하지 못함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"no control\",\n      \"turns\": \"0\",\n      \"result\": \"1/10 pass\"\n    },\n    {\n      \"family\": \"simple front stop‑turn\",\n      \"turns\": \"1,5\",\n      \"result\": \"6/20 pass (30% success)\"\n    },\n    {\n      \"family\": \"wall detection fix\",\n      \"turns\": \"2\",\n      \"result\": \"7/10 pass (70% success)\"\n    },\n    {\n      \"family\": \"expanded detection + immediate stop/rotate\",\n      \"turns\": \"4,6,9,14,16,17,20,23,24,27,30,31,33,34,35\",\n      \"result\": \"15 attempts, 3 passes (only turn 14 had 3/6 pass)\"\n    },\n    {\n      \"family\": \"stop‑wait state\",\n      \"turns\": \"10,11,12,18,22,38\",\n      \"result\": \"6 attempts, 0 pass\"\n    },\n    {\n      \"family\": \"backward retreat + rotate\",\n      \"turns\": \"8,28\",\n      \"result\": \"2 attempts, 6/13 passes (turn 8: 6/10, turn 28: 0/3)\"\n    },\n    {\n      \"family\": \"consecutive detection & reduced cone\",\n      \"turns\": \"13,19,21,30\",\n      \"result\": \"4 attempts, 2 passes (turn 13: 2/5)\"\n    },\n    {\n      \"family\": \"bypass waypoint generation\",\n      \"turns\": \"41\",\n      \"result\": \"1 attempt, 0 pass\"\n    },\n    {\n      \"family\": \"RVO‑style sampled velocity selection\",\n      \"turns\": \"42\",\n      \"result\": \"1 attempt, 0 pass\"\n    },\n    {\n      \"family\": \"state machine with critical_stop\",\n      \"turns\": \"39,43\",\n      \"result\": \"2 attempts, 0 pass\"\n    },\n    {\n      \"family\": \"moving persistence time\",\n      \"turns\": \"37\",\n      \"result\": \"1 attempt, 0 pass\"\n    },\n    {\n      \"family\": \"repulsion only (no state)\",\n      \"turns\": \"44\",\n      \"result\": \"1 attempt, 0 pass\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"두 번 연속 라이다 스캔으로 물체 속도 추정 후 TTC(time‑to‑collision) 계산, TTC < 1.5 s이면 정지 후 2 m 옆으로 우회 목표 생성\",\n      \"new_family\": true,\n      \"for\": \"충돌을 사전에 예측해 회피 시점을 앞당김\",\n      \"risk\": \"속도 추정 오차가 있으면 불필요한 회피 또는 놓침 발생\"\n    },\n    {\n      \"idea\": \"V_SAMPLES·W_SAMPLES 로 후보 (v,w) 샘플링, 각 후보를 0.6 s horizon에 물체 위치 선형 예측해 충돌 여부 검사, 안전한 후보 선택\",\n      \"new_family\": true,\n      \"for\": \"다중 후보 중 안전한 속도 선택으로 급격 회전 없이 회피\",\n      \"risk\": \"계산량 증가와 과보수적 선택으로 진행 속도 감소 가능\"\n    },\n    {\n      \"idea\": \"동적 물체의 예측 궤적을 고려한 전역 우회 경로 생성(A*) 후 임시 경유점으로 이동, 목표 도달 후 원래 경로 복귀\",\n      \"new_family\": true,\n      \"for\": \"정적인 지도와 움직이는 물체를 모두 고려한 우회 경로 제공\",\n      \"risk\": \"우회 경로가 과도하게 길어 시간 초과, 구현 복잡도 상승\"\n    }\n  ],\n  \"chosen\": \"Candidate 1: TTC 기반 예측 회피를 선택, 왜냐하면 현재 감지가 늦고 회전·정지 시간이 부족해 충돌이 발생하므로 사전 예측으로 회피 시점을 앞당길 수 있기 때문\",\n  \"target\": \"controller (새로운 예측 TTC 회피 로직 및 _estimate_moving_objects 연동)\",\n  \"direction\": \"controller 초기화 시 state='normal', t_last_est=None, bypass_target=None을 만든다. 매 프레임 _estimate_moving_objects(pose,t) 로 moving_pts와 moving_vel를 얻는다. 각 점에 대해 로봇‑점 벡터와 relative velocity를 사용해 closing speed와 TTC를 계산한다. 가장 작은 TTC가 _TTC_THRESH(1.5s) 이하이면 v=0, 회전 없이 옆으로 2m 오프셋된 임시 목표를 생성하고 state='bypass' 로 전환한다. bypass 상태에서는 해당 목표를 향해 이동하고, 목표 도달 혹은 TTC가 안전해지면 state를 'normal' 로 복귀한다. 정상 상태에서는 기존 waypoint‑추적·repulsion·속도 스케일링을 유지한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t44_s1687967877",
+   "verdict": "fail",
+   "stall_abort_t": 67.3,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 63.85,
+   "goal_dist_m": 32.7285,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t44_s89333205",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.483,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.09m/s 회전 -0.4",
+   "partner_rel_xy": [
+    -0.97,
+    0.2
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 7.52,
+   "goal_dist_m": 32.3528,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t44_s830573644",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.583,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.08m/s",
+   "partner_rel_xy": [
+    -0.37,
+    -0.55
+   ],
+   "closing_m_s": 0.27,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 9.62,
+   "goal_dist_m": 32.2581,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

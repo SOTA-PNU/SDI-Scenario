@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG follow 가 지도에 막힘: 경로 여유 부족 t=29.02 stop_for=10.00 (연속 정지 10 s 이후 map_stop 트리거)",
+    "choose 로그 t=29.5~31.0: pick=follow map=0.27~0.35, 이후 계속 pick=stop map=0.27~0.81, 로봇이 전진하지 못함",
+    "lookahead_target 현재 구현: _base_loop_forward_target 반환 None → 반환 (pose) → base guard 판단 reason='too_near' → fallback 실패 → checked_zero → 반복 정지"
+  ],
+  "function": "lookahead_target",
+  "direction": "lookahead_target에서 _base_loop_forward_target가 None을 반환하면 현재 구현은 로봇 위치를 그대로 반환한다. 이는 base가 target을 'too_near' 로 판단해 정지와 map_stop을 유발한다. None일 경우 로봇 앞쪽 0.3 m(최소 앞거리) 만큼 전방으로 이동한 점을 반환하도록 수정하고, DBG 출력을 추가해 선택 이유를 기록한다.",
+  "not_to_change": "plan_path와 follow_cmd는 현재 동작에 문제가 없으므로 건드리지 않는다.",
+  "confidence": "medium"
+}

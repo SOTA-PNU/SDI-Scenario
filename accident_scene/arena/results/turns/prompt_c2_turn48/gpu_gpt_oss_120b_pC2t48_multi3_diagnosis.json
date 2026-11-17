@@ -1,0 +1,147 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t48_s2024330039: t=8.52 s에 0.72 m 거리, 11° 방향으로 물체 최초 감지 후 t=13.5 s에 충돌, 로봇 속도 0.11 m/s, closing speed 0.55 m/s",
+   "동일 실행에서 6번 정지·회전 구간(6.1~9.4 s 등) 후에도 물체와 거리 0.56 m 이하로 유지, 회피 미흡",
+   "DWA horizon 0.5 s와 _SAFE_DIST 0.5 m가 물체 0.55 m/s 속도에 대해 충분히 예측하지 못함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D 라이다로 2 m 이내 움직이는 물체를 reliably 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 8.5 s에 0.72 m 거리 물체가 감지됨"
+   },
+   {
+    "assumption": "0.5 s DWA horizon은 이동 물체 회피에 충분하다",
+    "holds": false,
+    "why": "충돌 전 물체는 0.5 s 내에 0.25 m 이동, 안전 거리 0.5 m 미만으로 충돌 발생"
+   },
+   {
+    "assumption": "critical distance 0.8 m에서 회전하면 충돌을 방지한다",
+    "holds": false,
+    "why": "충돌 전에도 물체가 0.8 m 이내였으나 회전만으로 회피 실패"
+   },
+   {
+    "assumption": "정지 후 1 s 대기 후 재시도는 물체가 지나가기에 충분하다",
+    "holds": false,
+    "why": "여러 stop‑wait 구간 후에도 물체가 여전히 근접, 결국 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "stop‑wait‑rotate (단순 감지)",
+    "turns": "1,4,5,6,8,9,11,12,13,14,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31",
+    "result": "총 48 시도 중 13개 pass (≈27%)"
+   },
+   {
+    "family": "DWA with moving‑object prediction",
+    "turns": "48",
+    "result": "0/1 pass"
+   },
+   {
+    "family": "lateral bypass waypoint",
+    "turns": "10,19,33,34,35,36,37,38,39,41",
+    "result": "0/10 pass"
+   },
+   {
+    "family": "repulsion‑vector / potential‑field",
+    "turns": "44,45,46,47",
+    "result": "0/4 pass"
+   },
+   {
+    "family": "static‑wall detection fix",
+    "turns": "2",
+    "result": "7/10 pass (버그 수정)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Velocity‑Obstacle(VO) 기반 속도 선택으로 DWA 교체",
+    "new_family": true,
+    "for": "동적인 물체와 상대 속도를 직접 고려해 안전한 속도 구함",
+    "risk": "VO 계산 및 파라미터 튜닝 복잡, 잘못된 VO가 과도한 정지를 유발 가능"
+   },
+   {
+    "idea": "DWA horizon 1.5 s로 연장하고 TTC 기반 속도 스케일링 적용",
+    "new_family": false,
+    "for": "현재 DWA가 너무 짧아 예측 부족",
+    "risk": "계산량 증가, 여전히 stop‑wait 루프 발생 가능"
+   },
+   {
+    "idea": "잠시 정지 후 고정 lateral speed 로 2 m 옆으로 이동하는 단순 bypass",
+    "new_family": false,
+    "for": "복잡한 VO 없이 빠른 회피",
+    "risk": "정적 장애물과 충돌 위험, 물체가 반대쪽에서 접근 시 실패"
+   }
+  ],
+  "chosen": "Velocity‑Obstacle 기반 속도 선택 (새로운 방법) – 움직이는 물체의 상대 속도를 직접 고려해 연속적인 회피가 가능하므로 기존 stop‑wait‑rotate와 DWA의 한계를 극복한다.",
+  "target": "controller (DWA 로직 교체 및 VO 함수 추가)",
+  "direction": "1) _estimate_moving_objects 로 현재 moving_pts와 moving_vels 얻는다. 2) 각 moving_pt에 대해 _compute_velocity_obstacle(p, v, horizon=2.0, radius=0.5) 를 구현해 금지 속도 집합을 만든다. 3) 모든 VO 를 합쳐 허용 속도 영역을 구하고, 목표 방향(waypoint)과 가장 가까운 속도(v,w)를 _select_safe_velocity 로 선택한다. 4) 선택된 (v,w) 가 없으면 v=0,w=0 로 정지하고 0.5 s 대기 후 재시도한다. 5) 기존 _detect_critical 은 유지해 긴급 정지 시 사용한다. 6) 새 함수들을 [EDIT REGION] 안에 추가하고 기존 DWA 루프를 삭제한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c2t48_s2024330039: t=8.52 s에 0.72 m 거리, 11° 방향으로 물체 최초 감지 후 t=13.5 s에 충돌, 로봇 속도 0.11 m/s, closing speed 0.55 m/s\",\n    \"동일 실행에서 6번 정지·회전 구간(6.1~9.4 s 등) 후에도 물체와 거리 0.56 m 이하로 유지, 회피 미흡\",\n    \"DWA horizon 0.5 s와 _SAFE_DIST 0.5 m가 물체 0.55 m/s 속도에 대해 충분히 예측하지 못함\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D 라이다로 2 m 이내 움직이는 물체를 reliably 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에서 8.5 s에 0.72 m 거리 물체가 감지됨\"\n    },\n    {\n      \"assumption\": \"0.5 s DWA horizon은 이동 물체 회피에 충분하다\",\n      \"holds\": false,\n      \"why\": \"충돌 전 물체는 0.5 s 내에 0.25 m 이동, 안전 거리 0.5 m 미만으로 충돌 발생\"\n    },\n    {\n      \"assumption\": \"critical distance 0.8 m에서 회전하면 충돌을 방지한다\",\n      \"holds\": false,\n      \"why\": \"충돌 전에도 물체가 0.8 m 이내였으나 회전만으로 회피 실패\"\n    },\n    {\n      \"assumption\": \"정지 후 1 s 대기 후 재시도는 물체가 지나가기에 충분하다\",\n      \"holds\": false,\n      \"why\": \"여러 stop‑wait 구간 후에도 물체가 여전히 근접, 결국 충돌\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"stop‑wait‑rotate (단순 감지)\",\n      \"turns\": \"1,4,5,6,8,9,11,12,13,14,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31\",\n      \"result\": \"총 48 시도 중 13개 pass (≈27%)\"\n    },\n    {\n      \"family\": \"DWA with moving‑object prediction\",\n      \"turns\": \"48\",\n      \"result\": \"0/1 pass\"\n    },\n    {\n      \"family\": \"lateral bypass waypoint\",\n      \"turns\": \"10,19,33,34,35,36,37,38,39,41\",\n      \"result\": \"0/10 pass\"\n    },\n    {\n      \"family\": \"repulsion‑vector / potential‑field\",\n      \"turns\": \"44,45,46,47\",\n      \"result\": \"0/4 pass\"\n    },\n    {\n      \"family\": \"static‑wall detection fix\",\n      \"turns\": \"2\",\n      \"result\": \"7/10 pass (버그 수정)\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Velocity‑Obstacle(VO) 기반 속도 선택으로 DWA 교체\",\n      \"new_family\": true,\n      \"for\": \"동적인 물체와 상대 속도를 직접 고려해 안전한 속도 구함\",\n      \"risk\": \"VO 계산 및 파라미터 튜닝 복잡, 잘못된 VO가 과도한 정지를 유발 가능\"\n    },\n    {\n      \"idea\": \"DWA horizon 1.5 s로 연장하고 TTC 기반 속도 스케일링 적용\",\n      \"new_family\": false,\n      \"for\": \"현재 DWA가 너무 짧아 예측 부족\",\n      \"risk\": \"계산량 증가, 여전히 stop‑wait 루프 발생 가능\"\n    },\n    {\n      \"idea\": \"잠시 정지 후 고정 lateral speed 로 2 m 옆으로 이동하는 단순 bypass\",\n      \"new_family\": false,\n      \"for\": \"복잡한 VO 없이 빠른 회피\",\n      \"risk\": \"정적 장애물과 충돌 위험, 물체가 반대쪽에서 접근 시 실패\"\n    }\n  ],\n  \"chosen\": \"Velocity‑Obstacle 기반 속도 선택 (새로운 방법) – 움직이는 물체의 상대 속도를 직접 고려해 연속적인 회피가 가능하므로 기존 stop‑wait‑rotate와 DWA의 한계를 극복한다.\",\n  \"target\": \"controller (DWA 로직 교체 및 VO 함수 추가)\",\n  \"direction\": \"1) _estimate_moving_objects 로 현재 moving_pts와 moving_vels 얻는다. 2) 각 moving_pt에 대해 _compute_velocity_obstacle(p, v, horizon=2.0, radius=0.5) 를 구현해 금지 속도 집합을 만든다. 3) 모든 VO 를 합쳐 허용 속도 영역을 구하고, 목표 방향(waypoint)과 가장 가까운 속도(v,w)를 _select_safe_velocity 로 선택한다. 4) 선택된 (v,w) 가 없으면 v=0,w=0 로 정지하고 0.5 s 대기 후 재시도한다. 5) 기존 _detect_critical 은 유지해 긴급 정지 시 사용한다. 6) 새 함수들을 [EDIT REGION] 안에 추가하고 기존 DWA 루프를 삭제한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c2t48_s2024330039",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.5,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.11m/s",
+   "partner_rel_xy": [
+    0.29,
+    0.59
+   ],
+   "closing_m_s": 0.55,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 8.52,
+   "goal_dist_m": 31.3245,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t48_s963631623",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 10.9,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.33,
+    0.58
+   ],
+   "closing_m_s": 0.55,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 5.95,
+   "goal_dist_m": 31.4845,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t48_s532915078",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.583,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +1.2rad/s",
+   "partner_rel_xy": [
+    0.1,
+    0.56
+   ],
+   "closing_m_s": 0.55,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 4.65,
+   "goal_dist_m": 32.0396,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

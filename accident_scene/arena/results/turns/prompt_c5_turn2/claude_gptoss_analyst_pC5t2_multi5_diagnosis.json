@@ -1,0 +1,187 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t2_s710245117: t=105.3 s에서 충돌 발생, 로봇 속도 0.05 m/s, mover_00 위치 (0.35, ‑0.48) m, 닫히는 속도 0.44 m/s, 약 100 s에 시작된 정지 후 약 103 s에 재개 후 충돌.",
+   "pause 로직은 t < pause_until 일 때만 안전 여부를 검사하고, pause 종료 후에는 안전 검사를 하지 않아 로봇이 mover가 _SAFE_DIST(1.5 m) 안에 있을 때도 주행을 재개한다 (first_not_on_map에 t≈102.5 s에 0.41 m 거리 기록).",
+   "다른 실행에서는 모두 통과했으며, 충돌은 mover가 1 m 이내에서 처음 감지되고 로봇이 정지 상태였을 때만 발생해, 정지 후 너무 일찍 재개한 것이 원인임을 알 수 있다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 짧은 예측 구간 동안 일정 속도로 직선 이동한다.",
+    "holds": true,
+    "why": "코드가 선형 속도 예측을 사용하고 실행 로그에 비선형 움직임 증거가 없음"
+   },
+   {
+    "assumption": "동적 정지 후 pause_until가 끝날 때 mover가 _SAFE_DIST(1.5 m) 밖으로 이동한다.",
+    "holds": false,
+    "why": "collision 실행에서 pause 종료 시점에 mover가 0.41 m 거리까지 접근함"
+   },
+   {
+    "assumption": "margin 검사(base 0.15 m)에서 hold < 0이면 즉시 회피가 필요하다.",
+    "holds": false,
+    "why": "충돌 전 hold가 음수가 아니었음에도 위험 상황이 발생함"
+   },
+   {
+    "assumption": "2D 라이다와 클러스터링은 8 m 이내의 mover를 정확히 감지한다.",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 1.8 m 거리까지 mover를 인식함"
+   },
+   {
+    "assumption": "pause가 끝난 뒤 다시 안전 검사를 하지 않아도 된다.",
+    "holds": false,
+    "why": "충돌 실행에서 pause 후 안전 검사를 하지 않아 충돌 발생"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static_pause_fixed_1s",
+    "turns": [
+     0
+    ],
+    "result": "1/4 통과, 3번 충돌"
+   },
+   {
+    "family": "static_pause_detection",
+    "turns": [
+     1
+    ],
+    "result": "1/4 통과, 3번 충돌"
+   },
+   {
+    "family": "dynamic_pause_ttc",
+    "turns": [
+     2
+    ],
+    "result": "4/5 통과, 1번 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "동적 정지 후 pause_until가 끝날 때까지 _should_pause를 재검사하고, 여전히 위험하면 pause_until를 연장한다.",
+    "new_family": false,
+    "for": "정지 후에도 mover가 가까이 있으면 재개를 방지",
+    "risk": "정지 시간이 길어져 전체 시간 초과 위험"
+   },
+   {
+    "idea": "mover가 _SAFE_DIST 이내에 들어오면 즉시 _plan_detour 로 측면 우회점을 생성하고 그 경로를 따라 회피한다, pause 로직보다 우선한다.",
+    "new_family": true,
+    "for": "정지 중에도 회피를 수행해 충돌 방지",
+    "risk": "우회점이 정적 장애물에 막히면 회피 실패, 이동 거리 증가"
+   },
+   {
+    "idea": "velocity‑obstacle 기반 실시간 속도 계획을 도입해 모든 mover를 고려한 안전 속도를 매 프레임 계산한다.",
+    "new_family": true,
+    "for": "다중 mover 상황에서도 수학적으로 안전한 속도 선택",
+    "risk": "계산량이 늘어나 1/60 s 주기에 맞추기 어려울 수 있다"
+   }
+  ],
+  "chosen": "Candidate 2 – mover가 _SAFE_DIST 안에 들어오면 즉시 detour을 생성해 회피하도록 우선순위를 바꾸는 것이 충돌을 방지하는 가장 직접적인 해결책이다.",
+  "target": "controller 함수 (pause와 evasion 로직)",
+  "direction": "1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\"detour\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\"detour\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\"detour\"][0]-x, st[\"detour\"][1]-y) < 0.4`) `st[\"detour\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t2_s710245117: t=105.3 s에서 충돌 발생, 로봇 속도 0.05 m/s, mover_00 위치 (0.35, ‑0.48) m, 닫히는 속도 0.44 m/s, 약 100 s에 시작된 정지 후 약 103 s에 재개 후 충돌.\",\n    \"pause 로직은 t < pause_until 일 때만 안전 여부를 검사하고, pause 종료 후에는 안전 검사를 하지 않아 로봇이 mover가 _SAFE_DIST(1.5 m) 안에 있을 때도 주행을 재개한다 (first_not_on_map에 t≈102.5 s에 0.41 m 거리 기록).\",\n    \"다른 실행에서는 모두 통과했으며, 충돌은 mover가 1 m 이내에서 처음 감지되고 로봇이 정지 상태였을 때만 발생해, 정지 후 너무 일찍 재개한 것이 원인임을 알 수 있다.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 짧은 예측 구간 동안 일정 속도로 직선 이동한다.\",\n      \"holds\": true,\n      \"why\": \"코드가 선형 속도 예측을 사용하고 실행 로그에 비선형 움직임 증거가 없음\"\n    },\n    {\n      \"assumption\": \"동적 정지 후 pause_until가 끝날 때 mover가 _SAFE_DIST(1.5 m) 밖으로 이동한다.\",\n      \"holds\": false,\n      \"why\": \"collision 실행에서 pause 종료 시점에 mover가 0.41 m 거리까지 접근함\"\n    },\n    {\n      \"assumption\": \"margin 검사(base 0.15 m)에서 hold < 0이면 즉시 회피가 필요하다.\",\n      \"holds\": false,\n      \"why\": \"충돌 전 hold가 음수가 아니었음에도 위험 상황이 발생함\"\n    },\n    {\n      \"assumption\": \"2D 라이다와 클러스터링은 8 m 이내의 mover를 정확히 감지한다.\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에서 1.8 m 거리까지 mover를 인식함\"\n    },\n    {\n      \"assumption\": \"pause가 끝난 뒤 다시 안전 검사를 하지 않아도 된다.\",\n      \"holds\": false,\n      \"why\": \"충돌 실행에서 pause 후 안전 검사를 하지 않아 충돌 발생\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"static_pause_fixed_1s\",\n      \"turns\": [0],\n      \"result\": \"1/4 통과, 3번 충돌\"\n    },\n    {\n      \"family\": \"static_pause_detection\",\n      \"turns\": [1],\n      \"result\": \"1/4 통과, 3번 충돌\"\n    },\n    {\n      \"family\": \"dynamic_pause_ttc\",\n      \"turns\": [2],\n      \"result\": \"4/5 통과, 1번 충돌\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"동적 정지 후 pause_until가 끝날 때까지 _should_pause를 재검사하고, 여전히 위험하면 pause_until를 연장한다.\",\n      \"new_family\": false,\n      \"for\": \"정지 후에도 mover가 가까이 있으면 재개를 방지\",\n      \"risk\": \"정지 시간이 길어져 전체 시간 초과 위험\"\n    },\n    {\n      \"idea\": \"mover가 _SAFE_DIST 이내에 들어오면 즉시 _plan_detour 로 측면 우회점을 생성하고 그 경로를 따라 회피한다, pause 로직보다 우선한다.\",\n      \"new_family\": true,\n      \"for\": \"정지 중에도 회피를 수행해 충돌 방지\",\n      \"risk\": \"우회점이 정적 장애물에 막히면 회피 실패, 이동 거리 증가\"\n    },\n    {\n      \"idea\": \"velocity‑obstacle 기반 실시간 속도 계획을 도입해 모든 mover를 고려한 안전 속도를 매 프레임 계산한다.\",\n      \"new_family\": true,\n      \"for\": \"다중 mover 상황에서도 수학적으로 안전한 속도 선택\",\n      \"risk\": \"계산량이 늘어나 1/60 s 주기에 맞추기 어려울 수 있다\"\n    }\n  ],\n  \"chosen\": \"Candidate 2 – mover가 _SAFE_DIST 안에 들어오면 즉시 detour을 생성해 회피하도록 우선순위를 바꾸는 것이 충돌을 방지하는 가장 직접적인 해결책이다.\",\n  \"target\": \"controller 함수 (pause와 evasion 로직)\",\n  \"direction\": \"1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\\\"detour\\\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\\\"detour\\\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\\\"detour\\\"][0]-x, st[\\\"detour\\\"][1]-y) < 0.4`) `st[\\\"detour\\\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c5t2_s1758106708",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 174.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 63,
+   "first_seen_within_2m_t": 168.45,
+   "goal_dist_m": 0.1328,
+   "time_to_goal_s": 170.317
+  },
+  {
+   "run": "c5t2_s710245117",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 425.6,
+   "sim_time_s": 111.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 105.3,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.05m/s",
+   "partner_rel_xy": [
+    0.35,
+    -0.48
+   ],
+   "closing_m_s": 0.44,
+   "stop_turns": 31,
+   "first_seen_within_2m_t": 100.32,
+   "goal_dist_m": 31.2095,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t2_s1995454053",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 314.3,
+   "sim_time_s": 79.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2042,
+   "time_to_goal_s": 73.917
+  },
+  {
+   "run": "c5t2_s1032185615",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 234.9,
+   "sim_time_s": 145.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 60,
+   "first_seen_within_2m_t": 139.42,
+   "goal_dist_m": 0.1335,
+   "time_to_goal_s": 141.017
+  },
+  {
+   "run": "c5t2_s1012725441",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 89.6,
+   "sim_time_s": 88.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1191,
+   "time_to_goal_s": 81.767
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

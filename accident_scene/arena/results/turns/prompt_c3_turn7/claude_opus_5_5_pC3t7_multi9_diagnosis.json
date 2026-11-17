@@ -1,0 +1,250 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "9개 배치가 모두 pass 했지만 sim_time 이 51.9–76.2 s(평균 약 66.8 s)라 합계 601 s 에서 예산이 끝났습니다. 9번째 s1854734742 는 time_limit 68.4 s 에 69.0 s 를 써서 10번째 배치는 돌지 못했습니다.",
+   "도착이 늦은 실행일수록 정지 시간이 깁니다. s957620606 은 t_stop 2.1 s 로 48.97 s 에 도착했고, s210528907 은 t_stop 19.6 s 로 73.18 s, s138025367 은 t_stop 19.1 s 로 70.17 s 에 도착했습니다. 정지의 일부는 회전(w≥0.9) 직후 박스 08 모서리에서 약 0.55 m 떨어진 같은 자리 (2.47~2.53, 13.81~13.93) 에 생긴 미성숙 유령 트랙 때문입니다. s1214486983 t=43.48, s1799584805 t=49.98, s138025367 t=53.48, s415373947 t=42.48, s210528907 t=54.98 에서 모두 fix(0.0) 이 선택됐습니다.",
+   "모서리마다 속도가 크게 떨어집니다(s2108275793 t=42.48–43.48 v0 0.59→0.16→1.15). 끝부분도 9개 실행 모두 같은 형태로 time_to_goal 뒤 약 3 s 를 더 씁니다: 0.46 m/s 까지 감속하는 데 약 1.5 s, 제자리 정렬 회전에 1.1 s 입니다(예: s2108275793 58.55→61.5 s)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "안전 규칙만 지키면 경유점 주행 시간이 60 s 예산 안에 들어간다",
+    "holds": false,
+    "why": "경로 약 44 m 를 1.2 m/s 로 달리면 모서리 손실을 빼고도 약 43 s 입니다. 실측 대기·감속(t_stop 2–20 s, t_slow 11–19 s)을 더하면 평균 66.8 s 가 됩니다."
+   },
+   {
+    "assumption": "0.4 m 마스크로 정적 구조물 유령 트랙이 충분히 걸러진다",
+    "holds": false,
+    "why": "회전 중 스캔이 번져 박스 모서리에서 0.5–0.56 m 떨어진 (2.47,13.86), (3.05,11.98), (-0.68,10.45) 에 미성숙 트랙이 반복해 생기고 정지·감속을 일으킵니다."
+   },
+   {
+    "assumption": "모서리마다 감속·제자리 회전하고 끝에서 d<0.5·|yaw|<0.1 까지 맞춰도 시간 손실이 작다",
+    "holds": false,
+    "why": "합격 허용치는 0.75 m·0.26 rad 입니다. 그런데 모든 실행이 도착 뒤 약 3 s 를 더 쓰고, 모서리마다 v0 가 0.1–0.6 까지 떨어집니다."
+   },
+   {
+    "assumption": "등속+관측 구간 반사 예측과 0.8 m 여유로 충돌을 막을 수 있다",
+    "holds": true,
+    "why": "9개 배치 모두 충돌 0회입니다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "경유점만 주행(센서 없음)",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "전방 거리 정지·후퇴 반응형",
+    "turns": "1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙 추적+예측 rollout 후보 선택",
+    "turns": "2,3,6,7",
+    "result": "6/7, 6/9, 7/8, 9/9 이지만 매 턴 예산 초과로 턴 통과 0"
+   },
+   {
+    "family": "교차 통로 규칙·통과 래치",
+    "turns": "4,5",
+    "result": "0/3, 2/5"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "주행 기하 효율화: lookahead 로 모서리를 돌며 통과, 끝맺음 완화, 회전 중 먼 새 트랙 생성 금지",
+    "new_family": true,
+    "for": "안전 판단을 건드리지 않고 모서리 손실(코너당 약 1 s×5), 끝 꼬리(약 1.5 s), 유령 정지(실행당 1–2 s)를 줄입니다.",
+    "risk": "모서리를 0.3 m 정도 안쪽으로 자르므로 정적 여유가 줄고, 회전 중 처음 보인 먼 물체의 추적이 조금 늦어집니다."
+   },
+   {
+    "idea": "여유 간격을 τ 에 따라 키우기(0.15+0.1τ)와 후진 축소",
+    "new_family": false,
+    "for": "통로 앞 대기·후진(실행당 4–7 s)을 직접 줄입니다.",
+    "risk": "근거리 여유가 줄어 충돌이 다시 생길 수 있습니다. 지금까지 충돌을 막아 온 값입니다."
+   },
+   {
+    "idea": "주변에 트랙이 없을 때만 path(1.5) 고속 후보",
+    "new_family": false,
+    "for": "직선 16.6 m 구간 등에서 실행당 약 3–4 s 를 줄일 수 있습니다.",
+    "risk": "로봇 속도 상한이 1.5 m/s 에 못 미치면 효과가 없고, 늦게 보인 물체에 대한 제동 여유가 줄어듭니다."
+   }
+  ],
+  "chosen": "후보 1 에 조건부 고속(후보 3)을 더합니다. 충돌 0 인 안전 로직과 여유값은 그대로 두고 실행당 약 8–10 s 를 줄일 수 있기 때문입니다. 실패가 쌓인 rollout 계열 안의 선택이지만, 이번 실패는 안전이 아니라 시간입니다.",
+  "target": "_pursuit_cmd, controller(정렬·done·prim), _update_tracks",
+  "direction": "1) _pursuit_cmd 는 현재 선분 위 투영점에서 경유점 폴리라인을 따라 0.8 m 앞의 점을 추종합니다. 방향 오차가 1.2 rad 를 넘을 때만 제자리 회전하고, 0.35 rad 를 넘으면 v=vcap·cos(e), 다음 모서리까지 1.0 m 안이면 vcap≤0.7 로 둡니다. idx 는 투영점이 경유점을 지나면 올리며, _rollout 도 같은 함수를 씁니다. 2) 마지막 구간 감속은 min(vmax, 1.0·d+0.2) 로 바꿉니다. GOAL 0.6 m 안이면 정렬만 하고 0.7 m 밖으로 밀려날 때만 추종으로 돌아갑니다. 정렬 회전은 ±1.5 rad/s 로 하고 |yaw 오차|<0.2 이면 done 합니다. 3) prim 맨 앞에 path(1.5) 를 넣되, 모든 트랙이 로봇에서 3.5 m 밖이고 미성숙 트랙이 없을 때만 허용하며, 그 밖의 선택 규칙은 지금대로 둡니다. 4) _update_tracks 에서는 회전 속도가 0.6 rad/s 를 넘는 스캔의 경우 로봇에서 2.0 m 밖에 있는 짝 없는 덩어리로 새 트랙을 만들지 않습니다(2.0 m 안은 지금처럼 만듭니다). 5) 경유점 좌표, _MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측은 그대로 두고, 물체 위치·구간·속도·시각 상수는 넣지 않습니다. DBG 줄 끝에는 누적 제자리 회전 시간과 path(1.5) 시간을 덧붙입니다.",
+  "confidence": "medium"
+ },
+ "raw": "{\"failure_mode\": \"timeout\",\n \"evidence\": [\"9개 배치가 모두 pass 했지만 sim_time 이 51.9–76.2 s(평균 약 66.8 s)라 합계 601 s 에서 예산이 끝났습니다. 9번째 s1854734742 는 time_limit 68.4 s 에 69.0 s 를 써서 10번째 배치는 돌지 못했습니다.\", \"도착이 늦은 실행일수록 정지 시간이 깁니다. s957620606 은 t_stop 2.1 s 로 48.97 s 에 도착했고, s210528907 은 t_stop 19.6 s 로 73.18 s, s138025367 은 t_stop 19.1 s 로 70.17 s 에 도착했습니다. 정지의 일부는 회전(w≥0.9) 직후 박스 08 모서리에서 약 0.55 m 떨어진 같은 자리 (2.47~2.53, 13.81~13.93) 에 생긴 미성숙 유령 트랙 때문입니다. s1214486983 t=43.48, s1799584805 t=49.98, s138025367 t=53.48, s415373947 t=42.48, s210528907 t=54.98 에서 모두 fix(0.0) 이 선택됐습니다.\", \"모서리마다 속도가 크게 떨어집니다(s2108275793 t=42.48–43.48 v0 0.59→0.16→1.15). 끝부분도 9개 실행 모두 같은 형태로 time_to_goal 뒤 약 3 s 를 더 씁니다: 0.46 m/s 까지 감속하는 데 약 1.5 s, 제자리 정렬 회전에 1.1 s 입니다(예: s2108275793 58.55→61.5 s).\"],\n \"assumptions\": [{\"assumption\": \"안전 규칙만 지키면 경유점 주행 시간이 60 s 예산 안에 들어간다\", \"holds\": false, \"why\": \"경로 약 44 m 를 1.2 m/s 로 달리면 모서리 손실을 빼고도 약 43 s 입니다. 실측 대기·감속(t_stop 2–20 s, t_slow 11–19 s)을 더하면 평균 66.8 s 가 됩니다.\"},\n  {\"assumption\": \"0.4 m 마스크로 정적 구조물 유령 트랙이 충분히 걸러진다\", \"holds\": false, \"why\": \"회전 중 스캔이 번져 박스 모서리에서 0.5–0.56 m 떨어진 (2.47,13.86), (3.05,11.98), (-0.68,10.45) 에 미성숙 트랙이 반복해 생기고 정지·감속을 일으킵니다.\"},\n  {\"assumption\": \"모서리마다 감속·제자리 회전하고 끝에서 d<0.5·|yaw|<0.1 까지 맞춰도 시간 손실이 작다\", \"holds\": false, \"why\": \"합격 허용치는 0.75 m·0.26 rad 입니다. 그런데 모든 실행이 도착 뒤 약 3 s 를 더 쓰고, 모서리마다 v0 가 0.1–0.6 까지 떨어집니다.\"},\n  {\"assumption\": \"등속+관측 구간 반사 예측과 0.8 m 여유로 충돌을 막을 수 있다\", \"holds\": true, \"why\": \"9개 배치 모두 충돌 0회입니다.\"}],\n \"approach_families\": [{\"family\": \"경유점만 주행(센서 없음)\", \"turns\": \"0\", \"result\": \"0/3\"},\n  {\"family\": \"전방 거리 정지·후퇴 반응형\", \"turns\": \"1\", \"result\": \"0/3\"},\n  {\"family\": \"트랙 추적+예측 rollout 후보 선택\", \"turns\": \"2,3,6,7\", \"result\": \"6/7, 6/9, 7/8, 9/9 이지만 매 턴 예산 초과로 턴 통과 0\"},\n  {\"family\": \"교차 통로 규칙·통과 래치\", \"turns\": \"4,5\", \"result\": \"0/3, 2/5\"}],\n \"candidates\": [{\"idea\": \"주행 기하 효율화: lookahead 로 모서리를 돌며 통과, 끝맺음 완화, 회전 중 먼 새 트랙 생성 금지\", \"new_family\": true, \"for\": \"안전 판단을 건드리지 않고 모서리 손실(코너당 약 1 s×5), 끝 꼬리(약 1.5 s), 유령 정지(실행당 1–2 s)를 줄입니다.\", \"risk\": \"모서리를 0.3 m 정도 안쪽으로 자르므로 정적 여유가 줄고, 회전 중 처음 보인 먼 물체의 추적이 조금 늦어집니다.\"},\n  {\"idea\": \"여유 간격을 τ 에 따라 키우기(0.15+0.1τ)와 후진 축소\", \"new_family\": false, \"for\": \"통로 앞 대기·후진(실행당 4–7 s)을 직접 줄입니다.\", \"risk\": \"근거리 여유가 줄어 충돌이 다시 생길 수 있습니다. 지금까지 충돌을 막아 온 값입니다.\"},\n  {\"idea\": \"주변에 트랙이 없을 때만 path(1.5) 고속 후보\", \"new_family\": false, \"for\": \"직선 16.6 m 구간 등에서 실행당 약 3–4 s 를 줄일 수 있습니다.\", \"risk\": \"로봇 속도 상한이 1.5 m/s 에 못 미치면 효과가 없고, 늦게 보인 물체에 대한 제동 여유가 줄어듭니다.\"}],\n \"chosen\": \"후보 1 에 조건부 고속(후보 3)을 더합니다. 충돌 0 인 안전 로직과 여유값은 그대로 두고 실행당 약 8–10 s 를 줄일 수 있기 때문입니다. 실패가 쌓인 rollout 계열 안의 선택이지만, 이번 실패는 안전이 아니라 시간입니다.\",\n \"target\": \"_pursuit_cmd, controller(정렬·done·prim), _update_tracks\",\n \"direction\": \"1) _pursuit_cmd 는 현재 선분 위 투영점에서 경유점 폴리라인을 따라 0.8 m 앞의 점을 추종합니다. 방향 오차가 1.2 rad 를 넘을 때만 제자리 회전하고, 0.35 rad 를 넘으면 v=vcap·cos(e), 다음 모서리까지 1.0 m 안이면 vcap≤0.7 로 둡니다. idx 는 투영점이 경유점을 지나면 올리며, _rollout 도 같은 함수를 씁니다. 2) 마지막 구간 감속은 min(vmax, 1.0·d+0.2) 로 바꿉니다. GOAL 0.6 m 안이면 정렬만 하고 0.7 m 밖으로 밀려날 때만 추종으로 돌아갑니다. 정렬 회전은 ±1.5 rad/s 로 하고 |yaw 오차|<0.2 이면 done 합니다. 3) prim 맨 앞에 path(1.5) 를 넣되, 모든 트랙이 로봇에서 3.5 m 밖이고 미성숙 트랙이 없을 때만 허용하며, 그 밖의 선택 규칙은 지금대로 둡니다. 4) _update_tracks 에서는 회전 속도가 0.6 rad/s 를 넘는 스캔의 경우 로봇에서 2.0 m 밖에 있는 짝 없는 덩어리로 새 트랙을 만들지 않습니다(2.0 m 안은 지금처럼 만듭니다). 5) 경유점 좌표, _MOVER_R, _MOVER_GAP, 성숙 기준, 반사 예측은 그대로 두고, 물체 위치·구간·속도·시각 상수는 넣지 않습니다. DBG 줄 끝에는 누적 제자리 회전 시간과 path(1.5) 시간을 덧붙입니다.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c3t7_s2108275793",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 61.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 55.55,
+   "goal_dist_m": 0.4351,
+   "time_to_goal_s": 58.55
+  },
+  {
+   "run": "c3t7_s957620606",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 538.5,
+   "sim_time_s": 51.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 45.95,
+   "goal_dist_m": 0.4308,
+   "time_to_goal_s": 48.967
+  },
+  {
+   "run": "c3t7_s1708664942",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 486.6,
+   "sim_time_s": 68.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 62.35,
+   "goal_dist_m": 0.4309,
+   "time_to_goal_s": 65.35
+  },
+  {
+   "run": "c3t7_s1214486983",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 418.2,
+   "sim_time_s": 67.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 61.02,
+   "goal_dist_m": 0.4251,
+   "time_to_goal_s": 64.033
+  },
+  {
+   "run": "c3t7_s1799584805",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 351.2,
+   "sim_time_s": 67.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 61.4,
+   "goal_dist_m": 0.4349,
+   "time_to_goal_s": 64.483
+  },
+  {
+   "run": "c3t7_s138025367",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 283.8,
+   "sim_time_s": 73.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 67.15,
+   "goal_dist_m": 0.4319,
+   "time_to_goal_s": 70.167
+  },
+  {
+   "run": "c3t7_s210528907",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 210.7,
+   "sim_time_s": 76.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 70.25,
+   "goal_dist_m": 0.4396,
+   "time_to_goal_s": 73.183
+  },
+  {
+   "run": "c3t7_s415373947",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 134.5,
+   "sim_time_s": 66.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 60.1,
+   "goal_dist_m": 0.4317,
+   "time_to_goal_s": 63.117
+  },
+  {
+   "run": "c3t7_s1854734742",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 68.4,
+   "sim_time_s": 69.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 62.95,
+   "goal_dist_m": 0.4403,
+   "time_to_goal_s": 66.017
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

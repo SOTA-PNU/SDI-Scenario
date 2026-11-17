@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 원인은 코드가 센서를 읽지 않아, 1 m 안에 들어온 mover_00 을 보고도 앞으로 들이받은 것입니다. 그래서 진단의 `direction` 대로 새 함수 `_movers_robot_frame()` 을 넣었습니다. 이 함수는 앞·뒤 2D 라이다 점에서 정적 지도 점을 빼고, 0.3 m 안에 3점 이상 모인 덩어리만 움직이는 물체로 인정합니다. 정적 지도 점은 WALLS 안쪽 0.2 m 띠와 바깥, 그리고 0.2 m 부풀린 MISSION boxes·FIXED_OBSTACLES 안의 점입니다. 속도 결정부에서는 전진을 `v=min(v_wp, 0.8, 0.8*(d_front-0.9))`(0 미만이면 0)로 바꾸고 회전을 ±1.2 rad/s 로 줄였습니다. 몸체에서 0.9 m 안에 물체가 있으면 제자리 회전을 멈추고, 앞·옆 0.7 m 안에 물체가 들어오면 1.2 m 밖으로 나갈 때까지 0.3 m/s 로 후진합니다(이때 뒤 0.45 m 안에 어떤 점이든 있으면 후진하지 않음). 그 밖에 센서가 들어오기 전에는 움직이지 않고, 정렬 단계에서 후진으로 GOAL 에서 0.45 m 넘게 밀려나면 마지막 경유점 추종으로 돌아갑니다.\n\n```python\n_STATIC_RECTS = np.array(\n    [(b[\"x\"] - b[\"width\"] / 2.0 - 0.2, b[\"x\"] + b[\"width\"] / 2.0 + 0.2,\n      b[\"y\"] - b[\"depth\"] / 2.0 - 0.2, b[\"y\"] + b[\"depth\"] / 2.0 + 0.2) for b in MISSION[\"boxes\"]]\n    + [(x0 - 0.2, x1 + 0.2, y0 - 0.2, y1 + 0.2) for _, x0, x1, y0, y1 in FIXED_OBSTACLES],\n    dtype=np.float64)\n\n\ndef _body_dist(p):\n    \"\"\"로봇 기준 점 (N, 2) 각각의 몸체 사각형 _BODY 바깥면까지 거리.\"\"\"\n    dx = np.maximum(np.maximum(_BODY[0] - p[:, 0], p[:, 0] - _BODY[1]), 0.0)\n    dy = np.maximum(np.maximum(_BODY[2] - p[:, 1], p[:, 1] - _BODY[3]), 0.0)\n    return np.hypot(dx, dy)\n\n\ndef _movers_robot_frame(pose):\n    \"\"\"앞·뒤 2D 라이다 점에서 정적 지도(WALLS 띠·바깥, 0.2 m 부풀린 boxes/FIXED_OBSTACLES)를 빼고,\n    0.3 m 안에 3점 이상 모인 점만 움직이는 물체로 남겨 로봇 기준 (K, 2) 로 돌려줍니다.\n    반환: (물체 점, 3 m 안의 전체 라이다 점(로봇 기준), 스캔 수신 여부).\"\"\"\n    scans = [lidar2d_points(\"front\"), lidar2d_points(\"back\")]\n    scans = [s for s in scans if s is not None and len(s) > 0]\n    empty = np.zeros((0, 2))\n    if not scans:\n        return empty, empty, False\n    rob = np.concatenate(scans, axis=0)\n    rob = rob[np.hypot(rob[:, 0], rob[:, 1]) < 3.0]\n    if rob.shape[0] == 0:\n        return empty, rob, True\n    wpts = to_world(rob, pose)\n    wx, wy = wpts[:, 0], wpts[:, 1]\n    keep = ((wx > WALLS[0] + 0.2) & (wx < WALLS[1] - 0.2) &\n            (wy > WALLS[2] + 0.2) & (wy < WALLS[3] - 0.2))\n    R = _STATIC_RECTS\n    inside = ((wx[:, None] >= R[None, :, 0]) & (wx[:, None] <= R[None, :, 1]) &\n              (wy[:, None] >= R[None, :, 2]) & (wy[:, None] <= R[None, :, 3])).any(axis=1)\n    keep &= ~inside\n    m = rob[keep]\n    if m.shape[0] > 600:\n        m = m[::int(math.ceil(m.shape[0] / 600.0))]\n    if m.shape[0] < 3:\n        return empty, rob, True\n    d2 = ((m[:, None, :] - m[None, :, :]) ** 2).sum(axis=2)\n    m = m[(d2 < 0.09).sum(axis=1) >= 3]\n    return m, rob, True\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 움직이는 물체 안전 계층(감속·정지·회전 정지·후진).\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.retreat = False\n        controller.ready = 0\n\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    # ---- 센서: 움직이는 물체 감지 ----\n    movers, raw, ok = _movers_robot_frame(pose)\n    controller.ready = controller.ready + 1 if ok else 0\n    if controller.ready < 12:          # 두 라이다가 모두 들어올 때까지 대기\n        return 0.0, 0.0, False\n\n    if movers.shape[0] > 0:\n        bd = _body_dist(movers)\n        fs = movers[:, 0] > -0.225     # 몸체 중심보다 앞쪽(앞·옆), 뒤쪽 제외\n        near_fs = float(bd[fs].min()) if fs.any() else 99.0\n        near_all = float(bd.min())\n        corr = movers[(movers[:, 0] > 0.2) & (np.abs(movers[:, 1]) < 0.6)]\n        d_front = float(corr[:, 0].min()) if corr.shape[0] > 0 else 99.0\n    else:\n        near_fs, near_all, d_front = 99.0, 99.0, 99.0\n\n    # ---- 근접 시 후진(히스테리시스 0.7 m 진입 / 1.2 m 해제) ----\n    if controller.retreat:\n        if near_fs > 1.2:\n            controller.retreat = False\n    elif near_fs < 0.7:\n        controller.retreat = True\n    if controller.retreat:\n        rear = raw[(raw[:, 0] < _BODY[0]) & (raw[:, 0] > _BODY[0] - 0.45) & (np.abs(raw[:, 1]) < 0.45)]\n        v = -0.3 if rear.shape[0] == 0 else 0.0\n        return v, 0.0, False\n\n    # ---- GOAL 정렬 단계 ----\n    if controller.idx >= n:\n        if math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.45:\n            controller.idx = n - 1     # 후진 등으로 밀려났으면 GOAL 로 복귀\n        else:\n            e = _wrap_angle(GOAL[2] - yaw)\n            if abs(e) < 0.05:\n                return 0.0, 0.0, True\n            w = _clamp(1.5 * e, -0.6, 0.6)\n            if near_all < 0.9:\n                w = 0.0\n            return 0.0, w, False\n\n    # ---- 경유점 추종 ----\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx, dy = tx - x, ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < n - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx, dy = tx - x, ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -1.2, 1.2)\n        if near_all < 0.9:             # 제자리 회전 중 물체가 0.9 m 안이면 회전 정지\n            w = 0.0\n    else:\n        v_wp = min(1.5, 2.5 * dist + 0.5)\n        v = min(v_wp, 0.8, 0.8 * (d_front - 0.9))\n        if v < 0.0:\n            v = 0.0\n        w = _clamp(7.5 * e, -1.2, 1.2)\n\n    if controller.idx == n - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 15103,
+  "completion_tokens": 12689
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 121107,
+  "total_cost_usd": 0.37459600000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 12689,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 15101,
+    "webSearchRequests": 0,
+    "costUSD": 0.37459600000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 9543,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 15101,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "2069d328-239a-4d24-8fb8-ebe3e9dce70a"
+ }
+}

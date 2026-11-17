@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-bad3a5a09e864aa5",
+  "object": "chat.completion",
+  "created": 1794707804,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\ndef plan_path(start_xy, goal_xy, clearance_m):\n    \"\"\"\n    Conservative A* planner.\n    Uses 4‑direction moves and a slightly larger clearance for edge checks\n    (clearance_m + 0.05 m) to stay away from tight corners.\n    Returns a validated path or None.\n    \"\"\"\n    import math, heapq\n\n    # ---- grid ---------------------------------------------------------\n    plan_stage(\"grid\")\n    blocked, origin, res = occupancy_grid(clearance_m, 0.5)\n\n    # ---- cells --------------------------------------------------------\n    start_cell = cell_of(start_xy, origin, res)\n    goal_cell = cell_of(goal_xy, origin, res)\n\n    max_ix, max_iy = blocked.shape[1] - 1, blocked.shape[0] - 1\n    # out‑of‑bounds or occupied start/goal → no path\n    if not (0 <= start_cell[0] <= max_ix and 0 <= start_cell[1] <= max_iy):\n        return None\n    if not (0 <= goal_cell[0] <= max_ix and 0 <= goal_cell[1] <= max_iy):\n        return None\n    if blocked[start_cell[1], start_cell[0]] or blocked[goal_cell[1], goal_cell[0]]:\n        return None\n\n    # ---- connector clearance -----------------------------------------\n    # use a tiny safety margin when testing the actual start/goal connectors\n    conn_clearance = clearance_m + 0.05\n    start_pt = xy_of(start_cell, origin, res)\n    goal_pt = xy_of(goal_cell, origin, res)\n    if not segment_free(start_xy, start_pt, conn_clearance):\n        return None\n    if not segment_free(goal_xy, goal_pt, conn_clearance):\n        return None\n\n    # ---- A* search ----------------------------------------------------\n    plan_stage(\"search\")\n    start_key = (start_cell[0], start_cell[1])\n    goal_key = (goal_cell[0], goal_cell[1])\n\n    def heuristic(cell):\n        # Euclidean distance in world coordinates (consistent ordering)\n        return math.hypot((cell[0] - goal_key[0]) * res,\n                          (cell[1] - goal_key[1]) * res)\n\n    open_heap = []\n    heapq.heappush(open_heap, (heuristic(start_key), 0.0, start_key))\n    came_from = {}\n    g_score = {start_key: 0.0}\n    found = False\n\n    # deterministic 4‑direction order: right, up, left, down\n    neighbours = [(1, 0), (0, 1), (-1, 0), (0, -1)]\n\n    while open_heap:\n        _, cur_g, cur = heapq.heappop(open_heap)\n        if cur == goal_key:\n            found = True\n            break\n\n        cx, cy = cur\n        for dx, dy in neighbours:\n            nx, ny = cx + dx, cy + dy\n            if not (0 <= nx <= max_ix and 0 <= ny <= max_iy):\n                continue\n            if blocked[ny, nx]:\n                continue\n\n            # edge clearance test with the safety margin\n            p_world = xy_of((cx, cy), origin, res)\n            q_world = xy_of((nx, ny), origin, res)\n            if not segment_free(p_world, q_world, conn_clearance):\n                continue\n\n            tentative_g = cur_g + math.hypot(dx * res, dy * res)\n            neighbor = (nx, ny)\n            if neighbor not in g_score or tentative_g < g_score[neighbor] - 1e-12:\n                g_score[neighbor] = tentative_g\n                f_score = tentative_g + heuristic(neighbor)\n                # tie‑break by cell coordinates to keep deterministic results\n                heapq.heappush(open_heap, (f_score, tentative_g, neighbor))\n                came_from[neighbor] = cur\n\n    if not found:\n        return None\n\n    # ---- reconstruct raw path -----------------------------------------\n    raw_cells = []\n    cur = goal_key\n    while cur != start_key:\n        raw_cells.append(cur)\n        cur = came_from[cur]\n    raw_cells.append(start_key)\n    raw_cells.reverse()\n    raw_path = [xy_of(cell, origin, res) for cell in raw_cells]\n\n    # ---- (optional) simplification ------------------------------------\n    plan_stage(\"simplify\", input_points=len(raw_path), output_points=len(raw_path))\n\n    # ---- validation ---------------------------------------------------\n    plan_stage(\"validate\")\n    validated = validate_plan(raw_path)\n    if validated[\"accepted\"]:\n        return validated[\"path\"]\n    return None\n\n\ndef lookahead_target(path, pose):\n    \"\"\"\n    Return the forward point on ``path`` that lies 0.3–2.0 m ahead of the robot\n    projection.  If none is found, return the robot's current position so that\n    the base guard logic will request a checked‑zero.\n    \"\"\"\n    target = _base_loop_forward_target(path, pose)\n    if target is None:\n        return (pose[0], pose[1])\n    return target\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"\n    Pure‑pursuit style controller.\n    Produces (v, w) before clipping; the base clips to the allowed limits.\n    \"\"\"\n    dx = target_xy[0] - pose[0]\n    dy = target_xy[1] - pose[1]\n    dist = math.hypot(dx, dy)\n    angle = math.atan2(dy, dx)\n    e = angle - pose[2]\n    e = math.atan2(math.sin(e), math.cos(e))  # wrap to [-π, π]\n\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to modify plan_path to be more conservative: increase clearance for segment_free checks and use 4-direction (no diagonals) to avoid tight corners. Also possibly adjust heuristic or neighbor ordering fixed.\n\nWe must include plan_stage calls. Ensure deterministic neighbor order.\n\nImplement as: use 4-direction moves (dx,dy) in [(1,0),(-1,0),(0,1),(0,-1)]. Use clearance_check = clearance_m + 0.05 (or 0.1). The diagnosis suggests +0.1 or +0.05. Choose +0.05 to be safe.\n\nAlso ensure deterministic neighbor order: maybe up, right, down, left.\n\nAlso need to ensure segment_free uses increased clearance.\n\nImplementation steps:\n\n- At start, plan_stage(\"grid\") etc.\n\n- Compute increased clearance for segment_free: seg_clearance = clearance_m + 0.05\n\n- Use occupancy_grid with original clearance for blocked cells (since grid already includes clearance). But we may also want to use original clearance for blocked cells, but segment check uses increased clearance.\n\n- Use 4-direction neighbor loop.\n\n- Ensure we record plan_stage for \"search\" and \"simplify\", \"validate\".\n\n- Return validated[\"path\"].\n\nAlso need to ensure deterministic tie-breaking in A*: heap ordering includes heuristic then g then maybe cell coordinates to guarantee deterministic. Use tuple (f, g, (x,y)) where (x,y) ensures deterministic.\n\nAlso need to avoid floating rounding errors.\n\nImplement.\n\nEdge: start or goal may be blocked; we already check blocked cells but also need segment_free from start_xy to its cell center, and goal.\n\nAdd start_connection_ok = not blocked[start_cell[1], start_cell[0]] and segment_free(start_xy, xy_of(start_cell...), seg_clearance). Similarly for goal.\n\nIf fails, return None.\n\nNow implement code block.\n\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 32857,
+    "total_tokens": 34566,
+    "completion_tokens": 1709,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 384
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794707804.8780904,
+    "wall_s": 10.14,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 2,
+    "call": 3
+  }
+}

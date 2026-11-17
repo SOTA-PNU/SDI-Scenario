@@ -1,0 +1,199 @@
+<|channel|>analysis<|message|>We need to get a passing solution. The previous attempts failed to reach goal. Need a more robust planner that actually finds a path through the warehouse.
+
+The map is complex with many obstacles. A* on 0.5m grid may be too coarse? Use 0.25m resolution to improve. But earlier A* with 0.5m gave a path that got stuck near start? Actually first A* gave a path that reached near goal but then got stuck due to map clearance? The earlier attempt (test5) succeeded partially but got stuck near goal after some time. The robot got stuck at around 14 sec due to unsafe_connector etc. The path was found but then map clearance insufficient? The issue is that path goes through narrow passages that require smaller clearance than 0.5. The base will try clearances 0.5, 0.45, 0.4, 0.35. Our planner uses same clearance as given. For larger clearances, path may be invalid. At clearance 0.35, should be able to pass. Our A* with 0.5 resolution may not find path for 0.35? We need to ensure planner works for 0.35 clearance. Use finer resolution maybe 0.1m? But occupancy_grid caches per clearance/resolution; we can use 0.1 but might be heavy. However path planning only once at start; should be okay. Let's try using resolution 0.1 for better granularity.
+
+Also need to ensure start cell may be blocked; we allow start cell even if blocked. Our code currently doesn't reject start cell blocked, which is fine.
+
+We also need to ensure goal connection: we check distance <= endpoint limit (0.5) and segment_free. That should work.
+
+Potential issue: our heuristic uses goal cell centre, not goal point, but okay.
+
+Now implement using res=0.1.
+
+Also need to ensure we limit search time? Not needed.
+
+Let's adjust: occupancy_grid(clearance_m, 0.1). That may be more cells (size about 20x30 /0.1 = 200x300 => 60k cells, okay).
+
+Implement that.
+
+Also ensure we import heapq earlier, already.
+
+Let's produce final code.
+
+<|end|><|start|>assistant<|channel|>final<|message|>```python
+# [EDIT REGION] mission controller - modify ONLY this block
+# ===========================================================================
+import math
+import heapq
+
+def plan_path(start_xy, goal_xy, clearance_m):
+    """A* search on the occupancy grid (resolution 0.1 m) for the given
+    clearance.  The search starts from the exact start point and expands over
+    free cell centres, checking ``segment_free`` for every edge.  When a cell
+    can connect to the goal within the planner's endpoint limit (0.5 m) the
+    full polyline (including the exact start and goal points) is validated
+    with ``validate_plan``.  If validation fails ``None`` is returned so the
+    base will retry with the next (smaller) clearance.
+    """
+    # generate grid (API compliance) – fine resolution improves narrow‑passage handling
+    plan_stage("grid")
+    blocked, origin, res = occupancy_grid(clearance_m, 0.1)
+    ny, nx = blocked.shape
+
+    def in_bounds(c):
+        ix, iy = c
+        return 0 <= ix < nx and 0 <= iy < ny
+
+    def cell_center(cell):
+        return xy_of(cell, origin, res)
+
+    # map start/goal to cells (they may lie inside blocked cells)
+    start_cell = cell_of(start_xy, origin, res)
+    goal_cell = cell_of(goal_xy, origin, res)
+    if not in_bounds(start_cell) or not in_bounds(goal_cell):
+        return None
+
+    plan_stage("search")
+    frontier = []
+    start_key = ('start',)                     # unique identifier
+    heapq.heappush(frontier, (0.0, 0.0, start_key))
+    came_from = {start_key: None}
+    cost_so_far = {start_key: 0.0}
+    seg_cache = {}
+
+    def edge_free(p, q):
+        key = (p, q)
+        if key not in seg_cache:
+            seg_cache[key] = segment_free(p, q, clearance_m)
+        return seg_cache[key]
+
+    goal_cx, goal_cy = xy_of(goal_cell, origin, res)
+
+    def heuristic(pt):
+        return math.hypot(pt[0] - goal_cx, pt[1] - goal_cy)
+
+    def neighbors(node):
+        src_pt = start_xy if node[0] == 'start' else cell_center(node)
+        base = start_cell if node[0] == 'start' else node
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                neigh = (base[0] + dx, base[1] + dy)
+                if not in_bounds(neigh):
+                    continue
+                if blocked[neigh[1], neigh[0]]:
+                    continue
+                dst_pt = cell_center(neigh)
+                if not edge_free(src_pt, dst_pt):
+                    continue
+                yield neigh
+
+    while frontier:
+        _, g, current = heapq.heappop(frontier)
+
+        # Goal test – can we connect this cell to the goal?
+        if current[0] != 'start':
+            cur_pt = cell_center(current)
+            if (math.dist(cur_pt, goal_xy) <= _BASE_LOOP_CFG["plan_endpoint_limit_m"]
+                    and edge_free(cur_pt, goal_xy)):
+                # reconstruct path
+                cells = []
+                node = current
+                while node is not None and node[0] != 'start':
+                    cells.append(cell_center(node))
+                    node = came_from[node]
+                cells.reverse()
+                full_path = [tuple(start_xy)] + cells + [tuple(goal_xy)]
+                plan_stage("simplify", input_points=len(full_path), output_points=len(full_path))
+                plan_stage("validate", input_points=len(full_path))
+                result = validate_plan(full_path)
+                if result.get("accepted"):
+                    return result["path"]
+                return None
+
+        for nxt in neighbors(current):
+            new_cost = g + math.dist(
+                cell_center(current) if current[0] != 'start' else start_xy,
+                cell_center(nxt)
+            )
+            if nxt not in cost_so_far or new_cost < cost_so_far[nxt]:
+                cost_so_far[nxt] = new_cost
+                priority = new_cost + heuristic(cell_center(nxt))
+                heapq.heappush(frontier, (priority, new_cost, nxt))
+                came_from[nxt] = current
+    return None
+
+
+def lookahead_target(path, pose):
+    """Return a point 0.3 – 2.0 m ahead of the robot projection onto *path*.
+    If insufficient forward distance remains, ``None`` is returned so the base
+    will request a checked‑zero.
+    """
+    # cumulative arc‑lengths of the polyline
+    cum_len = [0.0]
+    for a, b in zip(path, path[1:]):
+        seg = math.hypot(b[0] - a[0], b[1] - a[1])
+        cum_len.append(cum_len[-1] + seg)
+
+    rx, ry = pose[0], pose[1]
+    best_dist = float("inf")
+    best_s = 0.0
+    for i, (a, b) in enumerate(zip(path, path[1:])):
+        ax, ay = a
+        bx, by = b
+        dx, dy = bx - ax, by - ay
+        seg_len2 = dx * dx + dy * dy
+        if seg_len2 == 0.0:
+            continue
+        t = ((rx - ax) * dx + (ry - ay) * dy) / seg_len2
+        t = max(0.0, min(1.0, t))
+        proj_x = ax + t * dx
+        proj_y = ay + t * dy
+        d = math.hypot(rx - proj_x, ry - proj_y)
+        s = cum_len[i] + t * math.sqrt(seg_len2)
+        if d < best_dist - 1e-12 or (abs(d - best_dist) < 1e-12 and s < best_s):
+            best_dist = d
+            best_s = s
+
+    MIN_AHEAD = _BASE_LOOP_CFG["target_min_ahead_m"]
+    MAX_AHEAD = _BASE_LOOP_CFG["target_max_ahead_m"]
+    remaining = cum_len[-1] - best_s
+    if remaining < MIN_AHEAD - 1e-12:
+        return None
+    ahead = max(MIN_AHEAD, min(MAX_AHEAD, remaining))
+    target_s = best_s + ahead
+    if target_s > cum_len[-1]:
+        target_s = cum_len[-1]
+
+    for i in range(len(cum_len) - 1):
+        if cum_len[i] <= target_s <= cum_len[i + 1]:
+            a = path[i]
+            b = path[i + 1]
+            seg_len = cum_len[i + 1] - cum_len[i]
+            if seg_len == 0.0:
+                return tuple(a)
+            t = (target_s - cum_len[i]) / seg_len
+            return (a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]))
+    return tuple(path[-1])
+
+
+def follow_cmd(pose, target_xy):
+    """Pure‑pursuit law as required by the specification."""
+    tx, ty = target_xy
+    x, y, yaw = pose
+    dx, dy = tx - x, ty - y
+    dist = math.hypot(dx, dy)
+    ang = math.atan2(dy, dx)
+    e = math.atan2(math.sin(ang - yaw), math.cos(ang - yaw))
+    if abs(e) > 0.35:
+        v = 0.0
+    else:
+        v = min(1.5, 2.5 * dist + 0.5)
+    w = max(-2.0, min(2.0, 7.5 * e))
+    return v, w
+
+
+def controller(t, pose, env): return _base_control_loop(t, pose, env)
+# ========================= [END EDIT REGION] ===============================
+```<|return|>

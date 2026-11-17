@@ -1,0 +1,68 @@
+{
+ "turn": 11,
+ "started": "2026-11-15 19:51:01",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c2_turn10/gpu_gpt_oss_120b_pC2t10_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t10_s430972973: stall_abort_t=60 s, stop_turns=0, 이동 거리 0.063 m, 첫 비지도 물체 2 m 이내 감지 t=55.05 s",
+   "c2t10_s270904296: stall_abort_t=60 s, stop_turns=0, 이동 거리 0.064 m, 첫 비지도 물체 2 m 이내 감지 t=55.05 s",
+   "c2t10_s564161850: stall_abort_t=60 s, stop_turns=0, 이동 거리 0.063 m, 첫 비지도 물체 2 m 이내 감지 t=55.57 s"
+  ],
+  "target": "_DETECT_DIST",
+  "direction": "detect_moving_any에서 사용되는 _DETECT_DIST 를 1.0 m 로 축소해 먼 거리 비지도 점이 회피를 트리거하지 않게 한다. _AVOID_DURATION 를 2 s 로 늘려 물체가 충분히 지나갈 시간을 확보한다. controller 에서는 moving이 True이고 로봇이 아직 목표에 도달하지 않은 경우에만 정지·회전 로직을 실행하도록 조건을 추가한다. 이렇게 하면 초기 구간에서 불필요한 정지 없이 전진해 목표에 도달할 수 있다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 움직이는 물체가 멀리서 감지돼 초기에 정지·대기 루프에 빠지는 문제를 해결하기 위해 탐지 거리와 각을 축소하고 정지 시간을 늘렸다. 또한 회피 후 즉시 재감지를 방지하기 위해 짧은 쿨다운을 도입하고, 최종 목표 직전에는 회피 로직을 비활성화했다. 이렇게 하면 초기 불필요한 정지를 줄이고, 물체가 충분히 지나갈 시간을 확보해 충돌 없이 목표에 도달한다.",
+   "changed": [
+    "_AVOID_COOLDOWN",
+    "_AVOID_DURATION",
+    "_DETECT_ANGLE",
+    "_DETECT_DIST",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "_DETECT_DIST 를 1.0 m 로 축소",
+      "implemented": true,
+      "note": "코드에서 _DETECT_DIST = 1.0 로 설정"
+     },
+     {
+      "instruction": "_AVOID_DURATION 를 2.0 s 로 증가",
+      "implemented": true,
+      "note": "코드에서 _AVOID_DURATION = 2.0 로 설정"
+     },
+     {
+      "instruction": "moving이 True이고 목표 도달 전일 때만 회피 로직 실행",
+      "implemented": true,
+      "note": "controller 정상 상태에서 moving && t>=avoid_cooldown && idx < len(_WAYPOINTS)-1 조건 추가"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 움직이는 물체가 멀리서 감지돼 초기에 정지·대기 루프에 빠지는 문제를 해결하기 위해 탐지 거리와 각을 축소하고 정지 시간을 늘렸다. 또한 회피 후 즉시 재감지를 방지하기 위해 짧은 쿨다운을 도입하고, 최종 목표 직전에는 회피 로직을 비활성화했다. 이렇게 하면 초기 불필요한 정지를 줄이고, 물체가 충분히 지나갈 시간을 확보해 충돌 없이 목표에 도달한다.",
+ "budget_s": 600.0,
+ "seeds": [
+  186592814,
+  271162448,
+  471485376
+ ],
+ "sim_used_s": 92.5,
+ "verdicts": {
+  "186592814": "fail",
+  "271162448": "fail",
+  "471485376": "fail"
+ },
+ "passes": 0
+}

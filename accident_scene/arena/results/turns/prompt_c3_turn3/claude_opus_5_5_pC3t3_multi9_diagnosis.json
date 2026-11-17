@@ -1,0 +1,234 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "시간 예산: 통과 6회가 GOAL 도달에 76.7–83.8 s 걸림(정렬 뒤 3–4 s 더 씀). 9번째 s1734912303 은 충돌 없이 GOAL 14.2 m 앞, 약 46.5 s 에서 예산이 끝나 실패. 모두 통과해도 실행당 약 80 s 라 10개면 600 s 를 넘음.",
+   "s1901205715: 0.45 s 에 1.68 m 거리에서 물체를 처음 봄. 1.7–3.2 s 에 물체가 46→82°, 1.7–1.9 m 에 있다가 되돌아와 87–100° 에서 1.63→0.42 m 로 다가옴. 그사이 로봇은 0.79→0.24 m/s 로 감속(3.7–4.5 s)한 뒤 다시 가속. 5.45 s 에 뒤왼쪽 모서리 충돌, rel(-0.71,0.48), vel(-0.01,-0.75).",
+   "s334569522: 22.4 s 정면 1.98 m 에서 물체가 오른쪽(-27→-87°, 약 1.2 m)으로 멀어짐. 25.2 s 부터 -90° 에서 1.02→0.35 m 로 되돌아오는 동안 로봇은 0.46→0.29→0.81 m/s. 26.4 s 오른쪽 옆 충돌, rel(-0.34,-0.55), vel(-0.01,0.77), 접근 0.65 m/s."
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체는 2.5 s 동안 등속으로 움직인다",
+    "holds": false,
+    "why": "두 충돌 모두 로봇 옆 1.2–1.8 m 에서 왕복 끝에 되돌아온 물체. 멀어진다고 예측해 안전으로 판단함"
+   },
+   {
+    "assumption": "위험하면 감속·정지가 더 안전하다",
+    "holds": false,
+    "why": "옆에서 가로질러 오는 물체의 통로 안에서 0.24–0.29 m/s 로 늦춰 그 자리에 머묾"
+   },
+   {
+    "assumption": "명령한 속도가 즉시 실현된다",
+    "holds": false,
+    "why": "s1901205715 에서 0.24→0.79 m/s 까지 약 0.5 s 걸림. rollout 은 이를 반영하지 않음"
+   },
+   {
+    "assumption": "최고 0.8 m/s 와 모서리마다 제자리 회전으로도 시간이 충분하다",
+    "holds": false,
+    "why": "경로 44 m 에 통과 실행 76–84 s. 평균 60 s 가 필요하고 이전 턴 2·3 도 601 s 로 예산 초과"
+   },
+   {
+    "assumption": "2D 라이다로 물체를 충돌 전에 감지할 수 있다",
+    "holds": true,
+    "why": "충돌 두 건 모두 4–5 s 전에 1.6–2.5 m 에서 처음 보임"
+   },
+   {
+    "assumption": "done 전에 정지 상태로 2.5 s 안전을 확인해야 한다",
+    "holds": false,
+    "why": "done 이면 미션이 끝남. 지금은 도달 뒤 회전·후진·정지로 3–4 s 를 씀"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "고정 경유점만(센서 없음)",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "거리 문턱 반응형(정지·후진)",
+    "turns": "1",
+    "result": "0/3"
+   },
+   {
+    "family": "추적 + 등속 예측 rollout 으로 경로 위 속도 선택",
+    "turns": "2, 3",
+    "result": "6/7, 6/9. 두 턴 모두 601 s 로 예산 초과, 10개 완주 0회"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "역주행 가설 + 가로지르는 통로 안에서는 감속 금지(통과 확정) + 가속 한계 rollout + 최고속 상향",
+    "new_family": false,
+    "for": "감지는 충분히 일찍 됨. 실패는 되돌아옴 미예측, 통로 안 감속, 느린 속도 때문",
+    "risk": "1.2 m/s 에서 정적 여유 감소. 통로 안 판정이 틀리면 정면 물체로 돌진할 수 있음"
+   },
+   {
+    "idea": "트랙 이동선을 방향과 무관한 점유 띠로 보고, 띠 밖에서 기다렸다가 수직으로 최고속 횡단",
+    "new_family": true,
+    "for": "왕복 물체의 되돌아옴을 구조적으로 덮음",
+    "risk": "보수적이라 대기가 길어져 시간 예산을 더 초과할 수 있음"
+   },
+   {
+    "idea": "(v,w) 호를 샘플링해 옆으로 비켜 가는 DWA 형 회피",
+    "new_family": true,
+    "for": "통로를 벗어나는 측면 탈출이 가능해짐",
+    "risk": "랙 사이 좁은 통로에서 정적 충돌 위험, 경로 이탈 후 복귀가 복잡"
+   }
+  ],
+  "chosen": "후보 1: 이 계열만 통과를 냈고 감지는 검증됐으며, 실패가 예측 가정과 감속 규칙, 속도 상한이라는 구조 문제여서 상수 조정이 아닌 판단 규칙을 바꿈",
+  "target": "controller, _rollout, _pursuit_cmd, 새 함수 _in_crossing_lane",
+  "direction": "1) 시간: _pursuit_cmd 최고속을 1.2 m/s, 회전 한계를 1.5 rad/s 로 올립니다. 방향 오차 0.35–1.0 rad 에서는 v=vmax*cos(e) 로 돌며 달리고, 1.0 rad 를 넘을 때만 제자리 회전하며, path 후보는 {1.2,0.8,0.5,0.3} 로 둡니다. 2) 마무리: GOAL 0.5 m 안이면 정렬만 하고, |yaw 오차|<0.1 이면 정지 rollout 확인 없이 바로 done 을 돌려줍니다. 3) _rollout 은 직전 pose 차이로 추정한 현재 속도에서 시작해 가감속을 1.0 m/s² 로 제한해 굴립니다. 4) 속력 0.2 m/s 이상인 트랙마다 등속 가설에 더해 같은 속력으로 되돌아오는 가설을 만들고, 되돌아오는 가설은 처음 1.5 s 만 검사해 두 가설 중 작은 간격을 cmin 으로 씁니다. 5) 새 함수 _in_crossing_lane: 이동 방향이 로봇 진행 방향과 45° 넘게 엇갈리는 트랙의 이동선에서 로봇 몸체가 수직 1.0 m 안에 있으면, 0.5·0.3·정지 후보를 빼고 1.2/0.8 path 와 후진 중 cmin 이 큰 것을 고릅니다. 통로 밖에서는 기존대로 간격을 지키는 가장 빠른 후보를 고르고, 없으면 정지해 진입 전에 양보합니다. 6) 물체 위치·속도·시각 상수는 넣지 말고, DBG 는 0.5 s 마다 통로 안 판정, 고른 후보, 두 가설의 cmin 을 출력합니다.",
+  "confidence": "medium"
+ },
+ "raw": "{\"failure_mode\": \"collision\",\n \"evidence\": [\"시간 예산: 통과 6회가 GOAL 도달에 76.7–83.8 s 걸림(정렬 뒤 3–4 s 더 씀). 9번째 s1734912303 은 충돌 없이 GOAL 14.2 m 앞, 약 46.5 s 에서 예산이 끝나 실패. 모두 통과해도 실행당 약 80 s 라 10개면 600 s 를 넘음.\", \"s1901205715: 0.45 s 에 1.68 m 거리에서 물체를 처음 봄. 1.7–3.2 s 에 물체가 46→82°, 1.7–1.9 m 에 있다가 되돌아와 87–100° 에서 1.63→0.42 m 로 다가옴. 그사이 로봇은 0.79→0.24 m/s 로 감속(3.7–4.5 s)한 뒤 다시 가속. 5.45 s 에 뒤왼쪽 모서리 충돌, rel(-0.71,0.48), vel(-0.01,-0.75).\", \"s334569522: 22.4 s 정면 1.98 m 에서 물체가 오른쪽(-27→-87°, 약 1.2 m)으로 멀어짐. 25.2 s 부터 -90° 에서 1.02→0.35 m 로 되돌아오는 동안 로봇은 0.46→0.29→0.81 m/s. 26.4 s 오른쪽 옆 충돌, rel(-0.34,-0.55), vel(-0.01,0.77), 접근 0.65 m/s.\"],\n \"assumptions\": [{\"assumption\": \"물체는 2.5 s 동안 등속으로 움직인다\", \"holds\": false, \"why\": \"두 충돌 모두 로봇 옆 1.2–1.8 m 에서 왕복 끝에 되돌아온 물체. 멀어진다고 예측해 안전으로 판단함\"},\n {\"assumption\": \"위험하면 감속·정지가 더 안전하다\", \"holds\": false, \"why\": \"옆에서 가로질러 오는 물체의 통로 안에서 0.24–0.29 m/s 로 늦춰 그 자리에 머묾\"},\n {\"assumption\": \"명령한 속도가 즉시 실현된다\", \"holds\": false, \"why\": \"s1901205715 에서 0.24→0.79 m/s 까지 약 0.5 s 걸림. rollout 은 이를 반영하지 않음\"},\n {\"assumption\": \"최고 0.8 m/s 와 모서리마다 제자리 회전으로도 시간이 충분하다\", \"holds\": false, \"why\": \"경로 44 m 에 통과 실행 76–84 s. 평균 60 s 가 필요하고 이전 턴 2·3 도 601 s 로 예산 초과\"},\n {\"assumption\": \"2D 라이다로 물체를 충돌 전에 감지할 수 있다\", \"holds\": true, \"why\": \"충돌 두 건 모두 4–5 s 전에 1.6–2.5 m 에서 처음 보임\"},\n {\"assumption\": \"done 전에 정지 상태로 2.5 s 안전을 확인해야 한다\", \"holds\": false, \"why\": \"done 이면 미션이 끝남. 지금은 도달 뒤 회전·후진·정지로 3–4 s 를 씀\"}],\n \"approach_families\": [{\"family\": \"고정 경유점만(센서 없음)\", \"turns\": \"0\", \"result\": \"0/3\"},\n {\"family\": \"거리 문턱 반응형(정지·후진)\", \"turns\": \"1\", \"result\": \"0/3\"},\n {\"family\": \"추적 + 등속 예측 rollout 으로 경로 위 속도 선택\", \"turns\": \"2, 3\", \"result\": \"6/7, 6/9. 두 턴 모두 601 s 로 예산 초과, 10개 완주 0회\"}],\n \"candidates\": [{\"idea\": \"역주행 가설 + 가로지르는 통로 안에서는 감속 금지(통과 확정) + 가속 한계 rollout + 최고속 상향\", \"new_family\": false, \"for\": \"감지는 충분히 일찍 됨. 실패는 되돌아옴 미예측, 통로 안 감속, 느린 속도 때문\", \"risk\": \"1.2 m/s 에서 정적 여유 감소. 통로 안 판정이 틀리면 정면 물체로 돌진할 수 있음\"},\n {\"idea\": \"트랙 이동선을 방향과 무관한 점유 띠로 보고, 띠 밖에서 기다렸다가 수직으로 최고속 횡단\", \"new_family\": true, \"for\": \"왕복 물체의 되돌아옴을 구조적으로 덮음\", \"risk\": \"보수적이라 대기가 길어져 시간 예산을 더 초과할 수 있음\"},\n {\"idea\": \"(v,w) 호를 샘플링해 옆으로 비켜 가는 DWA 형 회피\", \"new_family\": true, \"for\": \"통로를 벗어나는 측면 탈출이 가능해짐\", \"risk\": \"랙 사이 좁은 통로에서 정적 충돌 위험, 경로 이탈 후 복귀가 복잡\"}],\n \"chosen\": \"후보 1: 이 계열만 통과를 냈고 감지는 검증됐으며, 실패가 예측 가정과 감속 규칙, 속도 상한이라는 구조 문제여서 상수 조정이 아닌 판단 규칙을 바꿈\",\n \"target\": \"controller, _rollout, _pursuit_cmd, 새 함수 _in_crossing_lane\",\n \"direction\": \"1) 시간: _pursuit_cmd 최고속을 1.2 m/s, 회전 한계를 1.5 rad/s 로 올립니다. 방향 오차 0.35–1.0 rad 에서는 v=vmax*cos(e) 로 돌며 달리고, 1.0 rad 를 넘을 때만 제자리 회전하며, path 후보는 {1.2,0.8,0.5,0.3} 로 둡니다. 2) 마무리: GOAL 0.5 m 안이면 정렬만 하고, |yaw 오차|<0.1 이면 정지 rollout 확인 없이 바로 done 을 돌려줍니다. 3) _rollout 은 직전 pose 차이로 추정한 현재 속도에서 시작해 가감속을 1.0 m/s² 로 제한해 굴립니다. 4) 속력 0.2 m/s 이상인 트랙마다 등속 가설에 더해 같은 속력으로 되돌아오는 가설을 만들고, 되돌아오는 가설은 처음 1.5 s 만 검사해 두 가설 중 작은 간격을 cmin 으로 씁니다. 5) 새 함수 _in_crossing_lane: 이동 방향이 로봇 진행 방향과 45° 넘게 엇갈리는 트랙의 이동선에서 로봇 몸체가 수직 1.0 m 안에 있으면, 0.5·0.3·정지 후보를 빼고 1.2/0.8 path 와 후진 중 cmin 이 큰 것을 고릅니다. 통로 밖에서는 기존대로 간격을 지키는 가장 빠른 후보를 고르고, 없으면 정지해 진입 전에 양보합니다. 6) 물체 위치·속도·시각 상수는 넣지 말고, DBG 는 0.5 s 마다 통로 안 판정, 고른 후보, 두 가설의 cmin 을 출력합니다.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c3t3_s338892086",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.3893,
+   "time_to_goal_s": 83.75
+  },
+  {
+   "run": "c3t3_s334569522",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.417,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s",
+   "partner_rel_xy": [
+    -0.34,
+    -0.55
+   ],
+   "closing_m_s": 0.65,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 22.42,
+   "goal_dist_m": 20.843,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t3_s1463921782",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4067,
+   "time_to_goal_s": 76.65
+  },
+  {
+   "run": "c3t3_s926461656",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 78.35,
+   "goal_dist_m": 0.3067,
+   "time_to_goal_s": 80.05
+  },
+  {
+   "run": "c3t3_s1901205715",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.45,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.79m/s",
+   "partner_rel_xy": [
+    -0.71,
+    0.48
+   ],
+   "closing_m_s": 0.41,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.45,
+   "goal_dist_m": 28.673,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c3t3_s1807652246",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4442,
+   "time_to_goal_s": 81.667
+  },
+  {
+   "run": "c3t3_s1278528360",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4847,
+   "time_to_goal_s": 78.2
+  },
+  {
+   "run": "c3t3_s791056170",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.5666,
+   "time_to_goal_s": 80.283
+  },
+  {
+   "run": "c3t3_s1734912303",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 14.2072,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

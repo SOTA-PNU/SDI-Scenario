@@ -1,0 +1,181 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t4_s735256478: t=60.7에 정적 박스와 충돌, 로봇이 제자리 회전(+1.9rad/s) 중, first_not_on_map이 t=55.72에 1.16m 거리에서 감지됨",
+   "c5t4_s404140708: t=39.683에 mover_00와 충돌, 로봇이 0.84m/s 전진하며 회전(+1.0rad/s), first_not_on_map이 t=34.68에 1.45m 거리에서 감지됨",
+   "c5t4_s792288450: t=159.07에 progress_abort 발생, 목표까지 14m 남아 정체(정지+제자리 회전 89회), first_not_on_map이 t=154.08에 1.79m 거리에서 감지됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다가 8m 이내 물체를 정확히 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 1~1.5m 거리에서 물체가 감지됨"
+   },
+   {
+    "assumption": "움직이는 물체의 속도는 2 m/s 이하이며 TTC 스케일링으로 감속 가능",
+    "holds": true,
+    "why": "closing_m_s 데이터가 0.27 m/s 이하, TTC 기반 스케일링 적용 가능"
+   },
+   {
+    "assumption": "정적 지도와 라이다 필터링으로 움직이는 물체를 정확히 구분한다",
+    "holds": true,
+    "why": "track 배열에 물체가 정상적으로 추적되고 static‑world 필터가 올바르게 동작"
+   },
+   {
+    "assumption": "경유점 경로는 정적 장애물만 고려하면 충분하다",
+    "holds": false,
+    "why": "움직이는 물체가 경유점 경로와 교차해 충돌 및 정체가 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static_pause_detection",
+    "turns": "1",
+    "result": "1/4 통과"
+   },
+   {
+    "family": "dynamic_pause_TTC",
+    "turns": "2",
+    "result": "4/5 통과"
+   },
+   {
+    "family": "gap_detour",
+    "turns": "3",
+    "result": "0/3 통과"
+   },
+   {
+    "family": "predictive_speed_scaling",
+    "turns": "4",
+    "result": "2/5 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Velocity Obstacle 기반 로컬 플래너 도입",
+    "new_family": true,
+    "for": "현재 TTC 스케일링이 급격한 접근을 충분히 예측 못해 충돌이 발생, VO는 상대 속도로 회피 경로를 실시간 계산",
+    "risk": "계산량 증가, 파라미터 튜닝 필요, 라이다 노이즈 시 VO 불안정"
+   },
+   {
+    "idea": "동적 비용 맵과 A* 재계획",
+    "new_family": true,
+    "for": "정적 경유점만으로는 움직이는 물체 회피가 어려움, 비용 맵은 물체 위치·속도를 반영해 최적 경로를 찾음",
+    "risk": "재계획 지연, 비용 맵 업데이트가 라이다 주기보다 늦을 수 있음"
+   },
+   {
+    "idea": "3D 라이다와 카메라를 결합한 물체 추적 및 예측",
+    "new_family": true,
+    "for": "2D 라이다만으로는 높이·시야 사각지대가 존재, 3D·비전으로 물체를 더 정확히 파악",
+    "risk": "센서 처리 복잡도·이미지 처리 비용·구현 난이도"
+   }
+  ],
+  "chosen": "Velocity Obstacle 기반 로컬 플래너를 선택한 이유는 현재 TTC 스케일링이 급격한 접근을 충분히 예측하지 못해 충돌이 발생하고, VO는 상대 속도를 이용해 실시간 회피 경로를 생성해 충돌을 방지할 수 있기 때문입니다.",
+  "target": "controller, 새 함수 _compute_vo, _vo_planner, _VO_HORIZON 상수",
+  "direction": "1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t4_s735256478: t=60.7에 정적 박스와 충돌, 로봇이 제자리 회전(+1.9rad/s) 중, first_not_on_map이 t=55.72에 1.16m 거리에서 감지됨\",\n    \"c5t4_s404140708: t=39.683에 mover_00와 충돌, 로봇이 0.84m/s 전진하며 회전(+1.0rad/s), first_not_on_map이 t=34.68에 1.45m 거리에서 감지됨\",\n    \"c5t4_s792288450: t=159.07에 progress_abort 발생, 목표까지 14m 남아 정체(정지+제자리 회전 89회), first_not_on_map이 t=154.08에 1.79m 거리에서 감지됨\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다가 8m 이내 물체를 정확히 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에서 1~1.5m 거리에서 물체가 감지됨\"\n    },\n    {\n      \"assumption\": \"움직이는 물체의 속도는 2 m/s 이하이며 TTC 스케일링으로 감속 가능\",\n      \"holds\": true,\n      \"why\": \"closing_m_s 데이터가 0.27 m/s 이하, TTC 기반 스케일링 적용 가능\"\n    },\n    {\n      \"assumption\": \"정적 지도와 라이다 필터링으로 움직이는 물체를 정확히 구분한다\",\n      \"holds\": true,\n      \"why\": \"track 배열에 물체가 정상적으로 추적되고 static‑world 필터가 올바르게 동작\"\n    },\n    {\n      \"assumption\": \"경유점 경로는 정적 장애물만 고려하면 충분하다\",\n      \"holds\": false,\n      \"why\": \"움직이는 물체가 경유점 경로와 교차해 충돌 및 정체가 발생함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"static_pause_detection\",\n      \"turns\": \"1\",\n      \"result\": \"1/4 통과\"\n    },\n    {\n      \"family\": \"dynamic_pause_TTC\",\n      \"turns\": \"2\",\n      \"result\": \"4/5 통과\"\n    },\n    {\n      \"family\": \"gap_detour\",\n      \"turns\": \"3\",\n      \"result\": \"0/3 통과\"\n    },\n    {\n      \"family\": \"predictive_speed_scaling\",\n      \"turns\": \"4\",\n      \"result\": \"2/5 통과\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Velocity Obstacle 기반 로컬 플래너 도입\",\n      \"new_family\": true,\n      \"for\": \"현재 TTC 스케일링이 급격한 접근을 충분히 예측 못해 충돌이 발생, VO는 상대 속도로 회피 경로를 실시간 계산\",\n      \"risk\": \"계산량 증가, 파라미터 튜닝 필요, 라이다 노이즈 시 VO 불안정\"\n    },\n    {\n      \"idea\": \"동적 비용 맵과 A* 재계획\",\n      \"new_family\": true,\n      \"for\": \"정적 경유점만으로는 움직이는 물체 회피가 어려움, 비용 맵은 물체 위치·속도를 반영해 최적 경로를 찾음\",\n      \"risk\": \"재계획 지연, 비용 맵 업데이트가 라이다 주기보다 늦을 수 있음\"\n    },\n    {\n      \"idea\": \"3D 라이다와 카메라를 결합한 물체 추적 및 예측\",\n      \"new_family\": true,\n      \"for\": \"2D 라이다만으로는 높이·시야 사각지대가 존재, 3D·비전으로 물체를 더 정확히 파악\",\n      \"risk\": \"센서 처리 복잡도·이미지 처리 비용·구현 난이도\"\n    }\n  ],\n  \"chosen\": \"Velocity Obstacle 기반 로컬 플래너를 선택한 이유는 현재 TTC 스케일링이 급격한 접근을 충분히 예측하지 못해 충돌이 발생하고, VO는 상대 속도를 이용해 실시간 회피 경로를 생성해 충돌을 방지할 수 있기 때문입니다.\",\n  \"target\": \"controller, 새 함수 _compute_vo, _vo_planner, _VO_HORIZON 상수\",\n  \"direction\": \"1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t4_s735256478",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 66.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 60.7,
+   "partner": "static:arena_box_01",
+   "robot_at_collision": "제자리 회전 +1.9rad/s",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 55.72,
+   "goal_dist_m": 19.3781,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t4_s1443590881",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 533.3,
+   "sim_time_s": 124.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 58,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1267,
+   "time_to_goal_s": 118.367
+  },
+  {
+   "run": "c5t4_s792288450",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 408.8,
+   "sim_time_s": 160.1,
+   "stall_abort_t": null,
+   "progress_abort_t": 159.07,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 89,
+   "first_seen_within_2m_t": 154.08,
+   "goal_dist_m": 14.0357,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t4_s1007344252",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 248.7,
+   "sim_time_s": 109.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 44,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.0774,
+   "time_to_goal_s": 103.467
+  },
+  {
+   "run": "c5t4_s404140708",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 139.7,
+   "sim_time_s": 45.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 39.683,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.84m/s 회전 +1.0",
+   "partner_rel_xy": [
+    -0.57,
+    0.57
+   ],
+   "closing_m_s": 0.27,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 34.68,
+   "goal_dist_m": 28.9852,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

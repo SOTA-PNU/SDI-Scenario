@@ -1,0 +1,151 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t45_s1480388217: collision at 14.8 s while robot rotated in place; object first seen at 9.8 s within 0.42 m (≤ _CRITICAL_DIST) causing repeated critical detections and no forward motion.",
+   "c2t45_s531234913: stall abort at 62.6 s after 25 stop‑turn episodes; moving object detected at 57.65 s (2.65 m) then within 2 m at 60.75 s, robot never resumed forward motion.",
+   "c2t45_s1071300080: stall abort at 90.77 s after 42 stop‑turn episodes; first_not_on_map at 85.85 s (2.12 m) triggered continuous avoidance without progress."
+  ],
+  "assumptions": [
+   {
+    "assumption": "Rotating in place is safe when an object is within _CRITICAL_DIST.",
+    "holds": false,
+    "why": "Run 1 shows rotation caused a collision with a close object."
+   },
+   {
+    "assumption": "A 0.5 s rotation without translation clears the object.",
+    "holds": false,
+    "why": "Repeated rotations over many seconds indicate 0.5 s is insufficient."
+   },
+   {
+    "assumption": "TTC < _TTC_THRESH (1.5 s) reliably indicates when a lateral bypass is needed.",
+    "holds": false,
+    "why": "Objects with TTC≈2 s triggered critical stops but never bypass, leading to stalls."
+   },
+   {
+    "assumption": "A fixed 2 m lateral offset always provides safe clearance.",
+    "holds": false,
+    "why": "Bypass target is never reached; the robot stays in stop‑rotate loops."
+   },
+   {
+    "assumption": "Moving objects are slower than the robot, so repulsion and speed scaling keep a safe distance.",
+    "holds": true,
+    "why": "Closing speed is low (0.18 m/s) but proximity still causes collisions."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "critical stop & rotate (simple detection & rotate)",
+    "turns": "1,2,4,5,6,8,9,10,11,12,13,14,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31",
+    "result": "18 passes / ~27 attempts (mixed success, many stalls)"
+   },
+   {
+    "family": "stop‑back‑rotate (retreat before turning)",
+    "turns": "8,14,16,17,20,28",
+    "result": "9 passes / 6 attempts (some success, still stalls in many cases)"
+   },
+   {
+    "family": "avoid_wait / waiting state",
+    "turns": "10,18,24,38,39,41",
+    "result": "0 passes / 6 attempts"
+   },
+   {
+    "family": "lateral bypass waypoint",
+    "turns": "33,35,36,41,45",
+    "result": "0 passes / 5 attempts"
+   },
+   {
+    "family": "RVO / sampled safe velocity",
+    "turns": "42",
+    "result": "0 passes / 1 attempt"
+   },
+   {
+    "family": "repulsion‑only (no state machine)",
+    "turns": "43,44",
+    "result": "0 passes / 2 attempts"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Retreat‑then‑bypass: when TTC < threshold, first move backward a short distance (≈0.5 m) while rotating away, then compute a 2 m lateral bypass waypoint and navigate to it.",
+    "new_family": true,
+    "for": "Adds clearance before rotation, preventing collision and reducing endless stop‑rotate loops.",
+    "risk": "Extra backward motion may increase travel time and could cause collisions with static obstacles if not checked."
+   },
+   {
+    "idea": "Continuous lateral avoidance with speed scaling: remove stop‑and‑rotate, always compute a combined direction = goal_dir + repulsion_weight·rep_vec + escape_weight·(perpendicular to nearest moving bearing), scale forward speed by TTC and keep a minimum speed unless a critical object is within _CRITICAL_DIST.",
+    "new_family": true,
+    "for": "Keeps the robot moving, avoids stall loops, and steers around objects smoothly.",
+    "risk": "If escape vector is poorly aligned, robot may drift off the planned path or oscillate near obstacles."
+   },
+   {
+    "idea": "Predictive safe corridor: estimate future positions of moving points using their velocities, sample a few candidate headings (e.g., -30°, 0°, +30°), pick the heading with maximal minimum distance to predicted positions, and steer along that heading while progressing to the waypoint.",
+    "new_family": true,
+    "for": "Uses motion prediction to choose a collision‑free corridor without explicit stopping.",
+    "risk": "Velocity estimation may be noisy; short prediction horizon may miss fast‑approaching objects."
+   }
+  ],
+  "chosen": "Continuous lateral avoidance with speed scaling because it directly eliminates the stop‑rotate deadlock and keeps forward progress while still steering clear of moving objects.",
+  "target": "controller",
+  "direction": "Add a helper `_lateral_escape_vector(pose, moving_pts)` that returns a unit vector perpendicular to the bearing of the nearest moving point, pointing away from its motion. In `controller`, after obtaining `moving_pts` and `rep_vec`, compute `escape_vec = _lateral_escape_vector(pose, moving_pts)`. Combine directions as `dir_vec = wp_dir + _REPULSION_WEIGHT*rep_vec + _ESCAPE_WEIGHT*escape_vec`, normalize, and compute `desired_yaw` and `yaw_err` as before. Scale forward speed by `v = max(_LOW_SPEED_MIN, _MAX_SPEED * min(1.0, _TTC_THRESH / max(_min_ttc(...), 0.01))) * max(0, cos(yaw_err))`. Remove the repeated critical‑stop rotation block; if `_detect_critical` is true, set `v=0` and apply a single short rotation, then resume the combined vector control. Adjust `_ESCAPE_WEIGHT` and `_LOW_SPEED_MIN` to tune lateral steering.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c2t45_s1480388217: collision at 14.8 s while robot rotated in place; object first seen at 9.8 s within 0.42 m (≤ _CRITICAL_DIST) causing repeated critical detections and no forward motion.\",\n    \"c2t45_s531234913: stall abort at 62.6 s after 25 stop‑turn episodes; moving object detected at 57.65 s (2.65 m) then within 2 m at 60.75 s, robot never resumed forward motion.\",\n    \"c2t45_s1071300080: stall abort at 90.77 s after 42 stop‑turn episodes; first_not_on_map at 85.85 s (2.12 m) triggered continuous avoidance without progress.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Rotating in place is safe when an object is within _CRITICAL_DIST.\",\n      \"holds\": false,\n      \"why\": \"Run 1 shows rotation caused a collision with a close object.\"\n    },\n    {\n      \"assumption\": \"A 0.5 s rotation without translation clears the object.\",\n      \"holds\": false,\n      \"why\": \"Repeated rotations over many seconds indicate 0.5 s is insufficient.\"\n    },\n    {\n      \"assumption\": \"TTC < _TTC_THRESH (1.5 s) reliably indicates when a lateral bypass is needed.\",\n      \"holds\": false,\n      \"why\": \"Objects with TTC≈2 s triggered critical stops but never bypass, leading to stalls.\"\n    },\n    {\n      \"assumption\": \"A fixed 2 m lateral offset always provides safe clearance.\",\n      \"holds\": false,\n      \"why\": \"Bypass target is never reached; the robot stays in stop‑rotate loops.\"\n    },\n    {\n      \"assumption\": \"Moving objects are slower than the robot, so repulsion and speed scaling keep a safe distance.\",\n      \"holds\": true,\n      \"why\": \"Closing speed is low (0.18 m/s) but proximity still causes collisions.\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"critical stop & rotate (simple detection & rotate)\",\n      \"turns\": \"1,2,4,5,6,8,9,10,11,12,13,14,16,17,18,19,20,21,22,23,24,25,26,27,28,30,31\",\n      \"result\": \"18 passes / ~27 attempts (mixed success, many stalls)\"\n    },\n    {\n      \"family\": \"stop‑back‑rotate (retreat before turning)\",\n      \"turns\": \"8,14,16,17,20,28\",\n      \"result\": \"9 passes / 6 attempts (some success, still stalls in many cases)\"\n    },\n    {\n      \"family\": \"avoid_wait / waiting state\",\n      \"turns\": \"10,18,24,38,39,41\",\n      \"result\": \"0 passes / 6 attempts\"\n    },\n    {\n      \"family\": \"lateral bypass waypoint\",\n      \"turns\": \"33,35,36,41,45\",\n      \"result\": \"0 passes / 5 attempts\"\n    },\n    {\n      \"family\": \"RVO / sampled safe velocity\",\n      \"turns\": \"42\",\n      \"result\": \"0 passes / 1 attempt\"\n    },\n    {\n      \"family\": \"repulsion‑only (no state machine)\",\n      \"turns\": \"43,44\",\n      \"result\": \"0 passes / 2 attempts\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Retreat‑then‑bypass: when TTC < threshold, first move backward a short distance (≈0.5 m) while rotating away, then compute a 2 m lateral bypass waypoint and navigate to it.\",\n      \"new_family\": true,\n      \"for\": \"Adds clearance before rotation, preventing collision and reducing endless stop‑rotate loops.\",\n      \"risk\": \"Extra backward motion may increase travel time and could cause collisions with static obstacles if not checked.\"\n    },\n    {\n      \"idea\": \"Continuous lateral avoidance with speed scaling: remove stop‑and‑rotate, always compute a combined direction = goal_dir + repulsion_weight·rep_vec + escape_weight·(perpendicular to nearest moving bearing), scale forward speed by TTC and keep a minimum speed unless a critical object is within _CRITICAL_DIST.\",\n      \"new_family\": true,\n      \"for\": \"Keeps the robot moving, avoids stall loops, and steers around objects smoothly.\",\n      \"risk\": \"If escape vector is poorly aligned, robot may drift off the planned path or oscillate near obstacles.\"\n    },\n    {\n      \"idea\": \"Predictive safe corridor: estimate future positions of moving points using their velocities, sample a few candidate headings (e.g., -30°, 0°, +30°), pick the heading with maximal minimum distance to predicted positions, and steer along that heading while progressing to the waypoint.\",\n      \"new_family\": true,\n      \"for\": \"Uses motion prediction to choose a collision‑free corridor without explicit stopping.\",\n      \"risk\": \"Velocity estimation may be noisy; short prediction horizon may miss fast‑approaching objects.\"\n    }\n  ],\n  \"chosen\": \"Continuous lateral avoidance with speed scaling because it directly eliminates the stop‑rotate deadlock and keeps forward progress while still steering clear of moving objects.\",\n  \"target\": \"controller\",\n  \"direction\": \"Add a helper `_lateral_escape_vector(pose, moving_pts)` that returns a unit vector perpendicular to the bearing of the nearest moving point, pointing away from its motion. In `controller`, after obtaining `moving_pts` and `rep_vec`, compute `escape_vec = _lateral_escape_vector(pose, moving_pts)`. Combine directions as `dir_vec = wp_dir + _REPULSION_WEIGHT*rep_vec + _ESCAPE_WEIGHT*escape_vec`, normalize, and compute `desired_yaw` and `yaw_err` as before. Scale forward speed by `v = max(_LOW_SPEED_MIN, _MAX_SPEED * min(1.0, _TTC_THRESH / max(_min_ttc(...), 0.01))) * max(0, cos(yaw_err))`. Remove the repeated critical‑stop rotation block; if `_detect_critical` is true, set `v=0` and apply a single short rotation, then resume the combined vector control. Adjust `_ESCAPE_WEIGHT` and `_LOW_SPEED_MIN` to tune lateral steering.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c2t45_s1480388217",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.8,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +1.2rad/s",
+   "partner_rel_xy": [
+    0.04,
+    0.67
+   ],
+   "closing_m_s": 0.18,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 9.82,
+   "goal_dist_m": 30.9409,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t45_s531234913",
+   "verdict": "fail",
+   "stall_abort_t": 62.6,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 60.75,
+   "goal_dist_m": 31.0898,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t45_s1071300080",
+   "verdict": "fail",
+   "stall_abort_t": 90.77,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.533,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,176 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c1t1_s423929058: first_not_on_map at t=4.92 s, distance 0.46 m, but collision at t=9.9 s → 장애물 인식 후에도 너무 가까운 거리에서 전진을 재개함",
+   "run c1t1_s1949073101: first_not_on_map within 2 m at t=2.35 s, collision at t=4.467 s → 현재 SAFE_DIST 0.8 m 로는 고속 주행(v≈1 m/s) 시 감속·회피가 늦음",
+   "모든 10회 실행에서 회피 플래그가 설정된 뒤 회전 후 다시 전진했지만, 회전 종료 시점에 dyn_dist > SAFE_DIST(0.8) 이면서도 실제 충돌 거리 < 0.5 m 로 충돌 발생"
+  ],
+  "target": "controller (avoidance logic)",
+  "direction": "1) SAFE_DIST와 EXIT_DIST 값을 각각 1.5 m와 2.0 m 로 늘려 초기 감지 범위를 확대한다. 2) 현재 전진 속도 v와 추정 닫힘 속도(동적 물체와의 상대 속도) 를 이용해 required_stop = max(SAFE_DIST, v*0.5+0.3) 를 계산하고, dyn_dist < required_stop 일 때만 회피 플래그를 켠다. 3) 회피 상태에서는 v=0 유지하고 w를 ±0.8 rad/s 로 회전하되, dyn_dist 가 required_stop 보다 크게 될 때까지 전진을 재개하지 않는다. 4) 필요 시 뒤쪽 라이다도 읽어 회전 중 뒤쪽에 물체가 있으면 회전 방향을 반대로 전환한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c1t1_s423929058: first_not_on_map at t=4.92 s, distance 0.46 m, but collision at t=9.9 s → 장애물 인식 후에도 너무 가까운 거리에서 전진을 재개함\",\n    \"run c1t1_s1949073101: first_not_on_map within 2 m at t=2.35 s, collision at t=4.467 s → 현재 SAFE_DIST 0.8 m 로는 고속 주행(v≈1 m/s) 시 감속·회피가 늦음\",\n    \"모든 10회 실행에서 회피 플래그가 설정된 뒤 회전 후 다시 전진했지만, 회전 종료 시점에 dyn_dist > SAFE_DIST(0.8) 이면서도 실제 충돌 거리 < 0.5 m 로 충돌 발생\"\n  ],\n  \"target\": \"controller (avoidance logic)\",\n  \"direction\": \"1) SAFE_DIST와 EXIT_DIST 값을 각각 1.5 m와 2.0 m 로 늘려 초기 감지 범위를 확대한다. 2) 현재 전진 속도 v와 추정 닫힘 속도(동적 물체와의 상대 속도) 를 이용해 required_stop = max(SAFE_DIST, v*0.5+0.3) 를 계산하고, dyn_dist < required_stop 일 때만 회피 플래그를 켠다. 3) 회피 상태에서는 v=0 유지하고 w를 ±0.8 rad/s 로 회전하되, dyn_dist 가 required_stop 보다 크게 될 때까지 전진을 재개하지 않는다. 4) 필요 시 뒤쪽 라이다도 읽어 회전 중 뒤쪽에 물체가 있으면 회전 방향을 반대로 전환한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c1t1_s439695808",
+   "verdict": "fail",
+   "collision_t": 11.417,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.26m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.36,
+    0.43
+   ],
+   "closing_m_s": 0.65,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 6.45,
+   "goal_dist_m": 30.4415,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s1949073101",
+   "verdict": "fail",
+   "collision_t": 4.467,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +0.8rad/s",
+   "partner_rel_xy": [
+    -0.09,
+    0.62
+   ],
+   "closing_m_s": 0.46,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 2.35,
+   "goal_dist_m": 31.2644,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s1770766211",
+   "verdict": "fail",
+   "collision_t": 43.717,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.80m/s 회전 +0.5",
+   "partner_rel_xy": [
+    0.45,
+    0.23
+   ],
+   "closing_m_s": -0.26,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 41.95,
+   "goal_dist_m": 4.3471,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s1207706203",
+   "verdict": "fail",
+   "collision_t": 26.1,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.82m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.47,
+    0.26
+   ],
+   "closing_m_s": 0.42,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 24.95,
+   "goal_dist_m": 22.222,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s12474589",
+   "verdict": "fail",
+   "collision_t": 3.383,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.73m/s 회전 +0.4",
+   "partner_rel_xy": [
+    0.5,
+    0.19
+   ],
+   "closing_m_s": -0.41,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 32.1769,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s423929058",
+   "verdict": "fail",
+   "collision_t": 9.917,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.12m/s 회전 +0.7",
+   "partner_rel_xy": [
+    0.38,
+    0.42
+   ],
+   "closing_m_s": 0.76,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 4.92,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s1643927300",
+   "verdict": "fail",
+   "collision_t": 3.917,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.8rad/s",
+   "partner_rel_xy": [
+    0.52,
+    -0.37
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 0.05,
+   "goal_dist_m": 28.9592,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s416131631",
+   "verdict": "fail",
+   "collision_t": 8.933,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +0.8rad/s",
+   "partner_rel_xy": [
+    0.47,
+    0.34
+   ],
+   "closing_m_s": 0.67,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 3.95,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s1824376224",
+   "verdict": "fail",
+   "collision_t": 18.3,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.59m/s",
+   "partner_rel_xy": [
+    0.46,
+    -0.18
+   ],
+   "closing_m_s": 0.33,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 17.22,
+   "goal_dist_m": 21.9309,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c1t1_s591273154",
+   "verdict": "fail",
+   "collision_t": 12.3,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.07m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.21,
+    0.56
+   ],
+   "closing_m_s": 0.61,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 7.35,
+   "goal_dist_m": 31.7145,
+   "time_to_goal_s": null
+  }
+ ]
+}

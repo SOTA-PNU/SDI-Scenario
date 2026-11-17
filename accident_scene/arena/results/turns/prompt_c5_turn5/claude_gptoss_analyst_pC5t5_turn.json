@@ -1,0 +1,369 @@
+{
+ "turn": 5,
+ "started": "2026-11-17 08:48:19",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c5_turn4/claude_gptoss_analyst_pC5t4_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t4_s735256478: t=60.7에 정적 박스와 충돌, 로봇이 제자리 회전(+1.9rad/s) 중, first_not_on_map이 t=55.72에 1.16m 거리에서 감지됨",
+   "c5t4_s404140708: t=39.683에 mover_00와 충돌, 로봇이 0.84m/s 전진하며 회전(+1.0rad/s), first_not_on_map이 t=34.68에 1.45m 거리에서 감지됨",
+   "c5t4_s792288450: t=159.07에 progress_abort 발생, 목표까지 14m 남아 정체(정지+제자리 회전 89회), first_not_on_map이 t=154.08에 1.79m 거리에서 감지됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다가 8m 이내 물체를 정확히 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 1~1.5m 거리에서 물체가 감지됨"
+   },
+   {
+    "assumption": "움직이는 물체의 속도는 2 m/s 이하이며 TTC 스케일링으로 감속 가능",
+    "holds": true,
+    "why": "closing_m_s 데이터가 0.27 m/s 이하, TTC 기반 스케일링 적용 가능"
+   },
+   {
+    "assumption": "정적 지도와 라이다 필터링으로 움직이는 물체를 정확히 구분한다",
+    "holds": true,
+    "why": "track 배열에 물체가 정상적으로 추적되고 static‑world 필터가 올바르게 동작"
+   },
+   {
+    "assumption": "경유점 경로는 정적 장애물만 고려하면 충분하다",
+    "holds": false,
+    "why": "움직이는 물체가 경유점 경로와 교차해 충돌 및 정체가 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static_pause_detection",
+    "turns": "1",
+    "result": "1/4 통과"
+   },
+   {
+    "family": "dynamic_pause_TTC",
+    "turns": "2",
+    "result": "4/5 통과"
+   },
+   {
+    "family": "gap_detour",
+    "turns": "3",
+    "result": "0/3 통과"
+   },
+   {
+    "family": "predictive_speed_scaling",
+    "turns": "4",
+    "result": "2/5 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Velocity Obstacle 기반 로컬 플래너 도입",
+    "new_family": true,
+    "for": "현재 TTC 스케일링이 급격한 접근을 충분히 예측 못해 충돌이 발생, VO는 상대 속도로 회피 경로를 실시간 계산",
+    "risk": "계산량 증가, 파라미터 튜닝 필요, 라이다 노이즈 시 VO 불안정"
+   },
+   {
+    "idea": "동적 비용 맵과 A* 재계획",
+    "new_family": true,
+    "for": "정적 경유점만으로는 움직이는 물체 회피가 어려움, 비용 맵은 물체 위치·속도를 반영해 최적 경로를 찾음",
+    "risk": "재계획 지연, 비용 맵 업데이트가 라이다 주기보다 늦을 수 있음"
+   },
+   {
+    "idea": "3D 라이다와 카메라를 결합한 물체 추적 및 예측",
+    "new_family": true,
+    "for": "2D 라이다만으로는 높이·시야 사각지대가 존재, 3D·비전으로 물체를 더 정확히 파악",
+    "risk": "센서 처리 복잡도·이미지 처리 비용·구현 난이도"
+   }
+  ],
+  "chosen": "Velocity Obstacle 기반 로컬 플래너를 선택한 이유는 현재 TTC 스케일링이 급격한 접근을 충분히 예측하지 못해 충돌이 발생하고, VO는 상대 속도를 이용해 실시간 회피 경로를 생성해 충돌을 방지할 수 있기 때문입니다.",
+  "target": "controller, 새 함수 _compute_vo, _vo_planner, _VO_HORIZON 상수",
+  "direction": "1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 지시 2~6에 따라 Velocity Obstacle 국소 플래너를 넣었습니다. `_compute_vo`, `_vo_ttc`, `_vo_planner`, `_VO_HORIZON=2.0`, `_VO_SPEED_STEPS=5` 를 추가했고, `gap <= _SAFE_DIST` 일 때와 정지 시 피격 예측(hold<0)일 때 `_predictive_speed` 와 대기 후 우회 대신 VO 를 통과한 (방향, 속도) 후보 중 비용이 가장 낮은 (v, w) 를 씁니다. 후보는 VO, `_lidar_clear`, 몸체 쓸림 검사, 정적 지도, 1.5 s 주행 후 정지 예측 여유를 모두 만족해야 하며, 안전한 후보가 없을 때만 기존 `_plan_escape` 로 넘어갑니다. 증거 1(제자리 회전 중 정적 박스 충돌)에는 라이다 점으로 회전 시 몸체 쓸림을 검사하는 `_sweep_clear`/`_guard` 와, 시작 자세가 이미 가까우면 검사를 건너뛰던 `_traj_static_ok` 수정으로 대응했고, 증거 3(정지·회전 반복 정체)에는 후보 히스테리시스와 회전·전진을 동시에 허용하는 방향 후보로 대응했습니다.",
+   "changed": [
+    "_VO_DELTAS",
+    "_VO_DRIVE_T",
+    "_VO_HORIZON",
+    "_VO_MARGIN",
+    "_VO_SPEED_STEPS",
+    "_compute_vo",
+    "_guard",
+    "_static_clear",
+    "_static_dist",
+    "_sweep_clear",
+    "_traj_static_ok",
+    "_vo_planner",
+    "_vo_rollout",
+    "_vo_ttc",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. 기존 _perceive 가 만든 트랙 M 을 그대로 쓴다",
+      "implemented": true,
+      "note": "_perceive·_track_array 는 바뀌지 않았고, controller 가 M 을 _vo_planner 에 그대로 넘김"
+     },
+     {
+      "instruction": "2. _compute_vo(pose, M, horizon) 로 상대 속도 기반 VO 영역을 계산한다",
+      "implemented": true,
+      "note": "_compute_vo 가 (상대 위치, 물체 속도, 합성 반경, g) 행을 만듦. 상대 속도는 _vo_ttc 에서 후보 속도 기준으로 계산함"
+     },
+     {
+      "instruction": "3. _vo_planner 가 목표 방향 후보 (v, w) 를 만들고 VO·정적 지도·_lidar_clear 로 검사한다",
+      "implemented": true,
+      "note": "bearing+_VO_DELTAS×속도 5단계 후보에 _vo_ttc, _lidar_clear, _sweep_clear, _traj_static_ok 검사. 서명은 st 가 추가된 (st, pose, tgt, M)"
+     },
+     {
+      "instruction": "4. gap<=_SAFE_DIST 일 때 _predictive_speed 를 _vo_planner 로 바꾸고 안전한 (v, w) 를 반환한다",
+      "implemented": true,
+      "note": "if hold<0 or (gap<=_SAFE_DIST and not aligning) 분기에서 cmd 를 반환함. hold<0 인 경우까지 넓힘"
+     },
+     {
+      "instruction": "5. 후보가 없으면 기존 escape 로 fallback 하고, 그 전에 _lidar_clear 로 전방을 확인한다",
+      "implemented": true,
+      "note": "cmd 가 None 이면 _plan_escape→_escape_cmd(_lidar_clear 로 띠 검사)→_guard 순서로 처리. _plan_escape 후보도 _lidar_clear 로 거름"
+     },
+     {
+      "instruction": "6. _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고 기존 로직과 호환되게 유지한다",
+      "implemented": true,
+      "note": "두 상수를 정의함. 일반 주행 경로의 _safe_speed/_predictive_speed 와 정지·우회 로직은 그대로 둠"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 5의 _escape 라는 함수는 코드에 없음(_plan_escape/_escape_cmd 를 뜻한 것으로 보임)",
+     "지시 2의 '로봇 현재 속도' 기준 VO 는 부정확함. VO 는 후보 속도마다 판정해야 하며, 수정 코드는 후보 속도 기준으로 구현함",
+     "증거 1(제자리 회전 중 정적 박스 충돌)과 증거 3(정체)은 움직이는 물체 회피 문제가 아닌데, VO 만으로는 대응하지 못함",
+     "가정의 closing_m_s 0.27 m/s 이하는 접근 속도이므로 물체 속도 상한의 근거로 쓰기에는 약함"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단 지시 2~6에 따라 Velocity Obstacle 국소 플래너를 넣었습니다. `_compute_vo`, `_vo_ttc`, `_vo_planner`, `_VO_HORIZON=2.0`, `_VO_SPEED_STEPS=5` 를 추가했고, `gap <= _SAFE_DIST` 일 때와 정지 시 피격 예측(hold<0)일 때 `_predictive_speed` 와 대기 후 우회 대신 VO 를 통과한 (방향, 속도) 후보 중 비용이 가장 낮은 (v, w) 를 씁니다. 후보는 VO, `_lidar_clear`, 몸체 쓸림 검사, 정적 지도, 1.5 s 주행 후 정지 예측 여유를 모두 만족해야 하며, 안전한 후보가 없을 때만 기존 `_plan_escape` 로 넘어갑니다. 증거 1(제자리 회전 중 정적 박스 충돌)에는 라이다 점으로 회전 시 몸체 쓸림을 검사하는 `_sweep_clear`/`_guard` 와, 시작 자세가 이미 가까우면 검사를 건너뛰던 `_traj_static_ok` 수정으로 대응했고, 증거 3(정지·회전 반복 정체)에는 후보 히스테리시스와 회전·전진을 동시에 허용하는 방향 후보로 대응했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  103391280,
+  1659291402,
+  1405628138,
+  1189348506,
+  1105403629
+ ],
+ "sim_used_s": 285.7,
+ "verdicts": {
+  "103391280": "pass",
+  "1659291402": "fail",
+  "1405628138": "pass",
+  "1189348506": "fail",
+  "1105403629": "fail"
+ },
+ "passes": 2,
+ "prior_chars": 1406,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t5_s1659291402: 4.133 s 충돌, 로봇 정지 상태, mover_00 상대 위치 [0.48,-0.48] (거리≈0.68 m), closing 0.26 m/s, 2 m 이내 감지는 1.65 s에 있었음",
+   "c5t5_s1189348506: 50.95 s 충돌, 로봇 1.0 m/s 전진·-0.6 rad 회전, mover_03 상대 위치 [-0.18,0.55] (거리≈0.58 m), closing 0.74 m/s, 2 m 이내 감지는 47.65 s에 있었음",
+   "c5t5_s1105403629: 85.167 s 충돌, 로봇 1.0 m/s 전진, mover_03 상대 위치 [-0.1,0.55] (거리≈0.56 m), closing 0.59 m/s, 2 m 이내 감지는 80.23 s에 있었음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D 라이다 앞·뒤만으로 움직이는 물체를 8 m 안에서 구분할 수 있다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 1 m 이하에서 물체를 감지했으며 코드가 이를 사용함"
+   },
+   {
+    "assumption": "움직이는 물체가 _SAFE_DIST(1.7 m) 안에 들어오면 pause_until 로 정지하고 물체가 멀어지면 재개하면 충돌을 방지한다",
+    "holds": false,
+    "why": "위 3개 충돌 사례에서 물체가 2 m 이내에 감지됐지만 로봇이 충분히 정지·재개하지 못해 충돌함"
+   },
+   {
+    "assumption": "VO 플래너가 존재하면 안전한 (v,w) 후보를 항상 찾을 수 있다",
+    "holds": false,
+    "why": "VO 플래너 적용 후에도 3번 충돌이 발생, 후보 선택이 실제 충돌을 예방하지 못함"
+   },
+   {
+    "assumption": "정적 지도와 _map_free 검사는 정적 장애물과의 충돌을 완전히 방지한다",
+    "holds": true,
+    "why": "시뮬 전체에서 정적 충돌이 보고되지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static waypoint only",
+    "turns": [
+     0
+    ],
+    "result": "1/4"
+   },
+   {
+    "family": "simple pause on detection",
+    "turns": [
+     1
+    ],
+    "result": "1/4"
+   },
+   {
+    "family": "TTC‑based dynamic pause",
+    "turns": [
+     2
+    ],
+    "result": "4/5"
+   },
+   {
+    "family": "detour generation on min_gap",
+    "turns": [
+     3
+    ],
+    "result": "0/3"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": [
+     4
+    ],
+    "result": "2/5"
+   },
+   {
+    "family": "VO planner",
+    "turns": [
+     5
+    ],
+    "result": "2/5"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "3D 라이다를 활용해 앞·뒤 2D 라이다보다 멀리 있는 움직이는 물체를 조기에 탐지하고 트랙에 통합한다",
+    "new_family": true,
+    "for": "조기 감지로 TTC 계산 시간을 앞당겨 충돌을 사전에 회피",
+    "risk": "연산량 증가와 3D 포인트 클라우드 잡음으로 오탐 가능"
+   },
+   {
+    "idea": "이동 물체의 상대 속도에 수직인 방향으로 측면 회피(0.8 m) 명령을 추가하고, 회피 후 원래 웨이포인트로 복귀한다",
+    "new_family": true,
+    "for": "측면 접근 물체를 신속히 우회해 진행 흐름을 유지",
+    "risk": "새로운 회피점이 정적 지도와 충돌하거나 다른 물체와 교차할 위험"
+   },
+   {
+    "idea": "안전 통로(state‑machine) 방식을 도입해 현재 목표와 직선 구간을 안전 구역으로 정의하고, 물체가 구역에 들어오면 완전 정지·대기 후 구역이 비면 재진입한다",
+    "new_family": true,
+    "for": "연속적인 정지·재개 로직을 명확히 하여 미세한 충돌을 방지",
+    "risk": "과도한 정지·대기 때문에 전체 시간 제한을 초과할 수 있음"
+   }
+  ],
+  "chosen": "3D 라이다 기반 조기 탐지와 트랙 통합을 선택, 이는 기존 2D 라이다만 사용하던 구조와 완전히 다른 새로운 센서 활용 방식이다",
+  "target": "controller 및 _perceive 함수 (새 센서 데이터 통합)",
+  "direction": "1. _perceive 안에서 lidar3d_points() 를 호출해 3D 포인트 클라우드를 얻는다. 2. 포인트를 x‑y 평면으로 투사하고 _drop_body 로 로봇 몸체를 제외한다. 3. 기존 2D 라이다와 결합해 하나의 점 집합 P 를 만든다. 4. P 로부터 정적 점을 _is_static_world 로 필터링하고, 남은 점을 기존 클러스터링 로직에 그대로 전달해 트랙을 업데이트한다. 5. _SAFE_DIST 검사를 P 기반으로 확장해 3 m까지 감지하도록 하고, pause_until 로직을 P 내 물체가 2 m 이내에 들어오면 즉시 정지하도록 수정한다. 6. VO 플래너와 predictive_speed 에도 새로운 P 를 입력해 더 긴 예측 거리와 정확한 lidar_strip 검사를 수행한다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c5t5_s103391280",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 68.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 62.65,
+   "goal_dist_m": 0.2088,
+   "time_to_goal_s": 64.95
+  },
+  {
+   "run": "c5t5_s1659291402",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 531.4,
+   "sim_time_s": 10.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.133,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.48,
+    -0.48
+   ],
+   "closing_m_s": 0.26,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 1.65,
+   "goal_dist_m": 31.292,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t5_s1405628138",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 521.2,
+   "sim_time_s": 58.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 52.85,
+   "goal_dist_m": 0.1996,
+   "time_to_goal_s": 55.0
+  },
+  {
+   "run": "c5t5_s1189348506",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 462.5,
+   "sim_time_s": 57.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 50.95,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.00m/s 회전 -0.6",
+   "partner_rel_xy": [
+    -0.18,
+    0.55
+   ],
+   "closing_m_s": 0.74,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 47.65,
+   "goal_dist_m": 3.4133,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t5_s1105403629",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 405.5,
+   "sim_time_s": 91.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 85.167,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.00m/s",
+   "partner_rel_xy": [
+    -0.1,
+    0.55
+   ],
+   "closing_m_s": 0.59,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 80.23,
+   "goal_dist_m": 3.5587,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 156 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.\" 반영, 검토 통과): 새 배치 5개 중 4개 pass, 1개 fail (시뮬 시간 합계 599 s / 한도 600 s)\n#3 이번 코드(진단 \"1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\\\"detour\\\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\\\"detour\\\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\\\"detour\\\"][0]-x, st[\\\"detour\\\"][1]-y) < 0.4`) `st[\\\"detour\\\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 593 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _predictive_speed(st, pose, tgt, v_nom, M) 를 추가해 _dynamic_pause 로 TTC를 구하고, (ttc/_HORIZON) 비율로 속도 비율을 계산한다. 2) controller에서 목표 선택 후, gap <= _SAFE_DIST 인 경우 기존 detour/pause 로직 대신 _predictive_speed 를 호출한다. 3) 반환된 속도가 None이면 기존 pause 로직을 실행하고, 속도가 있으면 v=vc, w=w_nom 로 반환한다. 4) _lidar_clear 검사를 속도에 적용해 앞에 장애물이 있으면 v를 0으로 만든다. 5) 기존 detour와 escape 로직은 fallback으로 남겨 두어 완전 차단 상황에 대비한다. 6) _SAFE_DIST 를 약간 늘려(1.7 m) 급격한 접근을 미리 감지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 506 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 286 s / 한도 600 s)",
+ "ended": "2026-11-17 09:02:34"
+}

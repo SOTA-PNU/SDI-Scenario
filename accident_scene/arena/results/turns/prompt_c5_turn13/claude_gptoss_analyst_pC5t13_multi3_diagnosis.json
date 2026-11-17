@@ -1,0 +1,158 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c5t13_s1200293880: 42번의 정지·회전 구간 후 t=103.45 s에 2 m 이내 물체 감지, 이후 로봇이 제자리 회전만 반복해 목표까지 30 m 남은 상태에서 진행 중단(진행 중단 t=103.83 s).",
+   "c5t13_s1619343123: 91번의 정지·회전 구간, 2 m 이내 물체는 t≈206 s에 처음 감지되지 않았으며 로봇이 회전만 수행해 목표까지 25 m 남은 채 진행 중단(t=210.85 s).",
+   "c5t13_s1291565554: 70번의 정지·회전 구간, 2 m 이내 물체가 t=115.17 s에 감지됐음에도 로봇이 정지 후 회전만 지속해 목표까지 29 m 남은 상태에서 진행 중단(t=117.88 s)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 충돌 위험이 되기 전에 라이다로 감지된다.",
+    "holds": false,
+    "why": "첫 감지는 100 s 이후에 이루어졌으며, 감지 직후 로봇은 전진을 재개하지 못하고 정지·회전만 반복한다."
+   },
+   {
+    "assumption": "VFH는 항상 충분히 넓은 빈 구간을 찾아 전진 명령을 생성한다.",
+    "holds": false,
+    "why": "다수의 stop‑turn 에피소드에서 VFH가 회전 전용 명령만 반환하거나 None을 반환해 전진이 차단된다."
+   },
+   {
+    "assumption": "동적 pause(시간‑충돌) 로직은 짧은 일시 정지를 초래하고 곧 전진을 재개한다.",
+    "holds": false,
+    "why": "pause가 길게 유지되어 로봇이 30 m 이상 남은 목표까지 전진하지 못하고 90 s 이상 정지 상태에 머문다."
+   },
+   {
+    "assumption": "정적 지도와 로봇 본체 충돌 검사는 정확히 동작한다.",
+    "holds": true,
+    "why": "정적 장애물과의 충돌 보고가 없으며, _is_static_world 필터링이 정상적으로 작동한다."
+   },
+   {
+    "assumption": "3.5 s 예측 horizon은 이동 물체와의 충돌을 충분히 예측한다.",
+    "holds": false,
+    "why": "과도한 horizon이 과보수적인 pause를 유발해 로봇이 진행을 포기한다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "VFH reactive planner",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "VO planner (fallback evasion)",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Predictive speed scaling",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Stuck detour after prolonged blockage",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "Normal waypoint following",
+    "turns": "3",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "순수 TTC 기반 속도 스케일링만 사용하고 VFH·VO·정지·회전 로직을 제거한다.",
+    "new_family": true,
+    "for": "예전 turn 2의 TTC‑동적‑pause와 _predictive_speed 조합이 가장 높은 통과율을 보였으며, 로직을 단순화하면 과도한 정지·회전을 없앨 수 있다.",
+    "risk": "TTC 임계값을 낮게 잡으면 빠른 물체와 충돌 위험이 증가할 수 있다."
+   },
+   {
+    "idea": "라이다 기반 이동 물체를 일시적 정적 장애물로 간주하고 A* 재계획을 수행한다.",
+    "new_family": true,
+    "for": "현재 VFH·VO가 빈 구간을 찾지 못해 정체가 발생하므로, 전역 경로 재계획으로 명확한 우회 경로를 만든다.",
+    "risk": "재계획 연산 비용이 높아 시뮬 시간 제한을 초과할 가능성이 있다."
+   },
+   {
+    "idea": "VFH 파라미터를 완화해 _SAFE_DIST를 2 m 로 낮추고 최소 빈 구간 폭을 2 bin 으로 줄인다.",
+    "new_family": true,
+    "for": "현재 VFH가 과보수적으로 전진을 차단하고 회전만 유도하므로, 파라미터 완화가 전진을 허용할 수 있다.",
+    "risk": "좁은 구간을 통과하면서 실제 충돌 위험이 증가할 수 있다."
+   }
+  ],
+  "chosen": "우리는 후보 1을 선택한다. TTC 기반 속도 스케일링만 남기고 VFH·VO·정지·회전 로직을 모두 제거하면 현재 과도한 정체 현상을 근본적으로 해소할 수 있다.",
+  "target": "controller (VFH·VO·pause 로직 제거, TTC 기반 속도 스케일링 적용)",
+  "direction": "1) controller 초기화에서 기존 st[\"pause_until\"], st[\"detour\"], st[\"vo_on\"] 등을 삭제하고, _perceive와 트랙 업데이트만 유지한다. 2) _perceive 후 M = _track_array(st, t) 를 얻고, _dynamic_pause(st, pose, M) 로 (pause, ttc) 를 계산한다. 3) pause>0이면 st[\"pause_until\"] = t + pause 를 설정하고 (0.0,0.0,False) 를 반환한다; pause가 0이면 바로 진행한다. 4) 현재 waypoint에 대해 _follow 로 v_nom, w_nom 을 구하고, _predictive_speed(st, pose, tgt, v_nom, M) 로 안전 속도 vc 를 얻는다. 5) vc가 None이면 vc=0.0으로 설정하고, w = w_nom 로 지정한 뒤 _guard(st, pose, M, vc, w) 로 최종 검증 후 반환한다. 6) VFH, VO, early‑stop, proximity‑stop 등 모든 호출을 코드에서 제거하거나 주석 처리한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c5t13_s1200293880: 42번의 정지·회전 구간 후 t=103.45 s에 2 m 이내 물체 감지, 이후 로봇이 제자리 회전만 반복해 목표까지 30 m 남은 상태에서 진행 중단(진행 중단 t=103.83 s).\",\n    \"c5t13_s1619343123: 91번의 정지·회전 구간, 2 m 이내 물체는 t≈206 s에 처음 감지되지 않았으며 로봇이 회전만 수행해 목표까지 25 m 남은 채 진행 중단(t=210.85 s).\",\n    \"c5t13_s1291565554: 70번의 정지·회전 구간, 2 m 이내 물체가 t=115.17 s에 감지됐음에도 로봇이 정지 후 회전만 지속해 목표까지 29 m 남은 상태에서 진행 중단(t=117.88 s).\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 충돌 위험이 되기 전에 라이다로 감지된다.\",\n      \"holds\": false,\n      \"why\": \"첫 감지는 100 s 이후에 이루어졌으며, 감지 직후 로봇은 전진을 재개하지 못하고 정지·회전만 반복한다.\"\n    },\n    {\n      \"assumption\": \"VFH는 항상 충분히 넓은 빈 구간을 찾아 전진 명령을 생성한다.\",\n      \"holds\": false,\n      \"why\": \"다수의 stop‑turn 에피소드에서 VFH가 회전 전용 명령만 반환하거나 None을 반환해 전진이 차단된다.\"\n    },\n    {\n      \"assumption\": \"동적 pause(시간‑충돌) 로직은 짧은 일시 정지를 초래하고 곧 전진을 재개한다.\",\n      \"holds\": false,\n      \"why\": \"pause가 길게 유지되어 로봇이 30 m 이상 남은 목표까지 전진하지 못하고 90 s 이상 정지 상태에 머문다.\"\n    },\n    {\n      \"assumption\": \"정적 지도와 로봇 본체 충돌 검사는 정확히 동작한다.\",\n      \"holds\": true,\n      \"why\": \"정적 장애물과의 충돌 보고가 없으며, _is_static_world 필터링이 정상적으로 작동한다.\"\n    },\n    {\n      \"assumption\": \"3.5 s 예측 horizon은 이동 물체와의 충돌을 충분히 예측한다.\",\n      \"holds\": false,\n      \"why\": \"과도한 horizon이 과보수적인 pause를 유발해 로봇이 진행을 포기한다.\"\n    }\n  ],\n  \"approach_families\": [\n    { \"family\": \"VFH reactive planner\", \"turns\": \"3\", \"result\": \"0/3 pass\" },\n    { \"family\": \"VO planner (fallback evasion)\", \"turns\": \"3\", \"result\": \"0/3 pass\" },\n    { \"family\": \"Predictive speed scaling\", \"turns\": \"3\", \"result\": \"0/3 pass\" },\n    { \"family\": \"Stuck detour after prolonged blockage\", \"turns\": \"3\", \"result\": \"0/3 pass\" },\n    { \"family\": \"Normal waypoint following\", \"turns\": \"3\", \"result\": \"0/3 pass\" }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"순수 TTC 기반 속도 스케일링만 사용하고 VFH·VO·정지·회전 로직을 제거한다.\",\n      \"new_family\": true,\n      \"for\": \"예전 turn 2의 TTC‑동적‑pause와 _predictive_speed 조합이 가장 높은 통과율을 보였으며, 로직을 단순화하면 과도한 정지·회전을 없앨 수 있다.\",\n      \"risk\": \"TTC 임계값을 낮게 잡으면 빠른 물체와 충돌 위험이 증가할 수 있다.\"\n    },\n    {\n      \"idea\": \"라이다 기반 이동 물체를 일시적 정적 장애물로 간주하고 A* 재계획을 수행한다.\",\n      \"new_family\": true,\n      \"for\": \"현재 VFH·VO가 빈 구간을 찾지 못해 정체가 발생하므로, 전역 경로 재계획으로 명확한 우회 경로를 만든다.\",\n      \"risk\": \"재계획 연산 비용이 높아 시뮬 시간 제한을 초과할 가능성이 있다.\"\n    },\n    {\n      \"idea\": \"VFH 파라미터를 완화해 _SAFE_DIST를 2 m 로 낮추고 최소 빈 구간 폭을 2 bin 으로 줄인다.\",\n      \"new_family\": true,\n      \"for\": \"현재 VFH가 과보수적으로 전진을 차단하고 회전만 유도하므로, 파라미터 완화가 전진을 허용할 수 있다.\",\n      \"risk\": \"좁은 구간을 통과하면서 실제 충돌 위험이 증가할 수 있다.\"\n    }\n  ],\n  \"chosen\": \"우리는 후보 1을 선택한다. TTC 기반 속도 스케일링만 남기고 VFH·VO·정지·회전 로직을 모두 제거하면 현재 과도한 정체 현상을 근본적으로 해소할 수 있다.\",\n  \"target\": \"controller (VFH·VO·pause 로직 제거, TTC 기반 속도 스케일링 적용)\",\n  \"direction\": \"1) controller 초기화에서 기존 st[\\\"pause_until\\\"], st[\\\"detour\\\"], st[\\\"vo_on\\\"] 등을 삭제하고, _perceive와 트랙 업데이트만 유지한다. 2) _perceive 후 M = _track_array(st, t) 를 얻고, _dynamic_pause(st, pose, M) 로 (pause, ttc) 를 계산한다. 3) pause>0이면 st[\\\"pause_until\\\"] = t + pause 를 설정하고 (0.0,0.0,False) 를 반환한다; pause가 0이면 바로 진행한다. 4) 현재 waypoint에 대해 _follow 로 v_nom, w_nom 을 구하고, _predictive_speed(st, pose, tgt, v_nom, M) 로 안전 속도 vc 를 얻는다. 5) vc가 None이면 vc=0.0으로 설정하고, w = w_nom 로 지정한 뒤 _guard(st, pose, M, vc, w) 로 최종 검증 후 반환한다. 6) VFH, VO, early‑stop, proximity‑stop 등 모든 호출을 코드에서 제거하거나 주석 처리한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c5t13_s1200293880",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 104.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 103.83,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": 103.45,
+   "goal_dist_m": 30.2207,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t13_s1619343123",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 495.1,
+   "sim_time_s": 211.9,
+   "stall_abort_t": null,
+   "progress_abort_t": 210.85,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 91,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 25.3401,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t13_s1291565554",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 283.3,
+   "sim_time_s": 118.9,
+   "stall_abort_t": null,
+   "progress_abort_t": 117.88,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 70,
+   "first_seen_within_2m_t": 115.17,
+   "goal_dist_m": 29.3363,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "c5t13_s1291565554 는 정체 중단이 없습니다. 실제 c5t13_s1291565554: verdict=fail, stall_abort_t=None, progress_abort_t=117.88, collision_t=None, partner=None, robot_at_collision=None, stop_turns=70"
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

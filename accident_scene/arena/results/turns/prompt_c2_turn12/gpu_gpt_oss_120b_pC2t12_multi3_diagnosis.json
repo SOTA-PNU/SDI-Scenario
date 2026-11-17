@@ -1,0 +1,68 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t12_s401301286: 20 stop‑turn episodes and progress abort at t=90 s with no collision (stop_turns=20, progress_abort_t=90.0)",
+   "first_not_on_map detected at t≈85 s, dist≈1.4 m, bearing≈‑62° → robot entered prolonged stop‑rotate loop (first_not_on_map within 2 m t=85.02)",
+   "run c2t12_s219073672: stall abort at t=64.5 s after first moving object seen at t≈59.5 s (dist≈1.2 m, bearing≈11°) and 13 stop‑turn episodes (stop_turns=13)"
+  ],
+  "target": "controller (detection thresholds & avoidance state machine)",
+  "direction": "1) shrink detection cone to 1.2 m and ±30° and require ≥3 moving points; 2) add a counter (controller.moving_counter) so avoidance only starts after 3 consecutive detections; 3) shorten avoidance timings (_AVOID_DURATION=1.0 s, _CLEAR_TIME=1.0 s, _BACK_TIME=0.3 s, _ROT_TIME=0.5 s); 4) replace multi‑stage stop‑wait‑back‑rotate with a single stop‑rotate step then resume waypoint navigation.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t12_s401301286: 20 stop‑turn episodes and progress abort at t=90 s with no collision (stop_turns=20, progress_abort_t=90.0)\",\n    \"first_not_on_map detected at t≈85 s, dist≈1.4 m, bearing≈‑62° → robot entered prolonged stop‑rotate loop (first_not_on_map within 2 m t=85.02)\",\n    \"run c2t12_s219073672: stall abort at t=64.5 s after first moving object seen at t≈59.5 s (dist≈1.2 m, bearing≈11°) and 13 stop‑turn episodes (stop_turns=13)\"\n  ],\n  \"target\": \"controller (detection thresholds & avoidance state machine)\",\n  \"direction\": \"1) shrink detection cone to 1.2 m and ±30° and require ≥3 moving points; 2) add a counter (controller.moving_counter) so avoidance only starts after 3 consecutive detections; 3) shorten avoidance timings (_AVOID_DURATION=1.0 s, _CLEAR_TIME=1.0 s, _BACK_TIME=0.3 s, _ROT_TIME=0.5 s); 4) replace multi‑stage stop‑wait‑back‑rotate with a single stop‑rotate step then resume waypoint navigation.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t12_s401301286",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 85.02,
+   "goal_dist_m": 31.9124,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t12_s980812926",
+   "verdict": "fail",
+   "stall_abort_t": 176.9,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.6215,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t12_s219073672",
+   "verdict": "fail",
+   "stall_abort_t": 64.52,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 59.55,
+   "goal_dist_m": 31.9742,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

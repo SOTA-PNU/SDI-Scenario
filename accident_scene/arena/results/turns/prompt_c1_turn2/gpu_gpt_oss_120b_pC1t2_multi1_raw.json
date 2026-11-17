@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-996e195663f93d18",
+ "object": "chat.completion",
+ "created": 1794729267,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"508번에 달하는 정지·제자리 회전 구간이 기록되어 로봇이 거의 움직이지 않았음 (stop_turn_episodes count=508)\",\n    \"first_not_on_map이 595 s에 1.58 m 거리에서 처음 보였지만 이미 목표까지 32 m 남은 상태이며, 목표에 도달하지 못함 (final_goal_dist_m=32.0742)\",\n    \"회피 종료 조건이 front_dist > EXIT_DIST AND back_dist > EXIT_DIST 인데, 라이다 잡음으로 동적 거리값이 EXIT_DIST(2 m) 이하인 경우가 지속돼 회피 플래그가 해제되지 않음\"\n  ],\n  \"target\": \"avoidance logic & dynamic detection\",\n  \"direction\": \"라이다 잡음에 대비해 동적 거리 값을 연속 N번(예: 5번) 이상 EXIT_DIST보다 크면 회피를 해제하도록 수정하고, EXIT_DIST를 1.5 m 정도로 낮추며, 동적 물체 감지를 위해 최근 3프레임 평균 거리를 사용한다. 또한 장애물과의 상대 속도(전진 속도·접근 속도)를 고려해 required_stop을 동적으로 계산하고, 정적 물체 필터링에 작은 마진(예: 0.05 m) 을 추가해 오탐을 줄인다. 마지막으로 회피 중에도 작은 전진(v=0.2 m/s)으로 상황을 관찰해 장시간 정지 상태를 방지한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to produce JSON with failure_mode, evidence, target, direction, confidence.\n\nWe have multiple runs summary: only one run shown, but description says many runs across batches. The code modifications increased safe distances but still failing. The summary shows robot never reaches goal, final distance 32m (far). It has many stop_turn episodes (508). first_not_on_map detection at t=595s within 2m. So robot detected moving object late (almost at time limit) and spent time rotating but never progressed.\n\nThus failure mode likely stall (stuck rotating) or timeout? Verdict fail, no collision, goal distance large, time exceeded 600s. So failure_mode = stall or timeout. The robot didn't collide, just got stuck rotating around moving object that appears near end. The cause: avoidance logic uses required_stop based on v_target but v_target is high (max 1.5) and SAFE_DIST 1.5, REACTION_TIME 0.5, BUFFER 0.3 => required_stop max(1.5, v*0.5+0.3). For v up to 1.5, required_stop = max(1.5, 1.5*0.5+0.3=1.05) =1.5. So threshold 1.5m. However the moving object first appears at 1.58m at t~595s, just beyond threshold, so avoidance not triggered until later maybe when distance <1.5? But by then robot is stopped near goal? Actually robot is far from goal (32m). It seems robot got stuck early maybe due to avoidance being triggered repeatedly causing stop_turn episodes (508). The log shows many stop_turn episodes early (first 10 episodes from 0.2s onward). So robot entered avoidance early perhaps due to false detection of static points being misclassified as dynamic? The _nearest_dynamic_front filters static boxes by checking world points inside boxes. However static boxes are known; but detection may treat points from static obstacles not perfectly inside due to sensor noise, causing many dynamic detections, causing avoidance constantly, leading to stall.\n\nEvidence: many stop_turn episodes (508) indicate robot kept rotating instead of moving. Also first_not_on_map detection occurs at 595s, but robot already stalled earlier, so avoidance never cleared.\n\nThus failure mode: stall (or timeout). Choose \"stall\" as failure_mode.\n\nTarget: the detection logic, particularly _nearest_dynamic_front/back and static filtering; also parameters SAFE_DIST, EXIT_DIST maybe too large causing frequent avoidance. Also avoidance logic never resumes forward motion because condition to exit avoidance requires both front_dist > EXIT_DIST and back_dist > EXIT_DIST, but due to noisy detections, distances may stay below EXIT_DIST causing perpetual avoidance.\n\nDirection: propose to use a confidence filter: require multiple consecutive scans with distance > EXIT_DIST before clearing; also increase EXIT_DIST maybe smaller; also incorporate velocity of obstacle to predict collision and only trigger avoidance when closing speed positive; also use median filtering of lidar points; perhaps use 3D lidar or combine front/back.\n\nProvide 4 sentences.\n\nConfidence high.\n\nLet's craft JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 10501,
+  "total_tokens": 11509,
+  "completion_tokens": 1008,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 644
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-a6fd39cedf5114ee",
+ "object": "chat.completion",
+ "created": 1794730582,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"첫 번째 비정적 물체가 2 m 이내에 보였지만 bearing 48°~79° (예: run c2t1_s1351165071, first_not_on_map within_2m bearing 79° at t=1.55s) → ±30° 필터에 걸리지 않음\",\n    \"감지 거리 제한 1.2 m 때문에 최초 2 m 거리 물체는 무시됨 (run c2t1_s1716666872, first_not_on_map within_2m dist 1.99 m at t=0.85s)\",\n    \"충돌 시점 로봇이 여전히 전진(v≈1 m/s)이며 has_moving=False였음 (run c2t1_s2105148086, collision_t=3.717s, robot_state 전진 1.26 m/s)\"\n  ],\n  \"target\": \"detect_moving_any / controller\",\n  \"direction\": \"1) _detect_moving_any의 거리 임계값을 2.5 m로 확대하고, 방위 필터를 ±60°(또는 전체 360°)로 넓힌다. 2) back 라이다도 전체 방위로 사용하도록 필터를 제거한다. 3) 움직이는 물체 감지 시 v=0, w=0 로 완전 정지하고, 물체가 안전 거리(예: 1.5 m) 이상 멀어질 때까지 대기한다. 4) 물체가 사라지면 기존 waypoint‑추종 로직으로 복귀한다.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to determine failure mode based on multiple runs. Data: 10 runs, 2 passes (run ids with pass: c2t1_s1326888879, c2t1_s1225660529). Others fail due to collisions. Most collisions happen early (~3-4s) with mover_00, after first detection at ~0.85-1.55s. The detection seems to detect moving objects, but robot still collides. Why? Possibly detection threshold distance 1.2m and bearing ±30°, but moving objects may appear outside that sector or closer later. In early runs, first_not_on_map within 2m at t~0.85-1.55s, but detection maybe not catching because they are behind? However moving objects appear in front sector soon after. The robot does stop and rotate when has_moving True. But logs show robot still moving at collision time, with v ~1 m/s. Means detection didn't trigger or returned False. Perhaps because moving points are also inside static obstacles? The detection filters out points inside static map, but moving objects may be partially occluded by static boxes, but still points could be classified as static if within static bounding boxes (since moving objects may be inside same region as static boxes? Actually moving objects travel in corridors, not overlapping static boxes. But maybe detection uses world coordinates and static obstacles include walls and fixed obstacles; moving objects may be inside the corridor but still inside the bounding boxes of fixed obstacles? The corridor defined by walls maybe not; but static obstacles list includes many bounding boxes, maybe some overlap corridor. The moving objects may be within those boxes' extents (since they are narrow corridors). The detection may incorrectly treat them as static because they fall inside a fixed obstacle's rectangle (even if actual static obstacle is not at that exact height). Since static obstacles are 2D extents ignoring height, moving objects at floor height may be considered inside static obstacle region, causing moving_mask to filter them out. Hence detection fails, robot collides.\n\nEvidence: In runs where pass, first_not_on_map appears at t~44s, far later, and robot never sees moving objects early; maybe no moving objects in path. In fail runs, first_not_on_map within 2m at early time, but robot still collides. The detection might miss because moving object appears at bearing >30° (maybe from side) before turning. The robot rotates to align waypoint, may not see moving object until after collision.\n\nAlso detection uses both front and back lidar but both have 360° coverage; but filter bearing ±30°, so only front cone. Back lidar points behind robot have bearing near pi (180°) which fails sector filter. So detection only considers front cone, ignoring objects approaching from side or back. Collisions occur early when robot moving forward, moving object likely coming head-on within front cone? Should detect. Yet not.\n\nLook at first_not_on_map for fails: within 2m at t around 0.85-1.55s, bearing 29°, 48°, 79°, 60°, etc. Many bearings are >30° (e.g., 48°, 60°, 79°). Those are outside detection sector, so robot doesn't see them and collides. Indeed detection only ±30°, but objects appear at larger angles (side). So robot collides because detection misses them. The pass run first_not_on_map at 44s bearing -93°, far behind, not relevant.\n\nThus failure mode: insufficient detection sector; moving objects approach from side angles outside ±30°, causing missed detection and collision.\n\nAlso detection distance 1.2m may be too short; collision occurs at 0.3m distance, but detection could have earlier at >1.2? first_not_on_map within 2m but detection only up to 1.2m, so may not detect until too close. The first_not_on_map shows distance 1.99m at t 0.85s, but detection only 1.2m, so not yet. At later times distance decreases to 0.96m at 2.85s, but by then robot already collided at 3.7s. Could have detected earlier if threshold larger.\n\nThus improvements: increase detection range to e.g., 2.5m, broaden bearing to ±60°, and add proactive slowing when moving object detected, not just stop and rotate. Also incorporate back lidar for objects behind.\n\nAlso the reaction rotates away but may not stop; code sets v=0, w rotates. That may cause robot to spin while object still approaching; better to stop and wait until object passes beyond safe distance before proceeding.\n\nThus target: modify detection parameters and control logic.\n\nProvide JSON with failure_mode \"collision\", evidence lines referencing early first_not_on_map bearing >30°, distance >1.2m, and collision despite detection false. Target: detection parameters and reactive behavior in controller. Direction: increase detection distance to 2.5m, widen bearing to ±60°, use both lidars full 360°, and when moving detected, set v=0 and w=0 (stop) until moving object clears beyond safe distance, then resume waypoint following.\n\nProvide confidence high.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 20190,
+  "total_tokens": 21646,
+  "completion_tokens": 1456,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 1075
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

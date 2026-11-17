@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=empty_path issue=none_return ... stage=grid ... clearance=0.50",
+    "DBG plan_summary t=0.00 status=no_path attempts=0.50:empty_path|0.45:empty_path|0.40:empty_path|0.35:empty_path ... adopted_clearance=None path_points=0",
+    "choose command always pick=follow why=follow_safe, indicating no valid target/path was adopted"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path에서 occupancy_grid 호출 시 해상도를 0.5 m 로 되돌리고, 시작·목표가 blocked이라도 즉시 abort 하지 않도록 블록 검사를 제거한다. 즉, `blocked, origin, res = occupancy_grid(clearance_m, 0.5)` 로 바꾸고, start/goal이 blocked일 경우 nearest_free 로 대체하되 대체 실패 시에도 None 대신 현재 셀을 그대로 사용하도록 수정한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 그대로 유지한다.",
+  "confidence": "medium"
+}

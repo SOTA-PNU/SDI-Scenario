@@ -1,0 +1,235 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t11_s2140063677: t=4.533 s에 충돌, 로봇 속도 0.48 m/s, mover_00 위치 [0.04, -0.62] m, first_not_on_map이 t≈-0.05 s에 1.77 m 거리로 이미 감지됨.",
+   "c5t11_s39364334: t=17.45 s에 충돌, 로봇 속도 0.50 m/s, mover_00 위치 [0.47, -0.15] m, first_not_on_map이 t=12.48 s에 0.96 m 거리로 감지됨.",
+   "c5t11_s1375535760: 시간 제한 초과(80.2 s > 79.2 s)로 실패, many stop‑turn 구간, first_not_on_map이 t=74.25 s에 1.55 m 거리로 감지됐지만 목표에 도달하지 못함."
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다 비지도 점이 2 m 이내이면 움직이는 물체를 reliably 감지한다",
+    "holds": true,
+    "why": "first_not_on_map이 충돌 전 모두 물체를 1‑2 m 거리에서 보고 있음"
+   },
+   {
+    "assumption": "잠재장 필드가 물체와의 충돌을 피하도록 충분히 강한 반발력을 제공한다",
+    "holds": false,
+    "why": "두 충돌 사례에서 물체가 감지됐음에도 PF가 회피 경로를 생성하지 못함"
+   },
+   {
+    "assumption": "0.3 s 디바운스 후 재개하면 물체가 지나가고 정체가 발생하지 않는다",
+    "holds": false,
+    "why": "시간 제한 실패에서 여러 번 정지‑회전 후에도 진행이 멈춰 타임아웃 발생"
+   },
+   {
+    "assumption": "트랙의 속도 추정이 정확해 margin 계산에 사용될 수 있다",
+    "holds": true,
+    "why": "_track_array가 매 0.1 s마다 업데이트되어 움직이는 물체의 속도를 제공하지만 초기 순간에 오차가 있을 수 있음"
+   },
+   {
+    "assumption": "정적 지도 제거가 움직이는 물체만 남겨 정확한 unmapped_raw을 만든다",
+    "holds": true,
+    "why": "_unmapped_raw이 first_not_on_map과 일치하는 거리·방향을 반환함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 간단 정지",
+    "turns": "turn 1",
+    "result": "1/4 통과"
+   },
+   {
+    "family": "TTC 기반 이진 정지",
+    "turns": "turn 7",
+    "result": "0/3 통과"
+   },
+   {
+    "family": "예측 속도 스케일링",
+    "turns": "turn 4",
+    "result": "2/5 통과"
+   },
+   {
+    "family": "속도 장애물(VO) 플래너",
+    "turns": "turn 5",
+    "result": "2/5 통과"
+   },
+   {
+    "family": "3D 라이다 + 확장 안전거리",
+    "turns": "turn 6",
+    "result": "3/6 통과"
+   },
+   {
+    "family": "잠재장 회피",
+    "turns": "turn 11",
+    "result": "4/7 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "동적 윈도우 접근(DWA)으로 (v,w) 샘플링 후 이동 물체 예측과 clearance 계산",
+    "new_family": true,
+    "for": "샘플링 기반 최적화를 통해 PF의 휴리스틱 한계를 극복하고, 정적·동적 장애물 모두에 대한 안전 마진을 보장한다",
+    "risk": "샘플 수와 비용 가중치 설정이 부적절하면 계산량 초과 또는 안전 확보 실패 가능"
+   },
+   {
+    "idea": "카메라 기반 물체 확인 및 라이다와 융합",
+    "new_family": true,
+    "for": "시야에 가려진 물체를 보완하고 라이다 오탐을 감소시켜 조기 회피 판단을 향상한다",
+    "risk": "카메라 처리 지연 및 조명 변화에 민감해 실시간 성능 저하 위험"
+   },
+   {
+    "idea": "닫히는 물체가 1.5 m 이내이고 접근 속도 >0.3 m/s일 때 즉시 정지하고 일정 시간 대기",
+    "new_family": false,
+    "for": "접근 물체가 가까이 올 때 안전 정지를 보장한다",
+    "risk": "과도한 정지로 스톨이 발생하고 목표 도달 시간이 초과될 수 있다"
+   }
+  ],
+  "chosen": "동적 윈도우 접근(DWA)을 선택했습니다. 이는 샘플링 기반으로 모든 후보 속도를 평가해 정적·동적 장애물 여유를 보장하고, 기존 PF와 이진 정지의 불안정성을 해결합니다.",
+  "target": "controller (새 DWA 함수와 상수 추가)",
+  "direction": "1. _DWA_HORIZON=2.0, _DWA_DT=0.1, _DWA_V_STEPS=5, _DWA_W_STEPS=7, _DWA_COST_WEIGHT={'margin':1.0,'speed':0.2,'turn':0.1} 등을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 _dwa_candidates(pose, vm) 를 추가해 허용 속도·회전 범위 내에서 (v,w) 조합을 샘플링한다. 3. 각 후보에 대해 _rollout 으로 _DWA_HORIZON 초 동안 궤적을 생성하고, _traj_margin 로 움직이는 물체와 정적 장애물에 대한 최소 마진을 계산한다. 4. 마진이 0 이상이고 _lidar_clear·_sweep_clear 가 통과하는 후보들에 대해 비용 = -margin + _DWA_COST_WEIGHT['speed']·(v_nom‑v)² + _DWA_COST_WEIGHT['turn']·|w| 로 평가한다. 5. 비용이 가장 낮은 후보를 선택하고, 선택된 (v,w) 가 없으면 (0,0) 로 정지한다. 6. 선택된 (v,w) 를 반환하기 전에 기존 _guard 로 최종 안전 검사를 수행한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t11_s2140063677: t=4.533 s에 충돌, 로봇 속도 0.48 m/s, mover_00 위치 [0.04, -0.62] m, first_not_on_map이 t≈-0.05 s에 1.77 m 거리로 이미 감지됨.\",\n    \"c5t11_s39364334: t=17.45 s에 충돌, 로봇 속도 0.50 m/s, mover_00 위치 [0.47, -0.15] m, first_not_on_map이 t=12.48 s에 0.96 m 거리로 감지됨.\",\n    \"c5t11_s1375535760: 시간 제한 초과(80.2 s > 79.2 s)로 실패, many stop‑turn 구간, first_not_on_map이 t=74.25 s에 1.55 m 거리로 감지됐지만 목표에 도달하지 못함.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다 비지도 점이 2 m 이내이면 움직이는 물체를 reliably 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map이 충돌 전 모두 물체를 1‑2 m 거리에서 보고 있음\"\n    },\n    {\n      \"assumption\": \"잠재장 필드가 물체와의 충돌을 피하도록 충분히 강한 반발력을 제공한다\",\n      \"holds\": false,\n      \"why\": \"두 충돌 사례에서 물체가 감지됐음에도 PF가 회피 경로를 생성하지 못함\"\n    },\n    {\n      \"assumption\": \"0.3 s 디바운스 후 재개하면 물체가 지나가고 정체가 발생하지 않는다\",\n      \"holds\": false,\n      \"why\": \"시간 제한 실패에서 여러 번 정지‑회전 후에도 진행이 멈춰 타임아웃 발생\"\n    },\n    {\n      \"assumption\": \"트랙의 속도 추정이 정확해 margin 계산에 사용될 수 있다\",\n      \"holds\": true,\n      \"why\": \"_track_array가 매 0.1 s마다 업데이트되어 움직이는 물체의 속도를 제공하지만 초기 순간에 오차가 있을 수 있음\"\n    },\n    {\n      \"assumption\": \"정적 지도 제거가 움직이는 물체만 남겨 정확한 unmapped_raw을 만든다\",\n      \"holds\": true,\n      \"why\": \"_unmapped_raw이 first_not_on_map과 일치하는 거리·방향을 반환함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"거리 기반 간단 정지\",\n      \"turns\": \"turn 1\",\n      \"result\": \"1/4 통과\"\n    },\n    {\n      \"family\": \"TTC 기반 이진 정지\",\n      \"turns\": \"turn 7\",\n      \"result\": \"0/3 통과\"\n    },\n    {\n      \"family\": \"예측 속도 스케일링\",\n      \"turns\": \"turn 4\",\n      \"result\": \"2/5 통과\"\n    },\n    {\n      \"family\": \"속도 장애물(VO) 플래너\",\n      \"turns\": \"turn 5\",\n      \"result\": \"2/5 통과\"\n    },\n    {\n      \"family\": \"3D 라이다 + 확장 안전거리\",\n      \"turns\": \"turn 6\",\n      \"result\": \"3/6 통과\"\n    },\n    {\n      \"family\": \"잠재장 회피\",\n      \"turns\": \"turn 11\",\n      \"result\": \"4/7 통과\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"동적 윈도우 접근(DWA)으로 (v,w) 샘플링 후 이동 물체 예측과 clearance 계산\",\n      \"new_family\": true,\n      \"for\": \"샘플링 기반 최적화를 통해 PF의 휴리스틱 한계를 극복하고, 정적·동적 장애물 모두에 대한 안전 마진을 보장한다\",\n      \"risk\": \"샘플 수와 비용 가중치 설정이 부적절하면 계산량 초과 또는 안전 확보 실패 가능\"\n    },\n    {\n      \"idea\": \"카메라 기반 물체 확인 및 라이다와 융합\",\n      \"new_family\": true,\n      \"for\": \"시야에 가려진 물체를 보완하고 라이다 오탐을 감소시켜 조기 회피 판단을 향상한다\",\n      \"risk\": \"카메라 처리 지연 및 조명 변화에 민감해 실시간 성능 저하 위험\"\n    },\n    {\n      \"idea\": \"닫히는 물체가 1.5 m 이내이고 접근 속도 >0.3 m/s일 때 즉시 정지하고 일정 시간 대기\",\n      \"new_family\": false,\n      \"for\": \"접근 물체가 가까이 올 때 안전 정지를 보장한다\",\n      \"risk\": \"과도한 정지로 스톨이 발생하고 목표 도달 시간이 초과될 수 있다\"\n    }\n  ],\n  \"chosen\": \"동적 윈도우 접근(DWA)을 선택했습니다. 이는 샘플링 기반으로 모든 후보 속도를 평가해 정적·동적 장애물 여유를 보장하고, 기존 PF와 이진 정지의 불안정성을 해결합니다.\",\n  \"target\": \"controller (새 DWA 함수와 상수 추가)\",\n  \"direction\": \"1. _DWA_HORIZON=2.0, _DWA_DT=0.1, _DWA_V_STEPS=5, _DWA_W_STEPS=7, _DWA_COST_WEIGHT={'margin':1.0,'speed':0.2,'turn':0.1} 등을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 _dwa_candidates(pose, vm) 를 추가해 허용 속도·회전 범위 내에서 (v,w) 조합을 샘플링한다. 3. 각 후보에 대해 _rollout 으로 _DWA_HORIZON 초 동안 궤적을 생성하고, _traj_margin 로 움직이는 물체와 정적 장애물에 대한 최소 마진을 계산한다. 4. 마진이 0 이상이고 _lidar_clear·_sweep_clear 가 통과하는 후보들에 대해 비용 = -margin + _DWA_COST_WEIGHT['speed']·(v_nom‑v)² + _DWA_COST_WEIGHT['turn']·|w| 로 평가한다. 5. 비용이 가장 낮은 후보를 선택하고, 선택된 (v,w) 가 없으면 (0,0) 로 정지한다. 6. 선택된 (v,w) 를 반환하기 전에 기존 _guard 로 최종 안전 검사를 수행한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t11_s986144093",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 134.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 27,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.3659,
+   "time_to_goal_s": 127.767
+  },
+  {
+   "run": "c5t11_s1391696958",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 465.1,
+   "sim_time_s": 80.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1189,
+   "time_to_goal_s": 75.333
+  },
+  {
+   "run": "c5t11_s991790442",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 384.6,
+   "sim_time_s": 144.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 41,
+   "first_seen_within_2m_t": 138.25,
+   "goal_dist_m": 0.0854,
+   "time_to_goal_s": 140.35
+  },
+  {
+   "run": "c5t11_s2140063677",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 240.4,
+   "sim_time_s": 10.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.533,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.48m/s",
+   "partner_rel_xy": [
+    0.04,
+    -0.62
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 28.8279,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t11_s90979627",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 229.9,
+   "sim_time_s": 127.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 121.25,
+   "goal_dist_m": 0.1302,
+   "time_to_goal_s": 123.15
+  },
+  {
+   "run": "c5t11_s39364334",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 102.6,
+   "sim_time_s": 23.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.45,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.50m/s 회전 -1.6",
+   "partner_rel_xy": [
+    0.47,
+    -0.15
+   ],
+   "closing_m_s": 0.61,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 12.48,
+   "goal_dist_m": 28.8448,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t11_s1375535760",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 79.2,
+   "sim_time_s": 80.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 74.25,
+   "goal_dist_m": 12.7551,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

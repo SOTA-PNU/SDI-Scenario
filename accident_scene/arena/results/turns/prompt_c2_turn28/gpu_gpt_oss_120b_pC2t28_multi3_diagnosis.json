@@ -1,0 +1,68 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t28_s164766341: stop_turn 에피소드가 5.2 s에 시작됐지만 first_not_on_map (첫 물체 감지) 은 138.7 s에 나타남 → 물체 없는데 회피가 트리거됨",
+   "_detect_moving_front 은 거리 ≤1.5 m, 각 ≤45° 내 단일 점만 있으면 True 반환 (최소 점 수 조건 없음)",
+   "state 머신이 avoid_stop→avoid_back→avoid_rotate 를 반복해 stop_turn 횟수가 43·33·75 회이며 최종 목표 거리 27~30 m 로 진행이 정체됨"
+  ],
+  "target": "controller",
+  "direction": "detect_moving_front 함수에서 최소 점 수를 3으로 요구하고, controller 에 연속 감지 카운터를 도입해 2번 연속 감지될 때만 avoid_stop 상태로 전환한다. 감지 후 카운터를 초기화하고, _CLOSE_DETECT_DIST 를 1.0 m 로 축소한다. 이렇게 하면 센서 잡음에 의한 가짜 회피를 방지하고 진행 정체를 줄인다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t28_s164766341: stop_turn 에피소드가 5.2 s에 시작됐지만 first_not_on_map (첫 물체 감지) 은 138.7 s에 나타남 → 물체 없는데 회피가 트리거됨\",\n    \"_detect_moving_front 은 거리 ≤1.5 m, 각 ≤45° 내 단일 점만 있으면 True 반환 (최소 점 수 조건 없음)\",\n    \"state 머신이 avoid_stop→avoid_back→avoid_rotate 를 반복해 stop_turn 횟수가 43·33·75 회이며 최종 목표 거리 27~30 m 로 진행이 정체됨\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"detect_moving_front 함수에서 최소 점 수를 3으로 요구하고, controller 에 연속 감지 카운터를 도입해 2번 연속 감지될 때만 avoid_stop 상태로 전환한다. 감지 후 카운터를 초기화하고, _CLOSE_DETECT_DIST 를 1.0 m 로 축소한다. 이렇게 하면 센서 잡음에 의한 가짜 회피를 방지하고 진행 정체를 줄인다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t28_s164766341",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 140.42,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 43,
+   "first_seen_within_2m_t": 138.7,
+   "goal_dist_m": 29.7079,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t28_s665616473",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 215.15,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 33,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 27.4218,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t28_s58840104",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 208.18,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 75,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 27.6988,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

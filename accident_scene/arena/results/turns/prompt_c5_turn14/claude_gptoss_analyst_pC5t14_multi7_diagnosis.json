@@ -1,0 +1,282 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t14_s47971933: t=11.133 s 충돌, 로봇 정지 상태, mover_00이 앞쪽 좌측( rel_xy [0.16,0.6])에서 충돌, 첫 비지도 점 6.15 s에 1.76 m 거리( bearing 51°) 발견",
+   "c5t14_s358178082: t=7.817 s 충돌, 로봇 정지, mover_00이 좌측 앞쪽( rel_xy [0.07,0.6])에서 충돌, 첫 비지도 점 2.85 s에 1.75 m 거리( bearing 49°) 발견",
+   "c5t14_s1937593746: t=24.517 s 충돌, 로봇 정지, mover_01이 좌측/후방( rel_xy [-0.89,-0.44])에서 충돌, 첫 비지도 점 19.62 s에 4.41 m( bearing 155°) → 22.9 s에 1 m( bearing -88°)까지 접근"
+  ],
+  "assumptions": [
+   {
+    "assumption": "TTC 기반 pause가 모든 충돌 위협을 포착한다",
+    "holds": false,
+    "why": "측면 이동 물체는 상대 속도가 닫히지 않아 TTC가 무한으로 판단돼 pause가 발생하지 않음"
+   },
+   {
+    "assumption": "두 개의 로봇 원(circle)만으로 로봇 전체 형태를 충분히 근사한다",
+    "holds": false,
+    "why": "충돌이 좌측에서 발생했으며 현재 원들은 전·후축에만 위치해 측면을 놓침"
+   },
+   {
+    "assumption": "정지 상태에서 로봇은 외부 물체에 의해 충돌되지 않는다",
+    "holds": false,
+    "why": "정지 후 이동 물체가 측면에서 로봇에 닿아 충돌이 발생함"
+   },
+   {
+    "assumption": "라이다 2D/3D가 0.1 s 간격으로 물체를 충분히 조기에 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 2 m 이내 물체를 2‑6 s에 감지했음"
+   },
+   {
+    "assumption": "동적 pause 후 바로 waypoint 추종으로 복귀하면 안전하다",
+    "holds": false,
+    "why": "pause 후 로봇이 정지한 채 물체가 접근해 충돌이 발생함"
+   },
+   {
+    "assumption": "움직이는 물체의 최대 속도는 2 m/s 이하이다",
+    "holds": true,
+    "why": "문제 정의와 _MAX_OBJECT_SPEED=2.0 로 설정됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "simple pause_until",
+    "turns": "1",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "dynamic pause (TTC) with extended horizon",
+    "turns": "2",
+    "result": "4/5 pass"
+   },
+   {
+    "family": "gap+detour",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": "4",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VO planner",
+    "turns": "5",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "3D lidar integration",
+    "turns": "6",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "TTC stop check",
+    "turns": "7",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "TTC stop + VO fallback",
+    "turns": "8",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "proximity stop & backup",
+    "turns": "9",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "early raw stop",
+    "turns": "10",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "potential field avoidance",
+    "turns": "11",
+    "result": "4/7 pass"
+   },
+   {
+    "family": "DWA planner",
+    "turns": "12",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VFH histogram",
+    "turns": "13",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "simplified dynamic pause + predictive speed (current)",
+    "turns": "14",
+    "result": "4/7 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "동적 pause 중 로봇이 정지하면 측면 회피 웨이포인트(좌/우 0.8 m)로 짧게 이동 후 원래 경유점 복귀",
+    "new_family": true,
+    "for": "측면에서 접근하는 물체와 정지 중 충돌을 방지",
+    "risk": "추가 회전·이동으로 목표 도달 시간이 늘어나고, 측면에도 장애물이 있으면 회피가 실패할 수 있음"
+   },
+   {
+    "idea": "로봇 원(circle) 개수를 확대해 전·후·좌·우 4개 원을 사용하고 _dynamic_pause·_margin이 모든 원을 검사하도록 수정",
+    "new_family": true,
+    "for": "측면 물체도 TTC 계산에 포함시켜 조기 pause를 유도",
+    "risk": "과도한 보수성으로 불필요한 정지·정체가 증가하고 연산량이 늘어남"
+   }
+  ],
+  "chosen": "측면 회피 웨이포인트를 추가하는 방안을 선택했습니다.",
+  "target": "controller (pause handling) 및 새로운 _side_detour 함수",
+  "direction": "1) controller 내부에서 pause가 활성화되고 현재 속도가 0일 때, _side_detour(pose, M) 를 호출해 가장 가까운 mover와 반대 방향으로 0.8 m 정도의 측면 목표점을 생성한다. 2) 해당 목표점이 _map_free와 _segment_free 로 정적 맵을 통과하면 (v, w) = _follow(pose, detour) 로 회피 명령을 반환한다. 3) 회피 중에는 _guard 로 최종 안전 검사를 수행해 라이다 스트립과 스윕 바디를 확인한다. 4) detour에 도달하면 st[\"detour\"] 를 None 으로 초기화하고 기존 waypoint 추적 로직으로 복귀한다. 5) pause_until 를 기존대로 유지하되, 회피가 진행 중일 때는 pause_until 를 연장하지 않는다. 6) 새로운 _side_detour 함수는 mover의 현재 위치와 속도를 이용해 lateral 방향을 결정하고, _map_free 로 이동 가능 여부를 검증한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t14_s47971933: t=11.133 s 충돌, 로봇 정지 상태, mover_00이 앞쪽 좌측( rel_xy [0.16,0.6])에서 충돌, 첫 비지도 점 6.15 s에 1.76 m 거리( bearing 51°) 발견\",\n    \"c5t14_s358178082: t=7.817 s 충돌, 로봇 정지, mover_00이 좌측 앞쪽( rel_xy [0.07,0.6])에서 충돌, 첫 비지도 점 2.85 s에 1.75 m 거리( bearing 49°) 발견\",\n    \"c5t14_s1937593746: t=24.517 s 충돌, 로봇 정지, mover_01이 좌측/후방( rel_xy [-0.89,-0.44])에서 충돌, 첫 비지도 점 19.62 s에 4.41 m( bearing 155°) → 22.9 s에 1 m( bearing -88°)까지 접근\"\n  ],\n  \"assumptions\": [\n    {\"assumption\": \"TTC 기반 pause가 모든 충돌 위협을 포착한다\", \"holds\": false, \"why\": \"측면 이동 물체는 상대 속도가 닫히지 않아 TTC가 무한으로 판단돼 pause가 발생하지 않음\"},\n    {\"assumption\": \"두 개의 로봇 원(circle)만으로 로봇 전체 형태를 충분히 근사한다\", \"holds\": false, \"why\": \"충돌이 좌측에서 발생했으며 현재 원들은 전·후축에만 위치해 측면을 놓침\"},\n    {\"assumption\": \"정지 상태에서 로봇은 외부 물체에 의해 충돌되지 않는다\", \"holds\": false, \"why\": \"정지 후 이동 물체가 측면에서 로봇에 닿아 충돌이 발생함\"},\n    {\"assumption\": \"라이다 2D/3D가 0.1 s 간격으로 물체를 충분히 조기에 감지한다\", \"holds\": true, \"why\": \"first_not_on_map 기록에서 2 m 이내 물체를 2‑6 s에 감지했음\"},\n    {\"assumption\": \"동적 pause 후 바로 waypoint 추종으로 복귀하면 안전하다\", \"holds\": false, \"why\": \"pause 후 로봇이 정지한 채 물체가 접근해 충돌이 발생함\"},\n    {\"assumption\": \"움직이는 물체의 최대 속도는 2 m/s 이하이다\", \"holds\": true, \"why\": \"문제 정의와 _MAX_OBJECT_SPEED=2.0 로 설정됨\"}\n  ],\n  \"approach_families\": [\n    {\"family\": \"baseline (no control)\", \"turns\": \"0\", \"result\": \"1/4 pass\"},\n    {\"family\": \"simple pause_until\", \"turns\": \"1\", \"result\": \"1/4 pass\"},\n    {\"family\": \"dynamic pause (TTC) with extended horizon\", \"turns\": \"2\", \"result\": \"4/5 pass\"},\n    {\"family\": \"gap+detour\", \"turns\": \"3\", \"result\": \"0/3 pass\"},\n    {\"family\": \"predictive speed scaling\", \"turns\": \"4\", \"result\": \"2/5 pass\"},\n    {\"family\": \"VO planner\", \"turns\": \"5\", \"result\": \"2/5 pass\"},\n    {\"family\": \"3D lidar integration\", \"turns\": \"6\", \"result\": \"3/6 pass\"},\n    {\"family\": \"TTC stop check\", \"turns\": \"7\", \"result\": \"0/3 pass\"},\n    {\"family\": \"TTC stop + VO fallback\", \"turns\": \"8\", \"result\": \"3/6 pass\"},\n    {\"family\": \"proximity stop & backup\", \"turns\": \"9\", \"result\": \"0/3 pass\"},\n    {\"family\": \"early raw stop\", \"turns\": \"10\", \"result\": \"0/3 pass\"},\n    {\"family\": \"potential field avoidance\", \"turns\": \"11\", \"result\": \"4/7 pass\"},\n    {\"family\": \"DWA planner\", \"turns\": \"12\", \"result\": \"2/5 pass\"},\n    {\"family\": \"VFH histogram\", \"turns\": \"13\", \"result\": \"0/3 pass\"},\n    {\"family\": \"simplified dynamic pause + predictive speed (current)\", \"turns\": \"14\", \"result\": \"4/7 pass\"}\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"동적 pause 중 로봇이 정지하면 측면 회피 웨이포인트(좌/우 0.8 m)로 짧게 이동 후 원래 경유점 복귀\",\n      \"new_family\": true,\n      \"for\": \"측면에서 접근하는 물체와 정지 중 충돌을 방지\",\n      \"risk\": \"추가 회전·이동으로 목표 도달 시간이 늘어나고, 측면에도 장애물이 있으면 회피가 실패할 수 있음\"\n    },\n    {\n      \"idea\": \"로봇 원(circle) 개수를 확대해 전·후·좌·우 4개 원을 사용하고 _dynamic_pause·_margin이 모든 원을 검사하도록 수정\",\n      \"new_family\": true,\n      \"for\": \"측면 물체도 TTC 계산에 포함시켜 조기 pause를 유도\",\n      \"risk\": \"과도한 보수성으로 불필요한 정지·정체가 증가하고 연산량이 늘어남\"\n    }\n  ],\n  \"chosen\": \"측면 회피 웨이포인트를 추가하는 방안을 선택했습니다.\",\n  \"target\": \"controller (pause handling) 및 새로운 _side_detour 함수\",\n  \"direction\": \"1) controller 내부에서 pause가 활성화되고 현재 속도가 0일 때, _side_detour(pose, M) 를 호출해 가장 가까운 mover와 반대 방향으로 0.8 m 정도의 측면 목표점을 생성한다. 2) 해당 목표점이 _map_free와 _segment_free 로 정적 맵을 통과하면 (v, w) = _follow(pose, detour) 로 회피 명령을 반환한다. 3) 회피 중에는 _guard 로 최종 안전 검사를 수행해 라이다 스트립과 스윕 바디를 확인한다. 4) detour에 도달하면 st[\\\"detour\\\"] 를 None 으로 초기화하고 기존 waypoint 추적 로직으로 복귀한다. 5) pause_until 를 기존대로 유지하되, 회피가 진행 중일 때는 pause_until 를 연장하지 않는다. 6) 새로운 _side_detour 함수는 mover의 현재 위치와 속도를 이용해 lateral 방향을 결정하고, _map_free 로 이동 가능 여부를 검증한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c5t14_s1416333878",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 87.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 81.42,
+   "goal_dist_m": 0.2304,
+   "time_to_goal_s": 83.4
+  },
+  {
+   "run": "c5t14_s47971933",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 512.7,
+   "sim_time_s": 17.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 11.133,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.16,
+    0.6
+   ],
+   "closing_m_s": 0.32,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 6.15,
+   "goal_dist_m": 32.3386,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t14_s358178082",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 495.5,
+   "sim_time_s": 13.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 7.817,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.07,
+    0.6
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 2.85,
+   "goal_dist_m": 32.1374,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t14_s1850179236",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 481.7,
+   "sim_time_s": 85.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 79.12,
+   "goal_dist_m": 0.2048,
+   "time_to_goal_s": 81.133
+  },
+  {
+   "run": "c5t14_s1479834652",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 396.7,
+   "sim_time_s": 92.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 85.217
+  },
+  {
+   "run": "c5t14_s1598144880",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 304.4,
+   "sim_time_s": 102.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2014,
+   "time_to_goal_s": 95.333
+  },
+  {
+   "run": "c5t14_s1937593746",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 202.1,
+   "sim_time_s": 30.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 24.517,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.89,
+    -0.44
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 21.42,
+   "goal_dist_m": 18.689,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

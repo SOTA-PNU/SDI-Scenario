@@ -1,0 +1,476 @@
+{
+ "turn": 2,
+ "started": "2026-11-16 22:56:24",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c3_turn1/claude_opus_5_5_pC3t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "세 실행 모두 물체가 로봇 옆구리에서 옆 방향으로 다가와 부딪혔습니다. s726243268 은 t=78.55 에 rel(-0.25,-0.55), 물체 속도 (0.02,0.66), 접근 0.61 m/s 였습니다. s1004116661 은 t=8.78 에 rel(-0.02,0.55), 속도 (0,-0.77), 접근 0.77 m/s 였습니다. s999424549 는 t=71.4 에 rel(-0.36,-0.54), 속도 (0.02,0.73), 접근 0.62 m/s 였습니다.",
+   "충돌 직전에 로봇은 옆에 붙은 물체를 두고 0.79–0.81 m/s 로 달렸습니다. 726 실행은 t=75.3–77.3 에 1.0–1.5 m, -36→-90° 였고, 100 실행은 t=6.3–7.8 에 1.9→0.99 m, 58→91° 였고, 999 실행은 t=68.7–70.4 에 1.5→0.9 m, -55→-99° 였습니다. d_front 는 |y|<0.6 통로만 보므로 감속하지 않았습니다.",
+   "물체가 0.7 m 안에 들어오자 로봇은 0.30 m/s 로 곧장 후진했고(세 실행 모두 충돌 때 상태가 0.29–0.30 m/s), 이 후진은 물체가 지나가는 길 안에 그대로 머물렀습니다. 726 실행은 t=77.3 에 0.78 m/s 로 그 길을 거의 건넜다가 t=77.8 에 0.19 m/s 로 바뀌었고, 100 실행은 t=8.3 정지 뒤 후진했습니다. 그대로 전진했다면 약 1 s 안에 그 길을 벗어났을 것입니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "위험한 물체는 앞 통로(|y|<0.6)에서만 다가온다",
+    "holds": false,
+    "why": "세 충돌 모두 상대 y=±0.55 이고 옆 방향 속도 0.66–0.77 m/s 로, 옆에서 가로질러 왔습니다."
+   },
+   {
+    "assumption": "거리만 보면 되고 물체의 움직임 방향과 속도는 몰라도 된다",
+    "holds": false,
+    "why": "1–1.5 m 옆에서 다가오는 물체를 보고도 0.8 m/s 로 그 물체가 지나갈 길에 들어갔습니다."
+   },
+   {
+    "assumption": "가까워지면 곧장 후진하면 멀어진다",
+    "holds": false,
+    "why": "물체는 옆으로 오는데 후진은 앞뒤로만 움직이므로, 0.3 m/s 후진으로는 물체 길에서 못 빠져나갑니다(3/3)."
+   },
+   {
+    "assumption": "멈추거나 물러서면 안전하다",
+    "holds": false,
+    "why": "과제에 '멈춰 있어도 닿으면 충돌'이라 되어 있고, 100 실행에서도 t=8.3 정지 뒤 충돌했습니다."
+   },
+   {
+    "assumption": "정적 지도를 빼면 남는 점이 움직이는 물체다",
+    "holds": true,
+    "why": "세 실행 모두 감지한 방향이 물체를 일관되게 따라갔고, 오탐 때문에 멈춘 흔적이 없습니다."
+   },
+   {
+    "assumption": "경유점 경로는 정적 장애물에 대해 안전하다",
+    "holds": true,
+    "why": "두 실행이 GOAL 에서 3.6–4.9 m 까지 정적 충돌 없이 진행했습니다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "고정 경유점, 센서 미사용",
+    "turns": "0",
+    "result": "0/3 (주행 중 충돌 3)"
+   },
+   {
+    "family": "경유점 + 거리 임계값 반응(앞 통로 감속, 근접 시 직선 후진)",
+    "turns": "1",
+    "result": "0/3 (옆에서 온 물체와 충돌 3)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체를 추적해 속도를 추정하고, 짧은 시간 앞을 예측해 전진·감속·정지·후진 중 안전한 속도를 고름",
+    "new_family": true,
+    "for": "세 실행 모두 등속으로 옆에서 가로지르는 물체였습니다. 예측했다면 그 길에 들어가기 전에 기다리거나, 이미 들어갔으면 전진해 빠져나갈 수 있었습니다.",
+    "risk": "왕복 반전 때 속도 추정이 늦거나 보이는 면만으로 잡은 중심이 흔들릴 수 있어, 여유 간격과 매 스캔 재평가가 필요합니다."
+   },
+   {
+    "idea": "거리 반응은 유지하되 피하는 방향을 물체 방위로 정함(옆이나 뒤면 전진해 빠져나가고, 앞일 때만 후진) + 감속 범위를 옆까지 넓힘",
+    "new_family": false,
+    "for": "726·999 실행에서 0.78 m/s 로 계속 갔다면 길을 벗어났을 것입니다.",
+    "risk": "물체 속도를 모르므로, 옆 물체가 아직 멀 때 그 길에 들어가는 것은 막지 못합니다."
+   },
+   {
+    "idea": "물체 주위를 옆으로 돌아가는 국소 경로 재계획",
+    "new_family": true,
+    "for": "물체가 앞을 막아도 진행할 수 있습니다.",
+    "risk": "좁은 통로에서 정적 충돌 위험이 있고 구현이 복잡합니다. 이번 실패는 막힘이 아니라 옆에서 가로지른 물체 때문입니다."
+   }
+  ],
+  "chosen": "1번입니다. 실패 3건이 모두 물체의 움직임 방향을 몰라 그 길에 들어가고 그 안에서 물러선 탓이고, 예측 기반 속도 선택이 들어가기 전 대기와 들어간 뒤 전진 탈출을 모두 다룹니다.",
+  "target": "새 함수 _track_movers 와 controller 의 속도 결정부(retreat 상태와 d_front 감속 삭제)",
+  "direction": "새 함수 _track_movers(pose) 를 만듭니다: _movers_robot_frame 의 거리 제한을 6 m 로 늘리고, 물체 점을 to_world 로 바꿔 0.5 m 연결로 덩어리를 나눕니다. 각 덩어리 중심을 직전 트랙 중 0.8 m 안 최근접과 짝지어, 스캔 점이 바뀐 호출에서만 경과 시간(호출 수×1/60, 0.08 s 이상)으로 속도를 구해 지수평균(α=0.5)하고 1.5 m/s 로 자르며, 1 s 넘게 안 보인 트랙은 버립니다. controller 에서는 경유점 추종으로 원하는 (v_wp, w) 를 구한 뒤 후보 v∈{v_wp, 0.5, 0.3, 0, -0.3} 를 둡니다(제자리 회전이면 v=0 에 w 후보 {w, 0}). 각 후보로 0–2.5 s 를 0.1 s 간격으로 굴려, 로봇 몸체 사각형(_BODY)과 각 물체(중심+속도×τ, 반경 0.45 m) 사이 최소 간격을 예측합니다. 간격이 0.35 m 이상인 후보 중 가장 빠른 전진을 고르고, 없으면 최소 간격이 가장 큰 후보를 고릅니다(전진 탈출 포함). 후진 후보는 뒤 0.45 m 안에 점이 있으면 뺍니다. 기존 retreat 상태(무조건 직선 후진)와 |y|<0.6 만 보는 d_front 감속은 지우고 정렬 단계 회전에도 같은 검사를 쓰되, 물체 위치·속도·시각을 상수로 넣지 않습니다.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 chosen 1번과 direction 에 따라 새 함수 `_track_movers` 를 넣었습니다. 이 함수는 6 m 안의 비정적 라이다 점을 월드 좌표에서 0.5 m 연결로 덩어리로 나누고, 0.8 m 최근접으로 트랙과 짝짓습니다. 속도는 스캔이 바뀐 호출에서만 호출 수×1/60(0.08 s 이상)으로 구해 α=0.5 로 평균하고 1.5 m/s 로 자르며, 1 s 넘게 안 보인 트랙은 버립니다. `controller` 에서는 무조건 직선 후진(retreat)과 |y|<0.6 만 보는 d_front 감속을 지웠습니다. 대신 후보 {v_wp, 0.5, 0.3, 0, −0.3} 를 0–2.5 s 동안 0.1 s 간격으로 굴려 `_BODY` 사각형과 물체(중심+속도×τ, 반경 0.45 m 이상) 사이 간격을 예측하고, 0.35 m 를 지키는 가장 빠른 전진을 고릅니다. 지키는 후보가 없으면 간격이 가장 큰 후보(전진 탈출, 정적 검사를 통과한 회피 호 포함)를 고르며, 후진은 뒤 0.45 m 에 점이 있으면 빼고, GOAL 정렬 회전과 `done` 에도 같은 검사를 씁니다. 진단에 없던 보완으로, 거의 정지한 덩어리에는 간격 0.15 m 를 적용해 오탐으로 영구 대기하지 않게 했습니다. 물체 위치·속도·시각은 상수로 넣지 않았고 `t` 도 쓰지 않습니다.",
+   "changed": [
+    "_TRK",
+    "_clear_at",
+    "_clusters",
+    "_pursuit_cmd",
+    "_rollout",
+    "_static_ok",
+    "_track_movers",
+    "_update_tracks",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "새 함수 _track_movers(pose) 추가, 거리 제한 6 m",
+      "implemented": true,
+      "note": "_track_movers 에서 rr < 6.0 으로 자릅니다. _movers_robot_frame 은 3 m 그대로 남았지만 쓰이지 않습니다."
+     },
+     {
+      "instruction": "물체 점을 to_world 로 바꿔 0.5 m 연결로 덩어리 나누기",
+      "implemented": true,
+      "note": "wp = to_world(rob, pose) 를 쓰고, adj = d2 < 0.25 를 _clusters 에 넘깁니다."
+     },
+     {
+      "instruction": "덩어리 중심을 직전 트랙 중 0.8 m 안 최근접과 짝짓기",
+      "implemented": true,
+      "note": "_update_tracks 가 예측 위치 기준 d < 0.8 을 거리순 탐욕 매칭으로 짝짓습니다."
+     },
+     {
+      "instruction": "스캔이 바뀐 호출에서만 호출 수×1/60(0.08 s 이상)으로 속도 계산",
+      "implemented": true,
+      "note": "f is not S['f'] 검사로 새 스캔을 가립니다. dt = (step - ref_step)/60, dt >= 0.08 입니다."
+     },
+     {
+      "instruction": "지수평균 α=0.5, 1.5 m/s 로 자르기",
+      "implemented": true,
+      "note": "0.5*v + 0.5*rv 로 평균하고 sp > 1.5 이면 크기를 1.5 로 줄입니다."
+     },
+     {
+      "instruction": "1 s 넘게 안 보인 트랙 버리기",
+      "implemented": true,
+      "note": "step - seen <= 60 인 트랙만 남깁니다."
+     },
+     {
+      "instruction": "후보 v∈{v_wp, 0.5, 0.3, 0, -0.3}, 제자리 회전이면 v=0 에 w 후보 {w, 0}",
+      "implemented": false,
+      "note": "prim 은 지시대로입니다(path 0.8/0.5/0.3, fix 0, fix -0.3). 하지만 지시에 없는 회피 호 후보 esc 5개((0.4,0), (0.4,±0.8), (-0.3,±0.8))를 추가해, prim 이 모두 기준 미달일 때 선택 대상에 넣었습니다."
+     },
+     {
+      "instruction": "0–2.5 s 를 0.1 s 간격으로 굴려 _BODY 와 물체(중심+속도×τ, 반경 0.45 m) 사이 최소 간격 예측",
+      "implemented": true,
+      "note": "_rollout 이 k=1..25 로 굴리고 _clear_at 으로 간격을 잽니다. 반경은 고정 0.45 가 아니라 max(0.45, 퍼짐+0.1), 최대 1.2 로 더 보수적입니다."
+     },
+     {
+      "instruction": "간격 0.35 m 이상 후보 중 가장 빠른 전진, 없으면 최소 간격이 가장 큰 후보",
+      "implemented": false,
+      "note": "req = min(0, c0-0.05) 때문에 현재 간격이 0.40 m 미만이면 기준이 0.35 m 아래로 내려가고, 그 기준을 넘는 첫(가장 빠른) 후보를 고릅니다. 이때 최대 간격 후보를 고르지 않습니다. 또 속도 0.15 m/s 이하 트랙에는 요구 간격을 0.15 m 로 낮췄습니다."
+     },
+     {
+      "instruction": "뒤 0.45 m 안에 점이 있으면 후진 후보 제외",
+      "implemented": true,
+      "note": "rear_blocked 이면 v < 0 후보를 continue 로 건너뜁니다."
+     },
+     {
+      "instruction": "retreat 상태와 |y|<0.6 d_front 감속 삭제",
+      "implemented": true,
+      "note": "controller.retreat, near_fs, d_front 가 모두 없어졌습니다."
+     },
+     {
+      "instruction": "정렬 단계 회전에도 같은 검사 사용",
+      "implemented": true,
+      "note": "align 단계에서 prim 이 align/fix 후보로 같은 루프를 거치고, done 전에도 정지 rollout 으로 검사합니다."
+     },
+     {
+      "instruction": "물체 위치·속도·시각을 상수로 넣지 않기",
+      "implemented": true,
+      "note": "t 를 쓰지 않고 물체 관련 상수도 없습니다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "덩어리 중심을 보이는 면의 점으로 잡아, 시점이 바뀌거나 앞·뒤 라이다 중 하나만 갱신될 때 가짜 속도가 생길 수 있습니다. 진단도 위험으로 적었습니다."
+    ],
+    "feedback": "1) req = min(0.0, c0 - 0.05) 완화를 지우십시오. 모든 후보에 요구 간격 0.35 m(cmin >= 0)를 똑같이 적용하고, 이를 만족하는 후보가 없으면 prim 전체에서 cmin 이 가장 큰 후보를 고르십시오(첫 통과 후보가 아니라 최대 간격). done 판정도 같은 기준으로 하십시오. 2) 느린 트랙에 쓰는 요구 간격 0.15 m 를 지우고 모든 트랙에 0.35 m 를 쓰십시오. 진단은 오탐이 없다고 했고, 왕복 반전 때 속도 추정이 0 근처로 떨어지면 간격이 줄어 위험합니다. 3) 지시에 없는 esc 회피 호 후보를 지우고, 후보는 {v_wp, 0.5, 0.3, 0, -0.3} 와 제자리 회전 시 {w, 0} 만 두십시오. 4) 물체 반경은 지시대로 0.45 m 로 하거나, 퍼짐 기반 반경을 유지할 거면 변경 이유에 근거를 적으십시오."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 검토 지적 1~4에 맞춰 진단 direction 의 기준을 그대로 적용했습니다. 모든 트랙에 반경 0.45 m(`_MOVER_R`)와 요구 간격 0.35 m(`_MOVER_GAP`)를 씁니다. 후보 선택과 done 판정은 똑같이 `cmin >= 0` 을 요구하고, 기존 `req` 완화와 느린 트랙용 0.15 m 간격은 지웠습니다. 후보는 경유점 추종 v∈{v_wp(≤0.8), 0.5, 0.3}, 정지 0, 직선 후진 −0.3 만 둡니다. 제자리 회전 중에는 경유점 후보가 (0, w)가 되고 정지 후보가 (0, 0)이 되어 w∈{w, 0} 이 되며, esc 회피 호는 삭제했습니다. 조건을 만족하는 후보가 없으면 첫 후보가 아니라 prim 전체에서 최소 간격이 가장 큰 후보를 고릅니다. 후진은 뒤 0.45 m 안에 점이 있거나 정적 검사에 걸리면 뺍니다.",
+   "changed": [
+    "_MOVER_GAP",
+    "_MOVER_R",
+    "_clusters",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "새 함수 _track_movers(pose) 를 만들고 점 거리 제한을 6 m 로 늘림",
+      "implemented": true,
+      "note": "_track_movers 에서 rr < 6.0 으로 거릅니다. 3 m 안 점은 raw·stat 용으로 따로 둡니다."
+     },
+     {
+      "instruction": "물체 점을 to_world 로 바꿔 0.5 m 연결로 덩어리를 나눔",
+      "implemented": true,
+      "note": "wp = to_world(rob, pose) 를 씁니다. adj = d2 < 0.25 를 _clusters 에 넘깁니다(0.3 m 밀도 필터를 먼저 거침)."
+     },
+     {
+      "instruction": "덩어리 중심을 직전 트랙 중 0.8 m 안 최근접과 짝지음",
+      "implemented": true,
+      "note": "_update_tracks 에서 d < 0.8 쌍을 거리순으로 정렬해 탐욕 매칭합니다. 직전 트랙 위치에 등속 예측을 더한 점과 비교합니다."
+     },
+     {
+      "instruction": "스캔 점이 바뀐 호출에서만 경과 시간(호출 수×1/60, 0.08 s 이상)으로 속도 계산",
+      "implemented": true,
+      "note": "f/b 배열이 같은 객체인지 보고 갱신합니다. dt = (step - ref_step)/60 >= 0.08 일 때만 속도를 구합니다."
+     },
+     {
+      "instruction": "지수평균 α=0.5, 1.5 m/s 로 자름",
+      "implemented": true,
+      "note": "0.5*v + 0.5*rv 로 평균하고 sp > 1.5 이면 크기를 1.5 로 줄입니다."
+     },
+     {
+      "instruction": "1 s 넘게 안 보인 트랙은 버림",
+      "implemented": true,
+      "note": "step - seen <= 60 인 트랙만 남깁니다."
+     },
+     {
+      "instruction": "경유점 추종으로 (v_wp, w) 를 구하고 후보 v∈{v_wp, 0.5, 0.3, 0, -0.3}",
+      "implemented": true,
+      "note": "후보는 path 0.8/0.5/0.3(_pursuit_cmd 의 vmax), fix 0, fix -0.3 입니다. v_wp 는 기존처럼 0.8 로 제한됩니다."
+     },
+     {
+      "instruction": "제자리 회전이면 v=0 에 w 후보 {w, 0}",
+      "implemented": true,
+      "note": "|e| > 0.35 이면 path 후보가 (0, w) 가 되고 fix 0 후보가 (0, 0) 이 됩니다."
+     },
+     {
+      "instruction": "0–2.5 s 를 0.1 s 간격으로 굴려 _BODY 와 물체(중심+속도×τ, 반경 0.45) 최소 간격 예측",
+      "implemented": true,
+      "note": "_rollout 은 k=1..25 를 돌고 _clear_at 은 _BODY 사각형과 원의 거리를 잽니다. τ=0 은 빠졌지만 τ=0.1 과 거의 같아 영향이 작습니다."
+     },
+     {
+      "instruction": "간격 0.35 m 이상 후보 중 가장 빠른 전진, 없으면 최소 간격 최대 후보",
+      "implemented": true,
+      "note": "cmin(간격-0.45-0.35) >= 0 인 첫 후보를 고르고, 없으면 평가한 후보 전체에서 best 를 고릅니다."
+     },
+     {
+      "instruction": "뒤 0.45 m 안에 점이 있으면 후진 후보 제외",
+      "implemented": true,
+      "note": "rear_blocked 이면 v < 0 후보를 건너뜁니다. 정적 검사 _static_ok 가 추가로 들어 있습니다."
+     },
+     {
+      "instruction": "기존 retreat 상태와 |y|<0.6 d_front 감속 삭제",
+      "implemented": true,
+      "note": "controller.retreat, near_fs, d_front 가 모두 없어졌습니다."
+     },
+     {
+      "instruction": "정렬 단계 회전에도 같은 검사 적용",
+      "implemented": true,
+      "note": "align 일 때 후보는 align 회전, 정지, 후진이고 같은 선택 루프를 씁니다. done 도 정지 rollout 의 cmin >= 0 을 요구합니다."
+     },
+     {
+      "instruction": "물체 위치·속도·시각을 상수로 넣지 않음",
+      "implemented": true,
+      "note": "물체 관련 상수는 반경 0.45 와 간격 0.35 뿐이고, t 는 쓰지 않습니다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "반경 0.45 에 간격 0.35 를 더하면 몸체에서 0.8 m 를 요구합니다. 좁은 통로나 물체가 많은 곳에서는 모든 후보가 탈락해 fallback 이 잦을 수 있습니다.",
+     "보이는 면만으로 잡은 중심이 흔들리면 α=0.5 속도 추정에 잡음이 커서, 정지 중 물체를 움직인다고 볼 수 있습니다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 검토 지적 1~4에 맞춰 진단 direction 의 기준을 그대로 적용했습니다. 모든 트랙에 반경 0.45 m(`_MOVER_R`)와 요구 간격 0.35 m(`_MOVER_GAP`)를 씁니다. 후보 선택과 done 판정은 똑같이 `cmin >= 0` 을 요구하고, 기존 `req` 완화와 느린 트랙용 0.15 m 간격은 지웠습니다. 후보는 경유점 추종 v∈{v_wp(≤0.8), 0.5, 0.3}, 정지 0, 직선 후진 −0.3 만 둡니다. 제자리 회전 중에는 경유점 후보가 (0, w)가 되고 정지 후보가 (0, 0)이 되어 w∈{w, 0} 이 되며, esc 회피 호는 삭제했습니다. 조건을 만족하는 후보가 없으면 첫 후보가 아니라 prim 전체에서 최소 간격이 가장 큰 후보를 고릅니다. 후진은 뒤 0.45 m 안에 점이 있거나 정적 검사에 걸리면 뺍니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1612439996,
+  204270019,
+  1179287885,
+  2138248259,
+  446768003,
+  885560189,
+  1870619065
+ ],
+ "sim_used_s": 601.0,
+ "verdicts": {
+  "1612439996": "pass",
+  "204270019": "pass",
+  "1179287885": "pass",
+  "2138248259": "pass",
+  "446768003": "pass",
+  "885560189": "pass",
+  "1870619065": "fail"
+ },
+ "passes": 6,
+ "prior_chars": 337,
+ "diagnosis_out": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "실패한 s1870619065 는 충돌·정체·진행 중단이 모두 null 입니다. 마지막 기록인 42.3 s 에 로봇은 0.78 m/s 로 정상 주행 중이었고 GOAL 까지 16.18 m 남았습니다. 통과한 6회의 종료 시각(약 94.5·84.6·85.3·96.2·76.2·114.8 s) 합 약 552 s 에 42 s 를 더하면 시도 기록의 '합계 601 s / 한도 600 s' 와 맞습니다. 즉 충돌이 아니라 7회 공용 시뮬 예산이 바닥나 잘린 것으로 봅니다.",
+   "느린 원인은 GOAL 근처 맴돌기입니다. 4회(s1612·s2042·s2138·s885)는 GOAL 원 진입 후 약 11 s(83→94.5, 73→84.6, 84.9→96.2, 103.4→114.8)를 0.3 m/s 주행·0.8 m/s 재진입·제자리 회전을 되풀이했습니다. 그동안 3.1–3.7 m, 방위 120–155° 에 지도 밖 물체가 있었고 최종 거리는 0.38–0.42 m 로 복귀 문턱 0.45 m 바로 안쪽에 몰려 있습니다.",
+   "물체가 멀어지던 s1179(1.89 m, −149°)·s446(1.46 m, 177°)은 0.79 m/s 로 들어가 3 s 만에 끝났고 최종 거리 0.075·0.086 m 입니다. 7회 전부 충돌이 0회였지만 2 m 안 접근은 이 두 번(모두 뒤쪽, 멀어지는 중)뿐이어서 회피 성능은 거의 시험되지 않았습니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "높이 1.0 m 인 물체를 0.42 m 높이 2D 라이다로 볼 수 있다",
+    "holds": true,
+    "why": "하네스 first_not_on_map 이 7회 모두 같은 높이의 라이다로 물체를 잡았습니다"
+   },
+   {
+    "assumption": "부풀린 정적 지도에 없는 점 덩어리는 움직이는 물체다",
+    "holds": true,
+    "why": "정체·출발 대기가 없었습니다. 다만 GOAL 근처 3.3 m 물체가 무엇인지는 확인할 수 없습니다"
+   },
+   {
+    "assumption": "등속 예측 2.5 s 와 간격 0.8 m 기준이면 충돌을 막는다",
+    "holds": true,
+    "why": "충돌 0/7 입니다. 다만 근접 상황이 거의 없어 검증은 약합니다"
+   },
+   {
+    "assumption": "정렬 단계에서 모든 후보가 위험하면 간격이 가장 큰 후보(후진)로 물러나도 금방 끝난다",
+    "holds": false,
+    "why": "후진으로 0.45 m 밖에 나가면 다시 0.8 m/s 로 추종하는 왕복이 4회 각 약 11 s 이어졌습니다. 최종 거리가 0.40 m 근처에 몰린 것이 그 흔적입니다"
+   },
+   {
+    "assumption": "실행 시간은 결과에 영향이 없다",
+    "holds": false,
+    "why": "한 실행이 73–115 s 걸려(정적 48.6 s) 공용 예산 600 s 를 넘었고, 7번째 실행이 잘렸습니다"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 없는 경유점 추종",
+    "turns": "#0",
+    "result": "0/3"
+   },
+   {
+    "family": "거리 임계 감속·정지·후진 반응형",
+    "turns": "#1",
+    "result": "0/3"
+   },
+   {
+    "family": "트랙 추적 + 등속 예측 rollout 후보 선택",
+    "turns": "#2(이번)",
+    "result": "6/7 통과, 충돌 0, 실패 1은 예산 절단"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "rollout 구조는 유지하고 GOAL 마무리만 고친다: 목표 근처 감속, 복귀 문턱에 이력 두기, 정렬 단계에서는 짧은 구간이 위험할 때만 물러나기",
+    "new_family": false,
+    "for": "맴돌기 11 s×4회가 낭비의 대부분이고, 최종 거리가 0.45 m 문턱 바로 안에 몰려 있습니다",
+    "risk": "목표에서 정지한 채 다가오는 물체에 늦게 반응할 수 있습니다"
+   },
+   {
+    "idea": "주변 4 m 안에 트랙이 없으면 직선 구간 최고 속도를 1.0 m/s 로 올린다",
+    "new_family": false,
+    "for": "경로 약 44 m 를 0.8 m/s 로 가면 최소 62 s 로 시간 여유가 작습니다",
+    "risk": "반응 거리가 줄어 충돌 위험이 커지고, 상수만 바꾼 시도입니다"
+   },
+   {
+    "idea": "제자리에 오래 머무는 지도 밖 덩어리를 실행 중 정적 지도에 등록해 트랙에서 뺀다",
+    "new_family": true,
+    "for": "4개 배치에서 GOAL 근처 같은 상대 위치에 3.1–3.7 m 물체가 보였습니다",
+    "risk": "왕복 끝에서 잠시 멈춘 물체를 정적으로 오인하면 충돌합니다. 정적이라는 근거도 약합니다"
+   }
+  ],
+  "chosen": "후보 1: 충돌 없는 감지·예측 구조는 지키면서, 근거가 가장 뚜렷한 GOAL 마무리 낭비(실행당 약 11 s)만 없애 예산 안에 모든 실행이 끝나게 합니다.",
+  "target": "controller 의 GOAL 단계(정렬·done·복귀 조건)와 _pursuit_cmd 의 마지막 경유점 속도",
+  "direction": "_track_movers, _rollout, _MOVER_R, _MOVER_GAP, 후보 목록과 순서는 그대로 둡니다. _pursuit_cmd 에서 idx==n-1 이면 속도를 min(vmax, 0.6*d+0.15) 로 줄이고, 포착 반경을 0.25 m 에서 0.35 m 로 넓힙니다. controller 에서 idx>=n 일 때 GOAL 로 복귀하는 거리 조건을 0.45 m 에서 0.6 m 로 올려 정렬과 추종이 번갈아 바뀌는 왕복을 막습니다. 정렬 단계(align)에서는 2.5 s 판정으로 align 이나 fix(0,0) 이 위험해도, 같은 rollout 의 처음 1.0 s(k≤10) 최소 간격이 0 이상이면 align 을 고릅니다. 1.0 s 안에서도 간격이 0 미만일 때만 기존처럼 간격이 가장 큰 후보(후진 포함)로 물러나고, done 판정은 지금처럼 2.5 s 정지 rollout 의 cmin>=0 을 그대로 요구합니다. 다음 진단을 위해 GOAL 까지 1.5 m 안에 있을 때만 0.5 s 마다 한 줄 print 합니다: 'DBG t, 거리, 고른 후보, 후보별 cmin, 가장 가까운 트랙 위치·속도'.",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c3t2_s1612439996",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4042,
+   "time_to_goal_s": 82.967
+  },
+  {
+   "run": "c3t2_s204270019",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.3796,
+   "time_to_goal_s": 73.0
+  },
+  {
+   "run": "c3t2_s1179287885",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 80.35,
+   "goal_dist_m": 0.0753,
+   "time_to_goal_s": 82.15
+  },
+  {
+   "run": "c3t2_s2138248259",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4023,
+   "time_to_goal_s": 84.867
+  },
+  {
+   "run": "c3t2_s446768003",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 71.25,
+   "goal_dist_m": 0.0856,
+   "time_to_goal_s": 73.1
+  },
+  {
+   "run": "c3t2_s885560189",
+   "verdict": "pass",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.4154,
+   "time_to_goal_s": 103.417
+  },
+  {
+   "run": "c3t2_s1870619065",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.1807,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 29 s / 한도 600 s)\n#1 이번 코드(진단 \"새 함수가 lidar2d_points('front')·('back') 점을 to_world 로 바꾼 뒤 세 종류의 점을 버립니다. WALLS 안쪽 면에서 0.2 m 이내이거나 바깥인 점, MISSION boxes 와 FIXED_OBSTACLES 를 0.2 m 부풀린 사각형 안의 점이 그것이고, 남은 점을 로봇 기준으로 돌려줍니다. 통로 거리 d_front 는 남은 점 중 x>0.2 이고 |y|<0.6 인 점의 최소 x 로 둡니다. 0.3 m 안에서 이런 점이 3개 이상 모여 있어야 물체로 인정해 회전 중 오탐을 거릅니다. 전진 명령은 v=min(v_wp, 0.8, 0.8*(d_front-0.9)) 로 바꾸고 0 미만이면 0 으로 해서 1 m 앞에서 멈추게 합니다. 회전은 ±1.2 rad/s 로 줄이되, 제자리 회전 중에도 전체 방향 0.9 m 안에 물체가 있으면 회전을 멈춥니다. 몸체 주변 0.7 m 안(뒤쪽 제외, 앞·옆)에 물체가 들어오면 그 물체 반대 방향으로 0.3 m/s 후진해 거리를 벌리고, 물체가 1.2 m 밖으로 나가면 원래 경유점 추종으로 돌아갑니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 177 s / 한도 600 s)\n#2 이번 코드(진단 \"새 함수 _track_movers(pose) 를 만듭니다: _movers_robot_frame 의 거리 제한을 6 m 로 늘리고, 물체 점을 to_world 로 바꿔 0.5 m 연결로 덩어리를 나눕니다. 각 덩어리 중심을 직전 트랙 중 0.8 m 안 최근접과 짝지어, 스캔 점이 바뀐 호출에서만 경과 시간(호출 수×1/60, 0.08 s 이상)으로 속도를 구해 지수평균(α=0.5)하고 1.5 m/s 로 자르며, 1 s 넘게 안 보인 트랙은 버립니다. controller 에서는 경유점 추종으로 원하는 (v_wp, w) 를 구한 뒤 후보 v∈{v_wp, 0.5, 0.3, 0, -0.3} 를 둡니다(제자리 회전이면 v=0 에 w 후보 {w, 0}). 각 후보로 0–2.5 s 를 0.1 s 간격으로 굴려, 로봇 몸체 사각형(_BODY)과 각 물체(중심+속도×τ, 반경 0.45 m) 사이 최소 간격을 예측합니다. 간격이 0.35 m 이상인 후보 중 가장 빠른 전진을 고르고, 없으면 최소 간격이 가장 큰 후보를 고릅니다(전진 탈출 포함). 후진 후보는 뒤 0.45 m 안에 점이 있으면 뺍니다. 기존 retreat 상태(무조건 직선 후진)와 |y|<0.6 만 보는 d_front 감속은 지우고 정렬 단계 회전에도 같은 검사를 쓰되, 물체 위치·속도·시각을 상수로 넣지 않습니다.\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)",
+ "ended": "2026-11-16 23:24:54"
+}

@@ -1,0 +1,93 @@
+{
+ "turn": 29,
+ "started": "2026-11-16 18:42:40",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c2_turn28/gpu_gpt_oss_120b_pC2t28_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t28_s164766341: stop_turn 에피소드가 5.2 s에 시작됐지만 first_not_on_map (첫 물체 감지) 은 138.7 s에 나타남 → 물체 없는데 회피가 트리거됨",
+   "_detect_moving_front 은 거리 ≤1.5 m, 각 ≤45° 내 단일 점만 있으면 True 반환 (최소 점 수 조건 없음)",
+   "state 머신이 avoid_stop→avoid_back→avoid_rotate 를 반복해 stop_turn 횟수가 43·33·75 회이며 최종 목표 거리 27~30 m 로 진행이 정체됨"
+  ],
+  "target": "controller",
+  "direction": "detect_moving_front 함수에서 최소 점 수를 3으로 요구하고, controller 에 연속 감지 카운터를 도입해 2번 연속 감지될 때만 avoid_stop 상태로 전환한다. 감지 후 카운터를 초기화하고, _CLOSE_DETECT_DIST 를 1.0 m 로 축소한다. 이렇게 하면 센서 잡음에 의한 가짜 회피를 방지하고 진행 정체를 줄인다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 기존 _detect_moving_front 가 단일 라이다 점에 반응해 가짜 회피를 유발하고, 연속 감지를 고려하지 않아 로봇이 정체되는 문제가 있었습니다. 이를 해결하기 위해 가까운 물체 감지를 최소 점수와 연속 감지 카운터로 강화하고, 회피 절차를 간소화·정확화했습니다. 또한 회피 후 측면 우회 지점을 선택하도록 로직을 추가해 움직이는 물체를 효과적으로 피하고, 반복 회피 시 저속 모드 전환을 유지하도록 수정했습니다.",
+   "changed": [
+    "_AVOID_COOLDOWN",
+    "_AVOID_DURATION",
+    "_AVOID_ROT_SPEED",
+    "_AVOID_ROT_TIME",
+    "_BACK_SPEED",
+    "_BACK_TIME",
+    "_CLOSE_DETECT_ANGLE",
+    "_CLOSE_DETECT_DIST",
+    "_DETECT_ANGLE",
+    "_DETECT_DIST",
+    "_KP_W",
+    "_LATERAL_OFFSET",
+    "_LOW_SPEED_MAX",
+    "_LOW_SPEED_MIN",
+    "_MAX_AVOID_COUNT",
+    "_MAX_SPEED",
+    "_MIN_MOVING_CLOSE_POINTS",
+    "_REPULSION_WEIGHT",
+    "_detect_moving_front",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "detect_moving_front 함수에서 최소 점 수를 3으로 요구한다.",
+      "implemented": true,
+      "note": "_detect_moving_front uses _MIN_MOVING_CLOSE_POINTS=3 to require ≥3 points"
+     },
+     {
+      "instruction": "controller에 연속 감지 카운터를 도입한다.",
+      "implemented": true,
+      "note": "controller.moving_counter 초기화 및 매 호출 시 업데이트"
+     },
+     {
+      "instruction": "2번 연속 감지될 때만 avoid_stop 상태로 전환한다.",
+      "implemented": true,
+      "note": "avoid_stop 전환 조건이 moving_counter >= 2 로 구현됨"
+     },
+     {
+      "instruction": "감지 후 카운터를 초기화한다.",
+      "implemented": true,
+      "note": "avoidance 시작 시 moving_counter = 0 으로 리셋"
+     },
+     {
+      "instruction": "_CLOSE_DETECT_DIST 를 1.0 m 로 축소한다.",
+      "implemented": true,
+      "note": "_CLOSE_DETECT_DIST 값이 1.0 으로 설정됨"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 기존 _detect_moving_front 가 단일 라이다 점에 반응해 가짜 회피를 유발하고, 연속 감지를 고려하지 않아 로봇이 정체되는 문제가 있었습니다. 이를 해결하기 위해 가까운 물체 감지를 최소 점수와 연속 감지 카운터로 강화하고, 회피 절차를 간소화·정확화했습니다. 또한 회피 후 측면 우회 지점을 선택하도록 로직을 추가해 움직이는 물체를 효과적으로 피하고, 반복 회피 시 저속 모드 전환을 유지하도록 수정했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1985414676,
+  1600824244,
+  391411369
+ ],
+ "sim_used_s": 303.8,
+ "verdicts": {
+  "1985414676": "fail",
+  "1600824244": "fail",
+  "391411369": "fail"
+ },
+ "passes": 0
+}

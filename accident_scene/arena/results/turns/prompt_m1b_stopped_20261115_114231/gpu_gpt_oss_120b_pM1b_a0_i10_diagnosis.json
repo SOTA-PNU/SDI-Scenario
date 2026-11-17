@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_reject t=0.00 reason=exception error_type=NotImplementedError message=fill the model path-planning hook",
+    "plan_summary shows status=no_path for all clearances and no path points",
+    "Robot speed mean 0.0 and stall_total_s 199.0 indicate never moved due to missing path"
+  ],
+  "function": "plan_path",
+  "direction": "plan_path 함수에서 NotImplementedError를 제거하고, deterministic 4‑direction A* 플래너를 구현한다. occupancy_grid(clearance_m, 0.5) 로 그리드를 얻고, cell_of 로 시작·목표 셀을 찾은 뒤 4‑neighbour 탐색(상·하·좌·우)으로 경로를 찾는다. 경로를 셀 중심 좌표로 재구성하고, 간단한 직선‑of‑sight simplification을 적용한 뒤 validate_plan 로 검증한다. plan_stage 호출을 기존과 같이 grid, search, simplify, validate 단계에 맞게 배치한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 그대로 두고, plan_path 외부의 base 제어 로직을 수정하지 않는다.",
+  "confidence": "high"
+}

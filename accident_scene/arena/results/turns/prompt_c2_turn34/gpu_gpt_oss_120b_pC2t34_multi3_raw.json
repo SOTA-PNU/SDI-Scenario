@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-a99de3ea42217787",
+ "object": "chat.completion",
+ "created": 1794827359,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t34_s309599143: progress_abort_t=90.82 s with 37 stop‑turn episodes after first_not_on_map at t=85.85 s (dist 1.09 m, bearing 27°)\",\n    \"run c2t34_s278309708: progress_abort_t=90.95 s with 37 stop‑turn episodes after first_not_on_map at t=86.00 s (dist 1.72 m, bearing ‑88°)\",\n    \"run c2t34_s829157660: progress_abort_t=93.30 s with 22 stop‑turn episodes after first_not_on_map at t=88.42 s (dist 1.20 m, bearing 5°)\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"Replace the _detect_critical call with _detect_moving_any so avoidance triggers for any moving point within the 2 m detection range. Increase _CRITICAL_DIST to 0.8 m and raise _BACK_TIME to 2.0 s (keep _BACK_SPEED = ‑0.5 m/s) to back away farther. Add a max‑wait timer in the avoid_wait state (e.g., 2 s) after which the robot switches to avoid_bypass and creates a lateral waypoint using _compute_bypass_target. Reduce _REPULSION_WEIGHT to 1.0 to avoid over‑steering and ensure forward speed never drops below 0.2 m/s.\",\n  \"confidence\": \"high\"\n}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to analyze the multiple execution summaries provided in the \"여러 실행 요약\" section. It includes a table summarizing three runs: c2t34_s309599143, c2t34_s278309708, c2t34_s829157660. Each run has verdict: fail, stall_abort_t: null, progress_abort_t: around 90.82, 90.95, 93.3 respectively, collision_t: null, partner: null, stop_turns: 37, 37, 22 respectively. Also includes first_not_on_map times (when a moving object not on map first appears within 5m, 3m, 2m). The runs show \"first_not_on_map\" at t ~85.85, 86.0, 88.42 seconds. The robot appears to be stuck after that point, with many stop-turn episodes. The final goal distance is ~31m, far from the goal (goal is at (8,16.5), start is at (-9,-10.8). So 31m away indicates the robot didn't progress significantly after detection.\n\nThus, the failure mode is stall (no progress) rather than collision. The evidence should cite the summary data: progress_abort_t ~90.8 seconds (stall abort), stop_turns count, first_not_on_map times showing detection of moving objects. The code's detection and avoidance may be causing endless stop-turn loops without making progress, likely due to the state machine not exiting properly or not resetting detection after avoidance, or the avoidance state not moving the robot away sufficiently. The code uses _detect_critical to trigger avoid_stop when moving object within _CRITICAL_DIST = 0.5m and _CRITICAL_ANGLE = 30°. However, in the logs, first_not_on_map shows objects at distance ~1.09m, 1.72m, 1.2m (all >0.5m). So _detect_critical may not trigger because the object is not within 0.5m. However, the controller also uses repulsion via _moving_points and _repulsive_vector to adjust heading and speed. The robot may be slowing down due to repulsion, but not enough to pass the object. The robot also has avoidance state machine triggered by _detect_critical only, not by _detect_moving_any. The first_not_on_map is at ~85.85 sec, after which robot starts many stop-turn episodes. Actually the logs show at t=86.0 onward robot is rotating and moving slowly, but not making progress. The stop_turns count is high. This suggests the robot entered avoid_stop (maybe due to detection of moving object) but then got stuck in avoid_wait/avoid_back/avoid_rotate loops, maybe not achieving clearance.\n\nSpecifically, _detect_critical uses a distance threshold of 0.5m, which is too small; the moving objects are first seen at ~1.1-1.7m. So detection may not trigger. However, the code also uses repulsion via _moving_points, which uses _DETECT_DIST = 2.0m. It collects moving points and creates a repulsive vector weighted by inverse-square distance, then combines with attraction direction. The repulsion weight is 2.0. This may cause the robot to steer away from the moving object, but if the moving object is moving across the path, the repulsion may cause the robot to oscillate and not progress, leading to many stop-turn episodes (maybe the robot is repeatedly stopping due to _detect_critical detection when the object gets within 0.5m after some time). The logs show many rotation commands and low speed. The robot may be stuck in a loop: detect critical, avoid_stop (0.8s stop), then avoid_back (back up for 1s), then avoid_rotate (rotate for 1s), then avoid_wait (wait until object clears). However, after avoid_wait, the detection may still see the moving object (still within detection range) and resets wait timer, causing indefinite wait. If the moving object never leaves detection range because it's moving in a loop crossing the robot's path repeatedly, the robot may never exit avoid_wait, leading to stall.\n\nThus, the failure is due to avoidance logic not guaranteeing clearance and causing deadlock, and detection thresholds being too narrow for early detection and too narrow for critical detection, leading to late detection and insufficient retreat.\n\nWe need to propose fixes: enlarge _CRITICAL_DIST to detect earlier, increase _BACK_TIME and speed to back away further, add a maximum wait time in avoid_wait after which robot either bypasses via lateral waypoint or reduces speed and continues. Also consider using _detect_moving_any for early detection and incorporate that into avoid_stop. Or adjust the state machine: after avoid_wait, if object still present after a timeout, go to avoid_bypass (create lateral waypoint) rather than staying in wait.\n\nWe need to produce JSON with fields: failure_mode, evidence, target, direction, confidence.\n\nThe target should be \"controller\" (the detection/avoidance logic). The direction: propose modifications: use _detect_moving_any for critical detection, increase _CRITICAL_DIST to 0.8m, increase _BACK_TIME to 2s, add max wait time in avoid_wait (e.g., 2s) after which transition to avoid_bypass. Also adjust _REPULSION_WEIGHT to lower maybe 1.0 to reduce oscillation, or adjust speed scaling to maintain forward motion.\n\nConfidence high.\n\nNow ensure evidence citations are from the execution summary, not previous turns.\n\nFrom the summary:\n\n- \"progress_abort_t\": 90.82, 90.95, 93.3 => indicates stall abort after ~90 seconds.\n- \"stop_turns\": 37, 37, 22 => many stop-turn episodes.\n- \"first_not_on_map\": within 2m at t=85.85 (dist 1.09m bearing 27°), t=86.0 (dist 1.72m bearing -88°), t=88.42 (dist 1.2m bearing 5°) => moving objects first observed about 5-7 seconds before stall.\n- \"last_5s_every_0.25s\" logs show robot speed low, rotating, not moving forward.\n\nThus evidence lines: we can include up to 3.\n\nNow produce JSON."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-96dcc7f3",
+ "usage": {
+  "prompt_tokens": 32020,
+  "total_tokens": 33710,
+  "completion_tokens": 1690,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 1329
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

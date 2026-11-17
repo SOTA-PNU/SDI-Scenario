@@ -1,0 +1,138 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "run c2t49_s1888463725 stall abort at 60.1 s, robot moved only 0.299 m, first moving object seen at 55.15 s (1.54 m, -51°) and robot stayed stopped",
+   "run c2t49_s2077112567 progress abort at 116.12 s, robot performed two stop‑turn episodes (49.1‑1.9 s, 51.3‑2.0 s) but never progressed beyond ~30 m from start",
+   "run c2t49_s146151672 stall abort at 106.48 s, robot moved only 0.296 m, first moving object seen at 101.53 s (1.65 m, -102°) and robot remained stopped"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Moving objects can be reliably detected by lidar points that are not inside any static obstacle",
+    "holds": true,
+    "why": "first_not_on_map entries show non‑map points detected at ~1.5 m before robot stalls"
+   },
+   {
+    "assumption": "A lateral bypass waypoint 2 m to the side of the object is always reachable",
+    "holds": false,
+    "why": "controller often fails to find a bypass target and enters indefinite stop‑wait"
+   },
+   {
+    "assumption": "Velocity‑Obstacle sampling will always yield at least one safe (v,w) candidate",
+    "holds": false,
+    "why": "best_score == -inf occurs, causing the robot to wait forever"
+   },
+   {
+    "assumption": "Critical‑stop detection (dist ≤ 0.8 m) prevents collisions before they happen",
+    "holds": false,
+    "why": "no critical stop triggered yet robot stalls far before the 0.8 m threshold"
+   },
+   {
+    "assumption": "A brief stop‑wait (0.5 s) after failed bypass is enough to let the moving object pass",
+    "holds": false,
+    "why": "the robot repeatedly re‑enters stop‑wait without ever resuming motion"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "simple detection + stop + rotate (no bypass, no VO)",
+    "turns": "1‑14, 16‑20, 21‑28, 30‑35, 36‑39, 41‑49",
+    "result": "≈13/43 passes (best single family, turn 2 gave 7/10 passes)"
+   },
+   {
+    "family": "lateral bypass waypoint generation",
+    "turns": "5‑28, 30‑39, 41‑49",
+    "result": "≈13/43 passes (many stalls when bypass impossible)"
+   },
+   {
+    "family": "velocity‑obstacle / DWA sampling",
+    "turns": "42‑49",
+    "result": "0/8 passes"
+   },
+   {
+    "family": "repulsion‑vector / potential‑field blending",
+    "turns": "39, 43, 44",
+    "result": "0/3 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Replace the complex bypass/VO logic with a minimal state machine: use only front‑cone detection (≤1.2 m, ±30°). When a moving point is seen, stop and rotate away for a fixed 1 s, then resume waypoint tracking.",
+    "new_family": true,
+    "for": "high pass rate of the simple stop‑rotate approach (turn 2) and to avoid stall caused by missing bypass targets",
+    "risk": "may increase travel time; occasional false positives could cause unnecessary rotations"
+   },
+   {
+    "idea": "Compute a continuous repulsion vector from all moving points (inverse‑square weighting) and blend it with the waypoint direction; scale forward speed by the distance to the nearest moving point, never fully stopping unless an object is <0.5 m.",
+    "new_family": false,
+    "for": "provides smooth avoidance without dead‑end stop‑wait loops",
+    "risk": "repulsion may push robot into static obstacles if not carefully clamped"
+   },
+   {
+    "idea": "Run a lightweight DWA with a longer horizon (2 s) and, if no safe candidate exists, fall back to a low‑speed mode (0.2‑0.5 m/s) instead of waiting, while still using the existing VO functions.",
+    "new_family": false,
+    "for": "prevents the controller from stalling when the VO set is empty",
+    "risk": "low‑speed mode may still be too slow to clear a moving object before it returns"
+   }
+  ],
+  "chosen": "Candidate 1 – adopt the simple front‑cone stop‑rotate state machine, because it matches the historically most successful family and eliminates the bypass/VO dead‑ends.",
+  "target": "controller logic (state machine, detection, waypoint tracking) – remove bypass/VO code and add a minimal stop‑rotate state.",
+  "direction": "1. Add constants _DETECT_DIST_CLOSE=1.2, _DETECT_ANGLE_CLOSE=np.deg2rad(30), _ROT_TIME=1.0, _AVOID_ROT_SPEED=1.2. 2. Initialize persistent variables controller.state='normal' and controller.rotate_end=0.0. 3. At each step call a new _detect_moving_front(pose) that uses only the front lidar, distance ≤_DETECT_DIST_CLOSE and bearing within ±_DETECT_ANGLE_CLOSE, filtering static obstacles. 4. If state=='normal' and a moving object is detected, set controller.state='rotate', controller.rotate_end=t+_ROT_TIME, and command v=0, w=_AVOID_ROT_SPEED*sign(bearing). 5. While state=='rotate' keep v=0, w as above until t>=controller.rotate_end, then set state back to 'normal'. 6. In 'normal' state follow the existing waypoint list using simple proportional heading control (v=_MAX_SPEED*max(0,cos(yaw_err)), w=_KP_W*yaw_err) and skip all bypass/VO functions.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"run c2t49_s1888463725 stall abort at 60.1 s, robot moved only 0.299 m, first moving object seen at 55.15 s (1.54 m, -51°) and robot stayed stopped\",\n    \"run c2t49_s2077112567 progress abort at 116.12 s, robot performed two stop‑turn episodes (49.1‑1.9 s, 51.3‑2.0 s) but never progressed beyond ~30 m from start\",\n    \"run c2t49_s146151672 stall abort at 106.48 s, robot moved only 0.296 m, first moving object seen at 101.53 s (1.65 m, -102°) and robot remained stopped\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Moving objects can be reliably detected by lidar points that are not inside any static obstacle\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map entries show non‑map points detected at ~1.5 m before robot stalls\"\n    },\n    {\n      \"assumption\": \"A lateral bypass waypoint 2 m to the side of the object is always reachable\",\n      \"holds\": false,\n      \"why\": \"controller often fails to find a bypass target and enters indefinite stop‑wait\"\n    },\n    {\n      \"assumption\": \"Velocity‑Obstacle sampling will always yield at least one safe (v,w) candidate\",\n      \"holds\": false,\n      \"why\": \"best_score == -inf occurs, causing the robot to wait forever\"\n    },\n    {\n      \"assumption\": \"Critical‑stop detection (dist ≤ 0.8 m) prevents collisions before they happen\",\n      \"holds\": false,\n      \"why\": \"no critical stop triggered yet robot stalls far before the 0.8 m threshold\"\n    },\n    {\n      \"assumption\": \"A brief stop‑wait (0.5 s) after failed bypass is enough to let the moving object pass\",\n      \"holds\": false,\n      \"why\": \"the robot repeatedly re‑enters stop‑wait without ever resuming motion\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"simple detection + stop + rotate (no bypass, no VO)\",\n      \"turns\": \"1‑14, 16‑20, 21‑28, 30‑35, 36‑39, 41‑49\",\n      \"result\": \"≈13/43 passes (best single family, turn 2 gave 7/10 passes)\"\n    },\n    {\n      \"family\": \"lateral bypass waypoint generation\",\n      \"turns\": \"5‑28, 30‑39, 41‑49\",\n      \"result\": \"≈13/43 passes (many stalls when bypass impossible)\"\n    },\n    {\n      \"family\": \"velocity‑obstacle / DWA sampling\",\n      \"turns\": \"42‑49\",\n      \"result\": \"0/8 passes\"\n    },\n    {\n      \"family\": \"repulsion‑vector / potential‑field blending\",\n      \"turns\": \"39, 43, 44\",\n      \"result\": \"0/3 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Replace the complex bypass/VO logic with a minimal state machine: use only front‑cone detection (≤1.2 m, ±30°). When a moving point is seen, stop and rotate away for a fixed 1 s, then resume waypoint tracking.\",\n      \"new_family\": true,\n      \"for\": \"high pass rate of the simple stop‑rotate approach (turn 2) and to avoid stall caused by missing bypass targets\",\n      \"risk\": \"may increase travel time; occasional false positives could cause unnecessary rotations\"\n    },\n    {\n      \"idea\": \"Compute a continuous repulsion vector from all moving points (inverse‑square weighting) and blend it with the waypoint direction; scale forward speed by the distance to the nearest moving point, never fully stopping unless an object is <0.5 m.\",\n      \"new_family\": false,\n      \"for\": \"provides smooth avoidance without dead‑end stop‑wait loops\",\n      \"risk\": \"repulsion may push robot into static obstacles if not carefully clamped\"\n    },\n    {\n      \"idea\": \"Run a lightweight DWA with a longer horizon (2 s) and, if no safe candidate exists, fall back to a low‑speed mode (0.2‑0.5 m/s) instead of waiting, while still using the existing VO functions.\",\n      \"new_family\": false,\n      \"for\": \"prevents the controller from stalling when the VO set is empty\",\n      \"risk\": \"low‑speed mode may still be too slow to clear a moving object before it returns\"\n    }\n  ],\n  \"chosen\": \"Candidate 1 – adopt the simple front‑cone stop‑rotate state machine, because it matches the historically most successful family and eliminates the bypass/VO dead‑ends.\",\n  \"target\": \"controller logic (state machine, detection, waypoint tracking) – remove bypass/VO code and add a minimal stop‑rotate state.\",\n  \"direction\": \"1. Add constants _DETECT_DIST_CLOSE=1.2, _DETECT_ANGLE_CLOSE=np.deg2rad(30), _ROT_TIME=1.0, _AVOID_ROT_SPEED=1.2. 2. Initialize persistent variables controller.state='normal' and controller.rotate_end=0.0. 3. At each step call a new _detect_moving_front(pose) that uses only the front lidar, distance ≤_DETECT_DIST_CLOSE and bearing within ±_DETECT_ANGLE_CLOSE, filtering static obstacles. 4. If state=='normal' and a moving object is detected, set controller.state='rotate', controller.rotate_end=t+_ROT_TIME, and command v=0, w=_AVOID_ROT_SPEED*sign(bearing). 5. While state=='rotate' keep v=0, w as above until t>=controller.rotate_end, then set state back to 'normal'. 6. In 'normal' state follow the existing waypoint list using simple proportional heading control (v=_MAX_SPEED*max(0,cos(yaw_err)), w=_KP_W*yaw_err) and skip all bypass/VO functions.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c2t49_s1888463725",
+   "verdict": "fail",
+   "stall_abort_t": 60.1,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 55.15,
+   "goal_dist_m": 31.8605,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t49_s2077112567",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": 116.12,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.6437,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t49_s146151672",
+   "verdict": "fail",
+   "stall_abort_t": 106.48,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 101.53,
+   "goal_dist_m": 30.3871,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

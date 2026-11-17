@@ -1,0 +1,77 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t21_s1728905831: t=2.8 s 충돌, 로봇 0.76 m/s, 파트너 상대 위치 [-0.0,-0.67] m, 물체는 t≈0 s에 1.71 m -50°에 있었지만 _detect_moving_front(≤0.9 m·±30°)에 미달해 회피 안함",
+   "c2t21_s2011883429: t=66.367 s 충돌, 로봇 0.81 m/s, 파트너 상대 위치 [-0.4,-0.59] m, 물체는 t=63.25 s에 1.92 m 5°에 나타났지만 _detect_moving_front 조건을 만족하지 않아 정지되지 않음",
+   "c2t21_s2050371242: t=4.383 s 충돌, 로봇 0.80 m/s, 파트너 상대 위치 [-0.82,0.51] m, 물체는 t=0.53 s에 1.97 m 4°에 감지됐으나 _detect_moving_front(≤0.9 m·±30°)에 안 잡혀 회피 미시작"
+  ],
+  "target": "controller (detect/avoid logic)",
+  "direction": "1) _CLOSE_DETECT_DIST 를 1.5 m 로, _CLOSE_DETECT_ANGLE 를 ±45° 로 확대한다. 2) _detect_moving_front 대신 _detect_moving_any 를 사용해 거리·각 조건을 만족하는 물체가 있으면 바로 회피 상태로 전환한다. 3) 회피 시작 시 v=0, w=0 으로 정지하고 _AVOID_DURATION 을 0.5 s 로 유지한 뒤 뒤로 물러나고 회전한다. 4) 회피 중에도 _moving_points_repulsion 로 얻은 점을 이용해 속도를 _MAX_SPEED 이하로 제한하고, 회피 횟수가 누적되면 저속 모드로 전환한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c2t21_s1728905831: t=2.8 s 충돌, 로봇 0.76 m/s, 파트너 상대 위치 [-0.0,-0.67] m, 물체는 t≈0 s에 1.71 m -50°에 있었지만 _detect_moving_front(≤0.9 m·±30°)에 미달해 회피 안함\",\n    \"c2t21_s2011883429: t=66.367 s 충돌, 로봇 0.81 m/s, 파트너 상대 위치 [-0.4,-0.59] m, 물체는 t=63.25 s에 1.92 m 5°에 나타났지만 _detect_moving_front 조건을 만족하지 않아 정지되지 않음\",\n    \"c2t21_s2050371242: t=4.383 s 충돌, 로봇 0.80 m/s, 파트너 상대 위치 [-0.82,0.51] m, 물체는 t=0.53 s에 1.97 m 4°에 감지됐으나 _detect_moving_front(≤0.9 m·±30°)에 안 잡혀 회피 미시작\"\n  ],\n  \"target\": \"controller (detect/avoid logic)\",\n  \"direction\": \"1) _CLOSE_DETECT_DIST 를 1.5 m 로, _CLOSE_DETECT_ANGLE 를 ±45° 로 확대한다. 2) _detect_moving_front 대신 _detect_moving_any 를 사용해 거리·각 조건을 만족하는 물체가 있으면 바로 회피 상태로 전환한다. 3) 회피 시작 시 v=0, w=0 으로 정지하고 _AVOID_DURATION 을 0.5 s 로 유지한 뒤 뒤로 물러나고 회전한다. 4) 회피 중에도 _moving_points_repulsion 로 얻은 점을 이용해 속도를 _MAX_SPEED 이하로 제한하고, 회피 횟수가 누적되면 저속 모드로 전환한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t21_s1728905831",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.8,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.76m/s 회전 -0.7",
+   "partner_rel_xy": [
+    -0.0,
+    -0.67
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 28.7158,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t21_s2011883429",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 66.367,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.81m/s",
+   "partner_rel_xy": [
+    -0.4,
+    -0.59
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 63.25,
+   "goal_dist_m": 0.7778,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t21_s2050371242",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.383,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.80m/s 회전 +0.7",
+   "partner_rel_xy": [
+    -0.82,
+    0.51
+   ],
+   "closing_m_s": 0.25,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 0.53,
+   "goal_dist_m": 28.5885,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

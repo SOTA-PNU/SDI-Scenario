@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "최종 자세 yaw_error=0.543rad > yaw_tolerance 0.26rad, 하지만 위치 오차 0.434m < 0.75m (verdict=fail, reason=yaw_misaligned)",
+    "DBG choose 로그에서 goal 근처에 계속 \"stop\" 가 선택되고, \"DBG follow 가 지도에 막힘: 경로 여유 부족\" 가 여러 번 발생 (map_stop 경고)",
+    "plan_summary 의 accepted 경로는 6점, min_gap 약 0.27m (매우 좁은 여유) → 목표 근처 회전 시 지도 여유 부족"
+  ],
+  "function": "plan_path",
+  "direction": "goal_shift 거리를 0.3 m에서 0.6 m(또는 그 이상) 로 늘려 목표점에 대한 지도 여유를 확보한다. shift 적용 후 connector 검사와 segment_free 검사를 기존 clearance와 동일하게 유지한다. 이렇게 하면 로봇이 목표에 도달했을 때 회전용 공간이 확보돼 map_stop이 발생하지 않는다.",
+  "not_to_change": "lookahead_target와 follow_cmd, 그리고 base 루프·choose_command 로직은 건드리지 않는다.",
+  "confidence": "medium"
+}

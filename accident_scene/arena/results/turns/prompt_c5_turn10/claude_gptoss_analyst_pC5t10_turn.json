@@ -1,0 +1,391 @@
+{
+ "turn": 10,
+ "started": "2026-11-17 10:00:21",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c5_turn9/claude_gptoss_analyst_pC5t9_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t9_s465892405: 충돌 t=4.717 s, 로봇 0.26 m/s 전진, first_not_on_map 2 m(2.82 s) → 1 m(3.82 s) 내에 있었지만 정지하지 않음",
+   "c5t9_s1384845919: 충돌 t=8.367 s, 로봇 정지 상태, first_not_on_map 1.08 m(3.43 s) 이후 움직이는 물체가 로봇에 충돌",
+   "c5t9_s881108099: 충돌 t=5.467 s, 로봇 0.19 m/s 전진, first_not_on_map 1.66 m(0.52 s) → 0.98 m(4.35 s)까지도 정지 트리거 미발동"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 2 s 이내에 클러스터링·트래킹으로 M에 등록된다",
+    "holds": false,
+    "why": "첫 충돌 전까지 M에 트랙이 없었음(충돌 시점에만 감지됨)"
+   },
+   {
+    "assumption": "raw unmapped 라이다 점이 0.8 m 이내이면 _proximity_stop_and_backup 이 정지를 유도한다",
+    "holds": false,
+    "why": "최근점 거리 0.98 m·1.66 m 로 정지 조건을 만족하지 않아 충돌 발생"
+   },
+   {
+    "assumption": "gap <= _SAFE_DIST(3 m) 은 트랙이 존재할 때만 true 이며, 이때 VO 플래너가 동작한다",
+    "holds": false,
+    "why": "트랙이 없으므로 gap=inf, VO 미사용, 물체와 충돌"
+   },
+   {
+    "assumption": "static‑map 필터가 정확히 정적 점을 제거하고 움직이는 점만 _unmapped_raw 로 남긴다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 존재해 움직이는 점이 잘 탐지됨"
+   },
+   {
+    "assumption": "정지 상태에서 _px_back_until 가 활성화되면 후진이 수행된다",
+    "holds": false,
+    "why": "정지 상태(런2)에서 후진이 실행되지 않아 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": "0",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "static_pause_until + raw‑lidar filter",
+    "turns": "1",
+    "result": "1/4 pass"
+   },
+   {
+    "family": "dynamic pause using t_tc",
+    "turns": "2",
+    "result": "4/5 pass"
+   },
+   {
+    "family": "min_gap detection + detour",
+    "turns": "3",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "predictive speed scaling",
+    "turns": "4",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VO planner integration",
+    "turns": "5",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "3D‑lidar + extended safe distance",
+    "turns": "6",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "TTC stop check (worst‑case speed)",
+    "turns": "7",
+    "result": "0/3 pass"
+   },
+   {
+    "family": "TTC stop + VO strict mode",
+    "turns": "8",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "proximity stop & backup (current)",
+    "turns": "9",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "early raw‑point emergency stop: if any unmapped lidar point is ≤1.5 m and its TTC (using estimated relative speed) <0.8 s, stop immediately and set pause_until= t+1 s",
+    "new_family": true,
+    "for": "충돌 전 2 m 이내에서 물체가 감지됐지만 거리/시간 임계값이 너무 작아 정지하지 못함",
+    "risk": "정적 점이 오탐될 경우 불필요한 정지 증가"
+   },
+   {
+    "idea": "pseudo‑tracker: treat the nearest unmapped point as a mover with a nominal velocity (≈0.5 m/s) and inject it into M so gap/_VO_planner 작동을 raw 점에서도 가능하게 함",
+    "new_family": true,
+    "for": "gap 계산이 트랙에만 의존해 VO가 전혀 동작하지 않음",
+    "risk": "가짜 트랙이 과도히 보수적인 회피를 유도해 진행 속도 저하"
+   },
+   {
+    "idea": "잠재장(repulsive field): 모든 unmapped 점을 2 m 반경 내에서 반발 벡터로 합산, 목표 방향과 합성해 v,w 를 산출; 거리·밀도에 비례해 회피 강도 증가",
+    "new_family": true,
+    "for": "클러스터링 지연으로 트랙이 안 잡히는 상황에서도 연속적인 회피 가능",
+    "risk": "복잡한 파라미터 튜닝 필요, 과도한 회피로 경로가 비효율적"
+   }
+  ],
+  "chosen": "early raw‑point emergency stop (candidate 1) – 가장 직접적으로 거리·TTC 임계값을 확대해 충돌 직전 정지를 보장함",
+  "target": "controller (새 함수 _early_raw_stop와 상수 _EARLY_STOP_DIST/_EARLY_STOP_TTC 추가)",
+  "direction": "1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\"pause_until\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 근거는 두 가지입니다. 트랙이 없으면 gap 과 VO 가 동작하지 않았고, 지도에 없는 라이다 점이 0.98–1.66 m 까지 다가와도 0.8 m 정지 조건에 걸리지 않았습니다. 그래서 진단의 선택안(candidate 1, direction 1–6)대로 `_EARLY_STOP_DIST=1.5`, `_EARLY_STOP_TTC=0.8` 와 새 함수 `_early_raw_stop` 을 넣고, `controller` 에서 `_perceive`(와 트랙 배열 계산) 직후에 불렀습니다. 이 함수는 `_unmapped_raw`/`_px_dist` 의 최근점 거리 d 와 이전 스캔 대비 거리 변화율로 TTC = d/(max(rel,0.1)+_MAX_OBJECT_SPEED) 를 계산합니다. 조건을 만족하면 `pause_until=t+1.0`, `_px_hold`, `(0,0)` 으로 즉시 정지합니다. 정지 중인 로봇에 물체가 다가오는 경우(진단 런2)에는 기존 `_px_backup_cmd` 로 물체에서 멀어지도록 후진합니다. `_PX_STOP_D` 는 0.9 m 로 완화했고, `_proximity_stop_and_backup` 은 조기 정지가 활성이거나 그 유예 구간일 때만 호출합니다. 모든 대기 타이머는 `_px_hold` 로 갱신하며, 정적 오탐으로 영구 정지하지 않도록 3 s 대기 뒤 2 s 유예를 둡니다(유예 중에도 다가오는 점은 다시 정지를 일으킵니다).",
+   "changed": [
+    "_EARLY_GRACE",
+    "_EARLY_MAX_WAIT",
+    "_EARLY_STOP_DIST",
+    "_EARLY_STOP_TTC",
+    "_PX_STOP_D",
+    "_early_raw_stop",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _EARLY_STOP_DIST=1.5, _EARLY_STOP_TTC=0.8 을 [EDIT REGION] 상단에 정의",
+      "implemented": true,
+      "note": "두 값 모두 정의됨. 위치는 상단이 아니라 [END EDIT REGION] 바로 앞임. 새 이름은 거기에 붙는다는 출력 규칙 때문이고, 모듈 로드 시 정의되므로 동작은 같음"
+     },
+     {
+      "instruction": "2. _early_raw_stop 신설: _unmapped_raw 로 unmapped 점을 얻어 최근점 거리 d 와 이전 스캔 대비 상대 속도를 추정",
+      "implemented": true,
+      "note": "_px_dist 가 _unmapped_raw 를 거쳐 d 를 줌. 다만 d 는 최근점이 아니라 3번째로 가까운 점의 몸체 박스 거리임(변경 이유의 '최근점'과 다름). 상대 속도는 0.25 s 이상 지난 d 와의 변화율로 구함. 인자에 M 이 추가됨"
+     },
+     {
+      "instruction": "3. TTC=d/(max(rel,0.1)+_MAX_OBJECT_SPEED), d<1.5 이고 TTC<0.8 이면 pause_until=t+1.0, _px_hold, (0,0,False)",
+      "implemented": true,
+      "note": "trigger 조건, pause_until=t+1.0, _px_hold, (0.0,0.0) 반환 모두 구현됨. 다만 3 s 정지 뒤 2 s 유예(_EARLY_GRACE)가 추가됨. 유예 중에는 다가오는 점(cm)이 아니면 조건을 만족해도 정지하지 않음"
+     },
+     {
+      "instruction": "4. controller 에서 _perceive 직후 _early_raw_stop 호출, 트리거 시 반환",
+      "implemented": true,
+      "note": "_perceive 와 _track_array 직후, 목표 선택과 hold<0 회피보다 먼저 호출함. 반환은 (v, w, False) 튜플로 올바르게 돌려줌"
+     },
+     {
+      "instruction": "5. _proximity_stop_and_backup 거리 임계값 0.9 m, _early_raw_stop 트리거 시에만 동작",
+      "implemented": true,
+      "note": "_PX_STOP_D=0.9 로 바꿈. 호출 조건은 es_on 또는 유예 중임. 그런데 _early_raw_stop 이 None 을 반환하는 모든 경로에서 es_on=False 가 됨. 따라서 es_on 분기는 죽은 코드이고, 실제로는 유예 구간에서만 동작함"
+     },
+     {
+      "instruction": "6. 타이머(px_last, wait_start 등)를 _px_hold 로 일관 갱신",
+      "implemented": true,
+      "note": "_early_raw_stop 의 모든 non-None 반환(후진 중, 후진 시작, 정지)에서 _px_hold 를 호출함. 기존 (1b), (2) 층은 그대로 직접 갱신함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "_MAX_OBJECT_SPEED=2.0 이면 d<1.5 일 때 TTC 는 최대 1.5/2.1≈0.71 로 항상 0.8 미만임. TTC 조건이 무의미해 사실상 1.5 m 거리 정지가 됨. 오탐과 지나가는 물체 때문에 자주 정지해 600 s 예산을 압박할 수 있음",
+     "지시 4(트리거 시 즉시 반환)와 지시 5(트리거 시에만 근접 정지 동작)가 서로 모순됨. 트리거 중에는 근접 정지에 도달할 수 없음",
+     "지시 4 원문의 'return' 은 None 을 반환해 (v,w,done) 형식을 깨는 지시임(수정 코드는 올바르게 처리함)",
+     "조기 정지가 hold<0 VO 회피보다 앞에 있음. 1.5 m 안에 트랙된 물체가 있으면 회피 대신 정지·후진만 함. 런2(정지 중 피격) 유형이 남을 수 있음",
+     "d<_PX_BACK_D 인 정적 오탐에서 후진이 불가하면 해제 조건(d>=0.5)을 만족하지 못해 영구 정지할 수 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단의 근거는 두 가지입니다. 트랙이 없으면 gap 과 VO 가 동작하지 않았고, 지도에 없는 라이다 점이 0.98–1.66 m 까지 다가와도 0.8 m 정지 조건에 걸리지 않았습니다. 그래서 진단의 선택안(candidate 1, direction 1–6)대로 `_EARLY_STOP_DIST=1.5`, `_EARLY_STOP_TTC=0.8` 와 새 함수 `_early_raw_stop` 을 넣고, `controller` 에서 `_perceive`(와 트랙 배열 계산) 직후에 불렀습니다. 이 함수는 `_unmapped_raw`/`_px_dist` 의 최근점 거리 d 와 이전 스캔 대비 거리 변화율로 TTC = d/(max(rel,0.1)+_MAX_OBJECT_SPEED) 를 계산합니다. 조건을 만족하면 `pause_until=t+1.0`, `_px_hold`, `(0,0)` 으로 즉시 정지합니다. 정지 중인 로봇에 물체가 다가오는 경우(진단 런2)에는 기존 `_px_backup_cmd` 로 물체에서 멀어지도록 후진합니다. `_PX_STOP_D` 는 0.9 m 로 완화했고, `_proximity_stop_and_backup` 은 조기 정지가 활성이거나 그 유예 구간일 때만 호출합니다. 모든 대기 타이머는 `_px_hold` 로 갱신하며, 정적 오탐으로 영구 정지하지 않도록 3 s 대기 뒤 2 s 유예를 둡니다(유예 중에도 다가오는 점은 다시 정지를 일으킵니다).",
+ "budget_s": 600.0,
+ "seeds": [
+  1218741183,
+  189053306,
+  1337523796
+ ],
+ "sim_used_s": 303.2,
+ "verdicts": {
+  "1218741183": "fail",
+  "189053306": "fail",
+  "1337523796": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 4465,
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c5t10_s1218741183: first_not_on_map at 85.05 s (1.4 m), robot stopped then resumed; no progress and progress_abort at 90 s, goal still 32 m away.",
+   "c5t10_s1337523796: early stop triggered at 109.15 s (1.75 m), robot resumed and collided at 114.15 s with mover_03 (rel pos [-0.79,0.46], closing 0.24 m/s).",
+   "All runs: early stop uses pause_until = t+1.0 s, but unmapped points remained within <2 m for several seconds, causing repeated stops or unsafe resumes."
+  ],
+  "assumptions": [
+   {
+    "assumption": "Unmapped lidar points are always moving objects, not static false positives.",
+    "holds": true,
+    "why": "No evidence of static points causing false early stops; unmapped points correspond to the movers in the logs."
+   },
+   {
+    "assumption": "A 1 s pause after early stop is sufficient for a moving object to clear the robot's immediate vicinity.",
+    "holds": false,
+    "why": "Collision after 5 s (run c5t10_s1337523796) shows the mover was still present after the 1 s pause."
+   },
+   {
+    "assumption": "After early stop, the robot can safely resume waypoint following without re‑evaluating the mover's future trajectory.",
+    "holds": false,
+    "why": "Both collision and progress‑abort runs resumed while the mover remained within unsafe distance."
+   },
+   {
+    "assumption": "Proximity stop/back‑up only needs to be active while early stop is on or in its grace period.",
+    "holds": false,
+    "why": "Objects caused collisions after early stop ended, indicating the proximity logic was insufficient."
+   },
+   {
+    "assumption": "Nominal speed (up to 1.5 m/s) can be restored immediately after pause_until expires, assuming no other threats.",
+    "holds": false,
+    "why": "Runs resumed at full speed while a mover was still nearby, leading to stalls or collision."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": [
+     0
+    ],
+    "result": "0/4 passes"
+   },
+   {
+    "family": "raw_point_stop",
+    "turns": [
+     1
+    ],
+    "result": "1/4 passes"
+   },
+   {
+    "family": "dynamic_pause_tracks",
+    "turns": [
+     2
+    ],
+    "result": "4/5 passes"
+   },
+   {
+    "family": "gap_detour",
+    "turns": [
+     3
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "predictive_speed_scaling",
+    "turns": [
+     4
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "vo_planner",
+    "turns": [
+     5
+    ],
+    "result": "2/5 passes"
+   },
+   {
+    "family": "3d_lidar_safe_dist",
+    "turns": [
+     6
+    ],
+    "result": "3/6 passes"
+   },
+   {
+    "family": "raw_ttc_stop_check",
+    "turns": [
+     7
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "raw_ttc_vo_strict",
+    "turns": [
+     8
+    ],
+    "result": "3/6 passes"
+   },
+   {
+    "family": "proximity_stop_backup",
+    "turns": [
+     9
+    ],
+    "result": "0/3 passes"
+   },
+   {
+    "family": "early_raw_stop_proximity",
+    "turns": [
+     10
+    ],
+    "result": "0/3 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Potential‑field avoidance: compute a repulsive vector from each unmapped lidar point within a radius and combine with an attractive vector toward the current waypoint; derive heading error and speed scaling from the resultant vector.",
+    "new_family": true,
+    "for": "Provides continuous, smooth avoidance without binary stops, reducing stalls and keeping progress.",
+    "risk": "May create local minima near static obstacles, causing oscillations or dead‑locks."
+   },
+   {
+    "idea": "Dynamic occupancy‑grid planning: discretize a 5 m radius into a fine grid, project unmapped points forward using estimated velocities, run a lightweight A* to the waypoint every 0.5 s, and follow the first step of the path.",
+    "new_family": true,
+    "for": "Explicitly plans around moving objects, guaranteeing a collision‑free path if the grid resolution is sufficient.",
+    "risk": "Computational overhead may exceed the 1/60 s control cycle, especially with many points."
+   },
+   {
+    "idea": "Continuous TTC‑based speed scaling: compute TTC for each unmapped point, take the minimum, and scale forward speed proportionally (v = v_nom * clamp((TTC‑safety)/TTC_max, 0, 1)). Adjust yaw to steer away from points with lowest TTC.",
+    "new_family": true,
+    "for": "Keeps the robot moving while slowing down as objects approach, avoiding long pauses that cause progress aborts.",
+    "risk": "If TTC estimation is noisy, the robot may not decelerate quickly enough for fast‑approaching movers."
+   }
+  ],
+  "chosen": "Potential‑field avoidance is selected because it replaces binary stops with a smooth steering behavior, directly addressing the repeated stalls and late‑stage collisions observed.",
+  "target": "controller",
+  "direction": "Add constants _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 and a helper _potential_field_avoidance(pose, raw, wp) that sums repulsive vectors from unmapped points (inverse distance weighting) and an attractive vector to wp, then returns a desired heading and speed factor; in controller, after _perceive replace the early‑stop and proximity‑stop calls with a call to _potential_field_avoidance, set v = min(v_nom, v_pf) and w = clamp(7.5*(desired_heading‑yaw), -0.6, 0.6), and only fall back to the existing VO planner if the potential‑field margin is negative; keep _guard for final safety checks; remove the 1 s binary pause logic or reduce it to a short debounce.",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c5t10_s1218741183",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 85.05,
+   "goal_dist_m": 32.1633,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t10_s189053306",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 509.0,
+   "sim_time_s": 92.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.98,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 86.03,
+   "goal_dist_m": 31.4172,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t10_s1337523796",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 417.0,
+   "sim_time_s": 120.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 114.15,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.09m/s",
+   "partner_rel_xy": [
+    -0.79,
+    0.46
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 109.15,
+   "goal_dist_m": 0.4128,
+   "time_to_goal_s": 119.15
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 92 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 안에 정적 변수 pause_until 와 last_seen 를 초기화한다. 매 호출 시 lidar2d_points('front')와 lidar2d_points('back')를 결합하고 _drop_body 로 정적 장애물을 제거한 뒤 지도에 없는 점을 필터링한다. 가장 가까운 비지도 점의 거리와 방위가 1.0 m 이하이며 최근 0.5 s 동안 거리가 감소하면 pause_until = t + 1.0 로 설정하고 v=0, w=0을 반환한다. 현재 시각 t 가 pause_until 보다 크면 기존 waypoint 추종 로직을 수행한다. 대기 중에도 pause_until 가 지나면 자동으로 재개하며, 최대 대기 시간 10 s를 초과하면 강제 재개한다. 이렇게 하면 라이다가 실시간으로 감지한 움직이는 물체를 회피하거나 정지시켜 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 156 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _perceive에서 각 트랙의 상대 속도와 현재 거리로 충돌 시간 t_tc 를 계산한다. 2. 로봇 정지 시간 t_stop = vm/1.0(가정 가속도) 를 구하고, 필요 pause = max(0, t_tc - t_stop) + 0.5 를 pause_until 에 저장한다. 3. 기존 고정 pause 로직을 삭제하고, pause_until 가 현재 시각보다 크면 0,0 반환한다. 4. pause 중에도 _margin 로 물체가 여전히 위험하면 _plan_detour 로 측면 우회점을 찾아 실행한다. 5. 강제 재개 로직을 제거하고, 물체가 안전 거리(>1.5 m) 로 멀어지면 정상 주행으로 복귀한다. 6. _margin 의 예측 horizon 을 3.5 s 로 늘려 장기 충돌도 고려한다.\" 반영, 검토 통과): 새 배치 5개 중 4개 pass, 1개 fail (시뮬 시간 합계 599 s / 한도 600 s)\n#3 이번 코드(진단 \"1. `_perceive` 뒤에 `_min_gap` 를 계산하고 `if _min_gap(pose, M) <= _SAFE_DIST:` 를 추가한다. 2. 이 조건이 참이면 `st[\\\"detour\\\"] = _stuck_detour(st, pose, M, wp)` 혹은 `_plan_detour` 로 새로운 측면 웨이포인트를 얻는다. 3. `v, w = _follow(pose, st[\\\"detour\\\"])` 로 회피 명령을 반환하고, 라이다가 앞을 막으면 `v = 0` 로 설정한다. 4. 기존 `pause_until` 블록을 수정해 `return 0,0` 대신 위 회피 로직을 실행하도록 만든다. 5. detour 도달 시(`math.hypot(st[\\\"detour\\\"][0]-x, st[\\\"detour\\\"][1]-y) < 0.4`) `st[\\\"detour\\\"] = None` 로 초기화하고 원래 웨이포인트 추적을 재개한다. 6. 기존 동적 정지는 보조적으로 유지하되, 회피가 가능한 경우에만 pause를 허용한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 593 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _predictive_speed(st, pose, tgt, v_nom, M) 를 추가해 _dynamic_pause 로 TTC를 구하고, (ttc/_HORIZON) 비율로 속도 비율을 계산한다. 2) controller에서 목표 선택 후, gap <= _SAFE_DIST 인 경우 기존 detour/pause 로직 대신 _predictive_speed 를 호출한다. 3) 반환된 속도가 None이면 기존 pause 로직을 실행하고, 속도가 있으면 v=vc, w=w_nom 로 반환한다. 4) _lidar_clear 검사를 속도에 적용해 앞에 장애물이 있으면 v를 0으로 만든다. 5) 기존 detour와 escape 로직은 fallback으로 남겨 두어 완전 차단 상황에 대비한다. 6) _SAFE_DIST 를 약간 늘려(1.7 m) 급격한 접근을 미리 감지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 506 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 라이다2d와 3d 데이터를 기존 _perceive 로 추적한 트랙 M을 그대로 사용한다. 2. 새 함수 _compute_vo(pose, M, horizon)에서 로봇 현재 속도와 각 트랙의 상대 속도를 이용해 velocity‑obstacle 영역을 계산한다. 3. _vo_planner(pose, tgt, M)은 목표 방향을 향한 후보 (v, w) 집합을 생성하고, 각 후보가 VO와 정적 지도·_lidar_clear 를 만족하는지 검사한다. 4. controller에서 gap <= _SAFE_DIST 일 때 기존 _predictive_speed 호출을 _vo_planner 로 교체하고, 안전한 (v, w) 가 있으면 반환한다. 5. 후보가 없을 경우 기존 _escape 로 fallback하고, fallback 전에도 _lidar_clear 로 전방 장애물을 확인한다. 6. 새 상수 _VO_HORIZON=2.0, _VO_SPEED_STEPS=5 를 정의하고, 기존 로직과 호환되도록 유지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 286 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _perceive 안에서 lidar3d_points() 를 호출해 3D 포인트 클라우드를 얻는다. 2. 포인트를 x‑y 평면으로 투사하고 _drop_body 로 로봇 몸체를 제외한다. 3. 기존 2D 라이다와 결합해 하나의 점 집합 P 를 만든다. 4. P 로부터 정적 점을 _is_static_world 로 필터링하고, 남은 점을 기존 클러스터링 로직에 그대로 전달해 트랙을 업데이트한다. 5. _SAFE_DIST 검사를 P 기반으로 확장해 3 m까지 감지하도록 하고, pause_until 로직을 P 내 물체가 2 m 이내에 들어오면 즉시 정지하도록 수정한다. 6. VO 플래너와 predictive_speed 에도 새로운 P 를 입력해 더 긴 예측 거리와 정확한 lidar_strip 검사를 수행한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 432 s / 한도 600 s)\n#7 이번 코드(진단 \"1) _MAX_OBJECT_SPEED=2.0, _TTC_THRESHOLD=1.0 을 편집 영역 상단에 정의한다. 2) _ttc_stop_check(st, pose, raw) 를 추가해 각 비지도 라이다 점의 거리와 로봇 현재 속도(vm) 를 이용해 TTC=dist/(max(rel_speed,1e-3)+_MAX_OBJECT_SPEED) 를 계산하고, 최소 TTC가 _TTC_THRESHOLD 미만이면 st['pause_until']=max(st['pause_until'], t+0.5) 를 설정한다. 3) controller() 에서 _perceive() 뒤, _should_pause() 호출 전 _ttc_stop_check() 를 호출하고 True이면 0.0,0.0,False 를 반환한다. 4) 기존 _should_pause() 로직을 그대로 유지하되, pause_until 가 연장된 경우에도 정지 유지한다. 5) 필요 시 _mark_free() 가 pause_until 가 지나면 free_since 를 초기화하도록 유지한다. 6) 기존 VO·predictive·detour 로직은 pause 상태가 해제된 뒤에 그대로 동작한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 261 s / 한도 600 s)\n#8 이번 코드(진단 \"1) _ttc_stop_check 를 true/false 로만 반환하도록 수정하고, 정지 명령을 직접 내리지 않는다. 2) controller 에서 _ttc_stop_check 호출 후 true이면 _vo_planner 를 strict 모드로 호출한다. 3) VO 플래너가 유효한 (v,w) 를 반환하면 그 값을 사용하고, 반환이 없을 때만 기존 pause_until 로 정지한다. 4) pause_until 를 VO 플래너가 실패했을 때만 연장하도록 하고, 성공 시 초기화한다. 5) 기존 정지 로직을 유지하되, VO 회피가 가능한 경우 우선 적용한다. 6) 필요 시 _mark_free 로 이동 재개 시점을 관리한다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 312 s / 한도 600 s)\n#9 이번 코드(진단 \"1) _perceive 뒤에 _unmapped_raw 로 현재 프레임의 비지도 점들을 얻는다. 2) 새 함수 _proximity_stop_and_backup(st, t, pose) 를 구현해, 점 중 거리 d<0.8 m 인 것이 있으면 로봇이 현재 전진 중이면 바로 정지하고 pause_until = t+2.0을 설정한다. 3) 로봇이 이미 정지 중이고 d<0.5 m이면 v=-0.4 m/s, w=0을 반환해 0.5 s 동안 후진하도록 하고, 이후 pause_until = t+2.0 로 유지한다. 4) controller 의 (2) _should_pause 전 단계에서 이 함수를 호출해 True이면 반환값을 바로 사용한다. 5) 기존 pause_until 로직은 이 새로운 정지·후진이 끝난 뒤에만 동작하도록 유지한다. 6) st['wait_start'] 와 st['free_since'] 를 적절히 초기화해 대기 후 정상 주행이 재개되도록 한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 37 s / 한도 600 s)\n#10 이번 코드(진단 \"1. _EARLY_STOP_DIST=1.5와 _EARLY_STOP_TTC=0.8을 [EDIT REGION] 상단에 정의한다. 2. 새 함수 `_early_raw_stop(st, t, pose)` 를 구현해 `_unmapped_raw` 로 현재 unmapped 점을 얻고, 가장 가까운 점 거리 d와 이전 스캔과의 위치 차이로 상대 속도를 추정한다. 3. TTC = d / (max(rel_speed,0.1)+_MAX_OBJECT_SPEED) 를 계산하고 d<_EARLY_STOP_DIST && TTC<_EARLY_STOP_TTC 이면 `st[\\\"pause_until\\\"] = t+1.0; _px_hold(st,t); return 0.0,0.0,False`. 4. `controller` 내부에서 `_perceive` 호출 직후 `if _early_raw_stop(st, t, pose) is not None: return` 로 삽입한다. 5. 기존 `_proximity_stop_and_backup` 은 거리 임계값을 0.9 m 로 약간 완화하고, _early_raw_stop 가 트리거된 경우에만 동작하도록 한다. 6. 모든 타이머(`px_last`, `wait_start` 등)는 `_px_hold` 로 일관되게 업데이트한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 303 s / 한도 600 s)",
+ "ended": "2026-11-17 10:12:47"
+}

@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary shows status=no_path and reason=empty_path for all clearances, meaning plan_path returned None each time.",
+    "choose_command repeatedly picks follow_safe with zero velocity, confirming no path was adopted and robot stayed stalled.",
+    "A* search never succeeded (found flag stays false), likely because diagonal moves are blocked by narrow obstacles."
+  ],
+  "function": "plan_path",
+  "direction": "plan_path 안에서 neighbor_offsets 를 4‑연결 (dx,dy) = (1,0),(-1,0),(0,1),(0,-1) 로 바꾸고, 대각선 연결 검사를 제거한다. 이렇게 하면 장애물 코너를 가로지르는 대각선이 차단돼 경로가 없던 상황을 피할 수 있다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수는 그대로 유지한다.",
+  "confidence": "medium"
+}

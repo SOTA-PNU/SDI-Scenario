@@ -1,0 +1,288 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c5t26_s173089673: 충돌 t=63.833s, mover_03, 로봇 속도 0.21m/s, 첫 비지도 물체 2.28m (t=58.88s) 감지",
+   "c5t26_s1818315711: 충돌 t=64.567s, mover_03, 로봇 속도 0.11m/s, 첫 비지도 물체 1.22m (t=59.65s) 감지",
+   "c5t26_s185999809: 충돌 t=81.083s, mover_03, 로봇 속도 0.40m/s, 첫 비지도 물체 1.30m (t=76.17s) 감지"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다가 움직이는 물체를 2 m 이내에서 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 2 m 이내 감지가 여러 번 나타남"
+   },
+   {
+    "assumption": "_raw_ttc_stop 의 TTC 임계값(0.8 s) 로 충분히 조기 정지를 유도한다",
+    "holds": false,
+    "why": "충돌 시 TTC >0.8 s 로 트리거되지 않아 정지 지연 발생"
+   },
+   {
+    "assumption": "정지 후 pause_until 만료되면 물체가 충분히 멀리 있다고 가정한다",
+    "holds": false,
+    "why": "정지 후 재개 시점에 물체가 아직 근접해 있어 충돌이 발생"
+   },
+   {
+    "assumption": "synthetic_tracks 가 이동 물체의 속도를 정확히 추정한다",
+    "holds": false,
+    "why": "충돌 물체가 synthetic_tracks 에 포함되지 않아 회피 실패"
+   },
+   {
+    "assumption": "VO 플래너가 _SAFE_DIST 안의 물체에 대해 안전한 (v,w) 를 찾는다",
+    "holds": false,
+    "why": "충돌 구간에서 VO 가 None을 반환하거나 side_detour 가 실패"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "pause_until 기반 정지",
+    "turns": "0,1,2",
+    "result": "5/9 pass"
+   },
+   {
+    "family": "gap 기반 detour (_min_gap)",
+    "turns": "3",
+    "result": "0/3 fail"
+   },
+   {
+    "family": "predictive speed (TTC 비율)",
+    "turns": "4",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VO 플래너",
+    "turns": "5,17",
+    "result": "9/15 pass"
+   },
+   {
+    "family": "3D 라이다 통합",
+    "turns": "6",
+    "result": "3/6 pass"
+   },
+   {
+    "family": "raw_ttc_stop 체크",
+    "turns": "7,8,9,10,18,23,26",
+    "result": "12/33 pass"
+   },
+   {
+    "family": "proximity stop & backup",
+    "turns": "9",
+    "result": "0/3 fail"
+   },
+   {
+    "family": "early_raw_stop",
+    "turns": "10",
+    "result": "0/3 fail"
+   },
+   {
+    "family": "potential field",
+    "turns": "11",
+    "result": "4/7 pass"
+   },
+   {
+    "family": "DWA",
+    "turns": "12",
+    "result": "2/5 pass"
+   },
+   {
+    "family": "VFH 히스토그램",
+    "turns": "13",
+    "result": "0/3 fail"
+   },
+   {
+    "family": "minimal safety (제거)",
+    "turns": "14",
+    "result": "4/7 pass"
+   },
+   {
+    "family": "side detour 전용",
+    "turns": "15",
+    "result": "0/3 fail"
+   },
+   {
+    "family": "grid A* 재계획",
+    "turns": "16",
+    "result": "0/3 fail"
+   },
+   {
+    "family": "synthetic_tracks 추가",
+    "turns": "24,25",
+    "result": "4/10 pass"
+   },
+   {
+    "family": "rear mover backup",
+    "turns": "22",
+    "result": "0/3 fail"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 후 일정 시간 동안 주변 라이다 점이 안전 반경(2 m) 내에 없음을 지속적으로 확인하고, 조건 충족 시에만 재개하도록 하는 ‘clearance hold’ 로직",
+    "new_family": true,
+    "for": "충돌 전 다수의 정지·회전 후에도 물체가 아직 근접해 있었음",
+    "risk": "대기 시간이 길어져 시간 제한 초과 가능"
+   },
+   {
+    "idea": "시간‑증강 A* (space‑time) 플래너를 도입해 움직이는 물체를 시간‑위치 제약으로 모델링하고 전체 경로를 재계획한다",
+    "new_family": true,
+    "for": "VO 플래너가 복잡한 상황에서 후보를 찾지 못함",
+    "risk": "계산량 증가로 실시간 제한 초과 위험"
+   },
+   {
+    "idea": "RVO 기반 연속 회피와 동적 재평가를 도입해 물체와의 상대 속도를 상호 고려한다",
+    "new_family": true,
+    "for": "현재 VO 가 물체를 정적 장애물처럼 취급",
+    "risk": "추가 구현 복잡도와 파라미터 튜닝 필요"
+   }
+  ],
+  "chosen": "clearance hold 로직을 선택한다 – 정지 후 물체가 완전히 멀어질 때까지 일정 시간 지속 확인하면 조기 재개에 의한 충돌을 방지할 수 있다",
+  "target": "controller 내부에 새 상태 변수와 clearance‑hold 함수 추가",
+  "direction": "1. controller 초기화 시 st[\"clear_hold_until\"] = -1.0 로 선언한다. 2. _ttc_stop_backup, _proximity_stop_and_backup, _early_raw_stop 등 정지 로직에서 pause_until 를 설정할 때 st[\"clear_hold_until\"] = t + _CLEAR_HOLD (예: 2.0 s) 로 동시에 지정한다. 3. controller 본문에서 pause_until 가 지나도 먼저 if t < st[\"clear_hold_until\"]: return 0.0,0.0,False 로 유지한다. 4. clear_hold 기간 동안 _px_dist 로 주변 비지도 점이 안전 반경(>2 m)인지 매 프레임 확인하고, 전체 기간 안전하면 st[\"clear_hold_until\"] = -1.0 로 조기 해제한다. 5. VO, side_detour, predictive_speed 등 모든 회피 로직은 t < st[\"clear_hold_until\"] 일 때 호출되지 않도록 guard 를 추가한다. 6. 기존 _mark_free 은 clear_hold 종료 시 free_since 를 재설정한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c5t26_s173089673: 충돌 t=63.833s, mover_03, 로봇 속도 0.21m/s, 첫 비지도 물체 2.28m (t=58.88s) 감지\",\n    \"c5t26_s1818315711: 충돌 t=64.567s, mover_03, 로봇 속도 0.11m/s, 첫 비지도 물체 1.22m (t=59.65s) 감지\",\n    \"c5t26_s185999809: 충돌 t=81.083s, mover_03, 로봇 속도 0.40m/s, 첫 비지도 물체 1.30m (t=76.17s) 감지\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다가 움직이는 물체를 2 m 이내에서 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 2 m 이내 감지가 여러 번 나타남\"\n    },\n    {\n      \"assumption\": \"_raw_ttc_stop 의 TTC 임계값(0.8 s) 로 충분히 조기 정지를 유도한다\",\n      \"holds\": false,\n      \"why\": \"충돌 시 TTC >0.8 s 로 트리거되지 않아 정지 지연 발생\"\n    },\n    {\n      \"assumption\": \"정지 후 pause_until 만료되면 물체가 충분히 멀리 있다고 가정한다\",\n      \"holds\": false,\n      \"why\": \"정지 후 재개 시점에 물체가 아직 근접해 있어 충돌이 발생\"\n    },\n    {\n      \"assumption\": \"synthetic_tracks 가 이동 물체의 속도를 정확히 추정한다\",\n      \"holds\": false,\n      \"why\": \"충돌 물체가 synthetic_tracks 에 포함되지 않아 회피 실패\"\n    },\n    {\n      \"assumption\": \"VO 플래너가 _SAFE_DIST 안의 물체에 대해 안전한 (v,w) 를 찾는다\",\n      \"holds\": false,\n      \"why\": \"충돌 구간에서 VO 가 None을 반환하거나 side_detour 가 실패\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"pause_until 기반 정지\",\n      \"turns\": \"0,1,2\",\n      \"result\": \"5/9 pass\"\n    },\n    {\n      \"family\": \"gap 기반 detour (_min_gap)\",\n      \"turns\": \"3\",\n      \"result\": \"0/3 fail\"\n    },\n    {\n      \"family\": \"predictive speed (TTC 비율)\",\n      \"turns\": \"4\",\n      \"result\": \"2/5 pass\"\n    },\n    {\n      \"family\": \"VO 플래너\",\n      \"turns\": \"5,17\",\n      \"result\": \"9/15 pass\"\n    },\n    {\n      \"family\": \"3D 라이다 통합\",\n      \"turns\": \"6\",\n      \"result\": \"3/6 pass\"\n    },\n    {\n      \"family\": \"raw_ttc_stop 체크\",\n      \"turns\": \"7,8,9,10,18,23,26\",\n      \"result\": \"12/33 pass\"\n    },\n    {\n      \"family\": \"proximity stop & backup\",\n      \"turns\": \"9\",\n      \"result\": \"0/3 fail\"\n    },\n    {\n      \"family\": \"early_raw_stop\",\n      \"turns\": \"10\",\n      \"result\": \"0/3 fail\"\n    },\n    {\n      \"family\": \"potential field\",\n      \"turns\": \"11\",\n      \"result\": \"4/7 pass\"\n    },\n    {\n      \"family\": \"DWA\",\n      \"turns\": \"12\",\n      \"result\": \"2/5 pass\"\n    },\n    {\n      \"family\": \"VFH 히스토그램\",\n      \"turns\": \"13\",\n      \"result\": \"0/3 fail\"\n    },\n    {\n      \"family\": \"minimal safety (제거)\",\n      \"turns\": \"14\",\n      \"result\": \"4/7 pass\"\n    },\n    {\n      \"family\": \"side detour 전용\",\n      \"turns\": \"15\",\n      \"result\": \"0/3 fail\"\n    },\n    {\n      \"family\": \"grid A* 재계획\",\n      \"turns\": \"16\",\n      \"result\": \"0/3 fail\"\n    },\n    {\n      \"family\": \"synthetic_tracks 추가\",\n      \"turns\": \"24,25\",\n      \"result\": \"4/10 pass\"\n    },\n    {\n      \"family\": \"rear mover backup\",\n      \"turns\": \"22\",\n      \"result\": \"0/3 fail\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"정지 후 일정 시간 동안 주변 라이다 점이 안전 반경(2 m) 내에 없음을 지속적으로 확인하고, 조건 충족 시에만 재개하도록 하는 ‘clearance hold’ 로직\",\n      \"new_family\": true,\n      \"for\": \"충돌 전 다수의 정지·회전 후에도 물체가 아직 근접해 있었음\",\n      \"risk\": \"대기 시간이 길어져 시간 제한 초과 가능\"\n    },\n    {\n      \"idea\": \"시간‑증강 A* (space‑time) 플래너를 도입해 움직이는 물체를 시간‑위치 제약으로 모델링하고 전체 경로를 재계획한다\",\n      \"new_family\": true,\n      \"for\": \"VO 플래너가 복잡한 상황에서 후보를 찾지 못함\",\n      \"risk\": \"계산량 증가로 실시간 제한 초과 위험\"\n    },\n    {\n      \"idea\": \"RVO 기반 연속 회피와 동적 재평가를 도입해 물체와의 상대 속도를 상호 고려한다\",\n      \"new_family\": true,\n      \"for\": \"현재 VO 가 물체를 정적 장애물처럼 취급\",\n      \"risk\": \"추가 구현 복잡도와 파라미터 튜닝 필요\"\n    }\n  ],\n  \"chosen\": \"clearance hold 로직을 선택한다 – 정지 후 물체가 완전히 멀어질 때까지 일정 시간 지속 확인하면 조기 재개에 의한 충돌을 방지할 수 있다\",\n  \"target\": \"controller 내부에 새 상태 변수와 clearance‑hold 함수 추가\",\n  \"direction\": \"1. controller 초기화 시 st[\\\"clear_hold_until\\\"] = -1.0 로 선언한다. 2. _ttc_stop_backup, _proximity_stop_and_backup, _early_raw_stop 등 정지 로직에서 pause_until 를 설정할 때 st[\\\"clear_hold_until\\\"] = t + _CLEAR_HOLD (예: 2.0 s) 로 동시에 지정한다. 3. controller 본문에서 pause_until 가 지나도 먼저 if t < st[\\\"clear_hold_until\\\"]: return 0.0,0.0,False 로 유지한다. 4. clear_hold 기간 동안 _px_dist 로 주변 비지도 점이 안전 반경(>2 m)인지 매 프레임 확인하고, 전체 기간 안전하면 st[\\\"clear_hold_until\\\"] = -1.0 로 조기 해제한다. 5. VO, side_detour, predictive_speed 등 모든 회피 로직은 t < st[\\\"clear_hold_until\\\"] 일 때 호출되지 않도록 guard 를 추가한다. 6. 기존 _mark_free 은 clear_hold 종료 시 free_since 를 재설정한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c5t26_s1716492664",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 56.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 50.55,
+   "goal_dist_m": 0.0698,
+   "time_to_goal_s": 53.05
+  },
+  {
+   "run": "c5t26_s2126014506",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 543.5,
+   "sim_time_s": 73.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 67.17,
+   "goal_dist_m": 0.0694,
+   "time_to_goal_s": 69.217
+  },
+  {
+   "run": "c5t26_s840880049",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 470.4,
+   "sim_time_s": 69.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 63.63,
+   "goal_dist_m": 0.051,
+   "time_to_goal_s": 65.933
+  },
+  {
+   "run": "c5t26_s173089673",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 400.8,
+   "sim_time_s": 69.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 63.833,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.21m/s",
+   "partner_rel_xy": [
+    0.25,
+    0.53
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 59.28,
+   "goal_dist_m": 5.0989,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t26_s900734677",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 330.9,
+   "sim_time_s": 77.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 71.73,
+   "goal_dist_m": 0.0531,
+   "time_to_goal_s": 74.1
+  },
+  {
+   "run": "c5t26_s1818315711",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 253.2,
+   "sim_time_s": 70.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 64.567,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.11m/s",
+   "partner_rel_xy": [
+    0.02,
+    -0.61
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 59.65,
+   "goal_dist_m": 4.0745,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c5t26_s185999809",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 182.6,
+   "sim_time_s": 87.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 81.083,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.40m/s",
+   "partner_rel_xy": [
+    -0.59,
+    0.61
+   ],
+   "closing_m_s": 0.05,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 76.17,
+   "goal_dist_m": 0.1539,
+   "time_to_goal_s": 85.55
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"상수 _PF_RANGE=2.0, _PF_REP_GAIN=1.0, _PF_ATT_GAIN=0.5 추가\", \"implemented\": true, \"note\": \"세 상수가 그 값으로 정의됨. 보조 상수 _PF_STOP_D, _PF_DEBOUNCE, _PF_REV_V, _PF_W_MAX 도 추가됨\"},\n  {\"instruction\": \"_potential_field_avoidance(pose, raw, wp) 추가: 지도에 없는 점의 역거리 가중 척력과 wp 인력을 합해 원하는 방향과 속도 비율을 반환\", \"implemented\": true, \"note\": \"가중치 1/d-1/_PF_RANGE 로 척력을, _PF_ATT_GAIN 으로 인력을 합함. 반환값은 (heading, fac, d_min, side, rev). 인자 M, prev_side 는 기본값을 둔 확장이고, 국소 최소점을 피하는 접선 성분이 추가됨\"},\n  {\"instruction\": \"controller 에서 _perceive 뒤 early-stop, proximity-stop 호출을 PF 호출로 교체\", \"implemented\": true, \"note\": \"_early_raw_stop 과 _proximity_stop_and_backup 호출이 삭제됨. PF 는 tgt 가 필요해 목표 선택과 (1) 회피 뒤 (1a) 위치에서 _unmapped_raw 결과로 호출됨\"},\n  {\"instruction\": \"v = min(v_nom, v_pf)\", \"implemented\": true, \"note\": \"v = min(v_cap, 1.5*fac). v_cap 은 _follow 의 공칭 속도식이고, 그 뒤 cos(e) 로 줄이며 |e|>0.6 이면 0\"},\n  {\"instruction\": \"w = clamp(7.5*(desired_heading-yaw), -0.6, 0.6)\", \"implemented\": true, \"note\": \"e 를 _wrap_angle 로 감싼 뒤 _clamp(7.5*e, -_PF_W_MAX, _PF_W_MAX), _PF_W_MAX=0.6\"},\n  {\"instruction\": \"PF 마진이 음수일 때만 기존 VO 플래너로 대체\", \"implemented\": true, \"note\": \"m_pf 는 _vo_rollout+_traj_margin 으로 계산하고 정적 지도 위반이면 -1. m_pf<0 일 때만 _vo_planner 를 부름\"},\n  {\"instruction\": \"_guard 를 최종 안전 확인으로 유지\", \"implemented\": true, \"note\": \"PF 명령과 정지 명령에 _guard 를 적용함. VO 대체 경로는 _guard 없이 반환하지만 _vo_planner 안에서 sweep/lidar 검사를 함\"},\n  {\"instruction\": \"1 s 이진 정지를 없애거나 짧은 디바운스로 줄임\", \"implemented\": true, \"note\": \"early stop 의 pause_until=t+1.0 경로가 제거되고 _PF_DEBOUNCE=0.3 s 의 pf_until 로 대체됨\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"w 를 ±0.6 rad/s 로 제한하면 _follow(±2.0) 보다 선회가 훨씬 느림. 최대 2 m/s 로 오는 물체를 옆으로 피하기에 부족할 수 있음\",\n  \"v_pf(속도 비율)의 정의와 VO 대체 경로에 _guard 를 적용할지가 진단에 명시되지 않음\",\n  \"PF 모드에서는 매 호출이 반환되어 (1b) TTC 경보와 (2) 접근 물체 정지가 2 m 안에서 사실상 꺼짐. 진단이 이 결과를 다루지 않음\",\n  \"인공 퍼텐셜 장은 정적 장애물 근처에서 국소 최소점과 진동 위험이 있다고 진단 자체가 적었음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 75841,
+  "completion_tokens": 3392
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 32439,
+  "total_cost_usd": 0.67456,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3392,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 75839,
+    "webSearchRequests": 0,
+    "costUSD": 0.67456,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1940,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 75839,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "44346025-1f57-4d27-93e4-27b19328e84d"
+ }
+}

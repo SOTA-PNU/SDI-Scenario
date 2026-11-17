@@ -1,0 +1,273 @@
+{
+ "started": "2026-11-15 15:12:07",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "collision t=3.283, partner arena_mover_00, robot pose [-7.45, -10.63, -0.03], speed 1.5 m/s (execution summary)",
+   "front 2D lidar at t=2.82 reports non‑map point at dist 0.92 m, bearing -28° (first_not_on_map)",
+   "front 2D lidar at t=3.02 reports non‑map point at dist 0.64 m, bearing -28° (scan record)"
+  ],
+  "target": "controller",
+  "direction": "① lidar2d_points('front') 를 매 호출마다 읽어 최소 거리와 방위각을 구한다. ② 거리 < 0.8 m 이면 v=0 로 정지하고, 방위각이 왼쪽이면 w>0 (좌회전), 오른쪽이면 w<0 로 회피 회전한다. ③ 장애물이 사라지면 기존 웨이포인트 추종 로직으로 복귀한다. ④ 장애물 회피 상태를 플래그(state) 로 관리해, 목표 정렬 단계에서도 동일 로직을 적용한다.",
+  "confidence": "high"
+ },
+ "reviews": [],
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유:  \n1️⃣ 기존 코드는 센서를 전혀 사용하지 않아 움직이는 물체를 감지하지 못하고 충돌했습니다.  \n2️⃣ 전방 2D 라이다 데이터를 이용해 지도에 없는(정적 박스에 포함되지 않는) 점들을 동적 장애물로 판단하고, 일정 거리 이하에서 회피 회전하도록 상태 플래그를 도입했습니다.  \n3️⃣ 회피 중에도 목표 정렬 단계에서 같은 로직을 적용해, 동적 물체가 사라질 때까지 정지·회전만 수행하고 이후 기존 웨이포인트 추종으로 복귀합니다.",
+   "changed": [
+    "_EXIT_DIST",
+    "_SAFE_DIST",
+    "_is_static_world",
+    "_nearest_dynamic",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "① lidar2d_points('front') 를 매 호출마다 읽어 최소 거리와 방위각을 구한다.",
+      "implemented": true,
+      "note": "controller 내부에서 _nearest_dynamic() 가 lidar2d_points('front') 호출"
+     },
+     {
+      "instruction": "② 거리 < 0.8 m 이면 v=0 로 정지하고, 방위각이 왼쪽이면 w>0 (좌회전), 오른쪽이면 w<0 로 회피 회전한다.",
+      "implemented": false,
+      "note": "방향 판단이 반대로 구현됨: bearing < 0(오른쪽) 일 때 w>0, bearing > 0(왼쪽) 일 때 w<0"
+     },
+     {
+      "instruction": "③ 장애물이 사라지면 기존 웨이포인트 추종 로직으로 복귀한다.",
+      "implemented": true,
+      "note": "dyn_dist > _EXIT_DIST 로 회피 모드 해제 후 waypoint 로직 재개"
+     },
+     {
+      "instruction": "④ 장애물 회피 상태를 플래그(state) 로 관리해, 목표 정렬 단계에서도 동일 로직을 적용한다.",
+      "implemented": true,
+      "note": "controller.avoid 와 controller.align 플래그 사용"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": "방향 판단을 진단과 일치하도록 수정하세요. 현재 코드는 dyn_bearing < 0(오른쪽)일 때 좌회전(w>0)으로, 진단에서는 왼쪽이면 좌회전이라고 명시했습니다. avoid_dir 할당을 `controller.avoid_dir = 1.0 if dyn_bearing > 0 else -1.0` 로 바꾸거나, w 계산을 `w = _clamp(1.2 * (-controller.avoid_dir), -0.8, 0.8)` 로 반전시키면 진단을 정확히 따르게 됩니다."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 진단에서 “왼쪽이면 좌회전”이라는 규칙에 맞추기 위해 회피 방향 판단을 수정했습니다. 기존에는 `dyn_bearing < 0`(오른쪽)일 때 좌회전하도록 `avoid_dir`을 설정했으나, 이는 진단과 반대였습니다. 이제 `dyn_bearing > 0`(왼쪽)일 때 `avoid_dir`을 양수로 설정해 좌회전하도록 바꾸었습니다.",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "lidar2d_points('front') 를 매 호출마다 읽어 최소 거리와 방위각을 구한다.",
+      "implemented": false,
+      "note": "_nearest_dynamic 함수와 lidar2d_points 호출이 없음"
+     },
+     {
+      "instruction": "거리 < 0.8 m 이면 v=0 로 정지하고, 방위각이 왼쪽이면 w>0 (좌회전), 오른쪽이면 w<0 로 회피 회전한다.",
+      "implemented": false,
+      "note": "조건 거리와 회전 로직은 _SAFE_DIST 등 미정의 변수로 구현, 실제 거리/방위각 계산이 없음"
+     },
+     {
+      "instruction": "장애물이 사라지면 기존 웨이포인트 추종 로직으로 복귀한다.",
+      "implemented": false,
+      "note": "dyn_dist > _EXIT_DIST 로 복귀 시도하지만 _EXIT_DIST 정의 안 됨, 동적 거리값 자체가 없음"
+     },
+     {
+      "instruction": "장애물 회피 상태를 플래그(state) 로 관리해, 목표 정렬 단계에서도 동일 로직을 적용한다.",
+      "implemented": true,
+      "note": "avoid, avoid_dir 플래그 사용, 하지만 회피 로직이 진단과 다르게 구현됨"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [
+     "NameError: _nearest_dynamic is not defined",
+     "NameError: _SAFE_DIST is not defined",
+     "NameError: _EXIT_DIST is not defined"
+    ],
+    "diagnosis_concerns": [],
+    "feedback": "새 코드에서 진단 지시를 구현하려면 다음을 수정하십시오: 1) 매 호출마다 `lidar2d_points('front')` 를 호출해 거리와 방위각을 구하고, 그 결과를 반환하는 `_nearest_dynamic(pose)` 함수를 정의하십시오. 2) 안전 거리 임계값을 `SAFE_DIST = 0.8` (m) 로 설정하고, 장애물 사라짐 판단을 위한 `EXIT_DIST = 1.0` (m) 같은 상수를 정의하십시오. 3) 회피 로직에서 거리 < SAFE_DIST 일 때 `v=0` 하고, 방위각이 양(왼쪽)이면 `w>0`, 음(오른쪽)이면 `w<0` 로 회전하도록 구현하십시오. 4) 장애물이 사라지면 `avoid` 플래그를 False 로 돌려 기존 웨이포인트 추적으로 복귀하도록 하십시오. 정의되지 않은 변수와 함수를 모두 제거하고, 위 내용대로 코드를 수정하면 검토를 통과합니다."
+   }
+  },
+  {
+   "attempt": 2,
+   "reason": "변경 이유:  \n1️⃣ 진단에 따라 매 프레임 전방 2D 라이다를 읽어 가장 가까운 **동적** 물체의 거리와 방위각을 구하고, 거리 < SAFE_DIST(0.8 m)이면 전진을 멈추고 방위각 부호에 따라 좌·우 회전하도록 회피 로직을 구현했습니다.  \n2️⃣ 장애물이 SAFE_DIST보다 멀어지면 `avoid` 플래그를 해제해 기존 웨이포인트 추적으로 복귀하도록 했으며, 상수 이름을 `SAFE_DIST`·`EXIT_DIST` 로 맞추어 정의되지 않은 변수를 없앴습니다.",
+   "changed": [
+    "EXIT_DIST",
+    "SAFE_DIST",
+    "_is_static_world",
+    "_nearest_dynamic",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "① lidar2d_points('front') 를 매 호출마다 읽어 최소 거리와 방위각을 구한다.",
+      "implemented": true,
+      "note": "controller 호출마다 _nearest_dynamic(pose) 가 lidar2d_points('front') 로 스캔 후 거리·방위각 반환"
+     },
+     {
+      "instruction": "② 거리 < 0.8 m 이면 v=0 로 정지하고, 방위각이 왼쪽이면 w>0 (좌회전), 오른쪽이면 w<0 로 회피 회전한다.",
+      "implemented": true,
+      "note": "dyn_dist < SAFE_DIST 에서 avoid 플래그 설정, avoid_dir 로 w 부호 결정, v=0, w 클램프 적용"
+     },
+     {
+      "instruction": "③ 장애물이 사라지면 기존 웨이포인트 추종 로직으로 복귀한다.",
+      "implemented": true,
+      "note": "dyn_dist > EXIT_DIST 이면 avoid 플래그 해제, 이후 일반 웨이포인트 로직 수행"
+     },
+     {
+      "instruction": "④ 장애물 회피 상태를 플래그(state) 로 관리해, 목표 정렬 단계에서도 동일 로직을 적용한다.",
+      "implemented": true,
+      "note": "controller.avoid 플래그 사용, 목표 정렬 단계(controller.align)에서도 avoid 블록이 먼저 실행돼 회피 적용"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [],
+    "feedback": ""
+   }
+  }
+ ],
+ "seed": 6562651,
+ "variant": "gpu_gpt_oss_120b_pC1t1_a0_t1_test01",
+ "run": {
+  "variant": "gpu_gpt_oss_120b_pC1t1_a0_t1_test01",
+  "sim_seconds": 200.0,
+  "static_ok": true,
+  "verdict": "pass",
+  "final_dist_m": 0.2255,
+  "collisions": 0,
+  "partners": [],
+  "first_collision_t": null,
+  "time_to_goal_s": 53.133,
+  "sim_time_s": 57.067,
+  "runtime_error": null,
+  "wall_s": 84.2,
+  "dbg_lines": 0
+ },
+ "lidar_first_not_on_map": {
+  "within_5m": {
+   "t": 51.95,
+   "lidar": "back",
+   "dist_m": 1.9,
+   "bearing_deg": -131.0,
+   "world_xy": [
+    4.2,
+    15.17
+   ]
+  },
+  "within_3m": {
+   "t": 51.95,
+   "lidar": "back",
+   "dist_m": 1.9,
+   "bearing_deg": -131.0,
+   "world_xy": [
+    4.2,
+    15.17
+   ]
+  },
+  "within_2m": {
+   "t": 51.95,
+   "lidar": "back",
+   "dist_m": 1.9,
+   "bearing_deg": -131.0,
+   "world_xy": [
+    4.2,
+    15.17
+   ]
+  },
+  "within_1m": null
+ },
+ "movers_vs_robot": {
+  "note": "물체 중심과 로봇 중심 사이 거리(m). 물체는 0.6 m 정사각, 로봇 몸체는 약 0.95 x 0.68 m.",
+  "closest": [
+   {
+    "mover": "arena_mover_00 (start_zone)",
+    "min_center_dist_m": 0.98,
+    "t": 3.6,
+    "robot_xy": [
+     -7.79,
+     -10.69
+    ],
+    "mover_xy": [
+     -7.0,
+     -10.11
+    ]
+   },
+   {
+    "mover": "arena_mover_01 (west_corridor)",
+    "min_center_dist_m": 2.05,
+    "t": 18.53,
+    "robot_xy": [
+     -4.96,
+     -1.79
+    ],
+    "mover_xy": [
+     -6.86,
+     -1.0
+    ]
+   },
+   {
+    "mover": "arena_mover_02 (center)",
+    "min_center_dist_m": 2.29,
+    "t": 33.63,
+    "robot_xy": [
+     0.1,
+     7.99
+    ],
+    "mover_xy": [
+     -2.11,
+     8.6
+    ]
+   },
+   {
+    "mover": "arena_mover_03 (goal_west)",
+    "min_center_dist_m": 1.18,
+    "t": 50.82,
+    "robot_xy": [
+     3.78,
+     16.55
+    ],
+    "mover_xy": [
+     4.0,
+     15.39
+    ]
+   },
+   {
+    "mover": "arena_mover_04 (goal_south)",
+    "min_center_dist_m": 4.52,
+    "t": 38.4,
+    "robot_xy": [
+     0.31,
+     12.07
+    ],
+    "mover_xy": [
+     4.7,
+     11.0
+    ]
+   }
+  ]
+ },
+ "diagnosis_out": {
+  "failure_mode": "other",
+  "evidence": [
+   "2D 라이다 기록: first_not_on_map at t=51.95, front lidar sees moving box at 1.84 m (bearing -130°) – robot still proceeds safely (no collision)",
+   "결과 요약: collision_count=0, final_dist=0.225 m, time_to_goal=53.13 s – 코드가 목표에 성공적으로 도달",
+   "동적 물체 실제 값: 가장 가까운 물체와 로봇 사이 최소 거리 0.98 m (t=3.6) > SAFE_DIST(0.8 m) – 회피 로직이 작동하지 않아도 충돌 없음"
+  ],
+  "target": "controller",
+  "direction": "동적 물체와의 충돌 위험을 더 안전하게 줄이려면 현재 속도와 반응 시간을 고려한 정지 거리 계산을 도입한다. 앞·뒤 2D 라이다 모두 사용해 접근·후진 물체를 감지하고, dyn_dist < v*0.5+SAFE_DIST이면 감속·정지하도록 속도 제한 로직을 추가한다. 회피 시 w의 급격한 변화에 히스테리시스(예: 최소 회전 지속 시간)와 제한을 두어 과도한 진동을 방지한다. 이렇게 하면 빠른 물체나 측면 접근에도 안정적으로 회피할 수 있다.",
+  "confidence": "high"
+ },
+ "analyst_raw": "{\n  \"failure_mode\": \"other\",\n  \"evidence\": [\n    \"2D 라이다 기록: first_not_on_map at t=51.95, front lidar sees moving box at 1.84 m (bearing -130°) – robot still proceeds safely (no collision)\",\n    \"결과 요약: collision_count=0, final_dist=0.225 m, time_to_goal=53.13 s – 코드가 목표에 성공적으로 도달\",\n    \"동적 물체 실제 값: 가장 가까운 물체와 로봇 사이 최소 거리 0.98 m (t=3.6) > SAFE_DIST(0.8 m) – 회피 로직이 작동하지 않아도 충돌 없음\"\n  ],\n  \"target\": \"controller\",\n  \"direction\": \"동적 물체와의 충돌 위험을 더 안전하게 줄이려면 현재 속도와 반응 시간을 고려한 정지 거리 계산을 도입한다. 앞·뒤 2D 라이다 모두 사용해 접근·후진 물체를 감지하고, dyn_dist < v*0.5+SAFE_DIST이면 감속·정지하도록 속도 제한 로직을 추가한다. 회피 시 w의 급격한 변화에 히스테리시스(예: 최소 회전 지속 시간)와 제한을 두어 과도한 진동을 방지한다. 이렇게 하면 빠른 물체나 측면 접근에도 안정적으로 회피할 수 있다.\",\n  \"confidence\": \"high\"\n}",
+ "ended": "2026-11-15 15:14:35"
+}

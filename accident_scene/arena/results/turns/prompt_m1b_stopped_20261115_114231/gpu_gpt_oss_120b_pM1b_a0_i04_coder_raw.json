@@ -1,0 +1,50 @@
+{
+  "id": "chatcmpl-a990a13abaa21b89",
+  "object": "chat.completion",
+  "created": 1794708293,
+  "model": "gpt-oss-120b",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "```python\n# [EDIT REGION] mission controller - modify ONLY this block\n# ===========================================================================\n\ndef plan_path(start_xy, goal_xy, clearance_m):\n    raise NotImplementedError(\"fill the model path-planning hook\")\n\n\ndef lookahead_target(path, pose):\n    \"\"\"\n    Return the forward point on ``path`` that lies 0.3–2.0 m ahead of the robot\n    projection.  If the standard forward‑target routine returns ``None`` (e.g.\n    not enough remaining path), compute a fallback point exactly ``target_min_ahead_m``\n    (0.3 m) ahead of the robot projection along the path (clamped to the end of\n    the path).  This prevents the base from treating the target as “too_near”\n    and requesting a checked‑zero.\n    \"\"\"\n    # Try the base helper first – it already respects the 0.3–2.0 m window.\n    target = _base_loop_forward_target(path, pose)\n    if target is not None:\n        return target\n\n    # ---- fallback when no forward target is available --------------------\n    cfg = _BASE_LOOP_CFG                     # configuration constants\n    # Project the robot pose onto the current path.\n    proj = _base_loop_projection(path, pose[:2])\n    # Desired arc length ahead of the robot (minimum allowed distance).\n    ahead_s = proj[\"s\"] + cfg[\"target_min_ahead_m\"]\n    # Clamp to the total length of the path; we may end up at the last vertex.\n    ahead_s = min(ahead_s, proj[\"total\"])\n    fallback = _base_loop_point_at_s(path, ahead_s)\n\n    # Record a diagnostic line (once per 0.5 s window the base will filter).\n    builtins.print(\n        f\"DBG lookahead_target fallback s={ahead_s:.3f} total={proj['total']:.3f} \"\n        f\"pos={pose[:2]} target={fallback}\"\n    )\n    return fallback\n\n\ndef follow_cmd(pose, target_xy):\n    \"\"\"\n    Pure‑pursuit style controller.\n    Produces (v, w) before clipping; the base clips to the allowed limits.\n    \"\"\"\n    dx = target_xy[0] - pose[0]\n    dy = target_xy[1] - pose[1]\n    dist = math.hypot(dx, dy)\n    angle = math.atan2(dy, dx)\n    e = angle - pose[2]\n    e = math.atan2(math.sin(e), math.cos(e))  # wrap to [-π, π]\n\n    if abs(e) > 0.35:\n        v = 0.0\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n\n    w = max(-2.0, min(2.0, 7.5 * e))\n    return v, w\n\n\ndef controller(t, pose, env):\n    return _base_control_loop(t, pose, env)\n# ========================= [END EDIT REGION] ===============================\n```",
+        "refusal": null,
+        "annotations": null,
+        "audio": null,
+        "function_call": null,
+        "reasoning": "We need to modify only lookahead_target to handle None case by returning a point 0.3m ahead along path (minimum ahead) instead of robot pose. Also add DBG output for selection reason.\n\nWe must keep plan_path and follow_cmd unchanged. The lookahead_target currently:\n\n```\ndef lookahead_target(path, pose):\n    \"\"\"\n    Return the forward point on ``path`` that lies 0.3–2.0 m ahead of the robot\n    projection.  If none is found, return the robot's current position so that\n    the base guard logic will request a checked‑zero.\n    \"\"\"\n    target = _base_loop_forward_target(path, pose)\n    if target is None:\n        return (pose[0], pose[1])\n    return target\n```\n\nWe need to modify: if None, compute a forward point at min distance 0.3m ahead (or up to 2.0) but ensure within path. Use _base_loop_forward_target with maybe a hint? Actually _base_loop_forward_target returns None if not enough remaining (less than target_min_ahead_m). Instead we can manually compute point at 0.3m ahead from robot projection onto path. Use projection logic: get robot projection onto path via _base_loop_projection, then compute point at s = robot['s'] + cfg['target_min_ahead_m'] (0.3). Use _base_loop_point_at_s to get point. Ensure within path length. If beyond end, maybe clamp to end.\n\nAdd DBG: print line \"DBG lookahead_target fallback using min_ahead\" maybe with details.\n\nNeed to import cfg? _BASE_LOOP_CFG is accessible. Use cfg = _BASE_LOOP_CFG.\n\nImplementation steps:\n\n```\ndef lookahead_target(path, pose):\n    target = _base_loop_forward_target(path, pose)\n    if target is not None:\n        return target\n    # fallback: compute minimal ahead point\n    cfg = _BASE_LOOP_CFG\n    # get projection info\n    proj = _base_loop_projection(path, pose[:2])\n    # compute s ahead\n    ahead_s = proj[\"s\"] + cfg[\"target_min_ahead_m\"]\n    # clamp to total length\n    total = proj[\"total\"]\n    if ahead_s > total:\n        ahead_s = total\n    # get point\n    fallback = _base_loop_point_at_s(path, ahead_s)\n    # if fallback equals last point and distance < min, maybe just use fallback anyway\n    # DBG\n    builtins.print(f\"DBG lookahead_target fallback s={ahead_s:.3f} total={total:.3f}\")\n    return fallback\n```\n\nBut need to import builtins? Already imported at top. Use builtins.print.\n\nMake sure to import nothing else.\n\nReturn fallback even if path length insufficient? If total < cfg[\"target_min_ahead_m\"], then ahead_s = total, which may be less than 0.3, but base guard will treat as too_near? However fallback should provide some point to avoid too_near? The base guard will compute distance and might still reject if too_near. But requirement: return point 0.3m ahead if possible; if not, maybe return last point anyway. That's fine.\n\nAdd comment.\n\nNow produce only the EDIT REGION block with updated function.\n\nWe must include start/end comments same as original block. Provide code fence.\n\n"
+      },
+      "logprobs": null,
+      "finish_reason": "stop",
+      "stop_reason": null,
+      "token_ids": null,
+      "routed_experts": null
+    }
+  ],
+  "service_tier": null,
+  "system_fingerprint": "vllm-0.32.0-26653def",
+  "usage": {
+    "prompt_tokens": 33398,
+    "total_tokens": 34747,
+    "completion_tokens": 1349,
+    "prompt_tokens_details": null,
+    "completion_tokens_details": {
+      "reasoning_tokens": 698
+    }
+  },
+  "prompt_logprobs": null,
+  "prompt_token_ids": null,
+  "prompt_text": null,
+  "kv_transfer_params": null,
+  "ec_transfer_params": null,
+  "metrics": null,
+  "_bench": {
+    "t_start_epoch": 1794708293.6760974,
+    "wall_s": 8.15,
+    "endpoint": "http://127.0.0.1:8420/v1",
+    "role": "coder",
+    "iter": 4,
+    "call": 7
+  }
+}

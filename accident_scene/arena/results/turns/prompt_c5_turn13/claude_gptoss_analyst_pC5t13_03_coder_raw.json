@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적과 진단 지시 2에 맞춰 `_vfh_select_gap` 을 다시 썼습니다. 원형으로 이어지는 빈 구간마다 폭(구간 수)과 중앙 방위를 구하고, 중앙 방위는 감싸기를 고려한 원형 평균(sin·cos 합의 atan2)으로 계산합니다. 그다음 `_VFH_MIN_WIDTH` 이상인 구간 중 폭이 가장 큰 것을 고르고, 폭이 같으면 중앙이 eg 에 가까운 것을 고릅니다. 모든 구간이 비어 있으면 eg 를, 빈 구간이 없으면 None 을 돌려줍니다. 진단과 다른 점은 하나입니다. 고른 가장 넓은 구간 안에서만, 양쪽 가장자리에서 한 구간 이상 떨어진 범위로 중앙 방위를 eg 쪽으로 치우칩니다(폭 3이면 중앙 그대로). `prev_r`, `dg` 인자는 `_vfh_cmd` 의 호출 형식을 유지하려고 남겼고 선택에는 쓰지 않습니다.\n\n```python\ndef _vfh_select_gap(free, eg, prev_r, dg):\n    \"\"\"Gap selection (diagnosis step 2): circular runs (valleys) of consecutive free bins, each with its width\n    (bin count) and centre bearing (circular mean of its bin angles, wrap-safe).  Among valleys of at least\n    _VFH_MIN_WIDTH bins the widest wins; on equal width the one whose centre is closest to the goal bearing eg.\n    Returns the chosen valley's centre bearing, biased toward eg only inside that valley and never closer than\n    one bin to its edges.  eg when every bin is free, None when no valley is wide enough.\n    prev_r and dg are kept for the _vfh_cmd call signature and are not used.\"\"\"\n    n = _VFH_N\n    free = np.asarray(free, dtype=bool).reshape(-1)\n    if not free.any():\n        return None\n    if free.all():\n        return float(eg)\n    start = int(np.argmin(free))                # a blocked bin: no run wraps past it\n    valleys = []\n    run = []\n    for j in list(range(start + 1, n)) + list(range(0, start + 1)):\n        if free[j]:\n            run.append(j)\n        elif run:\n            valleys.append(run)\n            run = []\n    best = None\n    for run in valleys:\n        wid = len(run)\n        if wid < _VFH_MIN_WIDTH:\n            continue\n        a = _VFH_ANG[np.array(run, dtype=np.int64)]\n        centre = math.atan2(float(np.sin(a).sum()), float(np.cos(a).sum()))\n        de = abs(_wrap_angle(centre - eg))\n        key = (-wid, de)\n        if best is None or key < best[0]:\n            best = (key, wid, centre)\n    if best is None:\n        return None\n    _, wid, centre = best\n    lim = max(0.0, 0.5 * (wid - 1) - 1.0) * _VFH_BIN   # stay one bin away from the valley edges\n    off = _clamp(_wrap_angle(eg - centre), -lim, lim)\n    return float(_wrap_angle(centre + off))\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 56756,
+  "completion_tokens": 2429
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 23799,
+  "total_cost_usd": 0.50262,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2429,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 56754,
+    "webSearchRequests": 0,
+    "costUSD": 0.50262,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1274,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 56754,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "119b921a-9024-4128-9977-6236e359f955"
+ }
+}

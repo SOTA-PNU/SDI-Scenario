@@ -1,0 +1,136 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c2t39_s1327969053: t=7.53에 1.02 m 거리, 86° 방향 물체 최초 감지 후 t=12.5에 정지 상태에서 충돌",
+   "c2t39_s2037181432: 37번의 정지·회전 구간 후 t=173.53에 스톨 종료, 목표까지 8.4 m 남음",
+   "c2t39_s426399211: 3번 정지·회전 구간 후 t=99.18에 스톨, 목표까지 15.3 m 남음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 정지 후 사라질 것이라면 정지·대기만으로 회피 가능",
+    "holds": false,
+    "why": "좌측에서 횡단하는 물체가 정지 중에도 충돌 (run 1)"
+   },
+   {
+    "assumption": "0.8 m 내에 물체가 있으면 즉시 정지하면 안전",
+    "holds": false,
+    "why": "1 m 거리에서 감지했지만 정지 후 물체가 로봇에 닿음"
+   },
+   {
+    "assumption": "repulsion 벡터와 waypoint 추적으로 충분히 회피 가능",
+    "holds": false,
+    "why": "repulsion만으로는 측면 물체 회피 실패, 스톨 발생"
+   },
+   {
+    "assumption": "정적 지도와 장애물 판별 함수는 정확히 동작한다",
+    "holds": true,
+    "why": "WALLS와 FIXED_OBSTACLES 검사에서 오탐 없음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "stop-wait-rotate",
+    "turns": "1~28,30~38",
+    "result": "30 시도, 11 통과"
+   },
+   {
+    "family": "repulsion+critical-stop",
+    "turns": "31,33,39",
+    "result": "3 시도, 0 통과"
+   },
+   {
+    "family": "bypass-waypoint",
+    "turns": "24,33,34,35,36,37,38",
+    "result": "7 시도, 0 통과"
+   },
+   {
+    "family": "full-360° detection",
+    "turns": "23,31,33,34,35,36,37,38",
+    "result": "8 시도, 0 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "이동 물체 감지 시 _compute_bypass_target 로 측면 우회 경유점을 생성하고, 그 점까지 이동 후 원래 경유점 복귀",
+    "new_family": true,
+    "for": "collision과 stall 모두 회피",
+    "risk": "우회점이 없을 경우 무한 정지"
+   },
+   {
+    "idea": "거리 비례 속도 감소와 repulsion만 사용해 정지 없이 회피",
+    "new_family": false,
+    "for": "정지 대기 시간 감소",
+    "risk": "빠른 물체와 충돌 위험"
+   },
+   {
+    "idea": "연속 프레임에서 물체 위치를 추적해 속도·방향을 예측, 교차 여부에 따라 정지·우회 선택",
+    "new_family": false,
+    "for": "불필요한 정지 방지",
+    "risk": "예측 오차로 인한 충돌 가능"
+   }
+  ],
+  "chosen": "우회 경유점 생성 방식을 선택, 물체를 정지하지 않고 측면으로 우회해 진행 및 스톨 방지",
+  "target": "controller",
+  "direction": "controller 초기화 시 state='normal', bypass_target=None을 추가한다. _detect_moving_any 로 물체를 감지하고, critical 거리이면 즉시 정지한다. critical이 아니고 moving이 있으면 _compute_bypass_target(pose, bearing) 로 우회점을 얻고 state='bypass' 로 전환한다. bypass 상태에서는 목표를 bypass_target 로 설정하고 repulsion을 적용해 이동한다. 우회점에 도달하면 state='normal' 로 돌아가 기존 waypoint 인덱스를 유지한다. 우회점이 없을 경우 기존 stop‑wait 로 fallback한다.",
+  "confidence": "medium"
+ },
+ "raw": "{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"c2t39_s1327969053: t=7.53에 1.02 m 거리, 86° 방향 물체 최초 감지 후 t=12.5에 정지 상태에서 충돌\",\n    \"c2t39_s2037181432: 37번의 정지·회전 구간 후 t=173.53에 스톨 종료, 목표까지 8.4 m 남음\",\n    \"c2t39_s426399211: 3번 정지·회전 구간 후 t=99.18에 스톨, 목표까지 15.3 m 남음\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 정지 후 사라질 것이라면 정지·대기만으로 회피 가능\",\n      \"holds\": false,\n      \"why\": \"좌측에서 횡단하는 물체가 정지 중에도 충돌 (run 1)\"\n    },\n    {\n      \"assumption\": \"0.8 m 내에 물체가 있으면 즉시 정지하면 안전\",\n      \"holds\": false,\n      \"why\": \"1 m 거리에서 감지했지만 정지 후 물체가 로봇에 닿음\"\n    },\n    {\n      \"assumption\": \"repulsion 벡터와 waypoint 추적으로 충분히 회피 가능\",\n      \"holds\": false,\n      \"why\": \"repulsion만으로는 측면 물체 회피 실패, 스톨 발생\"\n    },\n    {\n      \"assumption\": \"정적 지도와 장애물 판별 함수는 정확히 동작한다\",\n      \"holds\": true,\n      \"why\": \"WALLS와 FIXED_OBSTACLES 검사에서 오탐 없음\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"stop-wait-rotate\",\n      \"turns\": \"1~28,30~38\",\n      \"result\": \"30 시도, 11 통과\"\n    },\n    {\n      \"family\": \"repulsion+critical-stop\",\n      \"turns\": \"31,33,39\",\n      \"result\": \"3 시도, 0 통과\"\n    },\n    {\n      \"family\": \"bypass-waypoint\",\n      \"turns\": \"24,33,34,35,36,37,38\",\n      \"result\": \"7 시도, 0 통과\"\n    },\n    {\n      \"family\": \"full-360° detection\",\n      \"turns\": \"23,31,33,34,35,36,37,38\",\n      \"result\": \"8 시도, 0 통과\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"이동 물체 감지 시 _compute_bypass_target 로 측면 우회 경유점을 생성하고, 그 점까지 이동 후 원래 경유점 복귀\",\n      \"new_family\": true,\n      \"for\": \"collision과 stall 모두 회피\",\n      \"risk\": \"우회점이 없을 경우 무한 정지\"\n    },\n    {\n      \"idea\": \"거리 비례 속도 감소와 repulsion만 사용해 정지 없이 회피\",\n      \"new_family\": false,\n      \"for\": \"정지 대기 시간 감소\",\n      \"risk\": \"빠른 물체와 충돌 위험\"\n    },\n    {\n      \"idea\": \"연속 프레임에서 물체 위치를 추적해 속도·방향을 예측, 교차 여부에 따라 정지·우회 선택\",\n      \"new_family\": false,\n      \"for\": \"불필요한 정지 방지\",\n      \"risk\": \"예측 오차로 인한 충돌 가능\"\n    }\n  ],\n  \"chosen\": \"우회 경유점 생성 방식을 선택, 물체를 정지하지 않고 측면으로 우회해 진행 및 스톨 방지\",\n  \"target\": \"controller\",\n  \"direction\": \"controller 초기화 시 state='normal', bypass_target=None을 추가한다. _detect_moving_any 로 물체를 감지하고, critical 거리이면 즉시 정지한다. critical이 아니고 moving이 있으면 _compute_bypass_target(pose, bearing) 로 우회점을 얻고 state='bypass' 로 전환한다. bypass 상태에서는 목표를 bypass_target 로 설정하고 repulsion을 적용해 이동한다. 우회점에 도달하면 state='normal' 로 돌아가 기존 waypoint 인덱스를 유지한다. 우회점이 없을 경우 기존 stop‑wait 로 fallback한다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c2t39_s1327969053",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.5,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.66,
+    0.58
+   ],
+   "closing_m_s": 0.12,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 7.53,
+   "goal_dist_m": 29.5472,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t39_s2037181432",
+   "verdict": "fail",
+   "stall_abort_t": 173.53,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 37,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 8.3945,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t39_s426399211",
+   "verdict": "fail",
+   "stall_abort_t": 99.18,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 15.3424,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

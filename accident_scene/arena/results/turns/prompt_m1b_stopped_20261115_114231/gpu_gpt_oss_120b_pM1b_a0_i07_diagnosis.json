@@ -1,0 +1,12 @@
+{
+  "failure_mode": "stall",
+  "evidence": [
+    "DBG plan_summary shows min_gap_map=0.27 for accepted paths, below comfortable clearance and leads to repeated 'follow 가 지도에 막힘' warnings.",
+    "DBG follow 가 지도에 막힘: 경로 여유 부족 t=22.97 ... indicates map stop triggers causing prolonged stop commands.",
+    "DBG target_guard t=6.72 reason=unsafe_fallback shows forward target could not be found, forcing fallback logic."
+  ],
+  "function": "plan_path",
+  "direction": "goal_shift를 제거하거나 0.2 m 이하로 감소시켜 목표점이 좁은 코너에 너무 가깝게 배치되지 않게 합니다. shift 적용 전후에 segment_free 검사를 그대로 사용하고, shift 후 min_gap이 0.3 m 미만이면 원래 GOAL을 사용하도록 fallback 로직을 추가합니다.",
+  "not_to_change": "lookahead_target와 follow_cmd는 현재 구현을 그대로 유지하고, base 루프나 선택 로직을 변경하지 마십시오.",
+  "confidence": "medium"
+}

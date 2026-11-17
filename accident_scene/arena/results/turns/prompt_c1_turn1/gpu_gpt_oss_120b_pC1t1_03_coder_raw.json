@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-9bbbb13cf546f3c0",
+ "object": "chat.completion",
+ "created": 1794723146,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에서 “왼쪽이면 좌회전”이라는 규칙에 맞추기 위해 회피 방향 판단을 수정했습니다. 기존에는 `dyn_bearing < 0`(오른쪽)일 때 좌회전하도록 `avoid_dir`을 설정했으나, 이는 진단과 반대였습니다. 이제 `dyn_bearing > 0`(왼쪽)일 때 `avoid_dir`을 양수로 설정해 좌회전하도록 바꾸었습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow way‑points while avoiding dynamically detected moving boxes.\"\"\"\n    # ---- one‑time state initialisation ---------------------------------\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0                 # current waypoint index\n        controller.avoid = False           # are we in avoidance mode?\n        controller.avoid_dir = 0.0         # rotation direction during avoidance\n        controller.align = False           # goal‑alignment phase flag\n\n    x, y, yaw = pose\n\n    # ---- sense dynamic obstacles ---------------------------------------\n    dyn_dist, dyn_bearing = _nearest_dynamic(pose)\n\n    # ---- avoidance logic ------------------------------------------------\n    if dyn_dist < _SAFE_DIST:\n        # enter/continue avoidance\n        controller.avoid = True\n        # choose turn direction: left (+) if obstacle on left side, right (‑) otherwise\n        controller.avoid_dir = 1.0 if dyn_bearing > 0 else -1.0\n    elif controller.avoid and dyn_dist > _EXIT_DIST:\n        # obstacle cleared, exit avoidance\n        controller.avoid = False\n        controller.avoid_dir = 0.0\n\n    if controller.avoid:\n        # stop forward motion, rotate away from the obstacle\n        v = 0.0\n        w = _clamp(1.2 * controller.avoid_dir, -0.8, 0.8)\n        return v, w, False\n\n    # ---- goal‑alignment phase -------------------------------------------\n    if controller.align:\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True          # finished\n        return 0.0, w, False\n\n    # ---- normal waypoint‑following --------------------------------------\n    tx, ty = _WAYPOINTS[controller.idx]\n\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # advance to next waypoint when close enough (except final goal)\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # control law (same proven law as before)\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # when the last waypoint (the goal) is reached, switch to alignment mode\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.align = True\n\n    return v, w, False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "We need to modify avoid_dir assignment to follow diagnosis: left (positive bearing?) Let's define bearing: atan2(y,x) where x forward, y left. Positive bearing means obstacle is to the left side. Diagnosis: \"방향 판단을 진단과 일치하도록 수정하세요. 현재 코드는 dyn_bearing < 0(오른쪽)일 때 좌회전(w>0)으로, 진단에서는 왼쪽이면 좌회전이라고 명시했습니다.\" So we need left => rotate left (w>0). In our code we set avoid_dir = 1.0 if dyn_bearing < 0 else -1.0, then w = clamp(1.2 * avoid_dir). That makes if bearing<0 (right) => avoid_dir=1 => w positive => left turn, opposite. Need to invert. Options: change assignment to avoid_dir = 1.0 if dyn_bearing > 0 else -1.0, keep w as is. Or keep assignment and invert w sign. Simpler to change assignment.\n\nThus modify line:\n\ncontroller.avoid_dir = 1.0 if dyn_bearing < 0 else -1.0\n\nto\n\ncontroller.avoid_dir = 1.0 if dyn_bearing > 0 else -1.0\n\nProvide change reason and only updated definitions.\n\nWe changed only that line. Also need to include the function definitions? Only changed line within controller. So we need to output changed reason and code snippet with updated controller function (or just the changed line?). The instruction: \"바꾸거나 새로 추가한 최상위 정의만 넣습니다(`def` 함수 전체, `_WAYPOINTS = ...` 같은 대입문 전체).\" Since we changed a line inside controller, we must provide the whole `controller` definition (since it's a top-level function) with updated line. Also maybe we need to include helper functions? No, they unchanged. So we output change reason and full controller function with corrected line.\n\nLet's produce."
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-26653def",
+ "usage": {
+  "prompt_tokens": 8356,
+  "total_tokens": 9596,
+  "completion_tokens": 1240,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 413
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

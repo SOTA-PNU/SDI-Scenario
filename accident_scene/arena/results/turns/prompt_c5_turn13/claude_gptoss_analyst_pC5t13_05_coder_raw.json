@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적에 따라 `_vfh_select_gap` 끝의 lim/off 치우침을 없앴습니다. 이제 고른 빈 구간의 원형 평균 중앙(centre)을 그대로 돌려주므로 진단 지시 2(가장 넓은 빈 구간의 중앙 방위로 조향)와 같습니다. 다음 동작은 바꾸지 않았습니다: 모든 구간이 비면 eg 반환, 폭이 같으면 중앙이 eg 에 가까운 구간 우선, 쓸 만한 빈 구간이 없으면 None 반환. docstring 의 'biased toward eg' 설명도 지웠습니다.\n\n```python\ndef _vfh_select_gap(free, eg, prev_r, dg):\n    \"\"\"Gap selection (diagnosis step 2): circular runs (valleys) of consecutive free bins, each with its width\n    (bin count) and centre bearing (circular mean of its bin angles, wrap-safe).  Among valleys of at least\n    _VFH_MIN_WIDTH bins the widest wins; on equal width the one whose centre is closest to the goal bearing eg.\n    Returns the chosen valley's centre bearing.  eg when every bin is free, None when no valley is wide enough.\n    prev_r and dg are kept for the _vfh_cmd call signature and are not used.\"\"\"\n    n = _VFH_N\n    free = np.asarray(free, dtype=bool).reshape(-1)\n    if not free.any():\n        return None\n    if free.all():\n        return float(eg)\n    start = int(np.argmin(free))                # a blocked bin: no run wraps past it\n    valleys = []\n    run = []\n    for j in list(range(start + 1, n)) + list(range(0, start + 1)):\n        if free[j]:\n            run.append(j)\n        elif run:\n            valleys.append(run)\n            run = []\n    best = None\n    for run in valleys:\n        wid = len(run)\n        if wid < _VFH_MIN_WIDTH:\n            continue\n        a = _VFH_ANG[np.array(run, dtype=np.int64)]\n        centre = math.atan2(float(np.sin(a).sum()), float(np.cos(a).sum()))\n        de = abs(_wrap_angle(centre - eg))\n        key = (-wid, de)\n        if best is None or key < best[0]:\n            best = (key, wid, centre)\n    if best is None:\n        return None\n    return float(best[2])\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 58243,
+  "completion_tokens": 868
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 7421,
+  "total_cost_usd": 0.483296,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 868,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 58241,
+    "webSearchRequests": 0,
+    "costUSD": 0.483296,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 27,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 58241,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "0a10a948-6d9c-400b-947f-42b1d9d9fc8d"
+ }
+}

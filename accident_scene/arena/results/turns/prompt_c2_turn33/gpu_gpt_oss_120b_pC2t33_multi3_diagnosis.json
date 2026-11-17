@@ -1,0 +1,71 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c2t33_s124460613: t=8.2 충돌, mover_00와 충돌, 물체가 로봇 앞쪽 ~73°에 있었지만 _detect_critical는 ±45°만 검사해 감지 못함",
+   "c2t33_s1219861197: t=9.617 충돌, static:arena_box_00와 충돌, 4.65 s에 비지도 물체가 -140°에서 감지돼 회피 후 경로가 박스와 교차",
+   "c2t33_s1994088324: t=63.37 정지 중단, 58.42 s에 물체가 2.41 m -49°에서 감지됐으나 회피 후 재진입 못해 장시간 정지"
+  ],
+  "target": "controller (특히 _detect_critical와 회피 상태 머신)",
+  "direction": "1) _detect_critical를 앞·뒤 라이다 모두 사용하고 각도 제한을 없애 180° 전체 감지하도록 바꾼다. 2) 회피 후 물체가 사라질 때까지 0.5 s 대기하는 avoid_wait 상태를 추가해 재진입을 방지한다. 3) _REPULSION_WEIGHT를 약 2.0으로 낮춰 과도한 회피 회전으로 인한 정적 충돌을 줄인다. 4) _compute_bypass_target가 좌·우 모두 평가해 더 안전한 측면을 선택하도록 수정한다.",
+  "confidence": "high"
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c2t33_s124460613: t=8.2 충돌, mover_00와 충돌, 물체가 로봇 앞쪽 ~73°에 있었지만 _detect_critical는 ±45°만 검사해 감지 못함\",\n    \"c2t33_s1219861197: t=9.617 충돌, static:arena_box_00와 충돌, 4.65 s에 비지도 물체가 -140°에서 감지돼 회피 후 경로가 박스와 교차\",\n    \"c2t33_s1994088324: t=63.37 정지 중단, 58.42 s에 물체가 2.41 m -49°에서 감지됐으나 회피 후 재진입 못해 장시간 정지\"\n  ],\n  \"target\": \"controller (특히 _detect_critical와 회피 상태 머신)\",\n  \"direction\": \"1) _detect_critical를 앞·뒤 라이다 모두 사용하고 각도 제한을 없애 180° 전체 감지하도록 바꾼다. 2) 회피 후 물체가 사라질 때까지 0.5 s 대기하는 avoid_wait 상태를 추가해 재진입을 방지한다. 3) _REPULSION_WEIGHT를 약 2.0으로 낮춰 과도한 회피 회전으로 인한 정적 충돌을 줄인다. 4) _compute_bypass_target가 좌·우 모두 평가해 더 안전한 측면을 선택하도록 수정한다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c2t33_s1219861197",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.617,
+   "partner": "static:arena_box_00",
+   "robot_at_collision": "주행 0.76m/s 회전 -1.6",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 4.65,
+   "goal_dist_m": 30.232,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t33_s1994088324",
+   "verdict": "fail",
+   "stall_abort_t": 63.37,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 31.1596,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c2t33_s124460613",
+   "verdict": "fail",
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.2,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.79m/s",
+   "partner_rel_xy": [
+    0.2,
+    0.65
+   ],
+   "closing_m_s": 0.49,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 3.22,
+   "goal_dist_m": 32.043,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

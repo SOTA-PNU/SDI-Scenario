@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"failure_mode\": \"other\",\n \"evidence\": [\"실패 없음: 10개 배치 모두 pass, 시뮬 시간 합계 577.6 s / 600 s(평균 57.8 s). 가장 느린 실행은 s399016924 의 67.2 s, 마지막 실행 s640003956 의 time_limit_s 는 76.0 s 라 여유가 22 s 뿐임\", \"정지 누적 ts 가 실행마다 5.2–18.9 s 로 시간의 대부분을 차지함. 마지막 구간에서 가로지르는 물체를 기다린 정지가 가장 큼(s703835495 t=49.5–52.5 fix(0) d≈1.15 m, s1829810109 t=47.5–50.0 fix(0))\", \"모서리 회전(w 1.0–1.55) 직후 정적 사각형 바로 밖에 미성숙 유령 트랙 p=(-0.73,12.51) v=0 mat=0 가 생김. 다시 보이지 않은 채 st 0.4→0.9 로 남아 fix(0) 약 1 s 를 씀: s608347243 t=35.5–36.0, s1499849728 t=35.0–35.5, s399016924 t=44.0–44.5, s640003956 t=37.5–38.5(ts +1.0)\"],\n \"assumptions\": [{\"assumption\": \"높이 1.0 m 물체가 0.42 m 2D 라이다에 보임\", \"holds\": true, \"why\": \"10개 실행 모두 1–2 m 안에서 감지·추적됨\"}, {\"assumption\": \"물체는 직선 왕복이라 등속+반사 예측이 맞음\", \"holds\": true, \"why\": \"10/10 무충돌, DBG 의 트랙 속도가 매끄럽게 반전함\"}, {\"assumption\": \"0.4 m 마스크로 정적 점이 모두 빠짐\", \"holds\": false, \"why\": \"회전 직후 마스크 바로 밖 (-0.73,12.51), (2.67,13.91), (-10.07,-9.79) 에 유령이 생겨 정지를 부름\"}, {\"assumption\": \"물체를 기다리는 정지는 시간 비용이 작음\", \"holds\": false, \"why\": \"ts 합계 약 103 s 로 578 s 중 18% 를 차지함\"}, {\"assumption\": \"실행당 평균 60 s 안에 끝남\", \"holds\": true, \"why\": \"평균 57.8 s 로 통과했지만 여유가 작고 67.2 s 실행도 있음\"}],\n \"approach_families\": [{\"family\": \"센서 미사용 경유점 추종\", \"turns\": \"0\", \"result\": \"0/3\"}, {\"family\": \"전방 거리 반응형 감속·후진\", \"turns\": \"1\", \"result\": \"0/3\"}, {\"family\": \"트랙+rollout 후보 선택(보수적 수정)\", \"turns\": \"2,3,5,6,7,9\", \"result\": \"6/7, 6/9, 2/5, 7/8, 9/9, 10/10\"}, {\"family\": \"같은 구조에서 속도·회전 공격적 상향\", \"turns\": \"4,8\", \"result\": \"0/3, 5/8 (실패 누적)\"}, {\"family\": \"통로 판정·통과 래치\", \"turns\": \"4,5\", \"result\": \"0/3, 2/5 (실패 누적)\"}],\n \"candidates\": [{\"idea\": \"다시 보이지 않는 미성숙 유령 트랙을 예측에서 제외(지각 보정)\", \"new_family\": false, \"for\": \"4개 실행에서 같은 유령이 각각 약 1 s 정지를 부름. 실제 물체는 0.1 s 마다 다시 보이므로 위험이 작음\", \"risk\": \"얻는 시간이 5–7 s 로 작음. 가려진 실제 물체를 잠시 놓칠 수 있음\"}, {\"idea\": \"가로지르는 물체 뒤로 지나가는 측면 오프셋 path 후보 추가\", \"new_family\": true, \"for\": \"가장 큰 시간 손실인 대기 정지를 줄일 수 있음\", \"risk\": \"path 후보에는 정적 검사가 없어 벽·박스 충돌 위험이 있음. 턴 8 처럼 큰 변경 뒤 퇴보할 수 있음\"}, {\"idea\": \"경유점을 대각선으로 바꿔 경로 44 m 를 줄임\", \"new_family\": true, \"for\": \"직선거리 32 m 대비 경로가 길어 이동 시간을 수 초 줄일 수 있음\", \"risk\": \"정적 장애물과의 간격, 지나는 통로가 바뀌어 지금의 10/10 이 깨질 수 있음\"}],\n \"chosen\": \"후보 1: 이미 10/10 통과한 상태라 여유를 늘리되, 큰 변경이 퇴보한 턴 4·8 을 되풀이하지 않는 가장 위험이 작은 수정이기 때문\",\n \"target\": \"controller 의 movers 구성 부분\",\n \"direction\": \"controller 에서 movers 를 만들 때 아래 세 조건을 모두 만족하는 트랙은 movers 에 넣지 않습니다(_TRK 안의 트랙 자체는 지우지 않아 다음 스캔의 짝짓기는 그대로 됩니다). 조건은 미성숙(age_s<_MATURE_S 또는 nupd<_MATURE_UPD), 마지막 관측 뒤 0.25 s 초과((step-tr['seen'])/60>0.25), 중심이 _near_static(..., _GHOST_NEAR) 입니다. 성숙 트랙, 낡은 성숙 트랙, 계속 보이는 미성숙 트랙의 처리는 지금과 똑같이 둡니다. fast_ok 판단에도 제외 뒤의 movers 를 그대로 씁니다. 경유점, 속도, 후보, 선택 규칙, _MOVER_R, _MOVER_GAP, 반사 예측, 후진 조건은 바꾸지 않고 물체 위치·구간·속도·시각 상수도 넣지 않습니다. DBG 줄은 300자 안을 지키며 끝에 누적 제외 시간 gh=%.1f 만 덧붙입니다.\",\n \"confidence\": \"medium\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 130819,
+  "completion_tokens": 8337
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 91918,
+  "total_cost_usd": 1.2132839999999998,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 8337,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 130817,
+    "webSearchRequests": 0,
+    "costUSD": 1.2132839999999998,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 6160,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 130817,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "eaa6458e-2832-4b8b-9935-994229425916"
+ }
+}

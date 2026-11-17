@@ -1,0 +1,12 @@
+{
+  "failure_mode": "no_path",
+  "evidence": [
+    "DBG plan_summary ... attempts=0.50:empty_path|0.45:empty_path|0.40:empty_path|0.35:empty_path ... shows all clearances rejected with reason=empty_path",
+    "plan_path returned None because start or goal cell was marked blocked, causing early return before A* search",
+    "stall_total_s=199.0 and speed mean=0.0 indicate the robot never moved due to missing path"
+  ],
+  "function": "plan_path",
+  "direction": "제거된 시작·목표 셀 차단 검사를 없애고, 시작·목표가 blocked이면 인접한 자유 셀을 찾아 대체하거나 blocked 체크를 건너뛰어 A* 탐색을 진행하도록 수정한다. 필요하면 BFS 로 가장 가까운 free 셀을 선택해 경로의 첫·끝 점으로 사용한다.",
+  "not_to_change": "lookahead_target와 follow_cmd 함수와 base 루프 로직은 변경하지 않는다.",
+  "confidence": "high"
+}

@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-9099333c44920287",
+ "object": "chat.completion",
+ "created": 1794832335,
+ "model": "gpt-oss-120b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: `stop_wait` 상태에서 `rotate_away` 로 전환할 때 회전 방향을 `sign(bearing)` 로 지정하도록 수정했습니다. 기존 구현은 `-np.sign(bearing)` 로 반대 방향으로 회전했으며, 이는 진단 지시와 일치하지 않아 회피 동작이 잘못되었습니다. 이제 물체가 있는 방향을 기준으로 올바른 회전 방향을 선택해 안전 회피를 수행합니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Hybrid repulsion + state‑machine controller.\n    Normal state: steer toward waypoint while applying a repulsive vector\n    from detected moving objects. Critical close objects trigger a stop‑wait\n    state, then a rotate‑away state before resuming normal navigation.\"\"\"\n    x, y, yaw = pose\n\n    # ---- persistent state initialization ----\n    if not hasattr(controller, \"state\"):\n        controller.state = \"normal\"      # normal, stop_wait, rotate_away\n        controller.state_end = 0.0\n        controller.idx = 0               # waypoint index\n        controller.rotate_dir = 0.0      # direction for rotate_away (+1 left, -1 right)\n\n    # ---- waypoint handling ----\n    if controller.idx < len(_WAYPOINTS):\n        tx, ty = _WAYPOINTS[controller.idx]\n    else:\n        tx, ty = GOAL[0], GOAL[1]\n\n    dx, dy = tx - x, ty - y\n    dist_wp = math.hypot(dx, dy)\n\n    # advance to next waypoint when close enough\n    if controller.idx < len(_WAYPOINTS) and dist_wp < 0.4:\n        controller.idx += 1\n        if controller.idx < len(_WAYPOINTS):\n            tx, ty = _WAYPOINTS[controller.idx]\n        else:\n            tx, ty = GOAL[0], GOAL[1]\n        dx, dy = tx - x, ty - y\n        dist_wp = math.hypot(dx, dy)\n\n    # ---- final goal alignment ----\n    if controller.idx == len(_WAYPOINTS) and dist_wp < 0.3:\n        yaw_err = _wrap_angle(GOAL[2] - yaw)\n        if abs(yaw_err) < 0.05:\n            return 0.0, 0.0, True\n        w = _clamp(_KP_W * yaw_err, -0.6, 0.6)\n        return 0.0, w, False\n\n    # ---- state machine ----\n    if controller.state == \"normal\":\n        # critical close‑range detection → stop & wait\n        critical, bearing = _detect_critical(pose)\n        if critical:\n            controller.state = \"stop_wait\"\n            controller.state_end = t + _AVOID_DURATION\n            controller.critical_bearing = bearing\n            return 0.0, 0.0, False\n\n        # repulsive steering from moving objects\n        moving_pts = _moving_points_repulsion(pose)          # world points of movers\n        rep_vec = _repulsive_vector(pose, moving_pts)       # unit vector away from movers\n\n        # waypoint direction (unit)\n        if dist_wp > 0:\n            wp_dir = np.array([dx, dy]) / dist_wp\n        else:\n            wp_dir = np.zeros(2)\n\n        # combine waypoint direction and repulsion\n        dir_vec = wp_dir + _REPULSION_WEIGHT * rep_vec\n        norm = np.linalg.norm(dir_vec)\n        if norm < 1e-6:\n            return 0.0, 0.0, False\n        dir_vec /= norm\n\n        desired_yaw = math.atan2(dir_vec[1], dir_vec[0])\n        yaw_err = _wrap_angle(desired_yaw - yaw)\n\n        # forward speed scales with alignment, angular speed with error\n        v = _MAX_SPEED * max(0.0, math.cos(yaw_err))\n        w = _clamp(_KP_W * yaw_err, -1.5, 1.5)\n        return float(v), float(w), False\n\n    elif controller.state == \"stop_wait\":\n        # remain stopped until the waiting period expires\n        if t >= controller.state_end:\n            # after waiting, check if a moving object is still nearby\n            moving_any, bearing = _detect_moving_close(pose)\n            if moving_any:\n                # rotate away from the bearing (positive sign per diagnostic)\n                direction = np.sign(bearing) if bearing != 0 else 1.0\n                controller.state = \"rotate_away\"\n                controller.state_end = t + _AVOID_ROT_TIME\n                controller.rotate_dir = direction\n                return 0.0, float(direction * _AVOID_ROT_SPEED), False\n            else:\n                controller.state = \"normal\"\n                return 0.0, 0.0, False\n        else:\n            return 0.0, 0.0, False\n\n    elif controller.state == \"rotate_away\":\n        if t >= controller.state_end:\n            controller.state = \"normal\"\n            return 0.0, 0.0, False\n        else:\n            direction = getattr(controller, \"rotate_dir\", 1.0)\n            return 0.0, float(direction * _AVOID_ROT_SPEED), False\n\n    # fallback (should not be reached)\n    controller.state = \"normal\"\n    return 0.0, 0.0, False\n```",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "The user is asking to modify the previously supplied code. The request: \"stop_wait → rotate_away 전환 시 회전 방향을 `sign(bearing)` 로 바꾸어 진단 지시와 일치시키세요. 현재 `direction = -np.sign(bearing)` 로 구현돼 있어 진단과 다릅니다. 회전 방향만 수정하면 진단을 모두 만족합니다.\"\n\nWe need to output \"변경 이유:\" with 2-4 sentences, then a python code fence with only the top-level definitions that we changed or added. The code currently includes the controller function definition and internal logic. The only change needed is to modify the line where `direction = -np.sign(bearing)` to `direction = np.sign(bearing)`. This is within the controller function. So we need to replace the controller definition entirely (or modify the function). The instructions say to output only the top-level definitions that we changed or added. Since we are changing the controller function, we need to provide the entire function definition with the corrected line. The rest of the code remains unchanged. We should also include any new definitions we added earlier? The user says \"하네스는 방금 낸 정의를 이미 현재 코드에 반영해 두었습니다. 그 위에서 바꾸거나 추가할 최상위 정의만 같은 형식(변경 이유 + python 코드 펜스)으로 다시 내십시오.\" That means we only need to provide the changed top-level definitions, which is the controller function. Possibly also any other definitions that need to be changed (e.g., if we need to import np? Already imported). So we just need to output the change reason and the controller function with the corrected sign.\n\nThus:\n\nChange reason: We changed the rotation direction in stop_wait→rotate_away transition to use sign(bearing) as instructed; previously it used negative sign, causing rotation opposite to intended direction. This aligns with diagnostic instruction and ensures robot rotates away from the detected moving object correctly.\n\nThen code fence with the controller function.\n\nWe must not include any other code outside the function.\n\nMake sure to keep the same indentation and content as before, except the line.\n\nLet's reprint the controller function with the corrected line.\n\nThe original snippet:\n\n```\nelif controller.state == \"stop_wait\":\n    # remain stopped until the waiting period expires\n    if t >= controller.state_end:\n        # after waiting, check if a moving object is still nearby\n        moving_any, bearing = _detect_moving_close(pose)\n        if moving_any:\n            # rotate away from the bearing (left if object on right, and vice‑versa)\n            direction = -np.sign(bearing) if bearing != 0 else 1.0\n            controller.state = \"rotate_away\"\n            controller.state_end = t + _AVOID_ROT_TIME\n            controller.rotate_dir = direction\n            return 0.0, float(direction * _AVOID_ROT_SPEED), False\n        else:\n            controller.state = \"normal\"\n            return 0.0, 0.0, False\n    else:\n        return 0.0, 0.0, False\n```\n\nWe need to change direction line to `direction = np.sign(bearing) if bearing != 0 else 1.0`.\n\nThus final code.\n\nAlso ensure imports: np already imported earlier.\n\nThus answer.\n\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-96dcc7f3",
+ "usage": {
+  "prompt_tokens": 23120,
+  "total_tokens": 24982,
+  "completion_tokens": 1862,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 689
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}
