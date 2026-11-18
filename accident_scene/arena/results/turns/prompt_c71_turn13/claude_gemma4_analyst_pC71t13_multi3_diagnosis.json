@@ -1,0 +1,125 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t13_s1596165805: t=30.6s, mover_03와 상대 위치 [0.12, -0.66]에서 충돌. 로봇 속도 0.70m/s로 주행 중이었으며, 물체가 측면에서 접근했으나 속도 캡(0.7m/s)만으로는 회피 부족.",
+   "c71t13_s1666751690: t=2.98s, mover_00와 상대 위치 [0.13, -0.65]에서 충돌. 로봇 속도 0.69m/s로 주행 중이었으며, 위와 동일하게 측면 접근 물체에 대해 전진 속도가 너무 높았음.",
+   "c71t13_s512079403: t=30.9s, mover_03와 상대 위치 [-0.51, 0.53]에서 충돌. 로봇 속도 0.90m/s로 주행 중이었으며, 물체가 로봇의 측후방에서 진입할 때 대응 로직 부재."
+  ],
+  "assumptions": [
+   {
+    "assumption": "±90° 범위 내 물체에 대해 속도를 0.7m/s로 제한하고 반대 방향으로 조향하는 것만으로 측면 충돌을 피할 수 있다.",
+    "holds": false,
+    "why": "물체가 로봇의 측면(y ≈ ±0.66m)에 매우 가까이 있을 때도 0.7m/s로 전진하여 물체의 궤적으로 스스로 진입하는 결과가 초래됨."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Slow-and-Steer (저속-회피 조향)",
+    "turns": "8, 13",
+    "result": "1/7 통과. 측면 접근 물체에 대해 전진 속도가 여전히 높아 충돌 발생."
+   },
+   {
+    "family": "Stop-and-Wait (정지-대기)",
+    "turns": "1, 6",
+    "result": "9/14 통과. 안전하지만 stall_abort 위험 및 주행 시간 증가."
+   },
+   {
+    "family": "Linear Scaling (거리 기반 선형 감속)",
+    "turns": "12",
+    "result": "2/5 통과. 속도 조절은 효과적이나 정지 후 회전 시 정적 장애물 충돌 발생."
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 정지 구역 도입 및 선형 감속",
+    "new_family": false,
+    "for": "물체가 측면(±90°)에 매우 가까이(예: 0.7m) 오면 속도를 0까지 선형적으로 줄여 '정면 충돌'뿐 아니라 '측면 긁힘'을 방지함.",
+    "risk": "속도가 너무 낮아지면 물체에 의해 막히는 stall_abort나 '앉은 오리' 상태에서 충돌할 위험이 있음."
+   },
+   {
+    "idea": "회피 조향 강도 및 전진 속도 하한선 조정",
+    "new_family": true,
+    "for": "w_avoid를 더 강하게 하여 궤적을 빠르게 벗어나고, 물체가 아주 가까울 때만 정지하도록 설정.",
+    "risk": "강한 조향으로 인해 벽이나 정적 박스에 충돌할 가능성이 높음."
+   }
+  ],
+  "chosen": "후보 1. 현재 실패의 핵심은 측면 물체가 매우 가까운 상황에서도 0.7m/s라는 상당한 속도로 전진하는 것이므로, 거리 기반의 더 공격적인 감속이 필요함.",
+  "target": "controller 내 속도 결정 로직",
+  "direction": "1. 하드 캡인 _V_AVOID_MAX(0.7m/s)를 제거하고 거리 기반 scale 도입. 2. ±90° 범위 내 물체 거리 d_front에 대해 speed_scale = clamp((d_front - 0.7) / (1.5 - 0.7), 0.0, 1.0)를 계산. 3. 기본 전진 속도 v에 이 speed_scale을 곱해, 0.7m 이내 접근 시 반드시 정지하게 함. 4. 정지 원뿔(±30°)의 _STOP_R을 0.6m에서 0.8m로 상향하여 전방 안전거리 확보. 5. 기존의 w_avoid와 _static_close_on_side 로직을 유지하여 감속 중에도 벽을 피하며 물체 반대쪽으로 밀려나도록 함. 6. _E_TURN에 의한 제자리 회전 정지 조건이 scale=0인 정지 상태보다 우선하지 않도록 순서 조정.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t13_s1596165805: t=30.6s, mover_03와 상대 위치 [0.12, -0.66]에서 충돌. 로봇 속도 0.70m/s로 주행 중이었으며, 물체가 측면에서 접근했으나 속도 캡(0.7m/s)만으로는 회피 부족.\",\n  \"c71t13_s1666751690: t=2.98s, mover_00와 상대 위치 [0.13, -0.65]에서 충돌. 로봇 속도 0.69m/s로 주행 중이었으며, 위와 동일하게 측면 접근 물체에 대해 전진 속도가 너무 높았음.\",\n  \"c71t13_s512079403: t=30.9s, mover_03와 상대 위치 [-0.51, 0.53]에서 충돌. 로봇 속도 0.90m/s로 주행 중이었으며, 물체가 로봇의 측후방에서 진입할 때 대응 로직 부재.\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"±90° 범위 내 물체에 대해 속도를 0.7m/s로 제한하고 반대 방향으로 조향하는 것만으로 측면 충돌을 피할 수 있다.\",\n   \"holds\": false,\n   \"why\": \"물체가 로봇의 측면(y ≈ ±0.66m)에 매우 가까이 있을 때도 0.7m/s로 전진하여 물체의 궤적으로 스스로 진입하는 결과가 초래됨.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"Slow-and-Steer (저속-회피 조향)\",\n   \"turns\": \"8, 13\",\n   \"result\": \"1/7 통과. 측면 접근 물체에 대해 전진 속도가 여전히 높아 충돌 발생.\"\n  },\n  {\n   \"family\": \"Stop-and-Wait (정지-대기)\",\n   \"turns\": \"1, 6\",\n   \"result\": \"9/14 통과. 안전하지만 stall_abort 위험 및 주행 시간 증가.\"\n  },\n  {\n   \"family\": \"Linear Scaling (거리 기반 선형 감속)\",\n   \"turns\": \"12\",\n   \"result\": \"2/5 통과. 속도 조절은 효과적이나 정지 후 회전 시 정적 장애물 충돌 발생.\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"측면 정지 구역 도입 및 선형 감속\",\n   \"new_family\": false,\n   \"for\": \"물체가 측면(±90°)에 매우 가까이(예: 0.7m) 오면 속도를 0까지 선형적으로 줄여 '정면 충돌'뿐 아니라 '측면 긁힘'을 방지함.\",\n   \"risk\": \"속도가 너무 낮아지면 물체에 의해 막히는 stall_abort나 '앉은 오리' 상태에서 충돌할 위험이 있음.\"\n  },\n  {\n   \"idea\": \"회피 조향 강도 및 전진 속도 하한선 조정\",\n   \"new_family\": true,\n   \"for\": \"w_avoid를 더 강하게 하여 궤적을 빠르게 벗어나고, 물체가 아주 가까울 때만 정지하도록 설정.\",\n   \"risk\": \"강한 조향으로 인해 벽이나 정적 박스에 충돌할 가능성이 높음.\"\n  }\n ],\n \"chosen\": \"후보 1. 현재 실패의 핵심은 측면 물체가 매우 가까운 상황에서도 0.7m/s라는 상당한 속도로 전진하는 것이므로, 거리 기반의 더 공격적인 감속이 필요함.\",\n \"target\": \"controller 내 속도 결정 로직\",\n \"direction\": \"1. 하드 캡인 _V_AVOID_MAX(0.7m/s)를 제거하고 거리 기반 scale 도입. 2. ±90° 범위 내 물체 거리 d_front에 대해 speed_scale = clamp((d_front - 0.7) / (1.5 - 0.7), 0.0, 1.0)를 계산. 3. 기본 전진 속도 v에 이 speed_scale을 곱해, 0.7m 이내 접근 시 반드시 정지하게 함. 4. 정지 원뿔(±30°)의 _STOP_R을 0.6m에서 0.8m로 상향하여 전방 안전거리 확보. 5. 기존의 w_avoid와 _static_close_on_side 로직을 유지하여 감속 중에도 벽을 피하며 물체 반대쪽으로 밀려나도록 함. 6. _E_TURN에 의한 제자리 회전 정지 조건이 scale=0인 정지 상태보다 우선하지 않도록 순서 조정.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t13_s512079403",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 36.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 30.9,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.90m/s",
+   "partner_rel_xy": [
+    -0.51,
+    0.53
+   ],
+   "closing_m_s": 0.26,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 28.45,
+   "goal_dist_m": 0.5798,
+   "time_to_goal_s": 32.7
+  },
+  {
+   "run": "c71t13_s1596165805",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 563.1,
+   "sim_time_s": 36.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 30.617,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.70m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.12,
+    -0.66
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 26.75,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t13_s1666751690",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 526.5,
+   "sim_time_s": 9.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.983,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.69m/s 회전 -0.4",
+   "partner_rel_xy": [
+    0.13,
+    -0.65
+   ],
+   "closing_m_s": 0.22,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.2498,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

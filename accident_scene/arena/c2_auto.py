@@ -26,7 +26,8 @@ def say(s):
 
 
 SERIES = "c2"                 # --series c3: the all-Claude series (2026-11-16); c4: gpt-oss coder, Claude others
-MODEL_TAGS = {"c3": "claude_opus_5_5", "c4": "gptoss_coder_claude", "c5": "claude_gptoss_analyst", "c6": "claude_qwen36_analyst"}
+MODEL_TAGS = {"c3": "claude_opus_5_5", "c4": "gptoss_coder_claude", "c5": "claude_gptoss_analyst", "c6": "claude_qwen36_analyst", "c7": "claude_gemma4_analyst", "c71": "claude_gemma4_analyst",
+              "c8": "claude_exaone45_analyst"}
 
 
 def turn_files(n):
@@ -56,7 +57,7 @@ def main():
     ap.add_argument("--wait-pid", type=int, default=None, help="a turn still running: wait for it first")
     ap.add_argument("--max-turn", type=int, default=30)
     ap.add_argument("--goal-runs", type=int, default=10)
-    ap.add_argument("--series", default="c2", choices=["c2", "c3", "c4", "c5", "c6"])
+    ap.add_argument("--series", default="c2", choices=["c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8"])
     a = ap.parse_args()
     global SERIES
     SERIES = a.series

@@ -1,0 +1,232 @@
+{
+ "turn": 6,
+ "started": "2026-11-18 11:56:31",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c71_turn5/claude_gemma4_analyst_pC71t5_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t5_s1286218576: t=130.3 충돌 전 로봇은 0.3m/s로 주행 중이었으며, 물체(mover_03)가 bearing -83°(감속 구역 ±60° 밖)에서 접근하여 측면 충돌함",
+   "c71t5_s910826487: t=45.1 충돌 전 로봇이 0.29m/s로 주행 중이었으며, 물체(mover_01)가 bearing -93°(감속 구역 ±60° 밖)에서 접근하여 충돌함",
+   "c71t5_s2061312821: t=47.2 충돌 전 로봇이 0.3m/s로 주행 중이었으며, 물체(mover_01)가 bearing 93°(감속 구역 ±60° 밖)에서 접근하여 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±60° 감지 구역이면 움직이는 물체를 충분히 피할 수 있다",
+    "holds": false,
+    "why": "모든 충돌 사례에서 물체가 ±80°~±100° 사이의 측면에서 접근했으며, 로봇은 이를 감지하지 못하고 주행함"
+   },
+   {
+    "assumption": "0.3m/s의 저속 주행(creep)이 안전한 통과 방법이다",
+    "holds": false,
+    "why": "물체가 측면에서 빠르게 다가올 때 저속 주행 중인 로봇은 회피 기동 없이 그대로 충돌 경로에 놓이게 됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 원뿔 기반 정지/감속",
+    "turns": "3",
+    "result": "측면 충돌 빈번, 주행 시간 초과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 구역을 ±90°(전방 반원)로 확장하고, 모호한 저속 주행(creep)을 삭제하여 '확실한 정지' 또는 '정속 주행'으로 단순화",
+    "new_family": false,
+    "for": "측면 접근 물체에 대해 즉각 정지하여 충돌을 방지하고, 불필요한 저속 구간을 없애 주행 시간을 단축함",
+    "risk": "물체가 정면을 가로막을 때 정지 시간이 길어져 stall 가능성 증가"
+   },
+   {
+    "idea": "전 방향(360°) 거리 기반 비상 정지 도입",
+    "new_family": true,
+    "for": "측면 및 후방 충돌까지 완벽하게 방지 가능",
+    "risk": "정적 장애물 필터링이 완벽하지 않을 경우 잦은 정지로 인해 목표 도달 불가"
+   }
+  ],
+  "chosen": "정지 구역을 ±90°로 확장하고 creep 모드를 제거하며, 경유점을 최적화하여 속도를 높이는 방향을 선택함",
+  "target": "controller, _front_dynamic_min_dist, _WAYPOINTS",
+  "direction": "1. _WAYPOINTS를 단순화하여 불필요한 꺾임과 이동 거리를 줄여 주행 시간을 60초 이내로 단축합니다. 2. _front_dynamic_min_dist의 half_angle_deg를 90.0으로 설정하여 전방 180도 전체를 감시합니다. 3. controller에서 v=0.3의 creep 로직을 완전히 삭제하고, ±90° 구역 내 1.8m 이내 물체 감지 시 즉시 v=0으로 정지하게 합니다. 4. v_max를 3.0으로 높이고 E_TURN을 0.8로 상향하여 직선 주행 및 회전 효율을 극대화합니다. 5. 정지 해제 거리(hysteresis)를 2.0m로 설정하여 잦은 가감속을 방지합니다. 6. 기존의 정적 지도 필터링은 유지하여 벽으로 인한 정지를 막습니다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단에 따르면 충돌은 모두 물체가 감시 구역(±60°) 밖인 ±80°~±100° 측면에서 다가올 때 일어났습니다. 그래서 진단 2·3·5에 따라 `_front_dynamic_min_dist` 의 감시 범위를 전방 ±90° 반원으로 넓혔습니다. 이 범위 안 1.8 m 이내에 움직이는 물체가 보이면 즉시 정지(v=0)하고 2.0 m 밖으로 멀어지면 다시 출발하게 했으며, 0.3 m/s 저속 주행(creep)은 없앴습니다. 진단 1·4에 따라 경유점을 정적 장애물에서 1 m 안팎 떨어진 사선 경로로 줄여 거리를 약 44 m에서 36 m로 줄이고, v_max 3.0, E_TURN 0.8 로 올렸습니다. 정적 지도 필터링(`_static_mask`)은 진단 6에 따라 그대로 두었습니다.",
+   "changed": [
+    "_WAYPOINTS",
+    "_front_dynamic_min_dist",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _WAYPOINTS를 단순화해 꺾임과 이동 거리를 줄여 주행 시간을 60초 이내로 단축",
+      "implemented": true,
+      "note": "경유점이 7개에서 6개로 줄었고 사선 경로가 됐다. 직선 구간 합은 약 36.4 m다. 선분마다 박스 00·01·02·03·07·08·09·10, Forklift_01, 박스 06과 약 1 m 이상 떨어져 있다. 60초 안에 들어오는지는 실행해야 안다."
+     },
+     {
+      "instruction": "2. _front_dynamic_min_dist의 half_angle_deg를 90.0으로 설정해 전방 180° 감시",
+      "implemented": true,
+      "note": "기본값이 90.0으로 바뀌었고 controller에서 90.0으로 호출한다. 감시 조건을 tan 원뿔(x>0)에서 arctan2 bearing ≤ ±90°로 바꿔 측면 점도 포함된다."
+     },
+     {
+      "instruction": "3. v=0.3 creep 로직을 완전히 삭제하고 ±90° 안 1.8 m 이내 물체가 있으면 즉시 v=0",
+      "implemented": true,
+      "note": "d_wide/creep 블록이 삭제됐다. 처음 정지 반경은 stop_r=1.8이고, blocked이면 v=0이다."
+     },
+     {
+      "instruction": "4. v_max 3.0, E_TURN 0.8로 상향",
+      "implemented": true,
+      "note": "v = min(3.0, 3.5*dist+0.5), E_TURN = 0.8로 바뀌었다."
+     },
+     {
+      "instruction": "5. 정지 해제 거리(hysteresis) 2.0 m",
+      "implemented": true,
+      "note": "blocked 상태에서는 stop_r = 2.0이다."
+     },
+     {
+      "instruction": "6. 기존 정적 지도 필터링 유지",
+      "implemented": true,
+      "note": "_STATIC_RECTS와 _static_mask(m=0.25)가 바뀌지 않았고 감지에 계속 쓰인다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "물체는 로봇을 피하지 않고, 멈춰 있어도 닿으면 충돌이다. 측면에서 로봇 쪽으로 오는 물체를 정지만으로 막을 수는 없고, 근거의 충돌 사례도 정지로 해결되지 않을 수 있다. 후진이나 옆으로 비키는 회피가 없다.",
+     "v_max를 2.5에서 3.0으로 올리면서 정지 반경은 2.0에서 1.8로 줄였다. 고속에서 제동 여유가 줄어드는 방향이다.",
+     "후방 반원은 여전히 감시하지 않는다. 뒤나 측후방에서 오는 물체에는 대응할 수 없다.",
+     "E_TURN 0.8이면 방향 오차가 약 46°일 때도 최대 3 m/s로 전진한다. 경유점 사이 모서리에서 경로가 크게 벗어날 수 있다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단에 따르면 충돌은 모두 물체가 감시 구역(±60°) 밖인 ±80°~±100° 측면에서 다가올 때 일어났습니다. 그래서 진단 2·3·5에 따라 `_front_dynamic_min_dist` 의 감시 범위를 전방 ±90° 반원으로 넓혔습니다. 이 범위 안 1.8 m 이내에 움직이는 물체가 보이면 즉시 정지(v=0)하고 2.0 m 밖으로 멀어지면 다시 출발하게 했으며, 0.3 m/s 저속 주행(creep)은 없앴습니다. 진단 1·4에 따라 경유점을 정적 장애물에서 1 m 안팎 떨어진 사선 경로로 줄여 거리를 약 44 m에서 36 m로 줄이고, v_max 3.0, E_TURN 0.8 로 올렸습니다. 정적 지도 필터링(`_static_mask`)은 진단 6에 따라 그대로 두었습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  424488756,
+  1278613007,
+  1572164758
+ ],
+ "sim_used_s": 202.8,
+ "verdicts": {
+  "424488756": "fail",
+  "1278613007": "fail",
+  "1572164758": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 1169,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 0개, 실패 3개. 시뮬 시간 합계 203초 / 예산 600초.\n- 통과한 실행이 없습니다. 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 물체는 로봇을 피하지 않고, 멈춰 있어도 닿으면 충돌이다. 측면에서 로봇 쪽으로 오는 물체를 정지만으로 막을 수는 없고, 근거의 충돌 사례도 정지로 해결되지 않을 수 있다. 후진이나 옆으로 비키는 회피가 없다.\n- (검토 1회차, 판정 pass) v_max를 2.5에서 3.0으로 올리면서 정지 반경은 2.0에서 1.8로 줄였다. 고속에서 제동 여유가 줄어드는 방향이다.\n- (검토 1회차, 판정 pass) 후방 반원은 여전히 감시하지 않는다. 뒤나 측후방에서 오는 물체에는 대응할 수 없다.\n- (검토 1회차, 판정 pass) E_TURN 0.8이면 방향 오차가 약 46°일 때도 최대 3 m/s로 전진한다. 경유점 사이 모서리에서 경로가 크게 벗어날 수 있다.\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 c71t6_s424488756: t=63.15s에 물체 감지(0.52m, -26deg) 후 정지, t=68.12s에 stall_abort. 물체 거리가 0.52m~1.33m 사이에서 유지됨.",
+   "실행 c71t6_s1278613007: t=65.45s에 물체 감지(1.16m, 18deg) 후 정지, t=70.4s에 stall_abort. 물체 거리가 0.78m~1.16m 사이에서 유지됨.",
+   "실행 c71t6_s1572164758: t=56.32s에 물체 감지(0.52m, -77deg) 후 정지, t=61.23s에 stall_abort. 물체 거리가 0.37m~1.41m 사이에서 유지됨.",
+   "모든 실행이 출발지 근처([-8, -10] 부근)에서 발생했으며, 전방 ±90°라는 넓은 정지 구역과 2.0m라는 높은 해제 조건 때문에 물체가 완전히 멀어질 때까지 로봇이 갇힘."
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±90° 범위 내 1.8m 이내에 물체가 있으면 정지하는 것이 안전하며, 물체는 곧 2.0m 밖으로 사라질 것이다.",
+    "holds": false,
+    "why": "물체가 로봇 근처에서 느리게 움직이거나 횡단할 경우, 로봇은 정지 상태에서 60초를 보내 stall_abort가 발생함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 및 대기 (Stop-and-Wait)",
+    "turns": "1, 2, 3, 6",
+    "result": "초기엔 성공적이었으나 감시 구역을 넓히자(Turn 6) 전멸"
+   },
+   {
+    "family": "저속 주행 (Creep)",
+    "turns": "4, 5",
+    "result": "stall은 줄었으나 측면 충돌 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 구역 각도를 다시 좁히고(±30~45°) 정지 거리 임계값을 낮춤",
+    "new_family": false,
+    "for": "Turn 1의 성공 사례로 회귀하여 stall 방지",
+    "risk": "이전 턴에서 확인된 측면 충돌 문제가 다시 발생함"
+   },
+   {
+    "idea": "거리 기반 연속적 속도 감속 (Adaptive Speed Scaling)",
+    "new_family": true,
+    "for": "이진법적 정지/출발이 아닌 거리 비례 감속으로 stall 가능성을 낮춤",
+    "risk": "감속도가 부족할 경우 정면 충돌 위험"
+   },
+   {
+    "idea": "반발력 기반 회피 조향 (Reactive Steering Avoidance)",
+    "new_family": true,
+    "for": "물체의 bearing 방향 반대쪽으로 조향을 더해 정지하지 않고 비켜가게 함",
+    "risk": "회피 중 정적 장애물(벽, 박스)과 충돌할 가능성"
+   }
+  ],
+  "chosen": "반발력 기반 회피 조향을 선택합니다. 단순히 멈추는 것은 물체 배치에 따라 무조건 stall을 유발하므로, 속도를 줄이면서 동시에 물체 반대 방향으로 휜 경로를 생성해 탈출해야 합니다.",
+  "target": "controller 및 _front_dynamic_min_dist",
+  "direction": "1. _front_dynamic_min_dist가 가장 가까운 물체의 거리와 bearing을 반환하게 합니다. 2. 물체가 2.5m 이내에 있으면, bearing의 부호에 따라 반대 방향으로 회전하는 회피 yaw rate(w_avoid)를 계산해 기존 w에 더합니다. 3. 속도 v는 (dist - 1.0) / 1.5 비율로 선형적으로 감속시키며, 1.0m 미만일 때만 v=0으로 완전히 정지합니다. 4. 회피 조향 시 w의 최대치를 제한하여 급격한 회전으로 인한 경로 이탈을 막습니다. 5. 정적 지도 필터링은 유지하여 벽 때문에 회피 동작이 발동하지 않게 합니다. 6. E_TURN을 0.5 정도로 낮춰 경로 추종 정밀도를 높입니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c71t6_s424488756",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 69.1,
+   "stall_abort_t": 68.12,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 63.15,
+   "goal_dist_m": 30.9727,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t6_s1278613007",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 530.9,
+   "sim_time_s": 71.4,
+   "stall_abort_t": 70.4,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 65.45,
+   "goal_dist_m": 31.2335,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t6_s1572164758",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 459.4,
+   "sim_time_s": 62.2,
+   "stall_abort_t": 61.23,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 56.32,
+   "goal_dist_m": 31.0341,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 158 s / 한도 600 s)\n#1 이번 코드(진단 \"lidar2d_points('front')를 호출하여 전방 점들을 가져옵니다. 로봇 기준 x > 0 및 |y/x| < tan(30°) 범위(전방 약 ±30°) 내의 점들 중 최소 거리를 구합니다. 이 최소 거리가 2.0m 미만이면 전진 속도 v를 0.0으로 강제 설정하여 정지합니다. 장애물이 감지되지 않을 때만 기존의 경유점 추종 속도 v를 사용합니다. 정지 중에도 회전 속도 w는 그대로 적용하여 목표 방향을 유지하게 합니다. 기존의 _WAYPOINTS와 제어 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 588 s / 한도 600 s)\n#2 이번 코드(진단 \"1. v_max를 1.5에서 2.0으로 상향하여 순항 속도를 높입니다. 2. v=0이 되는 각도 오차 임계값 abs(e) > 0.35를 0.2로 낮추어 제자리 회전 횟수와 시간을 줄입니다. 3. v의 거리 비례 계수를 2.5에서 3.0으로 높여 목표점 접근 시 가속력을 높입니다. 4. w의 이득(gain)을 7.5에서 8.5로 높여 정렬 속도를 개선합니다. 5. 기존의 정적 지도 필터링 및 2.0m 기반 제동 로직은 그대로 유지하여 안전성을 확보합니다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 573 s / 한도 600 s)\n#3 이번 코드(진단 \"1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.\" 반영, 검토 통과): 새 배치 5개 중 3개 pass, 2개 fail (시뮬 시간 합계 573 s / 한도 600 s)\n#4 이번 코드(진단 \"1. v_max를 2.5로, 거리 계수 k_d를 3.5로 높여 주행 속도를 개선합니다. 2. E_TURN을 0.5로 높여 불필요한 제자리 회전 횟수를 줄입니다. 3. _front_dynamic_min_dist가 (최소 거리, 해당 점의 bearing)을 함께 반환하도록 수정합니다. 4. controller에서 bearing이 ±20° 이내이고 거리가 2.0m 미만일 때만 v=0으로 완전히 정지합니다. 5. bearing이 ±60° 이내이고 거리가 3.0m 미만인 경우에는 v를 최대 0.7m/s로 제한하는 '저속 주행(creep)' 모드를 적용합니다. 6. 이를 통해 정면을 완전히 막지 않은 물체 때문에 멈춰 서는 일을 방지하여 stall_abort를 해결하고 전체 시간을 단축합니다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 316 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 정지 구역(stop cone)의 각도를 ±20°에서 ±40°로 확장하고, 거리는 2.0m를 유지합니다. 2. 저속 주행(creep) 속도를 0.7m/s에서 0.3m/s로 낮추어 측면 충돌 시 위험을 줄입니다. 3. 평균 주행 시간을 60초 이내로 줄이기 위해 E_TURN을 0.5에서 0.7로, w 이득을 8.5에서 10.0으로 높여 제자리 회전 시간을 단축합니다. 4. 정지 해제 히스테리시스는 2.2m를 유지합니다. 5. 기존의 정적 지도 필터링 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 388 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _WAYPOINTS를 단순화하여 불필요한 꺾임과 이동 거리를 줄여 주행 시간을 60초 이내로 단축합니다. 2. _front_dynamic_min_dist의 half_angle_deg를 90.0으로 설정하여 전방 180도 전체를 감시합니다. 3. controller에서 v=0.3의 creep 로직을 완전히 삭제하고, ±90° 구역 내 1.8m 이내 물체 감지 시 즉시 v=0으로 정지하게 합니다. 4. v_max를 3.0으로 높이고 E_TURN을 0.8로 상향하여 직선 주행 및 회전 효율을 극대화합니다. 5. 정지 해제 거리(hysteresis)를 2.0m로 설정하여 잦은 가감속을 방지합니다. 6. 기존의 정적 지도 필터링은 유지하여 벽으로 인한 정지를 막습니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 203 s / 한도 600 s)",
+ "ended": "2026-11-18 12:06:16"
+}

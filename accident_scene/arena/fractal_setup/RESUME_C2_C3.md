@@ -57,3 +57,26 @@
 - 시작: `tmux new -d -s c5 "bash fractal_setup/start_c5.sh > ~/logs/c5_auto.log 2>&1"`; 재개: `python3 c2_auto.py --series c5 --start <N> --max-turn 30 >> ~/logs/c5_auto.log`
 - 분석 입력이 gpt-oss 한도(131072 - 답 32768 - 여유 8000 = 90304 토큰)를 넘으면 하네스가 DBG 줄 수를 실행별 10+50 → 5+25 → 3+12 → 2+5 → 0 으로 줄이고, 줄였다는 사실을 DBG 머리말에 적는다(c1_multi_analyze.analyze). Claude 분석에는 적용 안 됨. 이전 파일: ~/logs/c1_multi_analyze_before_c5.py
 - C-5 결과(2026-11-17 14:54 종료): 30턴까지 목표 미달성. 최고 17턴 7/10(10회 모두 실행, 601 s), 그다음 2턴 4/5. 최종 코드 2,800줄대. DBG 줄이기 장치는 한 번도 작동하지 않음(분석 입력 최대 78k 토큰). 재개: `python3 c2_auto.py --series c5 --start 31 --max-turn N`.
+
+## C-6 (2026-11-17 16:37 시작)
+- 분석만 Qwen3.6-27B(추론 모드, BF16 원본, ~/models/Qwen3.6-27B), 코더·검토는 Claude Opus 5.5. 태그 `claude_qwen36_analyst_pC6t<N>`, 실행 이름 `c6t<N>_s<seed>`.
+- 서버: `tmux new -d -s vllmqwen "bash fractal_setup/serve_qwen36-27b_gpu.sh > ~/logs/vllm_qwen36.log 2>&1"` (포트 8420, 0.80, 131072 토큰, `--max-num-seqs 4` 필수 - 기본값 1024 는 기동 실패). gpt-oss 와 동시에 못 띄움.
+- 시작: `tmux new -d -s c6 "bash fractal_setup/start_c6.sh > ~/logs/c6_auto.log 2>&1"`; 재개: `python3 c2_auto.py --series c6 --start <N> --max-turn 30 >> ~/logs/c6_auto.log`
+- 분석 한 번에 약 4분(C-5 8턴 입력 36.7k 토큰 → 245 s, 추론 5.5k 토큰). 요청 설정은 다른 계열과 같음(temperature 0.7, top_p 0.95, max_tokens 32768).
+- C-6 결과(2026-11-17 23:03 종료): 30턴까지 목표 미달성. 최고 5/8(15·16·19턴), 최고 통과 수 5. 분석 한 번에 170~400 s. 재개: `python3 c2_auto.py --series c6 --start 31 --max-turn N` (Qwen 서버를 다시 띄워야 함).
+
+## C-7 (2026-11-17 준비)
+- 분석만 Gemma 4 31B(it, BF16, 추론 켬), 코더·검토는 Claude Opus 5.5. 태그 `claude_gemma4_analyst_pC7t<N>`, 실행 이름 `c7t<N>_s<seed>`.
+- 서버 `fractal_setup/serve_gemma4-31b_gpu.sh`, 자동 전환 `fractal_setup/switch_to_c7.sh`(tmux c7wait, ~/logs/c7_switch.log), 시작 `fractal_setup/start_c7.sh`(~/logs/c7_auto.log).
+- Gemma 는 추론이 기본 꺼짐: `agent_loop.post` 가 모델 이름이 gemma 로 시작하면 `chat_template_kwargs.enable_thinking=true` 를 넣는다.
+- C-7 시작 2026-11-18 00:27. Gemma 서버는 `--kv-cache-dtype fp8` 가 있어야 0.80 에서 131072 토큰으로 뜬다(없으면 KV 캐시 23.3 GiB 필요, 남는 것은 15.0 GiB → 기동 실패). 시험 요청: 입력 24.3k 토큰 → 407 s, 추론 8.0k 토큰, 답 형식 정상.
+- Isaac 은 GPU 를 약 6~8 GB 쓴다(gpu_watch.csv: vLLM 77~78 GB → 실행 중 84~86 GB).
+- C-7 결과(2026-11-18 09:58 종료): 30턴까지 목표 미달성. 최고 8/8(25턴, 600 s 를 8회에 다 씀), 7/9 네 번(18·21·22·24턴), 7/8(23턴). 충돌은 11턴 이후 턴당 0~3건, 통과 실행 평균 72~88 s(필요 60 s). 분석 한 번에 100~400 s. 재개: `python3 c2_auto.py --series c7 --start 31 --max-turn N`.
+- C-7 에서 드러난 하네스의 정보 틈(미적용): (1) 예산이 딱 떨어져 남은 실행을 시작하지 못하면 실행 요약에 실패 행이 없어 분석이 "모두 통과"로 읽는다(14·25턴). (2) 검토가 진단에 대해 적은 의문이 다음 분석 입력에 들어가지 않는다. (3) 코더의 답 형식으로는 정의를 지울 수 없다.
+
+## C-7b 와 C-8 (2026-11-18, 사용자 지시: 하네스에 사실 두 가지를 넣고 C-7 을 다시, 그 뒤 C-8)
+- 하네스 변경(계열 c71, c8 에만 적용, `c1_cycle.FACT_SERIES`): 분석 입력에 (1) "이번 턴 실행 집계" - 배치 10개 중 몇 개를 실행했고 몇 개를 왜 못 했는지, 통과 실행의 평균·최소·최대 시간과 필요한 실행당 평균 60 s, 통과 기준 충족 여부, (2) 검토 담당이 진단에 대해 적은 의문(diagnosis_concerns) 을 넣는다. 이전 파일: ~/logs/c1_cycle_before_c71.py, ~/logs/c1_multi_analyze_before_c71.py
+- C-7b: 계열 이름 `c71`(실행 이름 `c71t<N>_s<seed>`, 기록 `results/turns/prompt_c71_turn<N>`), 분석 Gemma 4 31B, 0턴부터. 2026-11-18 10:23 시작, tmux c71, ~/logs/c71_auto.log. 재개: `python3 c2_auto.py --series c71 --start <N> --max-turn 30`
+- C-8: 계열 `c8`, 분석 EXAONE 4.5 33B(`fractal_setup/serve_exaone45-33b_gpu.sh`, 추론 기본 켜짐, 연구·비상업 라이선스). C-7b 가 끝나면 `fractal_setup/switch_to_c8.sh`(tmux c8wait, ~/logs/c8_switch.log)가 서버를 바꾸고 시험한 뒤 `start_c8.sh` 를 띄운다. 문맥은 131072 → 114688 → 98304 순으로 시도하고, 분석 입력 한도는 서버의 max_model_len 에서 읽는다(`c1_multi_analyze.server_context`).
+- C-7b 결과(2026-11-18 17:37 종료): 30턴까지 목표 미달성. 9/10 세 번(2턴 573 s, 22턴 560 s, 27턴 523 s), 9/9 한 번(1턴). 3~19턴은 단순 반응형 코드로 대부분 0~3건 통과, 20턴에 코더가 추적·예측 구조를 넣은 뒤 회복. 3턴에서 하네스의 근거 검사 버그(regex 가 "." 를 숫자로 읽음)로 분석이 죽어 고치고 3턴 분석만 다시 받음.
+- 2026-11-18 17:38: C-8 전환 중 EXAONE 가중치를 올리던 때(GPU 63 GB 확보 직후, 로딩 20초쯤) 호스트가 예고 없이 죽고 17:39:44 재부팅됨. vLLM 모델 로딩 중 호스트 다운은 세 번째(앞의 두 번은 gpt-oss-120b). C-8 은 시작되지 않음. 재시도: `tmux new -d -s c8wait "bash fractal_setup/switch_to_c8.sh > ~/logs/c8_switch.log 2>&1"` (C-7b 종료와 내려받기 완료는 이미 충족돼 바로 서버를 올림). GPU 감시(`~/logs/gpu_watch.csv`)도 재부팅으로 꺼졌으니 `resume_after_reboot.sh` 의 nohup 줄로 다시 켤 것.

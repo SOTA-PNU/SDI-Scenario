@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 0.8 m 이진 정지는 정지한 채로 물체에 부딪히는 원인이었으므로, 진단의 `direction` 지시대로 controller 에 `blocked_t` 와 `evade_flag` 상태를 추가했습니다. d_min < 0.8 m 이면 정지하면서 정지 시각과 그때 거리를 기록합니다. 정지가 0.5 초를 넘거나 거리가 그 뒤로 더 줄면 회피로 넘어가, 뒤쪽 통로(`_rear_gap`)가 1.0 m 이상이면 v = -0.2 로 후진하고 막혀 있으면 w = 0.6 으로 제자리 회전합니다. d_min 이 1.0 m 를 넘으면 상태를 초기화하고 정상 주행으로 돌아갑니다. 0.8~1.5 m 반발 조향·감속과 경유점 추종은 그대로 두었고, 시각 t 는 정지 지속 타이머에만 쓰며 물체 위치 추정에는 쓰지 않습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 중거리 반발 조향 + 근접 정지 후 능동 회피 (C-2 시도 16, 진단 반영).\n    - 상태 변수: controller.blocked_t (정지 시작 시각, 없으면 None), controller.evade_flag (회피 중 여부),\n      controller.blocked_d (정지 시작 때의 최단 거리).\n    - 감시 영역(|bearing| < _SIDE_B, 0.2 m 미만 잡음 제외) 의 움직이는 점 최단 거리 d_min, 그 점의 bearing b_min 을 매 스텝 계산.\n    - 회피 중(evade_flag): d_min > _EVADE_EXIT(1.0 m) 이면 evade_flag=False, blocked_t=None 으로 정상 주행 복귀.\n      아니면 뒤쪽 통로(_rear_gap) >= _REAR_MIN(1.0 m) 이면 v = -_EVADE_V(-0.2) 후진, 막혔으면 |w| = _ESCAPE_W(0.6) 제자리 회전.\n    - d_min < _HALT_D(0.8 m): v = 0, w = 0 정지, 처음이면 blocked_t, blocked_d 기록.\n      t - blocked_t > _BLOCK_HOLD(0.5 s) 이거나 d_min 이 blocked_d 보다 _EVADE_DEC 이상 줄면 evade_flag = True 로 바로 회피.\n    - _HALT_D <= d_min < _REP_D(1.5 m): 반발 조향 + 거리 비례 감속 (기존과 같음).\n    - d_min >= 1.5 m: 기존 경유점 추종. d_min > _EVADE_EXIT 이면 blocked_t 초기화.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    if not hasattr(controller, \"evade_flag\"):\n        controller.evade_flag = False\n        controller.blocked_t = None\n        controller.blocked_d = float(\"inf\")\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done and not controller.evade_flag:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    # ---- 감시 영역 최단 거리 d_min 과 bearing b_min ----\n    d_min, b_min = float(\"inf\"), 0.0\n    if dyn_r.shape[0]:\n        d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n        ok = d_all >= _NOISE_R                                # 0.2 m 미만 잡음 제외\n        ax, ay, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n        b = np.arctan2(ay, ax)                                # 부호 있는 bearing (+ 왼쪽)\n        watch = np.abs(b) < _SIDE_B                           # 감시 영역 ±120°\n        if np.any(watch):\n            dw, bw = d[watch], b[watch]\n            i = int(np.argmin(dw))\n            d_min, b_min = float(dw[i]), float(bw[i])\n    side = 1.0 if b_min >= 0.0 else -1.0                      # 물체가 왼쪽이면 +1\n\n    # ---- 회피 상태: 1.0 m 밖으로 벗어날 때까지 후진 또는 제자리 회전 ----\n    if controller.evade_flag:\n        if d_min > _EVADE_EXIT:\n            controller.evade_flag = False\n            controller.blocked_t = None\n            controller.blocked_d = float(\"inf\")\n        else:\n            return _evade_cmd(raw, side)\n\n    # ---- 근접: 정지, 정지 지속 또는 거리 감소 시 회피로 전환 ----\n    if d_min < _HALT_D:\n        if controller.blocked_t is None:\n            controller.blocked_t = t\n            controller.blocked_d = d_min\n            return 0.0, 0.0, False\n        if (t - controller.blocked_t > _BLOCK_HOLD) or (d_min < controller.blocked_d - _EVADE_DEC):\n            controller.evade_flag = True\n            return _evade_cmd(raw, side)\n        return 0.0, 0.0, False\n\n    if d_min > _EVADE_EXIT:\n        controller.blocked_t = None                           # 충분히 떨어졌으면 정지 기록 초기화\n        controller.blocked_d = float(\"inf\")\n\n    if d_min >= _REP_D:\n        return v, w, False                                    # 기존 경유점 추종 그대로\n\n    # ---- 중거리: 반발 조향 (물체가 왼쪽이면 오른쪽으로) ----\n    w_rep = -_REP_K * (1.0 / max(d_min, 0.05) - 1.0 / _REP_D) * side\n    w_cmd = _clamp(w + w_rep, -_REP_W_MAX, _REP_W_MAX)\n\n    # ---- 거리 비례 감속 ----\n    scale = max(_REP_SCALE_MIN, (d_min - _REP_D0) / _REP_DSPAN)\n    v_cmd = v * scale\n    return v_cmd, w_cmd, False\n\n\ndef _evade_cmd(raw, side):\n    \"\"\"능동 회피 명령 (진단): 뒤쪽 통로가 _REAR_MIN(1.0 m) 이상 비었으면 v = -_EVADE_V(-0.2) 직선 후진,\n    막혔으면 물체 반대쪽으로 |w| = _ESCAPE_W(0.6) 제자리 회전 (side: 물체가 왼쪽이면 +1).\"\"\"\n    if _rear_gap(raw) >= _REAR_MIN:\n        return -_EVADE_V, 0.0, False\n    return 0.0, -_ESCAPE_W * side, False\n\n\n_EVADE_EXIT = 1.0       # 회피 해제 조건: 감시 영역 최단 거리가 이보다 크면 evade_flag=False, blocked_t 초기화 [m] (진단: d_min > 1.0)\n\n\n_EVADE_DEC = 0.05       # 정지 중 최단 거리가 정지 시작 때보다 이만큼 줄면 '계속 줄어듦'으로 보고 즉시 회피 [m] (진단)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 27448,
+  "completion_tokens": 4675
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 53583,
+  "total_cost_usd": 0.313076,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4675,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 27446,
+    "webSearchRequests": 0,
+    "costUSD": 0.313076,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1991,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 27446,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "26644e92-256f-4067-848f-8e0a46ffab58"
+ }
+}

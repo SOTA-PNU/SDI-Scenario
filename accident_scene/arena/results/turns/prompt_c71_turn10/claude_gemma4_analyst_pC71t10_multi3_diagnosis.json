@@ -1,0 +1,121 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t10_s813324973: t=3.9s, 물체와의 거리 0.31m, bearing 36°에서 충돌. 로봇은 v=0.10m/s로 거의 정지 상태였음.",
+   "c71t10_s1626770496: t=3.7s, 물체와의 거리 0.35m, bearing 44°에서 충돌. 로봇 상태 '정지'.",
+   "c71t10_s425650203: t=6.9s, 물체와의 거리 0.36m, bearing 97°에서 충돌. 로봇 상태 '제자리 회전'.",
+   "모든 사례에서 물체가 로봇의 측면(bearing 36°~97°)에서 접근했으며, 로봇은 _STOP_R_WIDE(0.7m) 로직에 의해 정지하거나 매우 느리게 움직여 '앉은 오리(sitting duck)' 상태가 됨."
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체 근처에서 정지하면 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "물체는 로봇을 피하지 않고 계속 이동하므로, 정지해 있는 로봇의 측면을 들이받는 경우가 발생함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 및 감속 기반 회피",
+    "turns": "1, 2, 3, 6, 10",
+    "result": "측면 접근 물체에 대해 무력함 (최근 3회 모두 실패)"
+   },
+   {
+    "family": "조향 기반 회피",
+    "turns": "4, 5, 7, 8, 9",
+    "result": "속도가 너무 낮아 실제 위치 이동이 부족하거나 정적 장애물과 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "능동적 측면 회피 (Active Lateral Evasion)",
+    "new_family": true,
+    "for": "물체가 측면에서 다가올 때 정지하는 대신, 반대 방향으로 조향하며 일정 속도 이상으로 움직여 물체의 경로에서 빠르게 벗어나야 함.",
+    "risk": "회피 기동 중 벽이나 고정 박스 등 정적 장애물과 충돌할 위험이 있음."
+   },
+   {
+    "idea": "척력 기반 전위장 (Repulsive Potential Field)",
+    "new_family": true,
+    "for": "물체로부터 밀어내는 벡터를 생성해 경로에 더함으로써 자연스러운 회피 유도.",
+    "risk": "로컬 미니멈에 빠져 정지하거나 경로 이탈이 심해질 수 있음."
+   }
+  ],
+  "chosen": "능동적 측면 회피. 기존의 waypoint 추종 구조를 유지하면서 '정지'라는 최악의 선택을 '회피 이동'으로 바꾸는 가장 효율적인 방법임.",
+  "target": "controller 및 속도/조향 결정 로직",
+  "direction": "1. _STOP_R_WIDE 로직을 완전히 제거하여 측면 물체 때문에 로봇이 멈춰 서는 것을 막습니다. 2. 물체가 1.5m 이내에 있고 정지 원뿔(±30°) 밖에 있는 '측면 접근' 상황을 정의합니다. 3. 이 상황에서 '능동 회피 모드'를 활성화하여, w_avoid의 강도를 높이고 v의 하한선(예: 0.5m/s)을 강제하여 로봇이 실제로 위치를 이동하게 합니다. 4. 이 회피 속도는 _E_TURN에 의한 정지나 _SIDE_SCALE_MIN보다 우선하여 적용합니다. 5. 단, _static_close_on_side가 true인 경우(벽에 붙은 경우)에는 회피 조향과 속도를 제한하여 정적 충돌을 방지합니다. 6. 정면 정지 원뿔(±30°) 내의 물체에 대해서는 기존처럼 v=0 정지와 후진 로직을 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t10_s813324973: t=3.9s, 물체와의 거리 0.31m, bearing 36°에서 충돌. 로봇은 v=0.10m/s로 거의 정지 상태였음.\",\n  \"c71t10_s1626770496: t=3.7s, 물체와의 거리 0.35m, bearing 44°에서 충돌. 로봇 상태 '정지'.\",\n  \"c71t10_s425650203: t=6.9s, 물체와의 거리 0.36m, bearing 97°에서 충돌. 로봇 상태 '제자리 회전'.\",\n  \"모든 사례에서 물체가 로봇의 측면(bearing 36°~97°)에서 접근했으며, 로봇은 _STOP_R_WIDE(0.7m) 로직에 의해 정지하거나 매우 느리게 움직여 '앉은 오리(sitting duck)' 상태가 됨.\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"물체 근처에서 정지하면 충돌을 피할 수 있다\",\n   \"holds\": false,\n   \"why\": \"물체는 로봇을 피하지 않고 계속 이동하므로, 정지해 있는 로봇의 측면을 들이받는 경우가 발생함.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"정지 및 감속 기반 회피\",\n   \"turns\": \"1, 2, 3, 6, 10\",\n   \"result\": \"측면 접근 물체에 대해 무력함 (최근 3회 모두 실패)\"\n  },\n  {\n   \"family\": \"조향 기반 회피\",\n   \"turns\": \"4, 5, 7, 8, 9\",\n   \"result\": \"속도가 너무 낮아 실제 위치 이동이 부족하거나 정적 장애물과 충돌\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"능동적 측면 회피 (Active Lateral Evasion)\",\n   \"new_family\": true,\n   \"for\": \"물체가 측면에서 다가올 때 정지하는 대신, 반대 방향으로 조향하며 일정 속도 이상으로 움직여 물체의 경로에서 빠르게 벗어나야 함.\",\n   \"risk\": \"회피 기동 중 벽이나 고정 박스 등 정적 장애물과 충돌할 위험이 있음.\"\n  },\n  {\n   \"idea\": \"척력 기반 전위장 (Repulsive Potential Field)\",\n   \"new_family\": true,\n   \"for\": \"물체로부터 밀어내는 벡터를 생성해 경로에 더함으로써 자연스러운 회피 유도.\",\n   \"risk\": \"로컬 미니멈에 빠져 정지하거나 경로 이탈이 심해질 수 있음.\"\n  }\n ],\n \"chosen\": \"능동적 측면 회피. 기존의 waypoint 추종 구조를 유지하면서 '정지'라는 최악의 선택을 '회피 이동'으로 바꾸는 가장 효율적인 방법임.\",\n \"target\": \"controller 및 속도/조향 결정 로직\",\n \"direction\": \"1. _STOP_R_WIDE 로직을 완전히 제거하여 측면 물체 때문에 로봇이 멈춰 서는 것을 막습니다. 2. 물체가 1.5m 이내에 있고 정지 원뿔(±30°) 밖에 있는 '측면 접근' 상황을 정의합니다. 3. 이 상황에서 '능동 회피 모드'를 활성화하여, w_avoid의 강도를 높이고 v의 하한선(예: 0.5m/s)을 강제하여 로봇이 실제로 위치를 이동하게 합니다. 4. 이 회피 속도는 _E_TURN에 의한 정지나 _SIDE_SCALE_MIN보다 우선하여 적용합니다. 5. 단, _static_close_on_side가 true인 경우(벽에 붙은 경우)에는 회피 조향과 속도를 제한하여 정적 충돌을 방지합니다. 6. 정면 정지 원뿔(±30°) 내의 물체에 대해서는 기존처럼 v=0 정지와 후진 로직을 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t10_s813324973",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 9.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.9,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.10m/s 회전 +0.7",
+   "partner_rel_xy": [
+    0.34,
+    0.48
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 32.3886,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t10_s1626770496",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 590.1,
+   "sim_time_s": 9.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.733,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.36,
+    0.52
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 31.6135,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t10_s425650203",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 580.4,
+   "sim_time_s": 12.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 6.9,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.4rad/s",
+   "partner_rel_xy": [
+    0.21,
+    0.54
+   ],
+   "closing_m_s": 0.44,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 1.92,
+   "goal_dist_m": 32.1627,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

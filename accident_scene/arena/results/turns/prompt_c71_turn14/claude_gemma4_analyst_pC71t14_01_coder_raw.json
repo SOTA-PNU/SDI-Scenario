@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 지시 1~3에 따라 회피 중 고정 속도 상한 `_V_AVOID_MAX`(0.7 m/s)를 속도 결정에서 뺐습니다. 대신 ±90° 안 동적 물체 거리 `d_front` 로 `speed_scale = clamp((d_front − 0.7)/(1.5 − 0.7), 0, 1)` 을 계산해 전진 속도에 곱하므로, 측면에서 0.7 m 안으로 들어온 물체가 있으면 반드시 멈춥니다. 지시 4에 따라 `_STOP_R` 을 0.8 m로 올렸고, 지시 6에 따라 `speed_scale == 0` 정지를 `_E_TURN` 제자리 회전 판정보다 먼저 결정합니다. 지시 5에 따라 `w_avoid`, `_static_close_on_side`, `_static_ahead`, 정면 원뿔 정지·후진 로직은 그대로 두었습니다.\n\n```python\n_STOP_R = 0.8           # full stop radius inside the stop cone [m]\n\n\n_SCALE_STOP_R = 0.7      # moving object within +-90 deg closer than this -> speed scale 0 (v = 0) [m]\n\n\n_SCALE_FULL_R = 1.5      # speed scale rises linearly from 0 at _SCALE_STOP_R to 1 at this distance [m]\n\n\ndef controller(t, pose, env):\n    \"\"\"Follow the way-points (v_max 3.0, k_d 3.5, k_w 10.0).\n    Moving objects (front + back 2D lidar, static map filtered out):\n      - no hard speed cap while avoiding: v is multiplied by a distance-based scale\n        speed_scale = clamp((d_front - _SCALE_STOP_R) / (_SCALE_FULL_R - _SCALE_STOP_R), 0, 1)\n        computed from the closest moving-object point within +-90 deg (0.7 m -> v = 0, 1.5 m -> full speed).\n      - speed_scale == 0 is decided first (v = 0), before the _E_TURN in-place-rotation rule.\n      - object within +-90 deg closer than _AVOID_R (2.0 m): avoidance steering w_avoid (offset <= _DPSI_MAX)\n        away from the object, v also scaled by cos(e_cmd) (at least 30 %); _static_close_on_side cancels steering\n        toward static obstacles and _static_ahead stops forward motion if a static obstacle is right in front.\n      - frontal stop cone (+-30 deg, _STOP_R 0.8 m): v = 0; back up if very close or blocked long and rear clear.\n      - no moving object near: rotate in place when |e_cmd| > _E_TURN, else normal speed.\n      - goal alignment: rotate in place (v = 0); re-approach GOAL if farther than _GOAL_REENTER.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.side = 0.0\n        controller.stop_steps = 0\n\n    x, y, yaw = pose\n    obs = _get_dynamic_min(pose)\n    stop_zone = obs[\"d_cone\"] < _STOP_R\n\n    # 1) Goal-alignment phase (v = 0 always)\n    if controller.idx >= len(_WAYPOINTS):\n        gd = math.hypot(GOAL[0] - x, GOAL[1] - y)\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if gd > _GOAL_REENTER:\n            controller.idx = len(_WAYPOINTS) - 1  # drifted off the goal: drive back to GOAL\n        else:\n            if abs(e) < 0.05:\n                return 0.0, 0.0, True\n            return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    K_W = 10.0\n    span = _AVOID_R - _STOP_R\n\n    d_front, b_front = obs[\"d_front\"], obs[\"b_front\"]\n    d_cone = obs[\"d_cone\"]\n    steering = d_front < _AVOID_R\n\n    # 3) avoidance steering (objects within +-90 deg) away from the object\n    w_avoid = 0.0\n    dpsi = 0.0\n    if steering:\n        if abs(b_front) >= _B_TIE:\n            controller.side = 1.0 if b_front > 0.0 else -1.0     # object on the left (+1) / right (-1)\n        elif controller.side == 0.0:\n            controller.side = 1.0 if e <= 0.0 else -1.0          # dead ahead: pass on the waypoint side\n        side = controller.side\n        k = _clamp((_AVOID_R - d_front) / span, 0.0, 1.0)\n        dpsi = -side * _DPSI_MAX * k * max(0.3, math.cos(b_front))\n        if _static_close_on_side(pose, -side):\n            dpsi = 0.0                                            # do not steer / swing into walls, boxes, racks\n        w_avoid = K_W * dpsi\n    else:\n        controller.side = 0.0\n\n    # 4) Control law: waypoint heading + avoidance yaw rate\n    w_lim = _W_AVOID_MAX if steering else 2.0\n    w = _clamp(K_W * e + w_avoid, -w_lim, w_lim)\n    e_cmd = _wrap_angle(e + dpsi)\n\n    # distance-based speed scale from the closest moving object within +-90 deg (replaces the 0.7 m/s hard cap)\n    if math.isfinite(d_front):\n        speed_scale = _clamp((d_front - _SCALE_STOP_R) / (_SCALE_FULL_R - _SCALE_STOP_R), 0.0, 1.0)\n    else:\n        speed_scale = 1.0\n    v_nom = min(3.0, 3.5 * dist + 0.5)\n\n    if speed_scale <= 0.0:\n        v = 0.0                                                   # moving object within 0.7 m (+-90 deg): stop first\n    elif steering:\n        v = v_nom * speed_scale * _clamp(math.cos(e_cmd), 0.3, 1.0)\n        if _static_ahead(pose):\n            v = 0.0                                               # never push into a static obstacle\n    elif abs(e_cmd) > _E_TURN:\n        v = 0.0                                                   # rotate in place (no moving object near)\n    else:\n        v = v_nom * speed_scale\n\n    # 5) Frontal stop only for the +-30 deg cone; back up if very close or blocked long, rear clear\n    if stop_zone:\n        controller.stop_steps += 1\n        v = 0.0\n        if (d_cone < _BACK_R or controller.stop_steps > _BACK_AFTER_STEPS) and _rear_clear():\n            v = -_V_BACK\n            w = 0.0\n    else:\n        controller.stop_steps = 0\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 24804,
+  "completion_tokens": 6513
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 56174,
+  "total_cost_usd": 0.328684,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6513,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 24802,
+    "webSearchRequests": 0,
+    "costUSD": 0.328684,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3844,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 24802,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "dd386df2-e5c4-40f9-8927-5ca45fbce965"
+ }
+}

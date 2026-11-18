@@ -186,7 +186,7 @@ def check_evidence(diag, rows):
                       f"progress_abort_t={row.get('progress_abort_t')}, collision_t={row.get('collision_t')}, "
                       f"partner={row.get('partner')}, robot_at_collision={row.get('robot_at_collision')}, "
                       f"stop_turns={row.get('stop_turns')}")
-            m = re.search(r"stall_abort(?:_t)?\s*[=:]?\s*([0-9.]+)", ev)
+            m = re.search(r"stall_abort(?:_t)?\s*[=:]?\s*([0-9]+\.?[0-9]*)", ev)   # a digit is required: "stall_abort. 로봇" gave "." (C-7b turn 3 crash)
             # an evidence line that says the stall abort is absent ("stall_abort ... null/None/없") is not a claim of one
             # (C-3 turn 2: a correct "충돌·stall_abort·progress_abort 가 모두 null" was rejected three times)
             denies = re.search(r"stall[^.。]{0,60}(null|none|없)", ev, re.I)
@@ -209,6 +209,15 @@ def check_evidence(diag, rows):
 CONTEXT_TOKENS = 131072
 
 
+def server_context(base_url):
+    """max_model_len of the model the vLLM server holds (C-8: EXAONE may be served with less than 131072)."""
+    try:
+        d = json.loads(urllib.request.urlopen(base_url + "/models", timeout=30).read())
+        return int(d["data"][0].get("max_model_len") or CONTEXT_TOKENS)
+    except Exception:
+        return CONTEXT_TOKENS
+
+
 def count_tokens(base_url, model, text):
     """Prompt tokens as the vLLM server counts them (its /tokenize); a rough guess if that fails."""
     try:
@@ -221,7 +230,7 @@ def count_tokens(base_url, model, text):
 
 
 def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b", base_url="http://127.0.0.1:8420/v1",
-            prior=""):
+            prior="", facts=""):
     """One analyst call over `variants` (runs of `code`); writes <out>_request/_raw/_diagnosis.json, returns (diag, table)."""
     base = (HERE / C1.BASE_FILE).read_text()
     dg = MR.digest(variants, log_dir)
@@ -231,6 +240,7 @@ def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b",
                 + "\n\n---\n\n`base_carter_run.py`:\n\n```python\n" + base + "```\n"
                 + "\n---\n\n## 이번 코드\n\n```python\n" + code + "```\n"
                 + "\n## 수정 에이전트가 밝힌 변경 이유\n\n" + (reason or "") + "\n"
+                + facts
                 + f"\n## 여러 실행 요약 ({len(variants)}개 배치. 턴 예산은 모든 실행 합계 600초이고, 실행별 시간 한도는 표의 time_limit_s)\n\n```json\n" + json.dumps(dg, ensure_ascii=False) + "\n```\n"
                 + dbg
                 + "\n## 시도 기록\n\n" + history + "\n"
@@ -239,7 +249,7 @@ def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b",
     if not str(model).startswith("claude"):
         # C-5 (2026-11-17): a vLLM analyst has a context limit (C-3's inputs reached 130-167k tokens with DBG lines).
         # Fewer DBG lines per run until the input fits; the DBG header tells the analyst what was delivered and why.
-        limit = CONTEXT_TOKENS - CT.MAX_TOKENS - 8000          # room for the answer and the evidence-check retries
+        limit = server_context(base_url) - CT.MAX_TOKENS - 8000   # room for the answer and the evidence-check retries
         for head, tail in ((DBG_HEAD, DBG_TAIL), (5, 25), (3, 12), (2, 5), (0, 0)):
             if (head, tail) != (DBG_HEAD, DBG_TAIL):
                 body = make_body(dbg_section(variants, log_dir, head, tail,

@@ -647,6 +647,9 @@ def post(base, payload, timeout):
     if str(payload.get("model") or "").startswith("claude") or (
             os.environ.get("AGENT_BACKEND") == "claude" and not os.environ.get("AGENT_ROLE_MODELS")):
         return claude_post(payload, timeout)
+    if str(payload.get("model") or "").startswith("gemma"):
+        # Gemma 4 thinks only when the chat template is told to (its default is off); C-7, 2026-11-17
+        payload = {**payload, "chat_template_kwargs": {"enable_thinking": True, **(payload.get("chat_template_kwargs") or {})}}
     body = json.dumps(payload).encode()
     req = urllib.request.Request(f"{base}/chat/completions", data=body, headers={
         "Content-Type": "application/json", "Connection": "close"})

@@ -1,0 +1,255 @@
+{
+ "turn": 3,
+ "started": "2026-11-18 11:24:18",
+ "code_in": "results/turns/prompt_c71_turn2/claude_gemma4_analyst_pC71t2_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c71t2_s207202623에서 t=4.867s에 mover_00와 충돌",
+   "충돌 전 t=3.4s~4.6s 구간에서 물체의 bearing이 39°~60°로 유지되어, 현재 코드의 감지 범위인 ±30° 밖에서 접근함",
+   "로봇은 물체가 0.99m(t=4.1s)까지 다가왔음에도 감지하지 못하고 v=1.70m/s로 주행함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±30°의 좁은 원뿔 영역만 감시하면 충분하다",
+    "holds": false,
+    "why": "측면에서 대각선으로 진입하는 물체(bearing 40°~60°)를 감지하지 못해 충돌함"
+   },
+   {
+    "assumption": "E_TURN=0.2 설정이 효율적인 주행 시간을 보장한다",
+    "holds": false,
+    "why": "통과한 실행들에서 stop_turns가 25~30회로 매우 많으며, 이로 인해 평균 주행 시간이 60초를 상회하여 전체 예산(600s)에 근접함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "반응형 제동 (좁은 원뿔 감지)",
+    "turns": "2",
+    "result": "9/10 통과 (측면 충돌 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감지 원뿔 각도를 ±60°로 확대하고 E_TURN 임계값을 상향",
+    "new_family": false,
+    "for": "측면 접근 물체를 조기에 감지하여 제동하고, 제자리 회전 횟수를 줄여 주행 시간을 단축할 수 있음",
+    "risk": "감지 범위가 넓어져 경로상에 위협이 되지 않는 물체에도 불필요하게 정지할 가능성이 있음"
+   },
+   {
+    "idea": "원뿔 대신 전방 반평면(x > -0.2) 내의 모든 동적 물체에 대해 거리 기반 안전 버블 적용",
+    "new_family": true,
+    "for": "각도와 상관없이 로봇 전방의 모든 위협을 감지하므로 가장 안전함",
+    "risk": "통로 옆을 지나가는 물체에 너무 민감하게 반응하여 stall(정체)이 발생할 수 있음"
+   }
+  ],
+  "chosen": "감지 원뿔 각도를 ±60°로 확대하고 E_TURN을 0.3으로 높이는 방안을 선택. 실패 사례의 bearing(41°~60°)을 확실히 커버하면서도 과도한 정지를 방지하기 위함",
+  "target": "_front_dynamic_min_dist, controller",
+  "direction": "1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 근거는 실행 c71t2_s207202623입니다. 이 실행에서 물체가 bearing 39°~60°로 옆에서 다가왔는데, 기존 ±30° 감지 범위 밖이라 0.99 m까지 접근하는 동안 제동하지 못하고 충돌했습니다. 진단 지시 1에 따라 `_front_dynamic_min_dist` 의 감지 범위를 `math.radians(60.0)` 로 넓혀 이런 측면 접근도 제동 대상에 넣었습니다. 지시 2에 따라 `controller` 의 E_TURN 을 0.2에서 0.3으로 올려 제자리 회전(stop_turn) 횟수와 주행 시간을 줄였습니다. 지시 3에 따라 v_max 2.0, 거리 계수 3.0, w 이득 8.5, 2.0 m/3.0 m 제동 로직과 경유점은 그대로 두었습니다.",
+   "changed": [
+    "_front_dynamic_min_dist",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "_front_dynamic_min_dist 의 cone 기준을 math.radians(30.0) 에서 math.radians(60.0) 으로 변경",
+      "implemented": true,
+      "note": "cone 식이 math.tan(math.radians(60.0)) 으로 바뀜"
+     },
+     {
+      "instruction": "controller 의 E_TURN 을 0.2 에서 0.3 으로 상향",
+      "implemented": true,
+      "note": "E_TURN = 0.3 으로 바뀜"
+     },
+     {
+      "instruction": "v_max 2.0, 거리 계수 3.0, w 이득 8.5, 2.0 m/3.0 m 제동 로직 유지",
+      "implemented": true,
+      "note": "min(2.0, 3.0*dist+0.5), 8.5*e, 3.0 m 감속, 2.0/2.2 m 정지 히스테리시스 모두 그대로임"
+     },
+     {
+      "instruction": "측면 충돌 방지와 stop_turn 감소로 주행 시간 단축(목적)",
+      "implemented": true,
+      "note": "코드 지시가 아닌 기대 효과임. 1·2 항목 구현으로 대응함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "근거의 bearing 상한이 60° 인데 cone 판정이 strict 부등식(< tan60°)이라 60° 근처는 경계에 걸림. 여유가 적음",
+     "±60°·2.0 m 정지 영역은 옆으로 약 1.7 m 까지 포함함. 평행 통로를 지나는 물체에도 자주 멈춰 시간 예산을 더 쓸 수 있음",
+     "정지만으로는 옆에서 다가오는 물체를 피하지 못함. 멈춰 있어도 닿으면 충돌로 판정됨",
+     "stop_turn 25~30회의 원인이 E_TURN 인지 근거가 부족함. 경유점은 7개뿐이므로 제동 뒤 재정렬이나 진동이 원인일 수 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reused_block": "results/turns/prompt_c71_turn3/claude_gemma4_analyst_pC71t3_block.py",
+ "reason": "변경 이유: 진단의 근거는 실행 c71t2_s207202623입니다. 이 실행에서 물체가 bearing 39°~60°로 옆에서 다가왔는데, 기존 ±30° 감지 범위 밖이라 0.99 m까지 접근하는 동안 제동하지 못하고 충돌했습니다. 진단 지시 1에 따라 `_front_dynamic_min_dist` 의 감지 범위를 `math.radians(60.0)` 로 넓혀 이런 측면 접근도 제동 대상에 넣었습니다. 지시 2에 따라 `controller` 의 E_TURN 을 0.2에서 0.3으로 올려 제자리 회전(stop_turn) 횟수와 주행 시간을 줄였습니다. 지시 3에 따라 v_max 2.0, 거리 계수 3.0, w 이득 8.5, 2.0 m/3.0 m 제동 로직과 경유점은 그대로 두었습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  106926726,
+  1959134779,
+  712816087,
+  581634200,
+  1270477532
+ ],
+ "sim_used_s": 572.8,
+ "verdicts": {
+  "106926726": "fail",
+  "1959134779": "fail",
+  "712816087": "pass",
+  "581634200": "pass",
+  "1270477532": "pass"
+ },
+ "passes": 3,
+ "prior_chars": 522,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 5개를 실행했고, 5개는 실행하지 못했습니다 (사유: 남은 예산 27초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 3개, 실패 2개. 시뮬 시간 합계 573초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 87초 (가장 짧은 것 79초, 가장 긴 것 102초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 근거의 bearing 상한이 60° 인데 cone 판정이 strict 부등식(< tan60°)이라 60° 근처는 경계에 걸림. 여유가 적음\n- (검토 1회차, 판정 pass) ±60°·2.0 m 정지 영역은 옆으로 약 1.7 m 까지 포함함. 평행 통로를 지나는 물체에도 자주 멈춰 시간 예산을 더 쓸 수 있음\n- (검토 1회차, 판정 pass) 정지만으로는 옆에서 다가오는 물체를 피하지 못함. 멈춰 있어도 닿으면 충돌로 판정됨\n- (검토 1회차, 판정 pass) stop_turn 25~30회의 원인이 E_TURN 인지 근거가 부족함. 경유점은 7개뿐이므로 제동 뒤 재정렬이나 진동이 원인일 수 있음\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c71t3_s106926726: t=165.2부터 정지, 물체가 0.62m 7deg(정면)에 위치하여 170.2까지 60초간 정체되어 stall_abort 발생",
+   "c71t3_s1959134779: t=136.0부터 정지, 물체가 1.05m -6deg(정면)에 위치하여 141.0까지 정체되어 stall_abort 발생",
+   "통과한 실행들의 시뮬 시간(78~101s)이 목표 평균(60s)보다 훨씬 길어 시간 예산 부족으로 5개 실행이 누락됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "±60° 범위 내 물체 감지 시 정지하는 것이 안전하다",
+    "holds": false,
+    "why": "정면이 아닌 측면 물체에 의해서도 정지하여 stall_abort를 유발하고 주행 시간을 크게 늘림"
+   },
+   {
+    "assumption": "v_max 2.0와 E_TURN 0.3으로 충분한 속도를 낼 수 있다",
+    "holds": false,
+    "why": "통과 실행들의 평균 시간이 80초를 상회하여 10개 배치 통과를 위한 60초 기준을 맞추지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Reactive Stop (전방 감지 시 정지)",
+    "turns": "3",
+    "result": "초기엔 성공적이었으나, 현재는 stall_abort 및 시간 초과 문제 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 영역(Stop Cone)을 좁히고 감속 영역(Caution Cone)을 도입하며 순항 속도를 높임",
+    "new_family": true,
+    "for": "물체가 완전히 정면을 막지 않은 경우 저속 주행(creep)을 허용하여 stall_abort를 방지하고, v_max 상향으로 시간 예산을 확보할 수 있음",
+    "risk": "정지 영역을 너무 좁히면 정면 충돌 위험이 증가함"
+   },
+   {
+    "idea": "정체 시 일시적인 경유점 오프셋(Local Offset)을 주어 회피 주행",
+    "new_family": true,
+    "for": "물체가 경로를 완전히 막고 있을 때 정지하지 않고 돌아갈 수 있음",
+    "risk": "좁은 통로에서 벽이나 정적 장애물과 충돌할 가능성이 높음"
+   }
+  ],
+  "chosen": "후보 1. 구현이 단순하면서도 stall_abort 방지와 시간 단축이라는 두 가지 핵심 문제를 동시에 해결할 수 있음",
+  "target": "controller 및 _front_dynamic_min_dist",
+  "direction": "1. v_max를 2.5로, 거리 계수 k_d를 3.5로 높여 주행 속도를 개선합니다. 2. E_TURN을 0.5로 높여 불필요한 제자리 회전 횟수를 줄입니다. 3. _front_dynamic_min_dist가 (최소 거리, 해당 점의 bearing)을 함께 반환하도록 수정합니다. 4. controller에서 bearing이 ±20° 이내이고 거리가 2.0m 미만일 때만 v=0으로 완전히 정지합니다. 5. bearing이 ±60° 이내이고 거리가 3.0m 미만인 경우에는 v를 최대 0.7m/s로 제한하는 '저속 주행(creep)' 모드를 적용합니다. 6. 이를 통해 정면을 완전히 막지 않은 물체 때문에 멈춰 서는 일을 방지하여 stall_abort를 해결하고 전체 시간을 단축합니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c71t3_s106926726",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 171.2,
+   "stall_abort_t": 170.2,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 165.25,
+   "goal_dist_m": 4.913,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t3_s1959134779",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 428.8,
+   "sim_time_s": 142.0,
+   "stall_abort_t": 141.02,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 136.05,
+   "goal_dist_m": 5.3443,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t3_s712816087",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 286.8,
+   "sim_time_s": 101.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 96.02,
+   "goal_dist_m": 0.5881,
+   "time_to_goal_s": 97.75
+  },
+  {
+   "run": "c71t3_s581634200",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 185.0,
+   "sim_time_s": 78.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 72.72,
+   "goal_dist_m": 0.5695,
+   "time_to_goal_s": 74.683
+  },
+  {
+   "run": "c71t3_s1270477532",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 106.4,
+   "sim_time_s": 79.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 73.25,
+   "goal_dist_m": 0.5823,
+   "time_to_goal_s": 75.217
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 158 s / 한도 600 s)\n#1 이번 코드(진단 \"lidar2d_points('front')를 호출하여 전방 점들을 가져옵니다. 로봇 기준 x > 0 및 |y/x| < tan(30°) 범위(전방 약 ±30°) 내의 점들 중 최소 거리를 구합니다. 이 최소 거리가 2.0m 미만이면 전진 속도 v를 0.0으로 강제 설정하여 정지합니다. 장애물이 감지되지 않을 때만 기존의 경유점 추종 속도 v를 사용합니다. 정지 중에도 회전 속도 w는 그대로 적용하여 목표 방향을 유지하게 합니다. 기존의 _WAYPOINTS와 제어 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 588 s / 한도 600 s)\n#2 이번 코드(진단 \"1. v_max를 1.5에서 2.0으로 상향하여 순항 속도를 높입니다. 2. v=0이 되는 각도 오차 임계값 abs(e) > 0.35를 0.2로 낮추어 제자리 회전 횟수와 시간을 줄입니다. 3. v의 거리 비례 계수를 2.5에서 3.0으로 높여 목표점 접근 시 가속력을 높입니다. 4. w의 이득(gain)을 7.5에서 8.5로 높여 정렬 속도를 개선합니다. 5. 기존의 정적 지도 필터링 및 2.0m 기반 제동 로직은 그대로 유지하여 안전성을 확보합니다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 573 s / 한도 600 s)\n#3 이번 코드(진단 \"1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.\" 반영, 검토 통과): 새 배치 5개 중 3개 pass, 2개 fail (시뮬 시간 합계 573 s / 한도 600 s)",
+ "ended": "2026-11-18 11:28:10"
+}

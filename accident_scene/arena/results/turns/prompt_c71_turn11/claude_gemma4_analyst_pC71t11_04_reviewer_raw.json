@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _STOP_R_WIDE 정지 로직 완전 제거\", \"implemented\": true, \"note\": \"controller 의 4b 'd_front < _STOP_R_WIDE → v=0' 블록을 삭제함. 상수는 남아 있지만 어디서도 쓰지 않음.\"},\n  {\"instruction\": \"2. 1.5 m 이내이고 ±30° 원뿔 밖인 물체를 측면 접근으로 정의\", \"implemented\": true, \"note\": \"_get_dynamic_min 이 원뿔 밖 최소거리를 d_side 로 계산하고, d_side < _EVADE_R(1.5) 이면 evade_steps 를 설정함. 0.5 s 동안 유지함.\"},\n  {\"instruction\": \"3. 능동 회피 모드에서 w_avoid 강화와 v 하한 강제\", \"implemented\": true, \"note\": \"_DPSI_EVADE=0.6, _W_EVADE_MAX=1.5, _V_EVADE_MIN=0.6(≥0.5) 로 구현함. 조향 강화는 |bearing|≤90° 인 b_front 에만 적용됨. 90° 를 넘는 측후방 물체에는 하한만 걸림. ahead_blocked, corr_blocked 이면 하한을 끔.\"},\n  {\"instruction\": \"4. 회피 속도가 _E_TURN 정지와 _SIDE_SCALE_MIN 보다 우선\", \"implemented\": true, \"note\": \"4b 에서 e_cmd 판정과 scale 계산 뒤에 v=max(v, 하한)을 적용함.\"},\n  {\"instruction\": \"5. _static_close_on_side 참이면 회피 조향과 속도 제한\", \"implemented\": true, \"note\": \"static_side 또는 _static_close_turn(sign(w)) 이 참이면 dpsi와 w_avoid를 0으로 하고 하한을 _V_EVADE_STATIC(0.3) 로 낮춤. 목표 정렬 단계에도 같은 제한을 적용함.\"},\n  {\"instruction\": \"6. ±30° 원뿔 내 물체는 v=0 정지와 후진 유지\", \"implemented\": true, \"note\": \"stop_zone 이면 v=0 이고 floor_ok 에서도 제외함. 후진 조건에 'd_cone < _BACK_R 이면 즉시 후진'이 추가돼 기존(1.5 s 후)보다 확장됨. 기존 상수 _BACK_R 의 의도에 맞는 변경임.\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"물체의 이동 방향을 추정하지 않고 하한 0.6 m/s 로 전진을 강제함. 전측방(36~44°)에서 다가오는 물체는 그 경로 쪽으로 들어갈 수 있음.\",\n  \"측면 접근을 '원뿔 밖 전체'로 정의해 후방 물체도 회피 모드를 켬. 하지만 조향 강화는 ±90° 안에서만 동작해 97° 같은 측후방 사례에는 조향 효과가 없음.\",\n  \"측정 거리가 base_link 기준임. 몸체 후단 -0.70 m 를 고려하지 않아 후측방의 실제 여유는 1.5 m 보다 작음.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 32584,
+  "completion_tokens": 3660
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 36769,
+  "total_cost_usd": 0.333864,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3660,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 32582,
+    "webSearchRequests": 0,
+    "costUSD": 0.333864,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2453,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 32582,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "f91d0b9a-c455-4b77-badc-48fd2b8ab67a"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 chosen/direction에 따라, 감시 영역의 최단 거리 d_min이 0.8 m 미만이면 v와 w를 모두 0으로 만들어 무조건 정지합니다. 이 하드 안전 레이어로 3/3 충돌의 원인이던 근접 제자리 회전(w_rep)을 막습니다. 베어링 ±60~90° 물체를 놓치던 `_front_blocked` 분기는 지우고 d_min 기준 하나로 합쳤습니다. 0.8~1.5 m 구간은 기존 감속식 `(d_min-0.6)/0.9`와 반발 조향을 그대로 쓰되 |w_cmd| 상한을 1.5에서 1.0 rad/s로 낮췄고, 래치나 타이머 없이 매 스텝 d_min만으로 계산하므로 임계값을 넘으면 바로 해당 식으로 돌아갑니다.\n\n```python\n_SAFE_HALT_D = 0.8      # 감시 영역 최단 거리가 이보다 작으면 v = 0, w = 0 무조건 정지 [m] (진단 시도 28: 하드 안전 레이어)\n\n\n_GOV_W_MAX = 1.0        # 0.8 m <= d_min < 1.5 m 구간에서 반발 조향을 더한 회전 속도의 절대값 상한 [rad/s] (진단 시도 28: 1.5 -> 1.0)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 하드 안전 정지 + 연속 거리 기반 속도 제한기 + 반발 조향 (C-2 시도 28, 진단 반영).\n    - 상태 래치·타이머 없음: 매 스텝 _watch_min 의 d_min, b_min 으로 v, w 를 바로 계산합니다.\n    - d_min < 0.8 m: v = 0, w = 0 무조건 정지 (제자리 회전 충돌 차단).\n    - 0.8 m <= d_min < 1.5 m: v_cmd = v_nom * max(0, min(1, (d_min - 0.6) / 0.9)),\n      w_cmd = clamp(w_nom - 1.5 * sign(b_min) / max(d_min, 0.5), -1.0, 1.0).\n    - d_min >= 1.5 m (또는 감시 영역에 움직이는 점 없음): 경유점 추종 (v_nom, w_nom) 그대로.\n    - _front_blocked 분기는 제거하고 d_min 기준으로 통합했습니다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_min, b_min, _x_min = _watch_min(dyn_r)\n\n    # ---- 가까운 움직이는 물체 없음: 경유점 추종 그대로 ----\n    if not math.isfinite(d_min) or d_min >= _GOV_FULL_D:\n        return v_nom, w_nom, False\n\n    # ---- 하드 안전 레이어: 0.8 m 안이면 전진·회전 모두 정지 ----\n    if d_min < _SAFE_HALT_D:\n        return 0.0, 0.0, False\n\n    # ---- 0.8 ~ 1.5 m: 기존 연속 속도 제한 (0.6 m 에서 0, 1.5 m 에서 1) ----\n    scale = max(0.0, min(1.0, (d_min - _GOV_D0) / _GOV_SPAN))\n    v_cmd = max(0.0, v_nom * scale)\n\n    # ---- 반발 조향: 물체가 왼쪽(+)이면 오른쪽(-)으로, |w| <= 1.0 rad/s ----\n    side = 1.0 if b_min >= 0.0 else -1.0\n    w_rep = -_GOV_REP_K * side / max(d_min, _GOV_REP_DFLOOR)\n    w_cmd = _clamp(w_nom + w_rep, -_GOV_W_MAX, _GOV_W_MAX)\n    return v_cmd, w_cmd, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 35737,
+  "completion_tokens": 2475
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 21636,
+  "total_cost_usd": 0.335388,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2475,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 35735,
+    "webSearchRequests": 0,
+    "costUSD": 0.335388,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 914,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 35735,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "e49f15ad-3f8b-4862-bf17-d4dfe9a2f1ca"
+ }
+}

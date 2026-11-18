@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _static_free 에 critical 인자를 추가하고, critical=True 이면 probe 거리 L 을 0.05 m 로 줄인다\", \"implemented\": true, \"note\": \"_static_free(pose, v, critical=False) 로 바꿨다. 전진·후진 모두 L=_CRIT_PROBE(0.05) 이다. 라이다 점 검사 범위와 지도 probe 점(ex)에 같은 L 을 쓴다. 후진 경로는 _rear_clear 와 같은 식을 안에 풀어 넣어서 critical=False 일 때 동작이 같다\"},\n  {\"instruction\": \"2. _safe_speed 능동 회피(dz['side'] 또는 c0<_ESC_C) 구간에서 _static_free 를 critical=True 로 호출한다\", \"implemented\": true, \"note\": \"회피 후보 루프가 _static_free(pose, vc, critical=True) 를 부른다. _static_guard 의 -0.25 탈출은 일반 모드 그대로다\"},\n  {\"instruction\": \"3. _is_danger['front'] 의 untracked points 판정은 그 점이 1.0 m 이내일 때만 True 로 한다\", \"implemented\": true, \"note\": \"_front_closing 끝에서 미추적 점과 로봇 중심의 거리가 _FRONT_UNTRACKED_R(1.0) 이하일 때만 True 를 반환한다. 앞선 접근속도·추적 판정은 바꾸지 않았다\"},\n  {\"instruction\": \"4. _ESC_V 에 ±0.1 m/s 를 추가한다\", \"implemented\": true, \"note\": \"_ESC_V=(-0.8,-0.5,-0.2,-0.1,0.1,0.2,0.5,1.0,1.5)\"},\n  {\"instruction\": \"5. _ESC_GAIN 을 0.005 로 낮춘다\", \"implemented\": true, \"note\": \"_ESC_GAIN = 0.005\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"critical probe 0.05 m 는 회피 후보 최대 속도에 비해 너무 짧다. 후보는 0.8~1.5 m/s 이고 감속 1.2 m/s² 기준 정지거리는 0.27~0.94 m 이다. _clearance 는 정적 장애물을 보지 않으므로 고속 회피 후보가 선반·벽 쪽으로 채택될 수 있다. critical 일 때 L 을 속도에 비례시키거나 후보 속도를 제한하는 편이 낫다\",\n  \"측면 충돌 사례는 접근 속도가 약 0.7 m/s 인데 ±0.1 m/s 와 이득 0.005 m 로는 실제로 피하기 어렵다. 0.005 m 는 추정 잡음보다 작아 회피 방향이 흔들릴 수 있다\",\n  \"미추적 점 1.0 m 는 로봇 중심 기준이라 앞면에서 약 0.75 m 이다. 새로 나타나 아직 추적되지 않은 물체를 정면 위험으로 늦게 볼 수 있다. 증거 3의 1.04 m 가 중심 기준인지 앞면 기준인지도 분명하지 않다\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 45791,
+  "completion_tokens": 2903
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 29383,
+  "total_cost_usd": 0.42438000000000003,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2903,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 45789,
+    "webSearchRequests": 0,
+    "costUSD": 0.42438000000000003,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1714,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 45789,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "22ebec35-c707-44bd-820e-d3c02155c7c9"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 충돌 3건이 모두 ±30° 정지 원뿔 밖(51°~81°)에서 0.6 m 안팎으로 다가온 물체와 일어났고, 그때 로봇은 `_SIDE_SCALE_MIN` 하한 때문에 계속 전진하고 있었습니다. 그래서 진단 지시 1·2에 따라 `_STOP_R_WIDE = 0.7` 을 추가하고, 전방 ±90° 안의 가장 가까운 움직이는 물체(`d_front`)가 0.7 m 이내이면 v=0 으로 정지하게 했습니다. 이 정지는 감속·속도 하한 계산 뒤에 덮어써서 `_SIDE_SCALE_MIN` 보다 우선합니다(지시 3). 기존 ±30° 정지 원뿔과 후진 로직, 0.7~2.0 m 구간의 감속·회피 조향은 그대로 두었습니다(지시 4·5).\n\n```python\n_STOP_R_WIDE = 0.7      # wide stop radius: any moving object within +-90 deg closer than this -> v = 0 [m]\n\n\ndef controller(t, pose, env):\n    \"\"\"Follow the way-points (v_max 3.0, k_d 3.5, k_w 10.0, rotate in place when |e_cmd| > _E_TURN = 0.6).\n    Moving objects (front + back 2D lidar, 360 deg, static map filtered out):\n      - slow-down: any moving object within _AVOID_R (2.0 m) in ANY direction scales v down and caps v at\n        _V_AVOID_MAX; objects outside the stop cone (side / rear) never scale v below _SIDE_SCALE_MIN.\n      - steering: avoidance yaw rate only for the closest object with |bearing| <= 90 deg (|dpsi| <= 0.35 rad,\n        |w| <= 1.0); dropped when a static obstacle is near the turning front side or the swinging rear.\n      - wide stop: v = 0 when the closest object with |bearing| <= 90 deg is closer than _STOP_R_WIDE (0.7 m);\n        this overrides the _SIDE_SCALE_MIN floor.\n      - v = 0 also when an object inside the stop cone (|bearing| <= 30 deg) is closer than _STOP_R (0.6 m).\n      - back up (straight, w = 0) only when a stop-cone object stays > 1.5 s and the rear is clear.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.side = 0.0\n        controller.stop_steps = 0\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    K_W = 10.0\n    span = _AVOID_R - _STOP_R\n\n    # 3) Moving objects: 360 deg closest (slow down), front-half closest (steer), stop cone (stop)\n    d_all, b_all, d_front, b_front, d_cone = _get_dynamic_min(pose)\n    slowing = d_all < _AVOID_R\n    steering = d_front < _AVOID_R\n\n    # 3a) avoidance steering: only for objects within +-90 deg\n    w_avoid = 0.0\n    if steering:\n        if abs(b_front) >= _B_TIE:\n            controller.side = 1.0 if b_front > 0.0 else -1.0     # object on the left (+1) / right (-1)\n        elif controller.side == 0.0:\n            controller.side = 1.0 if e <= 0.0 else -1.0          # dead ahead: pass on the waypoint side\n        side = controller.side\n        k = _clamp((_AVOID_R - d_front) / span, 0.0, 1.0)\n        dpsi = -side * _DPSI_MAX * k * max(0.3, math.cos(b_front))  # turn away from the object (limited)\n        if _static_close_on_side(pose, -side):\n            dpsi = 0.0                                            # do not steer / swing into walls, boxes, racks\n        w_avoid = K_W * dpsi\n    else:\n        controller.side = 0.0\n\n    # 3b) speed scaling: for moving objects in any direction (360 deg)\n    scale = 1.0\n    if slowing:\n        s_all = _clamp((d_all - _STOP_R) / span, 0.0, 1.0)\n        in_path = abs(b_all) <= math.radians(_STOP_CONE_DEG)\n        if not in_path:\n            s_all = max(s_all, _SIDE_SCALE_MIN)                   # side / rear object: slow down, never stall\n        s_cone = _clamp((d_cone - _STOP_R) / span, 0.0, 1.0) if d_cone < float(\"inf\") else 1.0\n        scale = min(s_all, s_cone)\n\n    # 4) Control law: waypoint heading + limited avoidance yaw rate\n    w_lim = _W_AVOID_MAX if steering else 2.0\n    w = _clamp(K_W * e + w_avoid, -w_lim, w_lim)\n    e_cmd = _wrap_angle(e + w_avoid / K_W)\n    if abs(e_cmd) > _E_TURN:\n        v = 0.0\n    else:\n        v = min(3.0, 3.5 * dist + 0.5) * scale\n        if slowing:\n            v = min(v, _V_AVOID_MAX)\n\n    # 4b) Wide stop: any moving object within +-90 deg closer than _STOP_R_WIDE -> v = 0\n    #     (applied after scaling, so it overrides the _SIDE_SCALE_MIN floor)\n    if d_front < _STOP_R_WIDE:\n        v = 0.0\n\n    # 5) Full stop only for the frontal stop cone (unchanged); back up only if it lasts and the rear is clear\n    if d_cone < _STOP_R:\n        controller.stop_steps += 1\n        v = 0.0\n        if controller.stop_steps > _BACK_AFTER_STEPS and _rear_clear():\n            v = -_V_BACK\n            w = 0.0\n    else:\n        controller.stop_steps = 0\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 20957,
+  "completion_tokens": 3504
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30489,
+  "total_cost_usd": 0.237728,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3504,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 20955,
+    "webSearchRequests": 0,
+    "costUSD": 0.237728,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 992,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 20955,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "d5f7636b-3cfd-4173-af01-1180f9895ff2"
+ }
+}

@@ -1,0 +1,222 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t22_s1496388139: t=21.033에 mover_01과 충돌. 충돌 직전 로봇 속도 0.81m/s, 물체 상대 위치 [0.43, -0.54] (우측 전방), 접근 속도 0.58m/s.",
+   "c7t22_s1496388139: t=19.0~19.8 구간에서 속도가 0.65 -> 1.01m/s로 급가속했으며, t=20.3(0.22m/s) -> 20.8(0.79m/s)로 다시 급가속하는 불안정한 속도 변화 보임.",
+   "c7t22_s171403091: t=63.3에 시간 초과(time_limit)로 종료. 목표 거리 5.17m로, 후반부에 정지-저속 주행 반복으로 인한 지체 발생."
+  ],
+  "assumptions": [
+   {
+    "assumption": "높은 _SIDE_STOP_PEN과 _RELAX_V가 정지보다 이동을 과하게 선호하게 하여, 물체가 교차하는 시점에 무리하게 가속하게 한다.",
+    "holds": true,
+    "why": "s1496388139에서 물체가 매우 가까운 상황(0.4m)임에도 0.8m/s의 고속으로 주행하다 충돌함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "상수 튜닝 (임계값 조정)",
+    "turns": "22",
+    "result": "대부분의 배치 통과하나 간헐적 충돌 및 타임아웃 발생"
+   },
+   {
+    "family": "능동 회피 및 모멘텀 로직",
+    "turns": "10",
+    "result": "측면 충돌 방지에 기여했으나, 이번 턴에서 가속으로 인한 충돌 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 마진(_ESC_C, _CLR_GO)을 다시 높이고, 이동 선호도(_SIDE_STOP_PEN, _RELAX_V)를 낮춰 보수적으로 대응",
+    "new_family": false,
+    "for": "s1496388139의 급가속 충돌을 방지하고 정지 상태의 안정성을 높임",
+    "risk": "s171403091와 같은 타임아웃 발생 가능성 증가"
+   },
+   {
+    "idea": "측면 위협 감지 시 속도 변화율(acceleration)에 제한을 두어 급격한 속도 점프 방지",
+    "new_family": true,
+    "for": "회피-주행 전환 시 발생하는 속도 진동과 무리한 가속 억제",
+    "risk": "물체를 빠르게 피해야 하는 상황에서 반응성 저하"
+   }
+  ],
+  "chosen": "후보 1. 현재의 구조에서 임계값을 조정하는 것이 가장 검증된 방식이며, 급가속의 원인이 된 선호도 상수를 낮추는 것이 급선무임.",
+  "target": "safety constants (_CLR_GO, _ESC_C, _SIDE_STOP_PEN, _RELAX_V)",
+  "direction": "1. _CLR_GO를 0.4에서 0.5m로 높여 물체가 올 때 더 일찍 멈추게 합니다. 2. _ESC_C를 0.5에서 0.6m로 높여 능동 회피 진입 시점을 앞당깁니다. 3. _SIDE_STOP_PEN을 0.2에서 0.15m로 낮춰, 측면 위협 시 정지 선택지의 경쟁력을 높입니다. 4. _RELAX_V를 1.2에서 1.0m/s로 낮춰, 정체 후 복귀 시의 급가속을 억제합니다. 5. _MOMENTUM_V(0.3)와 _MOMENTUM_C0(0.6)는 유지하여 최소한의 통과 능력은 보존합니다. 6. 그 외 정적 장애물 검사 및 기본 제어 로직은 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c7t22_s1496388139: t=21.033에 mover_01과 충돌. 충돌 직전 로봇 속도 0.81m/s, 물체 상대 위치 [0.43, -0.54] (우측 전방), 접근 속도 0.58m/s.\",\n  \"c7t22_s1496388139: t=19.0~19.8 구간에서 속도가 0.65 -> 1.01m/s로 급가속했으며, t=20.3(0.22m/s) -> 20.8(0.79m/s)로 다시 급가속하는 불안정한 속도 변화 보임.\",\n  \"c7t22_s171403091: t=63.3에 시간 초과(time_limit)로 종료. 목표 거리 5.17m로, 후반부에 정지-저속 주행 반복으로 인한 지체 발생.\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"높은 _SIDE_STOP_PEN과 _RELAX_V가 정지보다 이동을 과하게 선호하게 하여, 물체가 교차하는 시점에 무리하게 가속하게 한다.\",\n   \"holds\": true,\n   \"why\": \"s1496388139에서 물체가 매우 가까운 상황(0.4m)임에도 0.8m/s의 고속으로 주행하다 충돌함.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"상수 튜닝 (임계값 조정)\",\n   \"turns\": \"22\",\n   \"result\": \"대부분의 배치 통과하나 간헐적 충돌 및 타임아웃 발생\"\n  },\n  {\n   \"family\": \"능동 회피 및 모멘텀 로직\",\n   \"turns\": \"10\",\n   \"result\": \"측면 충돌 방지에 기여했으나, 이번 턴에서 가속으로 인한 충돌 발생\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"안전 마진(_ESC_C, _CLR_GO)을 다시 높이고, 이동 선호도(_SIDE_STOP_PEN, _RELAX_V)를 낮춰 보수적으로 대응\",\n   \"new_family\": false,\n   \"for\": \"s1496388139의 급가속 충돌을 방지하고 정지 상태의 안정성을 높임\",\n   \"risk\": \"s171403091와 같은 타임아웃 발생 가능성 증가\"\n  },\n  {\n   \"idea\": \"측면 위협 감지 시 속도 변화율(acceleration)에 제한을 두어 급격한 속도 점프 방지\",\n   \"new_family\": true,\n   \"for\": \"회피-주행 전환 시 발생하는 속도 진동과 무리한 가속 억제\",\n   \"risk\": \"물체를 빠르게 피해야 하는 상황에서 반응성 저하\"\n  }\n ],\n \"chosen\": \"후보 1. 현재의 구조에서 임계값을 조정하는 것이 가장 검증된 방식이며, 급가속의 원인이 된 선호도 상수를 낮추는 것이 급선무임.\",\n \"target\": \"safety constants (_CLR_GO, _ESC_C, _SIDE_STOP_PEN, _RELAX_V)\",\n \"direction\": \"1. _CLR_GO를 0.4에서 0.5m로 높여 물체가 올 때 더 일찍 멈추게 합니다. 2. _ESC_C를 0.5에서 0.6m로 높여 능동 회피 진입 시점을 앞당깁니다. 3. _SIDE_STOP_PEN을 0.2에서 0.15m로 낮춰, 측면 위협 시 정지 선택지의 경쟁력을 높입니다. 4. _RELAX_V를 1.2에서 1.0m/s로 낮춰, 정체 후 복귀 시의 급가속을 억제합니다. 5. _MOMENTUM_V(0.3)와 _MOMENTUM_C0(0.6)는 유지하여 최소한의 통과 능력은 보존합니다. 6. 그 외 정적 장애물 검사 및 기본 제어 로직은 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t22_s1321725596",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 66.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 60.55,
+   "goal_dist_m": 0.1737,
+   "time_to_goal_s": 63.583
+  },
+  {
+   "run": "c7t22_s52946989",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 533.5,
+   "sim_time_s": 78.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 72.35,
+   "goal_dist_m": 0.1882,
+   "time_to_goal_s": 75.35
+  },
+  {
+   "run": "c7t22_s1496388139",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 455.2,
+   "sim_time_s": 27.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 21.033,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s",
+   "partner_rel_xy": [
+    0.43,
+    -0.54
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 16.05,
+   "goal_dist_m": 20.6612,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t22_s1832640561",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 428.1,
+   "sim_time_s": 72.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 66.75,
+   "goal_dist_m": 0.1857,
+   "time_to_goal_s": 69.683
+  },
+  {
+   "run": "c7t22_s1020129735",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 355.4,
+   "sim_time_s": 77.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 71.02,
+   "goal_dist_m": 0.1759,
+   "time_to_goal_s": 74.033
+  },
+  {
+   "run": "c7t22_s65639671",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 278.5,
+   "sim_time_s": 70.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 64.62,
+   "goal_dist_m": 0.1849,
+   "time_to_goal_s": 67.6
+  },
+  {
+   "run": "c7t22_s2058218117",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 207.9,
+   "sim_time_s": 73.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1869,
+   "time_to_goal_s": 67.317
+  },
+  {
+   "run": "c7t22_s796634886",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 134.7,
+   "sim_time_s": 72.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 66.35,
+   "goal_dist_m": 0.1842,
+   "time_to_goal_s": 69.217
+  },
+  {
+   "run": "c7t22_s171403091",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 62.3,
+   "sim_time_s": 63.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 60.22,
+   "goal_dist_m": 5.1714,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

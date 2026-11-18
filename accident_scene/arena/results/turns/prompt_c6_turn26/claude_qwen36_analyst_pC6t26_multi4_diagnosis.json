@@ -1,0 +1,148 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c6t26_s42560869에서 18.5s에 물체가 0.55m, bearing -21°에 있으나 로봇은 0.20m/s로 전진 중이며 회피 플래그가 작동하지 않음",
+   "실행 c6t26_s1600056625에서 17.9s에 물체 0.75m, bearing -34° 접근 시 로봇이 1.52m/s로 유지하다 18.4s 충돌",
+   "실행 c6t26_s1958451742에서 2.8s에 물체 0.94m, bearing -28° 위치 시 로봇이 1.52m/s 전진하며 회피 진입 실패",
+   "모든 실패 사례에서 d_min < 1.0m임에도 로봇이 정면으로 주행하는 것으로 보아, 정적 필터링(_STATIC_MARGIN=0.15)이 움직이는 물체 점을 과다 제거하거나, 이진 상태 머신(_BR_D/_BR_EXIT)의 히스테리시스가 센서 노이즈/점 손실에 취약해 회피가 발동되지 않음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정적 사각형에 0.15m 마진을 더한 필터링으로 움직이는 물체 점을 정확히 분리할 수 있다",
+    "holds": false,
+    "why": "물체가 정적 장애물 근처 통로를 지날 때 점이 정적으로 오인되어 d_min이 inf로 계산되고, 로그상 근접 시에도 전진이 계속됨"
+   },
+   {
+    "assumption": "d_min < 1.0m 시 후진/제자리 회전으로 전진 속도를 0으로 강제하는 이진 회피가 충돌을 막는다",
+    "holds": false,
+    "why": "회피 진입 조건이 만족되지 않아 전진 속도가 유지되며, 진입 시에도 제자리 회전은 진행을 멈추게 하고 다른 물체와의 충돌 위험을 높임"
+   },
+   {
+    "assumption": "감시 영역(x > -0.3)이 전방 180° 접근을 포착한다",
+    "holds": true,
+    "why": "bearing -20° 내지 -90° 접근 시 조건을 만족하나, 점 자체가 필터링되어 감시 영역에 진입하지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 상태 머신(정지/회피 vs 추종)",
+    "turns": "13~18, 21~26",
+    "result": "누적 실패 다수. 히스테리시스와 상태 전환 타이밍이 센서 불확실성에 취약해 진동 또는 회피 미발동"
+   },
+   {
+    "family": "연속 속도 가중치/반발 조향",
+    "turns": "14, 19, 24",
+    "result": "일부 통과(최대 5/8). 거리 비례 감속이 부드럽지만, 근거리 정지 임계값과 필터링이 불명확해 근접 충돌 발생"
+   },
+   {
+    "family": "접근 속도(닫힘 속도) 기반",
+    "turns": "11, 12",
+    "result": "0/3. 속도 추정 노이즈로 인해 오탐 정지 또는 반응 지연"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정적 필터링 마진 축소(0.05m) + 연속 거리 기반 속도 제한기(Governor) 및 반발 조향",
+    "new_family": true,
+    "for": "이진 전환의 취약점을 제거하고, d_min에 따라 v를 0.6m에서 0으로, 1.5m에서 정상 속도로 선형 보간한다. w에 bearing 부호 기반 반발 항을 더해 물체 반대쪽으로 조향하며, 마진 축으로 오탐 필터링을 줄여 실제 물체 감지율을 높인다",
+    "risk": "연속 조향이 벽 근처에서 과잉 회전을 일으킬 수 있으나, w 상한(1.5 rad/s)과 정적 벽 거리 확인으로 제한 가능"
+   }
+  ],
+  "chosen": "정적 필터링 마진 축소와 연속 거리 기반 속도 제한기 및 반발 조향 채택. 이진 상태 전환의 미발동 문제를 근본적으로 해결하고, 부드러운 감속·회피로 진행 유지와 안전을 동시에 확보할 수 있다.",
+  "target": "controller, _dynamic_world, _STATIC_MARGIN, 속도·회전 조종 로직",
+  "direction": "_STATIC_MARGIN을 0.05m로 줄여 정적 장애물 근처 움직이는 물체 점의 과다 필터링을 방지한다. 매 스텝 _watch_min으로 구한 d_min과 b_min을 이용해 전진 속도를 v_cmd = v_nom * max(0.0, min(1.0, (d_min - 0.6) / 0.9))로 계산해 0.6m 이하에서 무조건 정지한다. 회전 속도는 경유점 조향에 w_rep = -1.5 * sign(b_min) / max(d_min, 0.5) 항을 더해 물체 반대쪽으로 조향하되, 절대값 1.5 rad/s로 제한한다. d_min >= 1.5m이면 v_rep과 w_rep을 0으로 처리해 정상 추종으로 복귀한다. controller.evading 등 이진 상태 변수를 제거하고 매 스텝 순수 함수로 v, w를 산출해 상태 전환 오차를 제거한다. _front_blocked는 유지하되, v_cmd가 0으로 계산된 경우에만 정적 충돌 방지를 위해 적용한다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 c6t26_s42560869에서 18.5s에 물체가 0.55m, bearing -21°에 있으나 로봇은 0.20m/s로 전진 중이며 회피 플래그가 작동하지 않음\", \"실행 c6t26_s1600056625에서 17.9s에 물체 0.75m, bearing -34° 접근 시 로봇이 1.52m/s로 유지하다 18.4s 충돌\", \"실행 c6t26_s1958451742에서 2.8s에 물체 0.94m, bearing -28° 위치 시 로봇이 1.52m/s 전진하며 회피 진입 실패\", \"모든 실패 사례에서 d_min < 1.0m임에도 로봇이 정면으로 주행하는 것으로 보아, 정적 필터링(_STATIC_MARGIN=0.15)이 움직이는 물체 점을 과다 제거하거나, 이진 상태 머신(_BR_D/_BR_EXIT)의 히스테리시스가 센서 노이즈/점 손실에 취약해 회피가 발동되지 않음\"], \"assumptions\": [{\"assumption\": \"정적 사각형에 0.15m 마진을 더한 필터링으로 움직이는 물체 점을 정확히 분리할 수 있다\", \"holds\": false, \"why\": \"물체가 정적 장애물 근처 통로를 지날 때 점이 정적으로 오인되어 d_min이 inf로 계산되고, 로그상 근접 시에도 전진이 계속됨\"}, {\"assumption\": \"d_min < 1.0m 시 후진/제자리 회전으로 전진 속도를 0으로 강제하는 이진 회피가 충돌을 막는다\", \"holds\": false, \"why\": \"회피 진입 조건이 만족되지 않아 전진 속도가 유지되며, 진입 시에도 제자리 회전은 진행을 멈추게 하고 다른 물체와의 충돌 위험을 높임\"}, {\"assumption\": \"감시 영역(x > -0.3)이 전방 180° 접근을 포착한다\", \"holds\": true, \"why\": \"bearing -20° 내지 -90° 접근 시 조건을 만족하나, 점 자체가 필터링되어 감시 영역에 진입하지 못함\"}], \"approach_families\": [{\"family\": \"이진 상태 머신(정지/회피 vs 추종)\", \"turns\": \"13~18, 21~26\", \"result\": \"누적 실패 다수. 히스테리시스와 상태 전환 타이밍이 센서 불확실성에 취약해 진동 또는 회피 미발동\"}, {\"family\": \"연속 속도 가중치/반발 조향\", \"turns\": \"14, 19, 24\", \"result\": \"일부 통과(최대 5/8). 거리 비례 감속이 부드럽지만, 근거리 정지 임계값과 필터링이 불명확해 근접 충돌 발생\"}, {\"family\": \"접근 속도(닫힘 속도) 기반\", \"turns\": \"11, 12\", \"result\": \"0/3. 속도 추정 노이즈로 인해 오탐 정지 또는 반응 지연\"}], \"candidates\": [{\"idea\": \"정적 필터링 마진 축소(0.05m) + 연속 거리 기반 속도 제한기(Governor) 및 반발 조향\", \"new_family\": true, \"for\": \"이진 전환의 취약점을 제거하고, d_min에 따라 v를 0.6m에서 0으로, 1.5m에서 정상 속도로 선형 보간한다. w에 bearing 부호 기반 반발 항을 더해 물체 반대쪽으로 조향하며, 마진 축으로 오탐 필터링을 줄여 실제 물체 감지율을 높인다\", \"risk\": \"연속 조향이 벽 근처에서 과잉 회전을 일으킬 수 있으나, w 상한(1.5 rad/s)과 정적 벽 거리 확인으로 제한 가능\"}], \"chosen\": \"정적 필터링 마진 축소와 연속 거리 기반 속도 제한기 및 반발 조향 채택. 이진 상태 전환의 미발동 문제를 근본적으로 해결하고, 부드러운 감속·회피로 진행 유지와 안전을 동시에 확보할 수 있다.\", \"target\": \"controller, _dynamic_world, _STATIC_MARGIN, 속도·회전 조종 로직\", \"direction\": \"_STATIC_MARGIN을 0.05m로 줄여 정적 장애물 근처 움직이는 물체 점의 과다 필터링을 방지한다. 매 스텝 _watch_min으로 구한 d_min과 b_min을 이용해 전진 속도를 v_cmd = v_nom * max(0.0, min(1.0, (d_min - 0.6) / 0.9))로 계산해 0.6m 이하에서 무조건 정지한다. 회전 속도는 경유점 조향에 w_rep = -1.5 * sign(b_min) / max(d_min, 0.5) 항을 더해 물체 반대쪽으로 조향하되, 절대값 1.5 rad/s로 제한한다. d_min >= 1.5m이면 v_rep과 w_rep을 0으로 처리해 정상 추종으로 복귀한다. controller.evading 등 이진 상태 변수를 제거하고 매 스텝 순수 함수로 v, w를 산출해 상태 전환 오차를 제거한다. _front_blocked는 유지하되, v_cmd가 0으로 계산된 경우에만 정적 충돌 방지를 위해 적용한다.\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c6t26_s42560869",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 29.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 23.033,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.05,
+    -0.55
+   ],
+   "closing_m_s": 0.46,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 18.05,
+   "goal_dist_m": 23.5175,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t26_s1600056625",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 571.0,
+   "sim_time_s": 24.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 18.417,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.59m/s",
+   "partner_rel_xy": [
+    0.43,
+    -0.53
+   ],
+   "closing_m_s": 0.32,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 17.15,
+   "goal_dist_m": 22.3521,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t26_s1917596552",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 546.5,
+   "sim_time_s": 53.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 47.03,
+   "goal_dist_m": 0.2015,
+   "time_to_goal_s": 49.0
+  },
+  {
+   "run": "c6t26_s1958451742",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 493.6,
+   "sim_time_s": 9.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.567,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.16m/s",
+   "partner_rel_xy": [
+    0.39,
+    -0.47
+   ],
+   "closing_m_s": 0.22,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.6479,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,232 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 5(c6t16_s764679170): 45.5초 거리 0.81m, 45.7초 0.64m로 0.8m 임계값 하향 돌파했으나 로봇은 0.11~0.20m/s 주행 유지 후 46.48초 충돌.",
+   "실행 8(c6t16_s218151126): 55.6초 거리 0.81m, 55.8초 0.59m 감소 중 0.06m/s 서행 상태로 56.33초 충돌.",
+   "실행 3(c6t16_s334097545): 초기 주행 중 측면 접근 물체와 0.52m 거리에서도 정지 조건 미해당으로 0.14m/s 주행 중 충돌.",
+   "공통 패턴: d_min < 0.8m 조건이 센서 잡음/필터링 떨림으로 일시 해제되거나, 0.8~1.5m 반발 구간의 비례 감속이 v>0을 허용해 서행 충돌(creep)로 이어짐."
+  ],
+  "assumptions": [
+   {
+    "assumption": "d_min 이 매 스텝 안정적으로 측정되어 임계값 비교가 신뢰할 수 있음",
+    "holds": false,
+    "why": "라이다 점군 필터링 또는 정적 장애물 근접으로 d_min 이 inf나 큰 값으로 깜빡이며, 정지 조건이 일시 해제되어 재가속 발생."
+   },
+   {
+    "assumption": "0.8~1.5m 구간의 거리 비례 감속(v *= scale) 만으로 충돌 방지가 충분함",
+    "holds": false,
+    "why": "scale이 0.2~0.5 수준일 때 남은 전진 속도로 물체 진행 경로에 갇혀 밀려듦."
+   },
+   {
+    "assumption": "정지 시작 시각 기록과 회피 플래그가 복잡한 상황을 잘 처리함",
+    "holds": false,
+    "why": "상태 전환 지연과 조건 깜빡임이 오히려 정지 타이밍을 흐리게 하여 충돌로 직결됨."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지/재개 상태머신",
+    "turns": "2,4,6,7,9,10,13",
+    "result": "통과 0/3~3/6. 임계값 엄격시 stall, 느슨시 collision."
+   },
+   {
+    "family": "연속 거리 비례 감속/반발 조향",
+    "turns": "14,15,16",
+    "result": "통과 1/4~5/8. 주행 흐름 양호하나 임계값 근처 떨림으로 서행 충돌 반복."
+   },
+   {
+    "family": "닫힘 속도/추정 기반 제어",
+    "turns": "11,12",
+    "result": "통과 0/3. 속도 추정 노이즈로 오탐 및 정지 실패."
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 속도 Governor + 히스테리시스 타이머",
+    "new_family": true,
+    "for": "d_min 기반 선형 속도 제한에 0.2초 정지 래치를 추가해 센서 떨림과 서행 충돌을 동시에 차단.",
+    "risk": "타이머가 환경에 비해 길면 진행이 약간 지연될 수 있으나 0.2초는 안전 마진으로 충분."
+   },
+   {
+    "idea": "TTC(접근 시간) 기반 정지",
+    "new_family": false,
+    "for": "거리보다 상대 속도를 고려해 더 일찍 정지.",
+    "risk": "라이다로 추정하는 물체 속도가 노이즈에 매우 민감해 오탐 정지 빈발."
+   },
+   {
+    "idea": "최근 N스캔 d_min 최소값 사용(스무딩)",
+    "new_family": false,
+    "for": "단일 프레임 잡음을 평균화해 조건 깜빡임 감소.",
+    "risk": "반응 지연이 발생해 고속 접근 시 충돌 위험 증가."
+   }
+  ],
+  "chosen": "안전 속도 Governor + 히스테리시스 타이머를 선택. 기존 상태 머신의 복잡성과 떨림 문제를 제거하고, 직관적인 거리 기반 속도 제한과 짧은 정지 래치로 서행 충돌을 근본 차단하기 때문.",
+  "target": "controller (속도 제한 로직 및 상태 변수)",
+  "direction": "controller 내 blocked_t/evade_flag 상태를 제거하고 controller.caution_t를 추가한다. d_min < 0.9m이면 caution_t = t로 갱신하며, t - caution_t < 0.2s 간에는 v_cmd를 무조건 0.0으로 강제한다. 정상 주행 시 v_cmd는 v_nom * max(0.0, (d_min - 0.6) / 1.0)으로 계산해 0.6m에서부터 선형 감속하도록 한다. d_min >= 1.2m이면 caution_t = None으로 초기화해 재가속을 허용한다. 회전 속도는 기존 반발 조향을 유지하되, v_cmd == 0.0일 때 w도 0.0으로 묶어 정지 중 회전을 방지한다. 이로써 임계값 근처 센서 떨림으로 인한 재가속을 차단하고 서행 충돌을 막는다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"실행 5(c6t16_s764679170): 45.5초 거리 0.81m, 45.7초 0.64m로 0.8m 임계값 하향 돌파했으나 로봇은 0.11~0.20m/s 주행 유지 후 46.48초 충돌.\",\n    \"실행 8(c6t16_s218151126): 55.6초 거리 0.81m, 55.8초 0.59m 감소 중 0.06m/s 서행 상태로 56.33초 충돌.\",\n    \"실행 3(c6t16_s334097545): 초기 주행 중 측면 접근 물체와 0.52m 거리에서도 정지 조건 미해당으로 0.14m/s 주행 중 충돌.\",\n    \"공통 패턴: d_min < 0.8m 조건이 센서 잡음/필터링 떨림으로 일시 해제되거나, 0.8~1.5m 반발 구간의 비례 감속이 v>0을 허용해 서행 충돌(creep)로 이어짐.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"d_min 이 매 스텝 안정적으로 측정되어 임계값 비교가 신뢰할 수 있음\",\n      \"holds\": false,\n      \"why\": \"라이다 점군 필터링 또는 정적 장애물 근접으로 d_min 이 inf나 큰 값으로 깜빡이며, 정지 조건이 일시 해제되어 재가속 발생.\"\n    },\n    {\n      \"assumption\": \"0.8~1.5m 구간의 거리 비례 감속(v *= scale) 만으로 충돌 방지가 충분함\",\n      \"holds\": false,\n      \"why\": \"scale이 0.2~0.5 수준일 때 남은 전진 속도로 물체 진행 경로에 갇혀 밀려듦.\"\n    },\n    {\n      \"assumption\": \"정지 시작 시각 기록과 회피 플래그가 복잡한 상황을 잘 처리함\",\n      \"holds\": false,\n      \"why\": \"상태 전환 지연과 조건 깜빡임이 오히려 정지 타이밍을 흐리게 하여 충돌로 직결됨.\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"이진 정지/재개 상태머신\",\n      \"turns\": \"2,4,6,7,9,10,13\",\n      \"result\": \"통과 0/3~3/6. 임계값 엄격시 stall, 느슨시 collision.\"\n    },\n    {\n      \"family\": \"연속 거리 비례 감속/반발 조향\",\n      \"turns\": \"14,15,16\",\n      \"result\": \"통과 1/4~5/8. 주행 흐름 양호하나 임계값 근처 떨림으로 서행 충돌 반복.\"\n    },\n    {\n      \"family\": \"닫힘 속도/추정 기반 제어\",\n      \"turns\": \"11,12\",\n      \"result\": \"통과 0/3. 속도 추정 노이즈로 오탐 및 정지 실패.\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"안전 속도 Governor + 히스테리시스 타이머\",\n      \"new_family\": true,\n      \"for\": \"d_min 기반 선형 속도 제한에 0.2초 정지 래치를 추가해 센서 떨림과 서행 충돌을 동시에 차단.\",\n      \"risk\": \"타이머가 환경에 비해 길면 진행이 약간 지연될 수 있으나 0.2초는 안전 마진으로 충분.\"\n    },\n    {\n      \"idea\": \"TTC(접근 시간) 기반 정지\",\n      \"new_family\": false,\n      \"for\": \"거리보다 상대 속도를 고려해 더 일찍 정지.\",\n      \"risk\": \"라이다로 추정하는 물체 속도가 노이즈에 매우 민감해 오탐 정지 빈발.\"\n    },\n    {\n      \"idea\": \"최근 N스캔 d_min 최소값 사용(스무딩)\",\n      \"new_family\": false,\n      \"for\": \"단일 프레임 잡음을 평균화해 조건 깜빡임 감소.\",\n      \"risk\": \"반응 지연이 발생해 고속 접근 시 충돌 위험 증가.\"\n    }\n  ],\n  \"chosen\": \"안전 속도 Governor + 히스테리시스 타이머를 선택. 기존 상태 머신의 복잡성과 떨림 문제를 제거하고, 직관적인 거리 기반 속도 제한과 짧은 정지 래치로 서행 충돌을 근본 차단하기 때문.\",\n  \"target\": \"controller (속도 제한 로직 및 상태 변수)\",\n  \"direction\": \"controller 내 blocked_t/evade_flag 상태를 제거하고 controller.caution_t를 추가한다. d_min < 0.9m이면 caution_t = t로 갱신하며, t - caution_t < 0.2s 간에는 v_cmd를 무조건 0.0으로 강제한다. 정상 주행 시 v_cmd는 v_nom * max(0.0, (d_min - 0.6) / 1.0)으로 계산해 0.6m에서부터 선형 감속하도록 한다. d_min >= 1.2m이면 caution_t = None으로 초기화해 재가속을 허용한다. 회전 속도는 기존 반발 조향을 유지하되, v_cmd == 0.0일 때 w도 0.0으로 묶어 정지 중 회전을 방지한다. 이로써 임계값 근처 센서 떨림으로 인한 재가속을 차단하고 서행 충돌을 막는다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c6t16_s1995667907",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 69.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 63.65,
+   "goal_dist_m": 0.2003,
+   "time_to_goal_s": 65.617
+  },
+  {
+   "run": "c6t16_s2024118792",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 530.4,
+   "sim_time_s": 51.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 45.02,
+   "goal_dist_m": 0.2054,
+   "time_to_goal_s": 47.0
+  },
+  {
+   "run": "c6t16_s1084419599",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 479.4,
+   "sim_time_s": 59.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 53.33,
+   "goal_dist_m": 0.1966,
+   "time_to_goal_s": 55.317
+  },
+  {
+   "run": "c6t16_s304136099",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 420.0,
+   "sim_time_s": 67.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 61.92,
+   "goal_dist_m": 0.2222,
+   "time_to_goal_s": 63.8
+  },
+  {
+   "run": "c6t16_s764679170",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 352.2,
+   "sim_time_s": 52.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 46.483,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.12,
+    -0.55
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 44.25,
+   "goal_dist_m": 4.2031,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t16_s1440801781",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 299.7,
+   "sim_time_s": 56.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 50.78,
+   "goal_dist_m": 0.1999,
+   "time_to_goal_s": 52.733
+  },
+  {
+   "run": "c6t16_s334097545",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 242.9,
+   "sim_time_s": 11.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.067,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.14m/s 회전 -0.3",
+   "partner_rel_xy": [
+    -0.23,
+    0.54
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.12,
+   "goal_dist_m": 30.9649,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t16_s218151126",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 231.9,
+   "sim_time_s": 62.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 56.333,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.06m/s",
+   "partner_rel_xy": [
+    -0.18,
+    -0.54
+   ],
+   "closing_m_s": 0.77,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 52.35,
+   "goal_dist_m": 4.1747,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

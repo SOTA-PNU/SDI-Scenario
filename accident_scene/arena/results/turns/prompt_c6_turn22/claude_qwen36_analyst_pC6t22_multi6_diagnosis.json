@@ -1,0 +1,195 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 3(c6t22_s179051146) 및 5(c6t22_s2064274069): d_min≈0.6m, 접근 속도≈0.6m/s 상태에서 로봇이 0.14~0.15m/s로 서행 중 정면-측면 교차 충돌 발생. 감속 구간이 충돌을 막지 못함.",
+   "실행 6(c6t22_s541856464): 로봇 정지 상태에서 물체가 후면-측면([-0.78, 0.45])으로 접근하여 충돌. 정지 대기 전략이 후면 접근에 취약함.",
+   "통과 실행(1,2,4): 물체가 로봇 경로에서 충분히 떨어진 지점(2m 이상)이나 주행 말단(56~71초)에서 통과할 때만 성공. 서행 또는 정지 중 교차 시 실패 패턴 일관됨."
+  ],
+  "assumptions": [
+   {
+    "assumption": "0.1~0.2m/s 서행은 물체가 지나갈 때까지 안전하게 기다릴 수 있다",
+    "holds": false,
+    "why": "실행 3,5에서 서행 중 접근 물체와 정면-측면 충돌 발생"
+   },
+   {
+    "assumption": "정지 중 물체가 지나가면 자동으로 안전해진다",
+    "holds": false,
+    "why": "실행 6에서 정지 중 후면-측면으로 접근한 물체와 충돌"
+   },
+   {
+    "assumption": "감시 영역(±120°)과 단일 최단 거리로 충분하다",
+    "holds": false,
+    "why": "후면-측면 접근 시 감지 지연, 교차 경로에서 서행이 위험"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 비례 서행/감속 (Creep/Decel)",
+    "turns": "14,15,17,19,21",
+    "result": "서행 구간에서 교차 충돌 빈발, 통과율 낮음"
+   },
+   {
+    "family": "정지 래치/상태 머신 (Stop & Wait)",
+    "turns": "1~13,16,18,20,22",
+    "result": "정지 대기 중 후면 충돌 또는 재개 타이밍 오류로 실패"
+   },
+   {
+    "family": "반발 조향/연속 제어 (Repulsive)",
+    "turns": "14,19",
+    "result": "조향 과잉 또는 진동으로 안정성 부족"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "이진 정지-회피 (Binary Stop & Active Evasion)",
+    "new_family": true,
+    "for": "서행 구간 완전 제거로 교차 충돌 차단, 정지 후 적극적 후진/회전으로 후면 충돌 방지",
+    "risk": "빈번한 정지-회피로 진행 지연 가능성"
+   },
+   {
+    "idea": "TTC 기반 예측 정지",
+    "new_family": true,
+    "for": "접근 속도를 고려해 조기에 정지",
+    "risk": "라이다 잡음으로 속도 추정 불안정(과거 턴 11 실패)"
+   },
+   {
+    "idea": "섹터별 독립 제어",
+    "new_family": true,
+    "for": "전방/측면 위험을 방향별로 분리 제어",
+    "risk": "로직 복잡도 증가 및 상태 충돌 가능성"
+   }
+  ],
+  "chosen": "이진 정지-회피를 선택: 서행 제거로 교차 충돌을 근본 차단하고, 정지 후 적극적 회피로 후면 충돌을 동시에 해결할 수 있어 가장 명확함.",
+  "target": "controller 내 감속/서행 분기 및 정지 래치 타이밍",
+  "direction": "1. 1.0m~1.5m 서행/감속 분기 전체 삭제하고, d_min < 1.2m 시 무조건 v=0, w=0 정지로 변경한다. 2. 정지 래치 진입 후 t - stop_t > 0.4s가 되면 즉시 _evade_cmd를 호출하도록 단축한다. 3. _evade_cmd는 후진 가능 시 v=-0.15, 막힐 시 물체 반대 방향 w=±0.6 제자리 회전으로 유지하되 전진 명령을 배제한다. 4. 재개 조건을 d_min > 1.8m가 0.5s 지속될 때로 엄격히 설정하고, 재개 시 즉시 정상 추종 속도로 복귀한다. 5. 감시 영역을 전방 180°(x > -0.3)로 넓혀 후면-측면 접근을 조기에 포착한다. 6. 불필요한 상수(_CONT_SPAN, _REP_K, _LAT_*)를 정리하여 로직을 단순화한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 3(c6t22_s179051146) 및 5(c6t22_s2064274069): d_min≈0.6m, 접근 속도≈0.6m/s 상태에서 로봇이 0.14~0.15m/s로 서행 중 정면-측면 교차 충돌 발생. 감속 구간이 충돌을 막지 못함.\", \"실행 6(c6t22_s541856464): 로봇 정지 상태에서 물체가 후면-측면([-0.78, 0.45])으로 접근하여 충돌. 정지 대기 전략이 후면 접근에 취약함.\", \"통과 실행(1,2,4): 물체가 로봇 경로에서 충분히 떨어진 지점(2m 이상)이나 주행 말단(56~71초)에서 통과할 때만 성공. 서행 또는 정지 중 교차 시 실패 패턴 일관됨.\"], \"assumptions\": [{\"assumption\": \"0.1~0.2m/s 서행은 물체가 지나갈 때까지 안전하게 기다릴 수 있다\", \"holds\": false, \"why\": \"실행 3,5에서 서행 중 접근 물체와 정면-측면 충돌 발생\"}, {\"assumption\": \"정지 중 물체가 지나가면 자동으로 안전해진다\", \"holds\": false, \"why\": \"실행 6에서 정지 중 후면-측면으로 접근한 물체와 충돌\"}, {\"assumption\": \"감시 영역(±120°)과 단일 최단 거리로 충분하다\", \"holds\": false, \"why\": \"후면-측면 접근 시 감지 지연, 교차 경로에서 서행이 위험\"}], \"approach_families\": [{\"family\": \"거리 비례 서행/감속 (Creep/Decel)\", \"turns\": \"14,15,17,19,21\", \"result\": \"서행 구간에서 교차 충돌 빈발, 통과율 낮음\"}, {\"family\": \"정지 래치/상태 머신 (Stop & Wait)\", \"turns\": \"1~13,16,18,20,22\", \"result\": \"정지 대기 중 후면 충돌 또는 재개 타이밍 오류로 실패\"}, {\"family\": \"반발 조향/연속 제어 (Repulsive)\", \"turns\": \"14,19\", \"result\": \"조향 과잉 또는 진동으로 안정성 부족\"}], \"candidates\": [{\"idea\": \"이진 정지-회피 (Binary Stop & Active Evasion)\", \"new_family\": true, \"for\": \"서행 구간 완전 제거로 교차 충돌 차단, 정지 후 적극적 후진/회전으로 후면 충돌 방지\", \"risk\": \"빈번한 정지-회피로 진행 지연 가능성\"}, {\"idea\": \"TTC 기반 예측 정지\", \"new_family\": true, \"for\": \"접근 속도를 고려해 조기에 정지\", \"risk\": \"라이다 잡음으로 속도 추정 불안정(과거 턴 11 실패)\"}, {\"idea\": \"섹터별 독립 제어\", \"new_family\": true, \"for\": \"전방/측면 위험을 방향별로 분리 제어\", \"risk\": \"로직 복잡도 증가 및 상태 충돌 가능성\"}], \"chosen\": \"이진 정지-회피를 선택: 서행 제거로 교차 충돌을 근본 차단하고, 정지 후 적극적 회피로 후면 충돌을 동시에 해결할 수 있어 가장 명확함.\", \"target\": \"controller 내 감속/서행 분기 및 정지 래치 타이밍\", \"direction\": \"1. 1.0m~1.5m 서행/감속 분기 전체 삭제하고, d_min < 1.2m 시 무조건 v=0, w=0 정지로 변경한다. 2. 정지 래치 진입 후 t - stop_t > 0.4s가 되면 즉시 _evade_cmd를 호출하도록 단축한다. 3. _evade_cmd는 후진 가능 시 v=-0.15, 막힐 시 물체 반대 방향 w=±0.6 제자리 회전으로 유지하되 전진 명령을 배제한다. 4. 재개 조건을 d_min > 1.8m가 0.5s 지속될 때로 엄격히 설정하고, 재개 시 즉시 정상 추종 속도로 복귀한다. 5. 감시 영역을 전방 180°(x > -0.3)로 넓혀 후면-측면 접근을 조기에 포착한다. 6. 불필요한 상수(_CONT_SPAN, _REP_K, _LAT_*)를 정리하여 로직을 단순화한다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t22_s1810553298",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 70.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 64.55,
+   "goal_dist_m": 0.2018,
+   "time_to_goal_s": 66.483
+  },
+  {
+   "run": "c6t22_s1849716162",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 529.5,
+   "sim_time_s": 77.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 71.12,
+   "goal_dist_m": 0.1992,
+   "time_to_goal_s": 73.067
+  },
+  {
+   "run": "c6t22_s179051146",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 452.4,
+   "sim_time_s": 18.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.35,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.14m/s",
+   "partner_rel_xy": [
+    0.14,
+    0.59
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 7.42,
+   "goal_dist_m": 32.2543,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t22_s2007101140",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 434.0,
+   "sim_time_s": 62.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 56.15,
+   "goal_dist_m": 0.2196,
+   "time_to_goal_s": 58.15
+  },
+  {
+   "run": "c6t22_s2064274069",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 371.9,
+   "sim_time_s": 75.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 69.1,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.15m/s",
+   "partner_rel_xy": [
+    0.11,
+    -0.56
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 66.98,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t22_s541856464",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 296.8,
+   "sim_time_s": 15.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.633,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.78,
+    0.45
+   ],
+   "closing_m_s": 0.39,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 4.72,
+   "goal_dist_m": 31.2834,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

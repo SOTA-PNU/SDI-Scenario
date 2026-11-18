@@ -1,0 +1,191 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c7t11_s286433633: t=66.4s에 로봇 속도 0.81m/s, 물체 상대 위치 x≈0, y≈-1.49m로 측면 접근 중이었으나, t=67.4s~68.1s 사이에 속도가 0.36m/s -> 0.30m/s -> 0.34m/s로 감속하며 물체의 경로 안으로 진입하여 충돌(partner_rel_xy: [-0.31, -0.53])",
+   "충돌 순간 물체의 상대 속도가 [0.03, 0.75]로 로봇의 오른쪽에서 왼쪽으로 빠르게 가로지르는 상황이었으며, 로봇이 감속하지 않고 0.81m/s를 유지했다면 물체보다 먼저 통과했을 것으로 분석됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "최소 거리(clearance)를 최대화하는 속도를 선택하는 것이 항상 안전하다",
+    "holds": false,
+    "why": "측면 교차 상황에서는 최소 거리를 약간 높이기 위해 감속하는 것이 오히려 물체의 경로에 머무는 시간을 늘려 충돌을 유발하는 '장애물 앞으로 제동(braking into the obstacle)' 현상을 일으킴"
+   },
+   {
+    "assumption": "_SIDE_STOP_PEN이 정지보다 이동을 선호하게 하여 '앉은 오리' 충돌을 막는다",
+    "holds": true,
+    "why": "하지만 이번 사례처럼 이미 고속 주행 중일 때 '어중간한 저속'으로의 감속을 유도하여 충돌을 일으키는 부작용이 있음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Waypoint 추종 + 센서 기반 안전 계층(정지/저속/능동회피)",
+    "turns": "11",
+    "result": "최근 6/7 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 회피 시 '주행 관성(Momentum)' 가중치 도입",
+    "new_family": true,
+    "for": "이미 고속 주행 중인 경우, 약간의 거리 이득을 위해 저속으로 감속하는 것보다 현재 속도를 유지하여 빠르게 통과하는 것이 더 안전함",
+    "risk": "너무 강한 가중치는 정말 멈춰야 할 상황에서도 무리하게 전진하게 만들 수 있음"
+   },
+   {
+    "idea": "측면 회피 속도 후보군에서 '중간 속도' 제거",
+    "new_family": false,
+    "for": "확실하게 멈추거나 확실하게 통과하는 이분법적 전략으로 어중간한 속도 선택을 방지함",
+    "risk": "이전 시도(#10)에서 통과율이 하락한 기록이 있음"
+   },
+   {
+    "idea": "물체의 상대 x-위치에 따른 페널티 가변화",
+    "new_family": true,
+    "for": "물체가 이미 로봇 옆면에 도달한 경우(_BODY[0] < x < _BODY[1])에는 _SIDE_STOP_PEN을 제거하여 정지를 우선시함",
+    "risk": "이미 늦은 시점에서 정지하는 것이 오히려 충돌을 피하지 못할 수 있음"
+   }
+  ],
+  "chosen": "후보 1. 측면 교차 상황에서 '감속으로 인한 충돌'을 막기 위해, 현재 속도가 높을 때 이를 유지하는 선택지에 가중치를 주는 것이 가장 유연하고 효과적임",
+  "target": "_safe_speed",
+  "direction": "1. _safe_speed의 능동 회피 루프(`for vc in cands:`) 내에서, `dz['side']`가 True이고 현재 측정 속도 `S['v_meas']`가 0.5m/s 이상인 경우를 확인합니다. 2. 후보 속도 `vc`가 현재 속도의 80% 이상(`vc >= S['v_meas'] * 0.8`)인 경우, 해당 속도의 `cv` (clearance) 값에 0.2m 정도의 보너스 가중치를 더합니다. 3. 이를 통해 로봇이 측면 위협을 감지했을 때, 어중간한 저속(0.3m/s 등)으로 감속하여 물체 경로에 갇히는 대신, 기존의 빠른 속도를 유지해 빠르게 통과하는 선택을 하도록 유도합니다. 4. 가중치 값은 `_SIDE_MOMENTUM_BONUS = 0.2`로 정의하여 관리합니다. 5. 그 외의 정적 장애물 검사 및 기본 회피 로직은 그대로 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n     \"run c7t11_s286433633: t=66.4s에 로봇 속도 0.81m/s, 물체 상대 위치 x≈0, y≈-1.49m로 측면 접근 중이었으나, t=67.4s~68.1s 사이에 속도가 0.36m/s -> 0.30m/s -> 0.34m/s로 감속하며 물체의 경로 안으로 진입하여 충돌(partner_rel_xy: [-0.31, -0.53])\",\n     \"충돌 순간 물체의 상대 속도가 [0.03, 0.75]로 로봇의 오른쪽에서 왼쪽으로 빠르게 가로지르는 상황이었으며, 로봇이 감속하지 않고 0.81m/s를 유지했다면 물체보다 먼저 통과했을 것으로 분석됨\"\n ],\n \"assumptions\": [\n     {\n         \"assumption\": \"최소 거리(clearance)를 최대화하는 속도를 선택하는 것이 항상 안전하다\",\n         \"holds\": false,\n         \"why\": \"측면 교차 상황에서는 최소 거리를 약간 높이기 위해 감속하는 것이 오히려 물체의 경로에 머무는 시간을 늘려 충돌을 유발하는 '장애물 앞으로 제동(braking into the obstacle)' 현상을 일으킴\"\n     },\n     {\n         \"assumption\": \"_SIDE_STOP_PEN이 정지보다 이동을 선호하게 하여 '앉은 오리' 충돌을 막는다\",\n         \"holds\": true,\n         \"why\": \"하지만 이번 사례처럼 이미 고속 주행 중일 때 '어중간한 저속'으로의 감속을 유도하여 충돌을 일으키는 부작용이 있음\"\n     }\n ],\n \"approach_families\": [\n     {\n         \"family\": \"Waypoint 추종 + 센서 기반 안전 계층(정지/저속/능동회피)\",\n         \"turns\": \"11\",\n         \"result\": \"최근 6/7 통과\"\n     }\n ],\n \"candidates\": [\n     {\n         \"idea\": \"측면 회피 시 '주행 관성(Momentum)' 가중치 도입\",\n         \"new_family\": true,\n         \"for\": \"이미 고속 주행 중인 경우, 약간의 거리 이득을 위해 저속으로 감속하는 것보다 현재 속도를 유지하여 빠르게 통과하는 것이 더 안전함\",\n         \"risk\": \"너무 강한 가중치는 정말 멈춰야 할 상황에서도 무리하게 전진하게 만들 수 있음\"\n     },\n     {\n         \"idea\": \"측면 회피 속도 후보군에서 '중간 속도' 제거\",\n         \"new_family\": false,\n         \"for\": \"확실하게 멈추거나 확실하게 통과하는 이분법적 전략으로 어중간한 속도 선택을 방지함\",\n         \"risk\": \"이전 시도(#10)에서 통과율이 하락한 기록이 있음\"\n     },\n     {\n         \"idea\": \"물체의 상대 x-위치에 따른 페널티 가변화\",\n         \"new_family\": true,\n         \"for\": \"물체가 이미 로봇 옆면에 도달한 경우(_BODY[0] < x < _BODY[1])에는 _SIDE_STOP_PEN을 제거하여 정지를 우선시함\",\n         \"risk\": \"이미 늦은 시점에서 정지하는 것이 오히려 충돌을 피하지 못할 수 있음\"\n     }\n ],\n \"chosen\": \"후보 1. 측면 교차 상황에서 '감속으로 인한 충돌'을 막기 위해, 현재 속도가 높을 때 이를 유지하는 선택지에 가중치를 주는 것이 가장 유연하고 효과적임\",\n \"target\": \"_safe_speed\",\n \"direction\": \"1. _safe_speed의 능동 회피 루프(`for vc in cands:`) 내에서, `dz['side']`가 True이고 현재 측정 속도 `S['v_meas']`가 0.5m/s 이상인 경우를 확인합니다. 2. 후보 속도 `vc`가 현재 속도의 80% 이상(`vc >= S['v_meas'] * 0.8`)인 경우, 해당 속도의 `cv` (clearance) 값에 0.2m 정도의 보너스 가중치를 더합니다. 3. 이를 통해 로봇이 측면 위협을 감지했을 때, 어중간한 저속(0.3m/s 등)으로 감속하여 물체 경로에 갇히는 대신, 기존의 빠른 속도를 유지해 빠르게 통과하는 선택을 하도록 유도합니다. 4. 가중치 값은 `_SIDE_MOMENTUM_BONUS = 0.2`로 정의하여 관리합니다. 5. 그 외의 정적 장애물 검사 및 기본 회피 로직은 그대로 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t11_s1779769016",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 86.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 80.82,
+   "goal_dist_m": 0.1759,
+   "time_to_goal_s": 83.617
+  },
+  {
+   "run": "c7t11_s370030069",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 513.2,
+   "sim_time_s": 77.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 71.75,
+   "goal_dist_m": 0.1863,
+   "time_to_goal_s": 74.717
+  },
+  {
+   "run": "c7t11_s1592193114",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 435.5,
+   "sim_time_s": 89.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 83.25,
+   "goal_dist_m": 0.1789,
+   "time_to_goal_s": 86.267
+  },
+  {
+   "run": "c7t11_s497082023",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 346.2,
+   "sim_time_s": 78.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1854,
+   "time_to_goal_s": 72.85
+  },
+  {
+   "run": "c7t11_s286433633",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 267.8,
+   "sim_time_s": 74.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 68.133,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.34m/s",
+   "partner_rel_xy": [
+    -0.31,
+    -0.53
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 63.15,
+   "goal_dist_m": 3.3411,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t11_s1888916848",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 193.6,
+   "sim_time_s": 82.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 76.15,
+   "goal_dist_m": 0.1757,
+   "time_to_goal_s": 79.05
+  },
+  {
+   "run": "c7t11_s220722107",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 111.6,
+   "sim_time_s": 83.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 77.12,
+   "goal_dist_m": 0.2517,
+   "time_to_goal_s": 80.033
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

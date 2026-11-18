@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 지시대로 `controller` 에서 `blocked_t`, `evade_flag`, `blocked_d` 와 후진·회전 회피 분기를 없애고, 히스테리시스 래치 `caution_t` 를 둔 안전 속도 Governor 로 바꿨습니다. d_min < 0.9 m 이면 매 스텝 `caution_t = t` 로 갱신하고, 그 뒤 0.2 s 동안은 v = 0, w = 0 으로 묶어 d_min 이 잠깐 inf 로 깜빡여도 다시 가속하지 않게 했습니다. 정상 주행 속도는 v_nom × max(0, (d_min − 0.6)/1.0) 로 선형 제한하고(1 로 상한), 1.5 m 안에서는 기존 반발 조향을 그대로 더하며, d_min ≥ 1.2 m 이면 `caution_t = None` 으로 풀어 재가속을 허용합니다. \"v_cmd == 0 이면 w = 0\" 은 Governor 가 멈춘 경우(래치 중이거나 scale ≤ 0)에만 적용했습니다. 경유점 모서리 제자리 회전이나 GOAL 정렬처럼 v_nom 이 원래 0 인 회전까지 막으면 로봇이 영영 진행하지 못하기 때문입니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 안전 속도 Governor + 히스테리시스 정지 래치 (C-2 시도 17, 진단 반영).\n    - 상태 변수: controller.caution_t (마지막으로 d_min < _CAUTION_D 였던 시각, 없으면 None).\n    - 감시 영역(|bearing| < _SIDE_B, 0.2 m 미만 잡음 제외) 의 움직이는 점 최단 거리 d_min, 그 점의 bearing b_min 을 매 스텝 계산.\n    - d_min < _CAUTION_D(0.9 m): caution_t = t 로 매 스텝 갱신.\n      d_min >= _CAUTION_CLEAR(1.2 m): caution_t = None 으로 초기화(재가속 허용).\n    - t - caution_t < _CAUTION_HOLD(0.2 s): v = 0, w = 0 정지 (센서 떨림으로 d_min 이 잠깐 커져도 재가속하지 않음).\n    - 그 밖: v = v_nom * clamp((d_min - 0.6) / 1.0, 0, 1) 선형 속도 제한,\n      d_min < _REP_D(1.5 m) 이면 기존 반발 조향을 더함. Governor 가 v 를 0 으로 만들면 w 도 0.\n      (경유점 모서리·목표 정렬처럼 v_nom 이 원래 0 인 제자리 회전은 막지 않음)\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    if not hasattr(controller, \"caution_t\"):\n        controller.caution_t = None\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    # ---- 감시 영역 최단 거리 d_min 과 bearing b_min ----\n    d_min, b_min = float(\"inf\"), 0.0\n    if dyn_r.shape[0]:\n        d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n        ok = d_all >= _NOISE_R                                # 0.2 m 미만 잡음 제외\n        ax, ay, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n        b = np.arctan2(ay, ax)                                # 부호 있는 bearing (+ 왼쪽)\n        watch = np.abs(b) < _SIDE_B                           # 감시 영역 ±120°\n        if np.any(watch):\n            dw, bw = d[watch], b[watch]\n            i = int(np.argmin(dw))\n            d_min, b_min = float(dw[i]), float(bw[i])\n    side = 1.0 if b_min >= 0.0 else -1.0                      # 물체가 왼쪽이면 +1\n\n    # ---- 히스테리시스 래치 ----\n    if d_min < _CAUTION_D:\n        controller.caution_t = t\n    elif d_min >= _CAUTION_CLEAR:\n        controller.caution_t = None\n\n    if controller.caution_t is not None and (t - controller.caution_t) < _CAUTION_HOLD:\n        return 0.0, 0.0, False                                # 래치 중: 전진·회전 모두 정지\n\n    # ---- 안전 속도 Governor: 0.6 m 에서 0, 1.6 m 이상에서 원래 속도 ----\n    scale = _clamp((d_min - _GOV_D0) / _GOV_SPAN, 0.0, 1.0)\n    if scale <= 0.0:\n        return 0.0, 0.0, False                                # Governor 정지: 회전도 막음\n    v_cmd = v * scale\n\n    # ---- 반발 조향 (물체가 왼쪽이면 오른쪽으로), 1.5 m 안에서만 ----\n    w_cmd = w\n    if d_min < _REP_D:\n        w_rep = -_REP_K * (1.0 / max(d_min, 0.05) - 1.0 / _REP_D) * side\n        w_cmd = _clamp(w + w_rep, -_REP_W_MAX, _REP_W_MAX)\n    return v_cmd, w_cmd, False\n\n\n_CAUTION_D = 0.9        # 감시 영역 최단 거리가 이보다 작으면 caution_t = t 로 갱신 [m] (진단: d_min < 0.9 m)\n\n\n_CAUTION_HOLD = 0.2     # caution_t 이후 이 시간 동안 v = 0, w = 0 강제 [s] (진단: 0.2 s)\n\n\n_CAUTION_CLEAR = 1.2    # 감시 영역 최단 거리가 이 이상이면 caution_t = None 으로 초기화 [m] (진단: d_min >= 1.2 m)\n\n\n_GOV_D0 = 0.6           # 속도 제한 식 (d_min - 0.6) / 1.0 의 0.6 [m] (진단)\n\n\n_GOV_SPAN = 1.0         # 속도 제한 식 (d_min - 0.6) / 1.0 의 1.0 [m] (진단)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 29318,
+  "completion_tokens": 4443
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 37910,
+  "total_cost_usd": 0.32339599999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4443,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 29316,
+    "webSearchRequests": 0,
+    "costUSD": 0.32339599999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2082,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 29316,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "e1fd4560-019d-4d24-a38c-bae967c0482f"
+ }
+}

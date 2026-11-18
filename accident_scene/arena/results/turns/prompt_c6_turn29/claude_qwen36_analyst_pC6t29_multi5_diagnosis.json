@@ -1,0 +1,174 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 2 (20.45s): 물체가 정면-좌측([0.05, -0.54])에서 접근 속도 0.7m/s로 다가올 때, 연속 감속 로직이 제때 정지하지 못해 주행 중(0.13m/s) 충돌.",
+   "실행 5 (30.28s): d_min < 0.8m 시 발동한 제자리 회전(+0.6rad/s) 중, 물체가 로봇 회전 반경 내([-0.54, 0.55], 거리 약 0.77m)에 있어 회전 시 충돌.",
+   "실행 3 (32.62s): 회피/반발 조향 중 정적 장애물(arena_box_07)과 충돌. 정적 여유 확인 없이 회전·이동해 정적 충돌 발생."
+  ],
+  "assumptions": [
+   {
+    "assumption": "상태 없는 거리 비례 감속과 반발 조향만으로 좁은 통로 내 이동 물체를 안전하게 피할 수 있다",
+    "holds": false,
+    "why": "실행 2에서 접근 속도 대비 정지 거리가 부족해 주행 중 충돌."
+   },
+   {
+    "assumption": "정면/측면 구분 후 제자리 회전 또는 후진이 안전한 회피 동작이다",
+    "holds": false,
+    "why": "실행 5에서 물체가 회전 반경 내에 있어 제자리 회전이 오히려 충돌을 유발."
+   },
+   {
+    "assumption": "동적 점 필터링만으로도 정적 장애물과의 충돌을 막을 수 있다",
+    "holds": false,
+    "why": "실행 3에서 회피 조향 중 정적 박스와 충돌해 필터링 또는 조향 제어의 한계 노출."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "연속 감속+반발 조향+상태 없음",
+    "turns": "14,15,17,19,24,27,28,29",
+    "result": "통과 1~5회, 주행/정지 중 충돌 및 정적 충돌 다수"
+   },
+   {
+    "family": "이진 정지/재개+타이머+크리프/회전 탈출",
+    "turns": "1~13,16,18,20~23",
+    "result": "통과 0~3회, 정지 중 충돌, 정적 충돌, 진행 중단 다수"
+   },
+   {
+    "family": "bearing 기반 분기 회피(후진/회전)",
+    "turns": "25,26,29",
+    "result": "통과 0~1회, 회전 반경 내 충돌 및 정적 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "예측 정지 및 경로 확인 대기 (Predictive Stop & Clear-Path Wait)",
+    "new_family": true,
+    "for": "회전 반경 내 충돌과 늦은 반응의 근본 원인인 '동적 이동'을 제거하고, 물체 통과 확인(거리+bearing 변화) 후 재개해 안전성 극대화",
+    "risk": "물체가 평행하게 움직일 때 재개 지연으로 진행이 느려질 수 있으나, 충돌 방지 우선으로 수용 가능"
+   },
+   {
+    "idea": "측면 오프셋 회피 (Lateral Side-Step)",
+    "new_family": true,
+    "for": "정면 막혔을 때 제자리 회전 대신 측면으로 안전하게 피하는 방향",
+    "risk": "정적 장애물과의 충돌 위험이 높고, 좁은 통로에서 구현이 복잡해 실패 가능성 큼"
+   },
+   {
+    "idea": "속도 장애물 기반 조향 (Velocity Obstacle Steering)",
+    "new_family": true,
+    "for": "물체 궤적을 예측해 안전한 조향 각을 계산",
+    "risk": "제한된 코드 공간과 센서 노이즈로 예측 오차가 크면 오히려 정적 충돌 유발"
+   }
+  ],
+  "chosen": "후보 1(예측 정지 및 경로 확인 대기)을 선택한다. 상태 기반 정지-확인-재개 로직이 회전 반경 충돌과 정적 충돌을 근본 차단하고, bearing 변화로 평행/교차 물체를 구분해 무분별한 정지를 피할 수 있기 때문이다.",
+  "target": "controller 함수 내 d_min 기반 감속/회피 분기 전체",
+  "direction": "기존 연속 감속·반발 조향·제자리 회전 로직을 모두 제거하고, 상태 기반 '정지-확인-재개' 유한 상태 머신으로 대체한다. d_min < 1.5 m 시 무조건 v=0 정지하며 stop_t와 stop_bearing을 기록한다. 정지 중 d_min > 2.0 m 이고 (t - stop_t > 1.5 초 또는 |b_min - stop_bearing| > 0.8 rad) 조건을 만족해야 재개를 허용해, 물체가 완전히 통과했거나 멀어졌는지 판단한다. 재개 전 raw 스캔 중 정적 지도에 매핑되는 점이 0.5m 내에 있으면 정지 유지해 정적 충돌을 차단한다. 제자리 회전과 후진 명령을 배제하고 waypoint 추종 방향(v_nom > 0)으로만 재가속해 정적 충돌과 회전 반경 내 충돌을 근본 차단한다. _nominal 의 v_nom, w_nom 은 유지하되, WAITING 상태에서 벗어나면 즉시 정상 추종으로 복귀하도록 한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 2 (20.45s): 물체가 정면-좌측([0.05, -0.54])에서 접근 속도 0.7m/s로 다가올 때, 연속 감속 로직이 제때 정지하지 못해 주행 중(0.13m/s) 충돌.\", \"실행 5 (30.28s): d_min < 0.8m 시 발동한 제자리 회전(+0.6rad/s) 중, 물체가 로봇 회전 반경 내([-0.54, 0.55], 거리 약 0.77m)에 있어 회전 시 충돌.\", \"실행 3 (32.62s): 회피/반발 조향 중 정적 장애물(arena_box_07)과 충돌. 정적 여유 확인 없이 회전·이동해 정적 충돌 발생.\"], \"assumptions\": [{\"assumption\": \"상태 없는 거리 비례 감속과 반발 조향만으로 좁은 통로 내 이동 물체를 안전하게 피할 수 있다\", \"holds\": false, \"why\": \"실행 2에서 접근 속도 대비 정지 거리가 부족해 주행 중 충돌.\"}, {\"assumption\": \"정면/측면 구분 후 제자리 회전 또는 후진이 안전한 회피 동작이다\", \"holds\": false, \"why\": \"실행 5에서 물체가 회전 반경 내에 있어 제자리 회전이 오히려 충돌을 유발.\"}, {\"assumption\": \"동적 점 필터링만으로도 정적 장애물과의 충돌을 막을 수 있다\", \"holds\": false, \"why\": \"실행 3에서 회피 조향 중 정적 박스와 충돌해 필터링 또는 조향 제어의 한계 노출.\"}], \"approach_families\": [{\"family\": \"연속 감속+반발 조향+상태 없음\", \"turns\": \"14,15,17,19,24,27,28,29\", \"result\": \"통과 1~5회, 주행/정지 중 충돌 및 정적 충돌 다수\"}, {\"family\": \"이진 정지/재개+타이머+크리프/회전 탈출\", \"turns\": \"1~13,16,18,20~23\", \"result\": \"통과 0~3회, 정지 중 충돌, 정적 충돌, 진행 중단 다수\"}, {\"family\": \"bearing 기반 분기 회피(후진/회전)\", \"turns\": \"25,26,29\", \"result\": \"통과 0~1회, 회전 반경 내 충돌 및 정적 충돌\"}], \"candidates\": [{\"idea\": \"예측 정지 및 경로 확인 대기 (Predictive Stop & Clear-Path Wait)\", \"new_family\": true, \"for\": \"회전 반경 내 충돌과 늦은 반응의 근본 원인인 '동적 이동'을 제거하고, 물체 통과 확인(거리+bearing 변화) 후 재개해 안전성 극대화\", \"risk\": \"물체가 평행하게 움직일 때 재개 지연으로 진행이 느려질 수 있으나, 충돌 방지 우선으로 수용 가능\"}, {\"idea\": \"측면 오프셋 회피 (Lateral Side-Step)\", \"new_family\": true, \"for\": \"정면 막혔을 때 제자리 회전 대신 측면으로 안전하게 피하는 방향\", \"risk\": \"정적 장애물과의 충돌 위험이 높고, 좁은 통로에서 구현이 복잡해 실패 가능성 큼\"}, {\"idea\": \"속도 장애물 기반 조향 (Velocity Obstacle Steering)\", \"new_family\": true, \"for\": \"물체 궤적을 예측해 안전한 조향 각을 계산\", \"risk\": \"제한된 코드 공간과 센서 노이즈로 예측 오차가 크면 오히려 정적 충돌 유발\"}], \"chosen\": \"후보 1(예측 정지 및 경로 확인 대기)을 선택한다. 상태 기반 정지-확인-재개 로직이 회전 반경 충돌과 정적 충돌을 근본 차단하고, bearing 변화로 평행/교차 물체를 구분해 무분별한 정지를 피할 수 있기 때문이다.\", \"target\": \"controller 함수 내 d_min 기반 감속/회피 분기 전체\", \"direction\": \"기존 연속 감속·반발 조향·제자리 회전 로직을 모두 제거하고, 상태 기반 '정지-확인-재개' 유한 상태 머신으로 대체한다. d_min < 1.5 m 시 무조건 v=0 정지하며 stop_t와 stop_bearing을 기록한다. 정지 중 d_min > 2.0 m 이고 (t - stop_t > 1.5 초 또는 |b_min - stop_bearing| > 0.8 rad) 조건을 만족해야 재개를 허용해, 물체가 완전히 통과했거나 멀어졌는지 판단한다. 재개 전 raw 스캔 중 정적 지도에 매핑되는 점이 0.5m 내에 있으면 정지 유지해 정적 충돌을 차단한다. 제자리 회전과 후진 명령을 배제하고 waypoint 추종 방향(v_nom > 0)으로만 재가속해 정적 충돌과 회전 반경 내 충돌을 근본 차단한다. _nominal 의 v_nom, w_nom 은 유지하되, WAITING 상태에서 벗어나면 즉시 정상 추종으로 복귀하도록 한다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t29_s164598647",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 53.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 47.08,
+   "goal_dist_m": 0.2046,
+   "time_to_goal_s": 49.05
+  },
+  {
+   "run": "c6t29_s2110961331",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 547.0,
+   "sim_time_s": 26.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 20.45,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.13m/s 회전 -0.3",
+   "partner_rel_xy": [
+    0.05,
+    -0.54
+   ],
+   "closing_m_s": 0.7,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 17.72,
+   "goal_dist_m": 23.895,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t29_s328152612",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 520.5,
+   "sim_time_s": 38.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 32.617,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "주행 0.21m/s 회전 +0.5",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 30.95,
+   "goal_dist_m": 10.4437,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t29_s743983335",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 481.9,
+   "sim_time_s": 55.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 49.02,
+   "goal_dist_m": 0.2304,
+   "time_to_goal_s": 51.1
+  },
+  {
+   "run": "c6t29_s1779819769",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 426.9,
+   "sim_time_s": 36.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 30.283,
+   "partner": "mover_02",
+   "robot_at_collision": "제자리 회전 +0.6rad/s",
+   "partner_rel_xy": [
+    -0.54,
+    0.55
+   ],
+   "closing_m_s": 0.44,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 27.85,
+   "goal_dist_m": 10.7518,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

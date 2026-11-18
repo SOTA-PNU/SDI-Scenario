@@ -1,0 +1,197 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c7t15_s1184359982에서 t=86.933s에 mover_03과 충돌",
+   "충돌 직전 로봇 속도가 0.81m/s(t=85.9)에서 0.39 -> 0.11 -> 0.30 -> 0.14m/s로 급격히 요동치며 감속함",
+   "충돌 순간 물체의 상대 위치는 [-0.33, -0.53]이며, 상대 속도는 [0.05, 0.72]로 로봇의 우측에서 좌측으로 빠르게 가로지르는 상황이었음",
+   "로봇이 완전히 멈추지 않고 0.1~0.3m/s의 '주춤거리는' 속도로 주행함으로써, 물체가 가로지르는 경로 상에 더 오래 머물게 되어 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 위험 감지 시 속도를 줄이는 것이 안전하다",
+    "holds": false,
+    "why": "물체가 빠르게 가로지르는 상황에서는 어중간한 감속이 오히려 충돌 가능성을 높이며, 빠르게 통과하거나 완전히 멈춰 기다리는 것이 더 안전함"
+   },
+   {
+    "assumption": "_SIDE_MOMENTUM_BONUS가 주행 유지(hesitation 방지)를 충분히 유도한다",
+    "holds": false,
+    "why": "실행 결과에서 로봇이 0.81m/s에서 0.11m/s까지 속도를 낮춘 것으로 보아, 현재의 보너스 값으로는 감속 후보의 clearance를 이기지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지 및 대기",
+    "turns": "2",
+    "result": "초반에 효과적이었으나 타임아웃 및 정체 발생"
+   },
+   {
+    "family": "능동 회피 및 측면 위험 감지",
+    "turns": "12",
+    "result": "대부분의 케이스를 통과하나, 이번처럼 빠른 교차 물체에 대해 '주춤거림' 발생"
+   },
+   {
+    "family": "측면 모멘텀 보너스",
+    "turns": "3",
+    "result": "통과율을 크게 높였으나, 보너스 강도가 부족해 일부 배치에서 감속 후 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_SIDE_MOMENTUM_BONUS를 대폭 높이고 _MOMENTUM_C0 임계값을 낮춤",
+    "new_family": false,
+    "for": "로봇이 측면 위협을 만났을 때 '어중간한 감속' 대신 '기존 속도 유지'를 강력하게 선택하게 하여 교차 지점을 빠르게 벗어나게 함",
+    "risk": "너무 공격적으로 주행하여 아주 근접한 물체와 충돌할 가능성이 있음"
+   },
+   {
+    "idea": "_safe_speed에서 측면 위험 시 0.1~0.4m/s 사이의 'creep' 속도를 금지하고 0 또는 0.6m/s 이상만 선택하게 함",
+    "new_family": true,
+    "for": "결정 장애(hesitation)를 구조적으로 제거하여 확실한 통과 또는 확실한 대기를 강제함",
+    "risk": "속도 변화가 급격해져 제어 불안정성이 생길 수 있음"
+   }
+  ],
+  "chosen": "후보 1. 기존의 모멘텀 설계 방향을 유지하되, 가중치를 높여 '주춤거림'을 해결하는 것이 가장 효율적이고 안전한 튜닝임",
+  "target": "_SIDE_MOMENTUM_BONUS, _MOMENTUM_C0",
+  "direction": "1. _SIDE_MOMENTUM_BONUS를 0.2에서 0.5로 높여, 속도를 유지하는 후보가 훨씬 유리하게 만듭니다. 2. _MOMENTUM_C0를 0.6에서 0.4로 낮춰, 물체가 더 가까이 다가와도 보너스가 유지되도록 합니다. 3. 이를 통해 로봇이 측면 교차 물체를 만났을 때 0.1~0.3m/s로 속도를 줄여 충돌하는 대신, 기존의 빠른 속도(0.8m/s 이상)를 유지해 빠르게 통과하도록 유도합니다. 4. 다른 안전 임계값은 유지하여 정면 충돌 위험은 계속 방어합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"실행 c7t15_s1184359982에서 t=86.933s에 mover_03과 충돌\",\n  \"충돌 직전 로봇 속도가 0.81m/s(t=85.9)에서 0.39 -> 0.11 -> 0.30 -> 0.14m/s로 급격히 요동치며 감속함\",\n  \"충돌 순간 물체의 상대 위치는 [-0.33, -0.53]이며, 상대 속도는 [0.05, 0.72]로 로봇의 우측에서 좌측으로 빠르게 가로지르는 상황이었음\",\n  \"로봇이 완전히 멈추지 않고 0.1~0.3m/s의 '주춤거리는' 속도로 주행함으로써, 물체가 가로지르는 경로 상에 더 오래 머물게 되어 충돌함\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"측면 위험 감지 시 속도를 줄이는 것이 안전하다\",\n   \"holds\": false,\n   \"why\": \"물체가 빠르게 가로지르는 상황에서는 어중간한 감속이 오히려 충돌 가능성을 높이며, 빠르게 통과하거나 완전히 멈춰 기다리는 것이 더 안전함\"\n  },\n  {\n   \"assumption\": \"_SIDE_MOMENTUM_BONUS가 주행 유지(hesitation 방지)를 충분히 유도한다\",\n   \"holds\": false,\n   \"why\": \"실행 결과에서 로봇이 0.81m/s에서 0.11m/s까지 속도를 낮춘 것으로 보아, 현재의 보너스 값으로는 감속 후보의 clearance를 이기지 못함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 정지 및 대기\",\n   \"turns\": \"2\",\n   \"result\": \"초반에 효과적이었으나 타임아웃 및 정체 발생\"\n  },\n  {\n   \"family\": \"능동 회피 및 측면 위험 감지\",\n   \"turns\": \"12\",\n   \"result\": \"대부분의 케이스를 통과하나, 이번처럼 빠른 교차 물체에 대해 '주춤거림' 발생\"\n  },\n  {\n   \"family\": \"측면 모멘텀 보너스\",\n   \"turns\": \"3\",\n   \"result\": \"통과율을 크게 높였으나, 보너스 강도가 부족해 일부 배치에서 감속 후 충돌\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"_SIDE_MOMENTUM_BONUS를 대폭 높이고 _MOMENTUM_C0 임계값을 낮춤\",\n   \"new_family\": false,\n   \"for\": \"로봇이 측면 위협을 만났을 때 '어중간한 감속' 대신 '기존 속도 유지'를 강력하게 선택하게 하여 교차 지점을 빠르게 벗어나게 함\",\n   \"risk\": \"너무 공격적으로 주행하여 아주 근접한 물체와 충돌할 가능성이 있음\"\n  },\n  {\n   \"idea\": \"_safe_speed에서 측면 위험 시 0.1~0.4m/s 사이의 'creep' 속도를 금지하고 0 또는 0.6m/s 이상만 선택하게 함\",\n   \"new_family\": true,\n   \"for\": \"결정 장애(hesitation)를 구조적으로 제거하여 확실한 통과 또는 확실한 대기를 강제함\",\n   \"risk\": \"속도 변화가 급격해져 제어 불안정성이 생길 수 있음\"\n  }\n ],\n \"chosen\": \"후보 1. 기존의 모멘텀 설계 방향을 유지하되, 가중치를 높여 '주춤거림'을 해결하는 것이 가장 효율적이고 안전한 튜닝임\",\n \"target\": \"_SIDE_MOMENTUM_BONUS, _MOMENTUM_C0\",\n \"direction\": \"1. _SIDE_MOMENTUM_BONUS를 0.2에서 0.5로 높여, 속도를 유지하는 후보가 훨씬 유리하게 만듭니다. 2. _MOMENTUM_C0를 0.6에서 0.4로 낮춰, 물체가 더 가까이 다가와도 보너스가 유지되도록 합니다. 3. 이를 통해 로봇이 측면 교차 물체를 만났을 때 0.1~0.3m/s로 속도를 줄여 충돌하는 대신, 기존의 빠른 속도(0.8m/s 이상)를 유지해 빠르게 통과하도록 유도합니다. 4. 다른 안전 임계값은 유지하여 정면 충돌 위험은 계속 방어합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t15_s1184359982",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 92.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 86.933,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.14m/s",
+   "partner_rel_xy": [
+    -0.33,
+    -0.53
+   ],
+   "closing_m_s": 0.64,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 82.02,
+   "goal_dist_m": 2.7585,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t15_s1789372109",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 507.1,
+   "sim_time_s": 84.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 78.12,
+   "goal_dist_m": 0.2129,
+   "time_to_goal_s": 80.8
+  },
+  {
+   "run": "c7t15_s1672883676",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 422.9,
+   "sim_time_s": 82.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 76.82,
+   "goal_dist_m": 0.1874,
+   "time_to_goal_s": 79.783
+  },
+  {
+   "run": "c7t15_s2035802717",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 340.2,
+   "sim_time_s": 73.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 67.85,
+   "goal_dist_m": 0.1749,
+   "time_to_goal_s": 70.817
+  },
+  {
+   "run": "c7t15_s1906033446",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 266.3,
+   "sim_time_s": 83.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 77.12,
+   "goal_dist_m": 0.1717,
+   "time_to_goal_s": 80.05
+  },
+  {
+   "run": "c7t15_s1773157766",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 183.2,
+   "sim_time_s": 91.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 85.15,
+   "goal_dist_m": 0.1245,
+   "time_to_goal_s": 88.083
+  },
+  {
+   "run": "c7t15_s1338120450",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 92.1,
+   "sim_time_s": 87.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 81.62,
+   "goal_dist_m": 0.1228,
+   "time_to_goal_s": 84.433
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

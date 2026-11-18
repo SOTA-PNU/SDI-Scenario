@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1·3·4·5에 따라 정체를 만드는 임계값을 낮췄습니다. `_CLR_GO`·`_ESC_C`는 0.3 m, `_CLR_K`는 0.10, `_SIDE_GAP`은 0.6 m로 줄였고, 지시 2·5에 따라 `_WAIT_RELAX_S`는 1.0 s, `_RELAX_V`는 0.8 m/s, `_CAP_MIN`은 0.8 m/s로 올렸습니다. 지시 6의 `_ESC_GAIN`은 이미 0.01이므로 그대로 둡니다. `_safe_speed` 안의 저속 돌파 허용 기준이 0.35 m로 고정되어 있어 새 `_CLR_GO`(0.3 m)보다 엄격했습니다. 그대로 두면 예상 거리 부족으로 멈췄을 때 지시 2의 돌파가 실제로 일어나지 않으므로, 이 기준을 `_CLR_GO`에 맞췄습니다(지시 1·2 대응).\n\n```python\n_CLR_GO = 0.30           # 진단 지시 1: 일반 주행에서 전진을 허용하는 예상 최소거리 (0.5 -> 0.3 m)\n\n\n_ESC_C = 0.30            # 진단 지시 1: 멈춰 있어도 예상 최소거리가 이보다 작으면 능동 회피 (0.5 -> 0.3 m)\n\n\n_WAIT_RELAX_S = 1.0      # 진단 지시 2: 대기가 이보다 길면 저속 전진 시도 (1.5 -> 1.0 s)\n\n\n_RELAX_V = 0.8           # 진단 지시 2: 오래 기다린 뒤 저속 전진 속도 (0.6 -> 0.8 m/s)\n\n\n_CLR_K = 0.10            # 진단 지시 3: 예상 최소거리에서 빼는 속도 비례 여유 (0.15 -> 0.10 m per m/s)\n\n\n_SIDE_GAP = 0.6          # 진단 지시 4: 몸체 옆면에서 이 거리 안으로 다가오면 위험 (0.8 -> 0.6 m)\n\n\n_CAP_MIN = 0.8           # 진단 지시 5: 속도 상한의 최저값 (0.7 -> 0.8 m/s)\n\n\ndef _speed_cap(t, pose):\n    \"\"\"진단 지시 5: d_min 에 따른 속도 상한. d_min > 3 m: 1.5 m/s, 그 밖: _CAP_MIN (0.8 m/s).\n    상한을 올릴 때만 경계에 _CAP_HYST 를 더해 경계에서 떨지 않게 합니다.\"\"\"\n    S = _SAFE\n    d = _nearest_mover_dist(t, pose)\n    prev = S.get(\"cap\", 1.5)\n    need = 3.0 + (_CAP_HYST if prev < 1.5 else 0.0)\n    cap = 1.5 if d > need else _CAP_MIN\n    S[\"cap\"] = cap\n    S[\"d_min\"] = d\n    return cap\n\n\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 _CAP_MIN = 0.8 m/s) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO (진단 지시 1: 0.3 m) 이상이면 전진.\n      진단 지시 2: 그렇지 못해 대기가 _WAIT_RELAX_S (1.0 s) 를 넘으면, 몸통 폭 통로가 빌 때\n      _RELAX_V (0.8 m/s) 또는 그 절반으로 저속 전진합니다. 이때 예상 거리 기준도 _CLR_GO 로 맞춰\n      (이전 고정값 0.35 m 는 새 _CLR_GO 보다 엄격해 돌파가 막힘) 정체 돌파가 실제로 일어나게 합니다.\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C (진단 지시 1: 0.3 m)):\n      정적 장애물이 없는 전진·후진 속도 중 가장 멀어지는 쪽으로 이동 (_ESC_GAIN 0.01 m 유지, 진단 지시 6).\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            if S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vr = min(v_law, _RELAX_V)\n                for vf in (vr, 0.5 * vr):\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    best_v, best_c = 0.0, c0\n    for vc in cands:\n        if not _static_free(pose, vc):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        if cv > best_c + _ESC_GAIN:\n            best_v, best_c = vc, cv\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 29073,
+  "completion_tokens": 4649
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 38868,
+  "total_cost_usd": 0.325556,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4649,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 29071,
+    "webSearchRequests": 0,
+    "costUSD": 0.325556,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2068,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 29071,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "4ae207c8-9858-47d9-b963-b5da8968ce67"
+ }
+}

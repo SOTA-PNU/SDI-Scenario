@@ -1,0 +1,177 @@
+{
+ "diagnosis": {
+  "failure_mode": "other",
+  "evidence": [
+   "7개 배치 모두 통과 (c7t14_s599668047 ~ c7t14_s1393566305)",
+   "모든 실행에서 충돌 0회, 최종 목표 거리 0.17~0.25m로 정밀하게 도착",
+   "시뮬레이션 시간 합계 592초로 예산(600초) 내에 모든 미션 완료"
+  ],
+  "assumptions": [
+   {
+    "assumption": "미추적 점 감지 거리(_FRONT_UNTRACKED_R=0.6)와 대기 시간(_WAIT_RELAX_S=0.5) 설정이 노이즈 필터링과 주행 재개 속도 사이의 적절한 균형을 이룬다.",
+    "holds": true,
+    "why": "이전 턴의 정체-재출발 반복 문제가 해결되었고, 모든 배치에서 타임아웃 없이 통과함"
+   },
+   {
+    "assumption": "능동 회피(_ESC_V)와 측면 모멘텀 보너스 로직이 다양한 물체 배치에서도 충돌 없이 교차를 가능하게 한다.",
+    "holds": true,
+    "why": "측면 접근 물체가 있는 상황에서도 충돌 없이 GOAL에 도달함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정적 경유점 추종 + 반응형 센서 안전 계층 (정지/저속전진/능동회피)",
+    "turns": "15",
+    "result": "최종 턴 7/7 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "현재 로직 유지",
+    "new_family": false,
+    "for": "현재 모든 테스트 케이스를 통과했으며 안전성과 효율성의 균형이 검증됨",
+    "risk": "여전히 stop_turns(12~18회)가 많아 주행이 다소 끊기는 경향이 있음"
+   }
+  ],
+  "chosen": "현재 로직 유지. 7개 배치 모두 통과하였으며, 안전성과 주행 효율성의 균형이 잘 잡혀 있음.",
+  "target": "none",
+  "direction": "현재 코드가 모든 테스트 케이스를 성공적으로 통과하였으므로 추가 수정 없이 유지합니다. 특히 _FRONT_UNTRACKED_R 하향과 _WAIT_RELAX_S 단축이 불필요한 정지를 줄이고 통과 시간을 최적화하는 데 결정적인 역할을 했습니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"other\",\n \"evidence\": [\n  \"7개 배치 모두 통과 (c7t14_s599668047 ~ c7t14_s1393566305)\",\n  \"모든 실행에서 충돌 0회, 최종 목표 거리 0.17~0.25m로 정밀하게 도착\",\n  \"시뮬레이션 시간 합계 592초로 예산(600초) 내에 모든 미션 완료\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"미추적 점 감지 거리(_FRONT_UNTRACKED_R=0.6)와 대기 시간(_WAIT_RELAX_S=0.5) 설정이 노이즈 필터링과 주행 재개 속도 사이의 적절한 균형을 이룬다.\",\n   \"holds\": true,\n   \"why\": \"이전 턴의 정체-재출발 반복 문제가 해결되었고, 모든 배치에서 타임아웃 없이 통과함\"\n  },\n  {\n   \"assumption\": \"능동 회피(_ESC_V)와 측면 모멘텀 보너스 로직이 다양한 물체 배치에서도 충돌 없이 교차를 가능하게 한다.\",\n   \"holds\": true,\n   \"why\": \"측면 접근 물체가 있는 상황에서도 충돌 없이 GOAL에 도달함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"정적 경유점 추종 + 반응형 센서 안전 계층 (정지/저속전진/능동회피)\",\n   \"turns\": \"15\",\n   \"result\": \"최종 턴 7/7 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"현재 로직 유지\",\n   \"new_family\": false,\n   \"for\": \"현재 모든 테스트 케이스를 통과했으며 안전성과 효율성의 균형이 검증됨\",\n   \"risk\": \"여전히 stop_turns(12~18회)가 많아 주행이 다소 끊기는 경향이 있음\"\n  }\n ],\n \"chosen\": \"현재 로직 유지. 7개 배치 모두 통과하였으며, 안전성과 주행 효율성의 균형이 잘 잡혀 있음.\",\n \"target\": \"none\",\n \"direction\": \"현재 코드가 모든 테스트 케이스를 성공적으로 통과하였으므로 추가 수정 없이 유지합니다. 특히 _FRONT_UNTRACKED_R 하향과 _WAIT_RELAX_S 단축이 불필요한 정지를 줄이고 통과 시간을 최적화하는 데 결정적인 역할을 했습니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t14_s599668047",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 85.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 79.45,
+   "goal_dist_m": 0.1871,
+   "time_to_goal_s": 82.367
+  },
+  {
+   "run": "c7t14_s393828798",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 514.6,
+   "sim_time_s": 77.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 71.85,
+   "goal_dist_m": 0.1888,
+   "time_to_goal_s": 74.8
+  },
+  {
+   "run": "c7t14_s1527094510",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 436.8,
+   "sim_time_s": 79.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 73.35,
+   "goal_dist_m": 0.1736,
+   "time_to_goal_s": 76.283
+  },
+  {
+   "run": "c7t14_s294306121",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 357.5,
+   "sim_time_s": 76.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 70.85,
+   "goal_dist_m": 0.1837,
+   "time_to_goal_s": 73.8
+  },
+  {
+   "run": "c7t14_s1962374961",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 280.7,
+   "sim_time_s": 88.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 82.82,
+   "goal_dist_m": 0.175,
+   "time_to_goal_s": 85.617
+  },
+  {
+   "run": "c7t14_s1062750797",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 191.9,
+   "sim_time_s": 84.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 78.42,
+   "goal_dist_m": 0.2527,
+   "time_to_goal_s": 81.267
+  },
+  {
+   "run": "c7t14_s1393566305",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 107.6,
+   "sim_time_s": 99.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 93.72,
+   "goal_dist_m": 0.1837,
+   "time_to_goal_s": 96.65
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

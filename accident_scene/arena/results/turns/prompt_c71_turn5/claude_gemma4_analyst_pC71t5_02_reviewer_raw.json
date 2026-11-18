@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"정지 구역 각도를 ±20°에서 ±40°로 확장\", \"implemented\": true, \"note\": \"_front_dynamic_min_dist(pose, 40.0)와 math.radians(40.0)로 바꿈\"},\n  {\"instruction\": \"정지 거리 2.0m 유지\", \"implemented\": true, \"note\": \"stop_r의 비차단 값 2.0 유지\"},\n  {\"instruction\": \"creep 속도를 0.7m/s에서 0.3m/s로 하향\", \"implemented\": true, \"note\": \"v = min(v, 0.3)\"},\n  {\"instruction\": \"E_TURN을 0.5에서 0.7로 상향\", \"implemented\": true, \"note\": \"E_TURN = 0.7\"},\n  {\"instruction\": \"w 이득을 8.5에서 10.0으로 상향\", \"implemented\": true, \"note\": \"w = _clamp(10.0 * e, -2.0, 2.0)\"},\n  {\"instruction\": \"정지 해제 히스테리시스 2.2m 유지\", \"implemented\": true, \"note\": \"stop_r = 2.2 if controller.blocked 유지\"},\n  {\"instruction\": \"정적 지도 필터링 로직 유지\", \"implemented\": true, \"note\": \"_STATIC_RECTS, _static_mask, _front_dynamic_min_dist 본문 변경 없음\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거 사례 47°는 ±40° 정지 구역 밖이라 확장해도 정지하지 않음\",\n  \"-65°, -93° 측면 접근은 ±60° 감속 구역과 전방(x>0) 필터 밖이라 이 수정으로 막을 수 없음\",\n  \"w는 ±2.0으로 포화되므로 e>0.2rad에서는 이득 10.0이 회전 시간을 거의 줄이지 못함\",\n  \"creep 0.3m/s와 넓은 정지 구역은 주행 시간을 늘려 평균 60초 예산과 충돌할 수 있음\",\n  \"정지해도 물체가 닿으면 충돌인데, 측면 물체에 대한 회피나 후진 대응이 없음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 20559,
+  "completion_tokens": 1582
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 15075,
+  "total_cost_usd": 0.196104,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1582,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 20557,
+    "webSearchRequests": 0,
+    "costUSD": 0.196104,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 782,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 20557,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "0f9c0728-f408-47d3-9e6b-5c2453b70249"
+ }
+}

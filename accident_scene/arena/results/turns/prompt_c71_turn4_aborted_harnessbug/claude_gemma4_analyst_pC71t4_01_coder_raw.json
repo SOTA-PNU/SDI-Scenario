@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 충돌한 물체는 bearing 39°~60°로 측면에서 들어왔고, ±30° 원뿔 밖이라 감지되지 않았습니다. 진단 지시 1에 따라 `_front_dynamic_min_dist` 의 감지 원뿔을 ±60°로 넓혔습니다. 지시 2에 따라 `controller` 의 E_TURN 을 0.2에서 0.3으로 올려 제자리 회전 횟수와 주행 시간을 줄였습니다. 지시 3에 따라 v_max 2.0, 거리 계수 3.0, w 이득 8.5, 2.0 m 정지/3.0 m 감속 로직, 경유점은 그대로 두었습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow the pre-computed way-points (v_max 2.0, k_d 3.0, k_w 8.5, rotate in place when |e| > 0.3);\n    brake (v=0) when a non-static object is within 2.0 m in the ±60° front cone, and cap v at 1.0 m/s\n    when one is within 3.0 m.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.done_align = False\n        controller.blocked = False\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3) Control law (diagnosis: E_TURN 0.3, v_max 2.0, k_d 3.0, k_w 8.5)\n    E_TURN = 0.3\n    w = _clamp(8.5 * e, -2.0, 2.0)\n    if abs(e) > E_TURN:\n        v = 0.0\n    else:\n        v = min(2.0, 3.0 * dist + 0.5)\n\n    # 4) Reactive braking on moving objects (front 2D lidar, static map filtered out, ±60° cone): stop only, no reversing\n    d_front = _front_dynamic_min_dist(pose)\n    if d_front < 3.0:\n        v = min(v, 1.0)                           # slow-down band so the higher speed does not lengthen braking\n    controller.blocked = d_front < (2.2 if controller.blocked else 2.0)\n    if controller.blocked:\n        v = 0.0                                   # stop; keep w so the heading stays on the waypoint\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n\n\ndef _front_dynamic_min_dist(pose):\n    \"\"\"Min distance (robot frame) to non-static front-lidar points inside the forward ±60° cone; inf if none.\"\"\"\n    pts = lidar2d_points(\"front\")\n    if pts is None or len(pts) == 0:\n        return float(\"inf\")\n    wp = to_world(pts, pose)\n    dyn = pts[~_static_mask(wp)]\n    if len(dyn) == 0:\n        return float(\"inf\")\n    cone = (dyn[:, 0] > 0.0) & (np.abs(dyn[:, 1]) < dyn[:, 0] * math.tan(math.radians(60.0)))\n    if not np.any(cone):\n        return float(\"inf\")\n    return float(np.min(np.hypot(dyn[cone, 0], dyn[cone, 1])))\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 15642,
+  "completion_tokens": 1783
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 14001,
+  "total_cost_usd": 0.16078800000000001,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1783,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 15640,
+    "webSearchRequests": 0,
+    "costUSD": 0.16078800000000001,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 297,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 15640,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "a031e12e-1c10-4de6-aacd-f5a289967c58"
+ }
+}

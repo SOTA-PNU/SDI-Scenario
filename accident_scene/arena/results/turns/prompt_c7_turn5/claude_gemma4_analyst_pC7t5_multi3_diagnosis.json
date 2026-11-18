@@ -1,0 +1,111 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c7t5_s211435684: t=199.1s에 정지 후 t=201.4s까지 정체. 당시 물체 거리 1.38m, bearing 0deg로 정면에 있었으나 로봇은 재출발하지 못함.",
+   "c7t5_s84725605: t=87.8s부터 정지 및 저속 주행(0.19~0.71m/s) 반복. 물체가 0.92~1.89m 거리에서 관측되었으나 목표 지점까지의 거리 31.8m를 거의 좁히지 못함.",
+   "c7t5_s840648815: t=115.4s부터 정지 및 0.08~0.20m/s의 매우 느린 전진 시도 반복. 물체 거리 1.2~1.6m에서 극도로 보수적인 주행 패턴 보임."
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체 반폭을 반영한 0.7m의 큰 안전 마진(_CLR_GO, _ESC_C)이 충돌 방지에 필수적이다.",
+    "holds": false,
+    "why": "물체가 충분히 떨어져 있거나(1.4m) 경로를 벗어났음에도 로봇이 멈춰 서서 progress_abort가 발생함."
+   },
+   {
+    "assumption": "±45°의 넓은 정면 감지 범위가 안전을 보장한다.",
+    "holds": false,
+    "why": "창고 통로 특성상 정면이 아닌 옆에서 지나가는 물체까지 '정면 막힘'으로 판단하여 불필요한 정지가 빈번함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "능동 회피 및 고안전 마진",
+    "turns": "3",
+    "result": "0/3, 2/5, 0/3 (실패율 급증)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감지 범위 및 마진의 하향 조정",
+    "new_family": false,
+    "for": "현재의 과도한 보수성을 줄여 주행성을 확보할 수 있음",
+    "risk": "측면 충돌 위험이 다시 증가할 수 있음"
+   },
+   {
+    "idea": "상대 속도 기반의 위험 판단 (Closing Velocity Filtering)",
+    "new_family": true,
+    "for": "단순히 거리/각도 내에 있는 것이 아니라, 실제로 로봇 쪽으로 다가오는 물체만 위험으로 간주하여 불필요한 정지를 방지함",
+    "risk": "속도 추정 오차로 인해 정지 시점이 늦어질 수 있음"
+   }
+  ],
+  "chosen": "상대 속도 기반의 위험 판단을 도입하고 과도한 마진을 줄여 주행성을 회복함",
+  "target": "_is_danger, _safe_speed, 관련 상수들",
+  "direction": "1. _FRONT_CONE_DEG를 30도로, _FRONT_CORR를 0.6m로 줄여 정면 감지 범위를 최적화합니다. 2. _is_danger['front'] 판단 시, 단순히 범위 내에 있는 것이 아니라 _approach의 rate(접근 속도)가 양수이거나 추적 데이터가 없는 경우에만 위험으로 간주합니다. 3. _CLR_GO와 _ESC_C를 0.5m로 낮춰 로봇이 더 기민하게 주행을 재개하게 합니다. 4. _safe_speed의 저속 전진 시도 속도를 0.4m/s에서 0.6m/s로 높입니다. 5. _WAIT_RELAX_S를 1.5s로 줄여 정체 시간을 단축합니다. 6. _MOVER_HALF는 유지하되, 전체적인 임계값을 낮춰 '정지 후 대기'보다 '저속 주행 및 회피'가 우선되도록 합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"stall\",\n \"evidence\": [\n  \"c7t5_s211435684: t=199.1s에 정지 후 t=201.4s까지 정체. 당시 물체 거리 1.38m, bearing 0deg로 정면에 있었으나 로봇은 재출발하지 못함.\",\n  \"c7t5_s84725605: t=87.8s부터 정지 및 저속 주행(0.19~0.71m/s) 반복. 물체가 0.92~1.89m 거리에서 관측되었으나 목표 지점까지의 거리 31.8m를 거의 좁히지 못함.\",\n  \"c7t5_s840648815: t=115.4s부터 정지 및 0.08~0.20m/s의 매우 느린 전진 시도 반복. 물체 거리 1.2~1.6m에서 극도로 보수적인 주행 패턴 보임.\"\n ],\n \"assumptions\": [\n  {\"assumption\": \"물체 반폭을 반영한 0.7m의 큰 안전 마진(_CLR_GO, _ESC_C)이 충돌 방지에 필수적이다.\", \"holds\": false, \"why\": \"물체가 충분히 떨어져 있거나(1.4m) 경로를 벗어났음에도 로봇이 멈춰 서서 progress_abort가 발생함.\"},\n  {\"assumption\": \"±45°의 넓은 정면 감지 범위가 안전을 보장한다.\", \"holds\": false, \"why\": \"창고 통로 특성상 정면이 아닌 옆에서 지나가는 물체까지 '정면 막힘'으로 판단하여 불필요한 정지가 빈번함.\"}\n ],\n \"approach_families\": [\n  {\"family\": \"능동 회피 및 고안전 마진\", \"turns\": \"3\", \"result\": \"0/3, 2/5, 0/3 (실패율 급증)\"}\n ],\n \"candidates\": [\n  {\n   \"idea\": \"감지 범위 및 마진의 하향 조정\",\n   \"new_family\": false,\n   \"for\": \"현재의 과도한 보수성을 줄여 주행성을 확보할 수 있음\",\n   \"risk\": \"측면 충돌 위험이 다시 증가할 수 있음\"\n  },\n  {\n   \"idea\": \"상대 속도 기반의 위험 판단 (Closing Velocity Filtering)\",\n   \"new_family\": true,\n   \"for\": \"단순히 거리/각도 내에 있는 것이 아니라, 실제로 로봇 쪽으로 다가오는 물체만 위험으로 간주하여 불필요한 정지를 방지함\",\n   \"risk\": \"속도 추정 오차로 인해 정지 시점이 늦어질 수 있음\"\n  }\n ],\n \"chosen\": \"상대 속도 기반의 위험 판단을 도입하고 과도한 마진을 줄여 주행성을 회복함\",\n \"target\": \"_is_danger, _safe_speed, 관련 상수들\",\n \"direction\": \"1. _FRONT_CONE_DEG를 30도로, _FRONT_CORR를 0.6m로 줄여 정면 감지 범위를 최적화합니다. 2. _is_danger['front'] 판단 시, 단순히 범위 내에 있는 것이 아니라 _approach의 rate(접근 속도)가 양수이거나 추적 데이터가 없는 경우에만 위험으로 간주합니다. 3. _CLR_GO와 _ESC_C를 0.5m로 낮춰 로봇이 더 기민하게 주행을 재개하게 합니다. 4. _safe_speed의 저속 전진 시도 속도를 0.4m/s에서 0.6m/s로 높입니다. 5. _WAIT_RELAX_S를 1.5s로 줄여 정체 시간을 단축합니다. 6. _MOVER_HALF는 유지하되, 전체적인 임계값을 낮춰 '정지 후 대기'보다 '저속 주행 및 회피'가 우선되도록 합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t5_s211435684",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 202.4,
+   "stall_abort_t": null,
+   "progress_abort_t": 201.38,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 196.42,
+   "goal_dist_m": 5.6953,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t5_s84725605",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 397.6,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 85.05,
+   "goal_dist_m": 31.8225,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t5_s840648815",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 306.6,
+   "sim_time_s": 120.7,
+   "stall_abort_t": null,
+   "progress_abort_t": 119.65,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 114.75,
+   "goal_dist_m": 23.1649,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

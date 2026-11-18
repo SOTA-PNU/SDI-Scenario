@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. ±120° d_fs 기반 속도 scale(0.8m 미만 v=0) 완전 제거\", \"implemented\": true, \"note\": \"controller 에서 d_fs·scale 계산과 v*=scale, d_fs<_AVOID_R 캡이 모두 삭제됨. _SCALE_* 상수는 남았지만 controller 에서 쓰지 않음\"},\n  {\"instruction\": \"2. 물체 때문에 v=0 이 되는 조건은 정지 원뿔(±30°, _STOP_R 0.6m) 안 물체뿐\", \"implemented\": true, \"note\": \"물체 관련 v=0 은 stop_zone(d_cone<_STOP_R) 블록에만 있음. 다만 회피 중 _static_ahead 가 참이면 정적 장애물 때문에 v=0 이 됨. 물체가 없을 때의 제자리 회전 v=0 도 남아 있음. 둘 다 이동 물체로 인한 정지는 아님\"},\n  {\"instruction\": \"3. ±90° 내 물체가 _AVOID_R(2.0m) 이내면 v 를 _V_AVOID_MAX(0.7) 로 캡\", \"implemented\": true, \"note\": \"steering=d_front<_AVOID_R(d_front 는 ±90°), v=min(3.5*dist+0.5,_V_AVOID_MAX)*clamp(cos(e_cmd),0.3,1), _V_AVOID_MAX=0.7\"},\n  {\"instruction\": \"4. w_avoid 로 물체 반대 방향으로 계속 이동(앉은 오리 방지)\", \"implemented\": true, \"note\": \"dpsi=-side*_DPSI_MAX*... 로 물체 반대쪽 조향. 회피 모드에서는 제자리 회전 정지가 없고 최소 30% 속도로 주행\"},\n  {\"instruction\": \"5. _DPSI_MAX 를 0.5 로 상향\", \"implemented\": true, \"note\": \"_DPSI_MAX = 0.5\"},\n  {\"instruction\": \"6. _static_close_on_side 체크를 엄격히 유지\", \"implemented\": true, \"note\": \"함수와 dpsi=0 처리가 그대로임. 정적 장애물 대비로 _static_ahead 가 추가됨\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"정지 원뿔 0.6m 는 로봇 원점 기준이라 차체 앞면(0.25m)과의 여유가 0.35m 뿐임. 0.7m/s 주행과 물체 접근 속도를 합치면 정지가 늦을 수 있음\",\n  \"후방(>90°)에서 오는 물체에는 아무 대응이 없음\",\n  \"0.7m/s 이하 저속 주행으로 0.4~0.56m/s 측면 물체 궤적을 벗어날 수 있는지 근거가 없음\",\n  \"멀어지는 물체에도 2m 이내면 감속하므로 평균 60초 예산을 넘길 위험이 있음\",\n  \"s314257256 정적 박스 충돌이 정지 상태에서 어떻게 일어났는지 기전 설명이 없음(제자리 회전 시 차체가 휩쓸린 것인지 등)\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 30039,
+  "completion_tokens": 3381
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 33149,
+  "total_cost_usd": 0.307924,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3381,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 30037,
+    "webSearchRequests": 0,
+    "costUSD": 0.307924,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2193,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 30037,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "851b7c77-1cac-4f1e-92d9-ef36f8b78a57"
+ }
+}

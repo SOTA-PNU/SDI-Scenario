@@ -1,0 +1,223 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t29_s188770885: t=21.1에 정지 상태에서 mover_01과 충돌 (상대 위치 [ -0.01, -0.55], 접근 속도 0.76m/s)",
+   "c7t29_s35509772: t=26.967에 0.19m/s 저속 주행 중 mover_01과 충돌 (상대 위치 [0.06, -0.54], 접근 속도 0.75m/s)",
+   "c7t29_s913935789: t=26.95에 정지 상태에서 mover_01과 충돌 (상대 위치 [-0.02, -0.55], 접근 속도 0.67m/s)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 위협 감지 시 정지하는 것이 이동하는 것보다 안전하다",
+    "holds": false,
+    "why": "세 건의 실패 사례 모두 로봇이 정지하거나 매우 느리게 움직일 때, 측면에서 빠르게 접근하는 물체에 의해 충돌함. 즉, 정지가 해결책이 아님."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "능동 회피 및 거리 최대화",
+    "turns": "20회 이상",
+    "result": "많은 pass가 있었으나 최근 턴(28, 29)에서 정지 선호도를 높인 후 측면 충돌 재발"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 위협 시 정지 페널티(_SIDE_STOP_PEN)를 대폭 높여 정지보다 이동(전/후진)을 강제함",
+    "new_family": false,
+    "for": "정지 상태에서 측면 충돌이 발생하는 'sitting duck' 상황을 방지하고, 교차 시점을 강제로 변경하기 위함",
+    "risk": "정적 장애물과의 거리 마진이 줄어들어 벽 충돌 위험이 증가할 수 있음"
+   },
+   {
+    "idea": "물체의 접근 속도(closing speed)에 비례하여 정지 페널티를 동적으로 부여함",
+    "new_family": true,
+    "for": "물체가 빠르게 다가올수록 정지는 무의미하므로 더 강력하게 이동을 유도하고, 느린 물체에는 보수적으로 대응 가능",
+    "risk": "로직이 복잡해지며 파라미터 튜닝이 어려움"
+   }
+  ],
+  "chosen": "측면 위협 시 정지 페널티를 높이고 이동 채택 문턱을 낮추는 방향을 선택. 최근 턴에서 정지 선호도를 높인 것이 실패의 직접적 원인이므로 이를 되돌려야 함.",
+  "target": "_SIDE_STOP_PEN, _ESC_GAIN, _CLOSE_FWD_GAIN",
+  "direction": "1. _SIDE_STOP_PEN을 0.05에서 0.20으로 높여 측면 위협 시 정지보다 이동 후보가 훨씬 유리하게 만듭니다. 2. _ESC_GAIN을 0.05에서 0.02로 낮춰, 정지보다 아주 조금만 나은 이동 경로라도 적극적으로 채택하게 합니다. 3. _CLOSE_FWD_GAIN을 0.15에서 0.10으로 낮춰, 매우 근접한 상황에서도 전진을 통한 회피 가능성을 열어둡니다. 4. _ESC_V 후보군은 유지하여 확실한 속도로 경로를 벗어나게 합니다. 5. 정적 검사(critical=True)는 유지하여 벽 충돌을 방지합니다. 6. 이를 통해 측면 접근 물체 앞에서 멈춰 서지 않고, 전진 또는 후진하여 충돌 지점을 피하도록 유도합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c7t29_s188770885: t=21.1에 정지 상태에서 mover_01과 충돌 (상대 위치 [ -0.01, -0.55], 접근 속도 0.76m/s)\",\n  \"c7t29_s35509772: t=26.967에 0.19m/s 저속 주행 중 mover_01과 충돌 (상대 위치 [0.06, -0.54], 접근 속도 0.75m/s)\",\n  \"c7t29_s913935789: t=26.95에 정지 상태에서 mover_01과 충돌 (상대 위치 [-0.02, -0.55], 접근 속도 0.67m/s)\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"측면 위협 감지 시 정지하는 것이 이동하는 것보다 안전하다\",\n   \"holds\": false,\n   \"why\": \"세 건의 실패 사례 모두 로봇이 정지하거나 매우 느리게 움직일 때, 측면에서 빠르게 접근하는 물체에 의해 충돌함. 즉, 정지가 해결책이 아님.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"능동 회피 및 거리 최대화\",\n   \"turns\": \"20회 이상\",\n   \"result\": \"많은 pass가 있었으나 최근 턴(28, 29)에서 정지 선호도를 높인 후 측면 충돌 재발\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"측면 위협 시 정지 페널티(_SIDE_STOP_PEN)를 대폭 높여 정지보다 이동(전/후진)을 강제함\",\n   \"new_family\": false,\n   \"for\": \"정지 상태에서 측면 충돌이 발생하는 'sitting duck' 상황을 방지하고, 교차 시점을 강제로 변경하기 위함\",\n   \"risk\": \"정적 장애물과의 거리 마진이 줄어들어 벽 충돌 위험이 증가할 수 있음\"\n  },\n  {\n   \"idea\": \"물체의 접근 속도(closing speed)에 비례하여 정지 페널티를 동적으로 부여함\",\n   \"new_family\": true,\n   \"for\": \"물체가 빠르게 다가올수록 정지는 무의미하므로 더 강력하게 이동을 유도하고, 느린 물체에는 보수적으로 대응 가능\",\n   \"risk\": \"로직이 복잡해지며 파라미터 튜닝이 어려움\"\n  }\n ],\n \"chosen\": \"측면 위협 시 정지 페널티를 높이고 이동 채택 문턱을 낮추는 방향을 선택. 최근 턴에서 정지 선호도를 높인 것이 실패의 직접적 원인이므로 이를 되돌려야 함.\",\n \"target\": \"_SIDE_STOP_PEN, _ESC_GAIN, _CLOSE_FWD_GAIN\",\n \"direction\": \"1. _SIDE_STOP_PEN을 0.05에서 0.20으로 높여 측면 위협 시 정지보다 이동 후보가 훨씬 유리하게 만듭니다. 2. _ESC_GAIN을 0.05에서 0.02로 낮춰, 정지보다 아주 조금만 나은 이동 경로라도 적극적으로 채택하게 합니다. 3. _CLOSE_FWD_GAIN을 0.15에서 0.10으로 낮춰, 매우 근접한 상황에서도 전진을 통한 회피 가능성을 열어둡니다. 4. _ESC_V 후보군은 유지하여 확실한 속도로 경로를 벗어나게 합니다. 5. 정적 검사(critical=True)는 유지하여 벽 충돌을 방지합니다. 6. 이를 통해 측면 접근 물체 앞에서 멈춰 서지 않고, 전진 또는 후진하여 충돌 지점을 피하도록 유도합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t29_s188770885",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 27.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 21.1,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.01,
+    -0.55
+   ],
+   "closing_m_s": 0.76,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 17.42,
+   "goal_dist_m": 23.8373,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t29_s35509772",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 572.9,
+   "sim_time_s": 33.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.967,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.19m/s",
+   "partner_rel_xy": [
+    0.06,
+    -0.54
+   ],
+   "closing_m_s": 0.75,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 23.35,
+   "goal_dist_m": 23.8921,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t29_s471802663",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 539.9,
+   "sim_time_s": 85.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 79.75,
+   "goal_dist_m": 0.1852,
+   "time_to_goal_s": 82.717
+  },
+  {
+   "run": "c7t29_s1241965421",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 454.3,
+   "sim_time_s": 67.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 61.55,
+   "goal_dist_m": 0.3299,
+   "time_to_goal_s": 64.5
+  },
+  {
+   "run": "c7t29_s991473213",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 386.7,
+   "sim_time_s": 85.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 79.82,
+   "goal_dist_m": 0.3141,
+   "time_to_goal_s": 82.767
+  },
+  {
+   "run": "c7t29_s333712594",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 300.9,
+   "sim_time_s": 70.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 64.25,
+   "goal_dist_m": 0.1867,
+   "time_to_goal_s": 67.217
+  },
+  {
+   "run": "c7t29_s1982032575",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 230.8,
+   "sim_time_s": 78.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 72.85,
+   "goal_dist_m": 0.178,
+   "time_to_goal_s": 75.883
+  },
+  {
+   "run": "c7t29_s674794930",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 152.0,
+   "sim_time_s": 80.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 74.55,
+   "goal_dist_m": 0.175,
+   "time_to_goal_s": 77.617
+  },
+  {
+   "run": "c7t29_s913935789",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 71.4,
+   "sim_time_s": 33.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.95,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.02,
+    -0.55
+   ],
+   "closing_m_s": 0.67,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 22.02,
+   "goal_dist_m": 23.8126,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

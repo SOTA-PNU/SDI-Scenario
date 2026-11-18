@@ -1,0 +1,167 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c6t24_s251349540: 42.18s 충돌 시 로봇 상태 '정지', 상대 거리 0.34m, 접근 속도 0.69m/s. 0.5m 정지 임계값이 접근 속도에 비해 너무 짧아 정지 중 충돌 발생.",
+   "실행 c6t24_s137319808 및 c6t24_s829948308: 충돌 시 로봇이 '제자리 회전' 중, 상대 bearing ±90~110°(측면/후측면). 반발 조향이 전진 속도가 0에 가까울 때 회전만 유도하며 로봇 몸체가 물체 진행 경로로 노출됨.",
+   "공통: d_min < 0.5m 무조건 정지(v=0, w=0) 로직이 측면 접근 시 충돌을 유발. 연속 감속/반발 조향만으로는 상대 속도 0.5m/s 이상 물체를 피할 수 없음."
+  ],
+  "assumptions": [
+   {
+    "assumption": "연속 속도 스케일링과 반발 조향만으로도 모든 각도 접근을 피할 수 있다",
+    "holds": false,
+    "why": "측면/후측면 접근 시 전진 속도가 0에 가까워지면 회전만으로 물체 진행 경로에서 이탈하지 못해 충돌(Run 3, 5)"
+   },
+   {
+    "assumption": "d_min < 0.5m 무조건 정지는 안전하다",
+    "holds": false,
+    "why": "접근 속도 0.6~0.7m/s일 때 정지 후 1초 이내 충돌(Run 2), 센서/제어 지연과 물체 관성을 고려해 정지 거리 부족"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지/재개 + 타이머 기반 회피",
+    "turns": "1~13, 16, 18, 21~23",
+    "result": "통과 0~3/3~6, 정지 중 충돌 또는 진행 중단으로 실패 누적"
+   },
+   {
+    "family": "연속 가버너 + 반발 조향",
+    "turns": "14~15, 19, 24",
+    "result": "통과 1~5/4~8, 정면 회피는 통했으나 측면 접근 시 회전/정지로 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "거리·bearing 기반 순수 반응형 분기 회피",
+    "new_family": true,
+    "for": "타이머/상태 변수 없이 현재 d_min과 b_min만으로 정면(후진/회전), 측면(회전전진), 후면(회전)을 즉시 분기해 물체 진행 경로에서 신속 이탈",
+    "risk": "후진 시 뒤쪽 정적 장애물 충돌 가능성, 분기 경계에서 명령 진동 발생"
+   },
+   {
+    "idea": "TTC(충돌까지 시간) 기반 선제적 회피",
+    "new_family": true,
+    "for": "거리보다 접근 속도를 고려해 충돌 1.5초 전에 회피 시작해 정지 상황 자체를 예방",
+    "risk": "라이다 점군으로 물체 속도 추정이 불안정하면 오탐으로 불필요한 회피 반복"
+   },
+   {
+    "idea": "반발 조향 이득 상향 + 정지 임계값 제거",
+    "new_family": false,
+    "for": "기존 연속 구조 유지로 수정 부담 적음",
+    "risk": "이미 실패한 계열이며, 조향만으로는 측면 접근 시 몸체 회전 반경 내 충돌을 막기 어려움"
+   }
+  ],
+  "chosen": "거리·bearing 기반 순수 반응형 분기 회피를 선택: 측면 접근 시 정지 대신 물체 반대쪽으로 급회전 또는 후진을 수행해 진행 경로에서 즉시 이탈하도록 구조를 변경한다.",
+  "target": "controller 함수 내 d_min/b_min 처리 로직 및 상수",
+  "direction": "d_min < 1.0m 시 연속 감속 대신 거리·bearing 기반 분기 회피로 전환한다. |b_min| < 1.05 rad(정면) 이면 뒤쪽 라이다 거리가 1.0m 이상일 때 v=-0.2 후진, 아니면 w=±0.8 회전한다. |b_min| >= 1.05 rad(측면) 이면 v=0.2, w=±0.8로 물체 반대쪽으로 회전 전진한다. d_min >= 1.0m 이면 기존 경유점 추종으로 복귀한다. _HALT_D 무조건 정지 로직을 제거하고, 모든 회피 명령에 w 상한 1.5 rad/s를 적용해 신속 이탈을 보장한다. 후진 시 _rear_gap 검증으로 정적 장애물 충돌을 방지한다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 c6t24_s251349540: 42.18s 충돌 시 로봇 상태 '정지', 상대 거리 0.34m, 접근 속도 0.69m/s. 0.5m 정지 임계값이 접근 속도에 비해 너무 짧아 정지 중 충돌 발생.\", \"실행 c6t24_s137319808 및 c6t24_s829948308: 충돌 시 로봇이 '제자리 회전' 중, 상대 bearing ±90~110°(측면/후측면). 반발 조향이 전진 속도가 0에 가까울 때 회전만 유도하며 로봇 몸체가 물체 진행 경로로 노출됨.\", \"공통: d_min < 0.5m 무조건 정지(v=0, w=0) 로직이 측면 접근 시 충돌을 유발. 연속 감속/반발 조향만으로는 상대 속도 0.5m/s 이상 물체를 피할 수 없음.\"], \"assumptions\": [{\"assumption\": \"연속 속도 스케일링과 반발 조향만으로도 모든 각도 접근을 피할 수 있다\", \"holds\": false, \"why\": \"측면/후측면 접근 시 전진 속도가 0에 가까워지면 회전만으로 물체 진행 경로에서 이탈하지 못해 충돌(Run 3, 5)\"}, {\"assumption\": \"d_min < 0.5m 무조건 정지는 안전하다\", \"holds\": false, \"why\": \"접근 속도 0.6~0.7m/s일 때 정지 후 1초 이내 충돌(Run 2), 센서/제어 지연과 물체 관성을 고려해 정지 거리 부족\"}], \"approach_families\": [{\"family\": \"이진 정지/재개 + 타이머 기반 회피\", \"turns\": \"1~13, 16, 18, 21~23\", \"result\": \"통과 0~3/3~6, 정지 중 충돌 또는 진행 중단으로 실패 누적\"}, {\"family\": \"연속 가버너 + 반발 조향\", \"turns\": \"14~15, 19, 24\", \"result\": \"통과 1~5/4~8, 정면 회피는 통했으나 측면 접근 시 회전/정지로 충돌\"}], \"candidates\": [{\"idea\": \"거리·bearing 기반 순수 반응형 분기 회피\", \"new_family\": true, \"for\": \"타이머/상태 변수 없이 현재 d_min과 b_min만으로 정면(후진/회전), 측면(회전전진), 후면(회전)을 즉시 분기해 물체 진행 경로에서 신속 이탈\", \"risk\": \"후진 시 뒤쪽 정적 장애물 충돌 가능성, 분기 경계에서 명령 진동 발생\"}, {\"idea\": \"TTC(충돌까지 시간) 기반 선제적 회피\", \"new_family\": true, \"for\": \"거리보다 접근 속도를 고려해 충돌 1.5초 전에 회피 시작해 정지 상황 자체를 예방\", \"risk\": \"라이다 점군으로 물체 속도 추정이 불안정하면 오탐으로 불필요한 회피 반복\"}, {\"idea\": \"반발 조향 이득 상향 + 정지 임계값 제거\", \"new_family\": false, \"for\": \"기존 연속 구조 유지로 수정 부담 적음\", \"risk\": \"이미 실패한 계열이며, 조향만으로는 측면 접근 시 몸체 회전 반경 내 충돌을 막기 어려움\"}], \"chosen\": \"거리·bearing 기반 순수 반응형 분기 회피를 선택: 측면 접근 시 정지 대신 물체 반대쪽으로 급회전 또는 후진을 수행해 진행 경로에서 즉시 이탈하도록 구조를 변경한다.\", \"target\": \"controller 함수 내 d_min/b_min 처리 로직 및 상수\", \"direction\": \"d_min < 1.0m 시 연속 감속 대신 거리·bearing 기반 분기 회피로 전환한다. |b_min| < 1.05 rad(정면) 이면 뒤쪽 라이다 거리가 1.0m 이상일 때 v=-0.2 후진, 아니면 w=±0.8 회전한다. |b_min| >= 1.05 rad(측면) 이면 v=0.2, w=±0.8로 물체 반대쪽으로 회전 전진한다. d_min >= 1.0m 이면 기존 경유점 추종으로 복귀한다. _HALT_D 무조건 정지 로직을 제거하고, 모든 회피 명령에 w 상한 1.5 rad/s를 적용해 신속 이탈을 보장한다. 후진 시 _rear_gap 검증으로 정적 장애물 충돌을 방지한다.\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c6t24_s278976036",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 89.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": 83.02,
+   "goal_dist_m": 0.3,
+   "time_to_goal_s": 85.55
+  },
+  {
+   "run": "c6t24_s251349540",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 511.0,
+   "sim_time_s": 48.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 42.183,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.18,
+    -0.56
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 40.25,
+   "goal_dist_m": 4.3056,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t24_s137319808",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 462.8,
+   "sim_time_s": 19.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.317,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.4rad/s",
+   "partner_rel_xy": [
+    -0.19,
+    0.59
+   ],
+   "closing_m_s": 0.52,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 8.42,
+   "goal_dist_m": 32.111,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t24_s1823807287",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 443.5,
+   "sim_time_s": 54.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 48.32,
+   "goal_dist_m": 0.1998,
+   "time_to_goal_s": 50.2
+  },
+  {
+   "run": "c6t24_s829948308",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 389.2,
+   "sim_time_s": 15.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.083,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.9rad/s",
+   "partner_rel_xy": [
+    -0.42,
+    0.6
+   ],
+   "closing_m_s": 0.59,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 4.12,
+   "goal_dist_m": 32.0115,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

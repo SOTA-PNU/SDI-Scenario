@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적에 따라 뒤에서 다가오는 물체를 피해 앞으로 비켜나는 분기의 조건을 `gap_f > 1.5` 에서 `gap_f >= _RESUME_GAP`(2.5 m)로 바꾸고, `front_free` 의 검사 범위도 0.8 m 에서 `_RESUME_GAP` 로 넓혔습니다. 이제 앞 2.0 m 안에 움직이는 물체가 있으면 어떤 분기에서도 전진하지 않으므로, 진단 direction 의 'v=0 강제'와 맞습니다. 앞 1.0 m 안으로 물체가 다가올 때 뒤가 비어 있으면 후진하는 동작은 그대로 둡니다. 이 후진은 진단에 없는 확장으로, '멈춰 있어도 물체가 닿으면 충돌'이라는 성공 조건에 대응하려고 넣은 것입니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 반응형 정지/후진 회피.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    fx, rx = _BODY[1], _BODY[0]\n    ax, ay = dyn_r[:, 0], np.abs(dyn_r[:, 1])\n    in_f = (ax > fx - 0.05) & (ay < _HW)\n    gap_f = _kth_smallest(ax[in_f] - fx)                                  # 앞 통로의 움직이는 물체까지 거리\n    gap_r = _kth_smallest(rx - ax[(ax < rx + 0.05) & (ay < _HW)])        # 뒤 통로의 움직이는 물체까지 거리\n    near = _kth_smallest(np.hypot(dyn_r[:, 0], dyn_r[:, 1]))             # 가장 가까운 움직이는 물체\n    bx, by = raw[:, 0], np.abs(raw[:, 1])\n    rear_free = np.count_nonzero((bx < rx) & (bx > rx - 0.9) & (by < 0.5)) < 3\n    front_free = np.count_nonzero((bx > fx) & (bx < fx + _RESUME_GAP) & (by < 0.5)) < 3\n\n    # 지도에 없지만 오래 움직이지 않는 점(지도 오차)은 정적 장애물로 등록해 영구 정지를 막음\n    in_f2 = in_f & (ax - fx < _RESUME_GAP)\n    if np.count_nonzero(in_f2) >= 3:\n        c = dyn_w[in_f2].mean(axis=0)\n        a = _NAV[\"anchor\"]\n        if a is None or math.hypot(c[0] - a[0], c[1] - a[1]) > 0.15:\n            _NAV[\"anchor\"], _NAV[\"anchor_t\"] = c, t\n        elif t - _NAV[\"anchor_t\"] > 8.0:\n            cells = np.unique(np.round(dyn_w[in_f2] / 0.1) * 0.1, axis=0)\n            _NAV[\"learned\"] = np.concatenate([_NAV[\"learned\"], cells])\n            _NAV[\"anchor\"] = None\n    else:\n        _NAV[\"anchor\"] = None\n\n    # 1) 물체가 앞 1.0 m 안: 뒤가 비어 있으면 후진, 아니면 정지 (진단 외 확장: 정지 중 피격 방지)\n    retreat = gap_f < _RETREAT_GAP or (_NAV[\"retreat\"] and gap_f < _RETREAT_GAP + 0.3)\n    _NAV[\"retreat\"] = retreat\n    if retreat:\n        _NAV[\"blocked\"], _NAV[\"clear_since\"] = True, None\n        if rear_free and gap_r > 0.8:\n            return -_clamp(0.4 + (_RETREAT_GAP - gap_f), 0.4, 1.0), 0.0, False\n        return 0.0, 0.0, False\n\n    # 2) 뒤에서 물체가 다가오고 앞 2.5 m 가 완전히 비어 있을 때만 앞으로 비켜남\n    if gap_r < 0.8 and gap_f >= _RESUME_GAP and front_free:\n        return 0.5, 0.0, False\n\n    # 3) 앞 2.0 m 안에 물체: 정지(v=0, w=0), 2.5 m 밖으로 0.3 s 벗어나면 재개\n    if gap_f < _RESUME_GAP:\n        _NAV[\"clear_since\"] = None\n    elif _NAV[\"clear_since\"] is None:\n        _NAV[\"clear_since\"] = t\n    if gap_f < _STOP_GAP:\n        _NAV[\"blocked\"] = True\n    elif _NAV[\"blocked\"] and _NAV[\"clear_since\"] is not None and t - _NAV[\"clear_since\"] >= 0.3:\n        _NAV[\"blocked\"] = False\n    if _NAV[\"blocked\"]:\n        return 0.0, 0.0, False\n\n    # 4) 정상 주행: 앞 물체가 가까우면 감속, 제자리 회전 중 물체가 몸 가까이 있으면 회전 보류\n    if v > 0.0 and gap_f < 3.5:\n        v = min(v, 0.5 + 0.4 * (gap_f - _STOP_GAP))\n    if v == 0.0 and near < 0.95:\n        w = 0.0\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 18820,
+  "completion_tokens": 2543
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 19681,
+  "total_cost_usd": 0.201412,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2543,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 18818,
+    "webSearchRequests": 0,
+    "costUSD": 0.201412,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 528,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 18818,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "1c934a1f-af55-41f2-9ba1-f3e2870584c0"
+ }
+}

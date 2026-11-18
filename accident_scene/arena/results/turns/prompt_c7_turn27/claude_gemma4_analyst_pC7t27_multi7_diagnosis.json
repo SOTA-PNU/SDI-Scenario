@@ -1,0 +1,181 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "s991342504: t=4.75s, 물체[0.55, -0.02] 정면 근접 상황에서 로봇이 v=0.22m/s로 전진하며 충돌",
+   "s1262234946: t=20.85s, 물체[-0.15, -0.55] 측면/후방 근접 상황에서 로봇이 v=0.49m/s로 전진하며 충돌",
+   "s2121830703: t=25.9s, 물체[-0.32, -0.55] 측면/후방 근접 상황에서 로봇이 v=0.28m/s로 전진하며 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지보다 미세하게라도 거리 이득이 있는 이동(전/후진)이 항상 안전하다",
+    "holds": false,
+    "why": "측면/후방에서 빠르게 접근하는 물체의 경우, 어설픈 전진이 오히려 충돌 지점에 머물게 하거나 충돌을 유발함. 특히 높은 정지 페널티가 정지라는 안전한 선택지를 배제함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "공격적 회피 (정지 페널티 강화, 낮은 이득으로 이동 채택)",
+    "turns": "1, 27",
+    "result": "4/7 통과 (최근 턴에서 충돌 증가)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 안정성 회복 및 보수적 이동 채택",
+    "new_family": true,
+    "for": "정지 페널티를 낮춰 확실한 회피 이득이 없을 때는 멈춰서 물체를 보내는 것이 안전함",
+    "risk": "정체 시간이 늘어나 타임아웃 가능성이 생김"
+   }
+  ],
+  "chosen": "보수적 회피 전략으로 변경하여 정지 선택지의 경쟁력을 높이고, 불확실한 이동으로 인한 충돌을 방지함",
+  "target": "safe_speed 및 관련 상수",
+  "direction": "1. _SIDE_STOP_PEN을 0.15m로 낮추고 _CLOSE_STOP_PEN을 0.0으로 제거하여 정지 선택지를 복구합니다. 2. _ESC_GAIN을 0.01m, _ESC_SURE_GAIN을 0.10m로 높여 이동 후보가 정지보다 확실히 유리할 때만 채택하게 합니다. 3. _CLOSE_FWD_GAIN을 0.10m로 높여 매우 근접한 상황에서 무분별한 전진을 억제합니다. 4. _ESC_C(0.45m)와 _CLR_GO(0.35m)는 유지하여 감지 시점은 확보합니다. 5. 정적 장애물 검사(critical=True)는 유지하여 벽 충돌을 방지합니다. 6. 이를 통해 '확실히 피할 수 없다면 멈춰서 기다리는' 보수적 운행을 구현합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\"failure_mode\": \"collision\",\n \"evidence\": [\"s991342504: t=4.75s, 물체[0.55, -0.02] 정면 근접 상황에서 로봇이 v=0.22m/s로 전진하며 충돌\", \"s1262234946: t=20.85s, 물체[-0.15, -0.55] 측면/후방 근접 상황에서 로봇이 v=0.49m/s로 전진하며 충돌\", \"s2121830703: t=25.9s, 물체[-0.32, -0.55] 측면/후방 근접 상황에서 로봇이 v=0.28m/s로 전진하며 충돌\"],\n \"assumptions\": [{\"assumption\": \"정지보다 미세하게라도 거리 이득이 있는 이동(전/후진)이 항상 안전하다\", \"holds\": false, \"why\": \"측면/후방에서 빠르게 접근하는 물체의 경우, 어설픈 전진이 오히려 충돌 지점에 머물게 하거나 충돌을 유발함. 특히 높은 정지 페널티가 정지라는 안전한 선택지를 배제함\"}],\n \"approach_families\": [{\"family\": \"공격적 회피 (정지 페널티 강화, 낮은 이득으로 이동 채택)\", \"turns\": \"1, 27\", \"result\": \"4/7 통과 (최근 턴에서 충돌 증가)\"}],\n \"candidates\": [{\"idea\": \"정지 안정성 회복 및 보수적 이동 채택\", \"new_family\": true, \"for\": \"정지 페널티를 낮춰 확실한 회피 이득이 없을 때는 멈춰서 물체를 보내는 것이 안전함\", \"risk\": \"정체 시간이 늘어나 타임아웃 가능성이 생김\"}],\n \"chosen\": \"보수적 회피 전략으로 변경하여 정지 선택지의 경쟁력을 높이고, 불확실한 이동으로 인한 충돌을 방지함\",\n \"target\": \"safe_speed 및 관련 상수\",\n \"direction\": \"1. _SIDE_STOP_PEN을 0.15m로 낮추고 _CLOSE_STOP_PEN을 0.0으로 제거하여 정지 선택지를 복구합니다. 2. _ESC_GAIN을 0.01m, _ESC_SURE_GAIN을 0.10m로 높여 이동 후보가 정지보다 확실히 유리할 때만 채택하게 합니다. 3. _CLOSE_FWD_GAIN을 0.10m로 높여 매우 근접한 상황에서 무분별한 전진을 억제합니다. 4. _ESC_C(0.45m)와 _CLR_GO(0.35m)는 유지하여 감지 시점은 확보합니다. 5. 정적 장애물 검사(critical=True)는 유지하여 벽 충돌을 방지합니다. 6. 이를 통해 '확실히 피할 수 없다면 멈춰서 기다리는' 보수적 운행을 구현합니다.\",\n \"confidence\": \"high\"}\n```",
+ "table": [
+  {
+   "run": "c7t27_s134963637",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 67.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 61.22,
+   "goal_dist_m": 0.169,
+   "time_to_goal_s": 64.233
+  },
+  {
+   "run": "c7t27_s895966344",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 532.8,
+   "sim_time_s": 73.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 67.52,
+   "goal_dist_m": 0.1756,
+   "time_to_goal_s": 70.533
+  },
+  {
+   "run": "c7t27_s454629243",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 459.3,
+   "sim_time_s": 78.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 72.42,
+   "goal_dist_m": 0.1745,
+   "time_to_goal_s": 75.467
+  },
+  {
+   "run": "c7t27_s1297202570",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 380.9,
+   "sim_time_s": 75.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 69.22,
+   "goal_dist_m": 0.3468,
+   "time_to_goal_s": 72.067
+  },
+  {
+   "run": "c7t27_s991342504",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 305.7,
+   "sim_time_s": 10.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.75,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.22m/s",
+   "partner_rel_xy": [
+    0.55,
+    -0.02
+   ],
+   "closing_m_s": 0.41,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.7462,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t27_s1262234946",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 295.0,
+   "sim_time_s": 26.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 20.85,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.49m/s",
+   "partner_rel_xy": [
+    -0.15,
+    -0.55
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 16.82,
+   "goal_dist_m": 23.9856,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t27_s2121830703",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 268.1,
+   "sim_time_s": 31.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 25.9,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.28m/s",
+   "partner_rel_xy": [
+    -0.32,
+    -0.55
+   ],
+   "closing_m_s": 0.62,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 22.72,
+   "goal_dist_m": 23.5228,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

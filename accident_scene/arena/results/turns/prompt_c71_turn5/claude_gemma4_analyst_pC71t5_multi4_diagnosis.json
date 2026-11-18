@@ -1,0 +1,138 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t5_s1286218576: t=130.3 충돌 전 로봇은 0.3m/s로 주행 중이었으며, 물체(mover_03)가 bearing -83°(감속 구역 ±60° 밖)에서 접근하여 측면 충돌함",
+   "c71t5_s910826487: t=45.1 충돌 전 로봇이 0.29m/s로 주행 중이었으며, 물체(mover_01)가 bearing -93°(감속 구역 ±60° 밖)에서 접근하여 충돌함",
+   "c71t5_s2061312821: t=47.2 충돌 전 로봇이 0.3m/s로 주행 중이었으며, 물체(mover_01)가 bearing 93°(감속 구역 ±60° 밖)에서 접근하여 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±60° 감지 구역이면 움직이는 물체를 충분히 피할 수 있다",
+    "holds": false,
+    "why": "모든 충돌 사례에서 물체가 ±80°~±100° 사이의 측면에서 접근했으며, 로봇은 이를 감지하지 못하고 주행함"
+   },
+   {
+    "assumption": "0.3m/s의 저속 주행(creep)이 안전한 통과 방법이다",
+    "holds": false,
+    "why": "물체가 측면에서 빠르게 다가올 때 저속 주행 중인 로봇은 회피 기동 없이 그대로 충돌 경로에 놓이게 됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 원뿔 기반 정지/감속",
+    "turns": "3",
+    "result": "측면 충돌 빈번, 주행 시간 초과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 구역을 ±90°(전방 반원)로 확장하고, 모호한 저속 주행(creep)을 삭제하여 '확실한 정지' 또는 '정속 주행'으로 단순화",
+    "new_family": false,
+    "for": "측면 접근 물체에 대해 즉각 정지하여 충돌을 방지하고, 불필요한 저속 구간을 없애 주행 시간을 단축함",
+    "risk": "물체가 정면을 가로막을 때 정지 시간이 길어져 stall 가능성 증가"
+   },
+   {
+    "idea": "전 방향(360°) 거리 기반 비상 정지 도입",
+    "new_family": true,
+    "for": "측면 및 후방 충돌까지 완벽하게 방지 가능",
+    "risk": "정적 장애물 필터링이 완벽하지 않을 경우 잦은 정지로 인해 목표 도달 불가"
+   }
+  ],
+  "chosen": "정지 구역을 ±90°로 확장하고 creep 모드를 제거하며, 경유점을 최적화하여 속도를 높이는 방향을 선택함",
+  "target": "controller, _front_dynamic_min_dist, _WAYPOINTS",
+  "direction": "1. _WAYPOINTS를 단순화하여 불필요한 꺾임과 이동 거리를 줄여 주행 시간을 60초 이내로 단축합니다. 2. _front_dynamic_min_dist의 half_angle_deg를 90.0으로 설정하여 전방 180도 전체를 감시합니다. 3. controller에서 v=0.3의 creep 로직을 완전히 삭제하고, ±90° 구역 내 1.8m 이내 물체 감지 시 즉시 v=0으로 정지하게 합니다. 4. v_max를 3.0으로 높이고 E_TURN을 0.8로 상향하여 직선 주행 및 회전 효율을 극대화합니다. 5. 정지 해제 거리(hysteresis)를 2.0m로 설정하여 잦은 가감속을 방지합니다. 6. 기존의 정적 지도 필터링은 유지하여 벽으로 인한 정지를 막습니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t5_s1286218576: t=130.3 충돌 전 로봇은 0.3m/s로 주행 중이었으며, 물체(mover_03)가 bearing -83°(감속 구역 ±60° 밖)에서 접근하여 측면 충돌함\",\n  \"c71t5_s910826487: t=45.1 충돌 전 로봇이 0.29m/s로 주행 중이었으며, 물체(mover_01)가 bearing -93°(감속 구역 ±60° 밖)에서 접근하여 충돌함\",\n  \"c71t5_s2061312821: t=47.2 충돌 전 로봇이 0.3m/s로 주행 중이었으며, 물체(mover_01)가 bearing 93°(감속 구역 ±60° 밖)에서 접근하여 충돌함\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"전방 ±60° 감지 구역이면 움직이는 물체를 충분히 피할 수 있다\",\n   \"holds\": false,\n   \"why\": \"모든 충돌 사례에서 물체가 ±80°~±100° 사이의 측면에서 접근했으며, 로봇은 이를 감지하지 못하고 주행함\"\n  },\n  {\n   \"assumption\": \"0.3m/s의 저속 주행(creep)이 안전한 통과 방법이다\",\n   \"holds\": false,\n   \"why\": \"물체가 측면에서 빠르게 다가올 때 저속 주행 중인 로봇은 회피 기동 없이 그대로 충돌 경로에 놓이게 됨\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"전방 원뿔 기반 정지/감속\",\n   \"turns\": \"3\",\n   \"result\": \"측면 충돌 빈번, 주행 시간 초과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정지 구역을 ±90°(전방 반원)로 확장하고, 모호한 저속 주행(creep)을 삭제하여 '확실한 정지' 또는 '정속 주행'으로 단순화\",\n   \"new_family\": false,\n   \"for\": \"측면 접근 물체에 대해 즉각 정지하여 충돌을 방지하고, 불필요한 저속 구간을 없애 주행 시간을 단축함\",\n   \"risk\": \"물체가 정면을 가로막을 때 정지 시간이 길어져 stall 가능성 증가\"\n  },\n  {\n   \"idea\": \"전 방향(360°) 거리 기반 비상 정지 도입\",\n   \"new_family\": true,\n   \"for\": \"측면 및 후방 충돌까지 완벽하게 방지 가능\",\n   \"risk\": \"정적 장애물 필터링이 완벽하지 않을 경우 잦은 정지로 인해 목표 도달 불가\"\n  }\n ],\n \"chosen\": \"정지 구역을 ±90°로 확장하고 creep 모드를 제거하며, 경유점을 최적화하여 속도를 높이는 방향을 선택함\",\n \"target\": \"controller, _front_dynamic_min_dist, _WAYPOINTS\",\n \"direction\": \"1. _WAYPOINTS를 단순화하여 불필요한 꺾임과 이동 거리를 줄여 주행 시간을 60초 이내로 단축합니다. 2. _front_dynamic_min_dist의 half_angle_deg를 90.0으로 설정하여 전방 180도 전체를 감시합니다. 3. controller에서 v=0.3의 creep 로직을 완전히 삭제하고, ±90° 구역 내 1.8m 이내 물체 감지 시 즉시 v=0으로 정지하게 합니다. 4. v_max를 3.0으로 높이고 E_TURN을 0.8로 상향하여 직선 주행 및 회전 효율을 극대화합니다. 5. 정지 해제 거리(hysteresis)를 2.0m로 설정하여 잦은 가감속을 방지합니다. 6. 기존의 정적 지도 필터링은 유지하여 벽으로 인한 정지를 막습니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t5_s1286218576",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 136.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 130.317,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.28,
+    -0.57
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 125.35,
+   "goal_dist_m": 4.5381,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t5_s910826487",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 463.7,
+   "sim_time_s": 51.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 45.1,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.25,
+    -0.55
+   ],
+   "closing_m_s": 0.59,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 40.12,
+   "goal_dist_m": 24.0079,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t5_s1288617443",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 412.6,
+   "sim_time_s": 147.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 141.15,
+   "goal_dist_m": 0.652,
+   "time_to_goal_s": 143.483
+  },
+  {
+   "run": "c71t5_s2061312821",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 265.4,
+   "sim_time_s": 53.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 47.217,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.05m/s",
+   "partner_rel_xy": [
+    0.18,
+    0.56
+   ],
+   "closing_m_s": 0.7,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 42.25,
+   "goal_dist_m": 20.5382,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

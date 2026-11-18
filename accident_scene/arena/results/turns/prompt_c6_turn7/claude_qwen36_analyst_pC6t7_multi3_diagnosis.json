@@ -1,0 +1,132 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "3개 실행 모두 63~73초에 stall_abort로 종료되며, 로봇 위치 [-8.12, -10.89]로 출발점 근처에서 거의 이동하지 않음",
+   "last_5s 기록에서 로봇이 정지 상태 유지 중, 최단 거리 d_front가 0.8m~2.0m 사이를 오가며 _RESUME_D(2.0m)를 0.8초 이상 지속하지 못해 blocked 플래그가 해제되지 않음",
+   "물체 bearing이 5°에서 67°로 변하는 등 측면 통과 중이지만, 거리 기반 엄격 재개 조건으로 인해 무한 정지 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 180° 최단 거리 하나로 판단하면 충분하다",
+    "holds": false,
+    "why": "측면 통과 물체가 거리 임계값 근처를 오가며 재개 조건을 충족하지 못해 정지함"
+   },
+   {
+    "assumption": "물체가 2.0m 밖으로 완전히 벗어나야 재개하면 안전하다",
+    "holds": false,
+    "why": "왕복 이동 물체는 통로 부근을 지날 때 1.5~2.0m 구간에서 체류하므로 엄격한 재개 조건이 데드락을 유발함"
+   },
+   {
+    "assumption": "정지 중 0.8m 미만에서만 회피가 필요하다",
+    "holds": false,
+    "why": "1.5m에서 정지 후 0.8m 미만으로 진입하기 전까지 회피 기회가 없고, 물체가 1.5~2.0m 사이를 오갈 때 정지 상태가 고착됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "고정 거리 임계값 정지/재개",
+    "turns": "0, 1, 2, 4, 5, 7",
+    "result": "대부분 충돌 또는 정지 실패"
+   },
+   {
+    "family": "정지 시간 초과 강제 탈출(크리프/회전)",
+    "turns": "3, 4, 6",
+    "result": "일부 통과(3/6)이나 타이밍 불일치로 실패 반복"
+   },
+   {
+    "family": "비례 감속 통합",
+    "turns": "5, 6",
+    "result": "감속은 효과적이나 정지/재개 로직과 충돌해 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC(충돌까지 남은 시간) 기반 동적 정지/재개",
+    "new_family": true,
+    "for": "거리 변화율로 접근/회피/통과를 구분해 측면 통과 시 불필요한 정지 방지",
+    "risk": "라이다 잡음으로 TTC 계산이 불안정할 수 있음"
+   },
+   {
+    "idea": "측면 회피(Steering) 우선 전략",
+    "new_family": true,
+    "for": "정지 대신 좌우 여유 공간 탐색 후 회전으로 우회해 진행도 유지",
+    "risk": "통로 폭이 좁거나 양측 물체가 있을 때 오작동 가능"
+   },
+   {
+    "idea": "재개 임계값 완화 + bearing 변화 감지 기반 재개 + 안전 타임아웃",
+    "new_family": false,
+    "for": "이번 실패가 재개 조건(2.0m/0.8s)이 너무 엄격해서 발생했으므로, 1.7m/0.3s로 완화하고 bearing 변화가 크면(통과 중) 재개를 허용하며, 2초 정지 시 안전 크리프를 재도입하면 데드락 해결",
+    "risk": "임계값 조정이 배치마다 최적값이 다를 수 있으나, 여유 공간이 충분한 통로에서는 안정적임"
+   }
+  ],
+  "chosen": "재개 임계값 완화 + bearing 변화 감지 기반 재개 + 안전 타임아웃을 선택함. 이번 실패의 직접적 원인이 엄격한 재개 조건으로 인한 데드락이므로, 거리 임계값을 낮추고 물체 통과 여부를 bearing 변화로 판단해 재개를 가속하며, 타임아웃으로 최후의 보장을 추가하면 가장 안정적으로 정지 실패를 해결할 수 있음.",
+  "target": "controller 내 정지/재개 상태 기계 및 상수(_RESUME_D, _RESUME_HOLD, _ESCAPE_T 등)",
+  "direction": "1. 재개 조건을 d_front > 1.7m 가 0.3s 지속으로 완화한다. 2. 정지 중 최근 0.5초 간 bearing 변화량이 30도 이상이면 측면 통과로 판단해 재개 타이머를 초기화하거나 즉시 재개 허용한다. 3. 정지 누적 시간 2.0초 초과 시 d_front > 1.2m 라면 v=0.15 크리프 전진, 아니면 w=0.6 제자리 회전으로 강제 탈출한다. 4. 회피 로직을 정지 중 near < 0.9m 시 직선 후진/전진으로 단순화하고, 탈출 중에도 d_front < 1.5m 면 즉시 정지한다. 5. 상수(_RESUME_D=1.7, _RESUME_HOLD=0.3, _ESCAPE_T=2.0, _CREEP_V=0.15)를 새 값으로 업데이트한다. 6. 기존 비례 감속(d_front < 2.0m 시)은 유지하되, 정지 상태 진입 시만 적용되도록 분리를 명확히 한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"3개 실행 모두 63~73초에 stall_abort로 종료되며, 로봇 위치 [-8.12, -10.89]로 출발점 근처에서 거의 이동하지 않음\", \"last_5s 기록에서 로봇이 정지 상태 유지 중, 최단 거리 d_front가 0.8m~2.0m 사이를 오가며 _RESUME_D(2.0m)를 0.8초 이상 지속하지 못해 blocked 플래그가 해제되지 않음\", \"물체 bearing이 5°에서 67°로 변하는 등 측면 통과 중이지만, 거리 기반 엄격 재개 조건으로 인해 무한 정지 발생\"], \"assumptions\": [{\"assumption\": \"전방 180° 최단 거리 하나로 판단하면 충분하다\", \"holds\": false, \"why\": \"측면 통과 물체가 거리 임계값 근처를 오가며 재개 조건을 충족하지 못해 정지함\"}, {\"assumption\": \"물체가 2.0m 밖으로 완전히 벗어나야 재개하면 안전하다\", \"holds\": false, \"why\": \"왕복 이동 물체는 통로 부근을 지날 때 1.5~2.0m 구간에서 체류하므로 엄격한 재개 조건이 데드락을 유발함\"}, {\"assumption\": \"정지 중 0.8m 미만에서만 회피가 필요하다\", \"holds\": false, \"why\": \"1.5m에서 정지 후 0.8m 미만으로 진입하기 전까지 회피 기회가 없고, 물체가 1.5~2.0m 사이를 오갈 때 정지 상태가 고착됨\"}], \"approach_families\": [{\"family\": \"고정 거리 임계값 정지/재개\", \"turns\": \"0, 1, 2, 4, 5, 7\", \"result\": \"대부분 충돌 또는 정지 실패\"}, {\"family\": \"정지 시간 초과 강제 탈출(크리프/회전)\", \"turns\": \"3, 4, 6\", \"result\": \"일부 통과(3/6)이나 타이밍 불일치로 실패 반복\"}, {\"family\": \"비례 감속 통합\", \"turns\": \"5, 6\", \"result\": \"감속은 효과적이나 정지/재개 로직과 충돌해 실패\"}], \"candidates\": [{\"idea\": \"TTC(충돌까지 남은 시간) 기반 동적 정지/재개\", \"new_family\": true, \"for\": \"거리 변화율로 접근/회피/통과를 구분해 측면 통과 시 불필요한 정지 방지\", \"risk\": \"라이다 잡음으로 TTC 계산이 불안정할 수 있음\"}, {\"idea\": \"측면 회피(Steering) 우선 전략\", \"new_family\": true, \"for\": \"정지 대신 좌우 여유 공간 탐색 후 회전으로 우회해 진행도 유지\", \"risk\": \"통로 폭이 좁거나 양측 물체가 있을 때 오작동 가능\"}, {\"idea\": \"재개 임계값 완화 + bearing 변화 감지 기반 재개 + 안전 타임아웃\", \"new_family\": false, \"for\": \"이번 실패가 재개 조건(2.0m/0.8s)이 너무 엄격해서 발생했으므로, 1.7m/0.3s로 완화하고 bearing 변화가 크면(통과 중) 재개를 허용하며, 2초 정지 시 안전 크리프를 재도입하면 데드락 해결\", \"risk\": \"임계값 조정이 배치마다 최적값이 다를 수 있으나, 여유 공간이 충분한 통로에서는 안정적임\"}], \"chosen\": \"재개 임계값 완화 + bearing 변화 감지 기반 재개 + 안전 타임아웃을 선택함. 이번 실패의 직접적 원인이 엄격한 재개 조건으로 인한 데드락이므로, 거리 임계값을 낮추고 물체 통과 여부를 bearing 변화로 판단해 재개를 가속하며, 타임아웃으로 최후의 보장을 추가하면 가장 안정적으로 정지 실패를 해결할 수 있음.\", \"target\": \"controller 내 정지/재개 상태 기계 및 상수(_RESUME_D, _RESUME_HOLD, _ESCAPE_T 등)\", \"direction\": \"1. 재개 조건을 d_front > 1.7m 가 0.3s 지속으로 완화한다. 2. 정지 중 최근 0.5초 간 bearing 변화량이 30도 이상이면 측면 통과로 판단해 재개 타이머를 초기화하거나 즉시 재개 허용한다. 3. 정지 누적 시간 2.0초 초과 시 d_front > 1.2m 라면 v=0.15 크리프 전진, 아니면 w=0.6 제자리 회전으로 강제 탈출한다. 4. 회피 로직을 정지 중 near < 0.9m 시 직선 후진/전진으로 단순화하고, 탈출 중에도 d_front < 1.5m 면 즉시 정지한다. 5. 상수(_RESUME_D=1.7, _RESUME_HOLD=0.3, _ESCAPE_T=2.0, _CREEP_V=0.15)를 새 값으로 업데이트한다. 6. 기존 비례 감속(d_front < 2.0m 시)은 유지하되, 정지 상태 진입 시만 적용되도록 분리를 명확히 한다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t7_s858291400",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 74.5,
+   "stall_abort_t": 73.43,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 68.52,
+   "goal_dist_m": 31.7841,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t7_s7981109",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 525.5,
+   "sim_time_s": 65.0,
+   "stall_abort_t": 63.93,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 59.02,
+   "goal_dist_m": 31.7737,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t7_s1199581803",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 460.6,
+   "sim_time_s": 66.3,
+   "stall_abort_t": 65.32,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 60.35,
+   "goal_dist_m": 31.7751,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

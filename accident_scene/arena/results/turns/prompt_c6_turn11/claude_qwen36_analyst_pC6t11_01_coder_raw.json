@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 chosen과 direction에 따라 이진 `blocked` 정지/재개 상태기를 없앴습니다. 그 자리에 감시 영역(|b| < 2.09 rad)에서 가장 가까운 움직이는 물체의 닫힘 속도로 연속 가중치 k를 정하는 로직을 넣었습니다. 물체 위치는 최근 0.1초 간격으로 `_NAV[\"vhist\"]`에 저장한 점 무리 평균이며, 닫힘 속도는 이 위치로 추정한 물체의 월드 속도 중 로봇을 향하는 성분이라 로봇 자신의 전진과는 무관합니다. 규칙은 다음과 같습니다: 닫힘 속도가 0.2 m/s 이상이고 거리가 1.5 m 미만이면 k=0, 닫힘 속도가 0.1 m/s 미만(멀어짐 포함)이면 k=0.3 서행, 그 밖에는 기존 섹터별 선형 감속을 씁니다. 서행 중에 접근이 급증하면 매 스텝 판정으로 곧바로 k=0이 되고, `_RESUME_D`·`_RESUME_HOLD`·정지 타이머 코드는 controller에서 더는 쓰지 않습니다. 서행이 물체를 들이받지 않도록 정면 통로(|ay| < `_SIDE_Y`)의 물체가 기존 `_CREEP_MIN`(0.7 m)보다 가까우면 서행을 허용하지 않습니다.\n\n```python\n_NAV = {\"scan\": {}, \"dyn\": {}, \"got\": False, \"fresh\": False, \"vhist\": []}\n\n\n_CLOSE_STOP = 0.2       # 닫힘 속도가 이 이상이고 거리가 _CLOSE_D 미만이면 k = 0 [m/s] (진단: 0.2)\n\n\n_CLOSE_SLOW = 0.1       # 닫힘 속도가 이 미만(멀어짐 포함)이면 서행 k = _SLOW_K [m/s] (진단: 0.1)\n\n\n_CLOSE_D = 1.5          # 접근 정지 판정 거리 [m] (진단: 1.5)\n\n\n_SLOW_K = 0.3           # 멈춰 있거나 멀어지는 물체 곁에서의 서행 가중치 (진단: k = 0.3)\n\n\n_VEL_DT = 0.1           # 물체 평균 위치 기록 간격 [s] (진단: 0.1 s)\n\n\n_VEL_WIN = 0.4          # 물체 속도 추정에 쓰는 최근 시간 창 [s]\n\n\n_TRACK_R = 0.7          # 가장 가까운 점에서 이 거리 안의 움직이는 점을 같은 물체로 보고 평균 [m]\n\n\n_TRACK_JUMP = 0.5       # 평균 위치가 한 기록 사이에 이보다 크게 튀면 다른 물체로 보고 기록을 새로 시작 [m]\n\n\ndef _update_closing(t, pose, wx, wy, d):\n    \"\"\"감시 영역에서 가장 가까운 움직이는 물체의 평균 위치(월드)를 새 스캔마다 _VEL_DT 간격으로 _NAV[\"vhist\"] 에 기록하고,\n    최근 _VEL_WIN 초의 위치 변화로 물체의 월드 속도를 구해 로봇 쪽으로 다가오는 성분(닫힘 속도, + 가 접근)을 돌려줍니다.\n    물체 자신의 속도만 쓰므로 로봇의 전진이 닫힘 속도에 섞이지 않습니다. 아직 추정할 수 없으면 None.\"\"\"\n    h = _NAV[\"vhist\"]\n    if d.size == 0:\n        del h[:]\n        return None\n    if _NAV[\"fresh\"] and (not h or t - h[-1][0] >= _VEL_DT - 0.01):\n        i = int(np.argmin(d))\n        near = np.hypot(wx - wx[i], wy - wy[i]) < _TRACK_R\n        cx, cy = float(np.mean(wx[near])), float(np.mean(wy[near]))\n        if h and math.hypot(cx - h[-1][1], cy - h[-1][2]) > _TRACK_JUMP:\n            del h[:]\n        h.append((t, cx, cy))\n    while len(h) > 2 and t - h[0][0] > _VEL_WIN:\n        h.pop(0)\n    if len(h) < 2:\n        return None\n    dt = h[-1][0] - h[0][0]\n    if dt < 0.15 or t - h[-1][0] > 0.3:\n        return None\n    vx = (h[-1][1] - h[0][1]) / dt\n    vy = (h[-1][2] - h[0][2]) / dt\n    rx, ry = h[-1][1] - pose[0], h[-1][2] - pose[1]\n    r = math.hypot(rx, ry)\n    if r < 1e-6:\n        return None\n    return -(vx * rx + vy * ry) / r\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 닫힘 속도 기반 연속 속도 조절 (C-2 시도 11, 진단 반영).\n    - 이진 blocked 상태와 재개 타이머(_RESUME_D, _RESUME_HOLD)를 쓰지 않고, 매 스텝 연속 가중치 k 로 v 를 조절한다.\n    - 감시 영역(|b| < 2.09 rad)에서 가장 가까운 물체의 닫힘 속도 c 와 최단 거리 d_watch 로:\n        c >= 0.2 m/s 이고 d_watch < 1.5 m  -> k = 0 (정지, 서행 중 접근 급증도 매 스텝 즉시 반영)\n        c < 0.1 m/s (멀어짐 포함)         -> k = max(0.3, 기존 감속 k) (정면 통로 0.7 m 안에 물체가 있으면 0)\n        그 외 / 속도 추정 전               -> 기존 섹터별 선형 감속 k\n    - k = 0 이고 물체가 _SWEEP_R 안이면 제자리 회전도 하지 않는다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ays, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n    wx_all, wy_all = dyn_w[ok, 0], dyn_w[ok, 1]\n    ay = np.abs(ays)\n    b = np.arctan2(ay, ax)                                    # |bearing| [0, pi]\n\n    sec_front = b < _FRONT_B                                  # 전방 ±60°\n    sec_side = (b >= _FRONT_B) & (b < _SIDE_B)                # 측면 ±60°~120°\n    watch = b < _SIDE_B                                       # 감시 영역\n    d_fs = _min_or_inf(d[sec_front])\n    d_sd = _min_or_inf(d[sec_side])\n    d_watch = _min_or_inf(d[watch])\n    d_near = _min_or_inf(d)\n    lane = (ax > 0.0) & (ay < _SIDE_Y)                        # 몸 정면 통로\n    d_lane = _min_or_inf(ax[lane])\n\n    closing = _update_closing(t, pose, wx_all[watch], wy_all[watch], d[watch])\n\n    # ---- 기존 섹터별 선형 감속 ----\n    k_front = _clamp((d_fs - _HARD_STOP) / (_SLOW_GAP - _HARD_STOP), 0.0, 1.0)\n    k_side = _clamp((d_sd - _SIDE_HARD) / (_SIDE_SLOW - _SIDE_HARD), 0.0, 1.0)\n    k_dist = min(k_front, k_side)\n\n    # ---- 닫힘 속도 + 거리로 연속 가중치 k ----\n    if closing is None:\n        k = k_dist                                            # 속도 추정 전: 기존 감속\n    elif closing >= _CLOSE_STOP and d_watch < _CLOSE_D:\n        k = 0.0                                               # 가까이서 다가오는 중: 정지\n    elif closing < _CLOSE_SLOW:\n        k = max(_SLOW_K, k_dist) if d_lane >= _CREEP_MIN else 0.0   # 멈춤/멀어짐: 서행 진행\n    else:\n        k = k_dist\n\n    if k <= 0.0 and d_near < _SWEEP_R:\n        w = 0.0                                               # 물체가 몸 회전 반경 근처면 제자리 회전도 금지\n\n    if v > 0.0:\n        v = v * k\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 23689,
+  "completion_tokens": 13296
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 126023,
+  "total_cost_usd": 0.455424,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 13296,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 23687,
+    "webSearchRequests": 0,
+    "costUSD": 0.455424,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 9980,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 23687,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "6b31c1f7-e0c9-4f1b-b58b-0459a2de170a"
+ }
+}

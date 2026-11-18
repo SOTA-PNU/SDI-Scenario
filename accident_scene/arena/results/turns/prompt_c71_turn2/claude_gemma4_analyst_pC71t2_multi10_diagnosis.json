@@ -1,0 +1,240 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c71t2_s207202623에서 t=4.867s에 mover_00와 충돌",
+   "충돌 전 t=3.4s~4.6s 구간에서 물체의 bearing이 39°~60°로 유지되어, 현재 코드의 감지 범위인 ±30° 밖에서 접근함",
+   "로봇은 물체가 0.99m(t=4.1s)까지 다가왔음에도 감지하지 못하고 v=1.70m/s로 주행함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±30°의 좁은 원뿔 영역만 감시하면 충분하다",
+    "holds": false,
+    "why": "측면에서 대각선으로 진입하는 물체(bearing 40°~60°)를 감지하지 못해 충돌함"
+   },
+   {
+    "assumption": "E_TURN=0.2 설정이 효율적인 주행 시간을 보장한다",
+    "holds": false,
+    "why": "통과한 실행들에서 stop_turns가 25~30회로 매우 많으며, 이로 인해 평균 주행 시간이 60초를 상회하여 전체 예산(600s)에 근접함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "반응형 제동 (좁은 원뿔 감지)",
+    "turns": "2",
+    "result": "9/10 통과 (측면 충돌 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감지 원뿔 각도를 ±60°로 확대하고 E_TURN 임계값을 상향",
+    "new_family": false,
+    "for": "측면 접근 물체를 조기에 감지하여 제동하고, 제자리 회전 횟수를 줄여 주행 시간을 단축할 수 있음",
+    "risk": "감지 범위가 넓어져 경로상에 위협이 되지 않는 물체에도 불필요하게 정지할 가능성이 있음"
+   },
+   {
+    "idea": "원뿔 대신 전방 반평면(x > -0.2) 내의 모든 동적 물체에 대해 거리 기반 안전 버블 적용",
+    "new_family": true,
+    "for": "각도와 상관없이 로봇 전방의 모든 위협을 감지하므로 가장 안전함",
+    "risk": "통로 옆을 지나가는 물체에 너무 민감하게 반응하여 stall(정체)이 발생할 수 있음"
+   }
+  ],
+  "chosen": "감지 원뿔 각도를 ±60°로 확대하고 E_TURN을 0.3으로 높이는 방안을 선택. 실패 사례의 bearing(41°~60°)을 확실히 커버하면서도 과도한 정지를 방지하기 위함",
+  "target": "_front_dynamic_min_dist, controller",
+  "direction": "1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"실행 c71t2_s207202623에서 t=4.867s에 mover_00와 충돌\",\n  \"충돌 전 t=3.4s~4.6s 구간에서 물체의 bearing이 39°~60°로 유지되어, 현재 코드의 감지 범위인 ±30° 밖에서 접근함\",\n  \"로봇은 물체가 0.99m(t=4.1s)까지 다가왔음에도 감지하지 못하고 v=1.70m/s로 주행함\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"전방 ±30°의 좁은 원뿔 영역만 감시하면 충분하다\",\n   \"holds\": false,\n   \"why\": \"측면에서 대각선으로 진입하는 물체(bearing 40°~60°)를 감지하지 못해 충돌함\"\n  },\n  {\n   \"assumption\": \"E_TURN=0.2 설정이 효율적인 주행 시간을 보장한다\",\n   \"holds\": false,\n   \"why\": \"통과한 실행들에서 stop_turns가 25~30회로 매우 많으며, 이로 인해 평균 주행 시간이 60초를 상회하여 전체 예산(600s)에 근접함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"반응형 제동 (좁은 원뿔 감지)\",\n   \"turns\": \"2\",\n   \"result\": \"9/10 통과 (측면 충돌 발생)\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"감지 원뿔 각도를 ±60°로 확대하고 E_TURN 임계값을 상향\",\n   \"new_family\": false,\n   \"for\": \"측면 접근 물체를 조기에 감지하여 제동하고, 제자리 회전 횟수를 줄여 주행 시간을 단축할 수 있음\",\n   \"risk\": \"감지 범위가 넓어져 경로상에 위협이 되지 않는 물체에도 불필요하게 정지할 가능성이 있음\"\n  },\n  {\n   \"idea\": \"원뿔 대신 전방 반평면(x > -0.2) 내의 모든 동적 물체에 대해 거리 기반 안전 버블 적용\",\n   \"new_family\": true,\n   \"for\": \"각도와 상관없이 로봇 전방의 모든 위협을 감지하므로 가장 안전함\",\n   \"risk\": \"통로 옆을 지나가는 물체에 너무 민감하게 반응하여 stall(정체)이 발생할 수 있음\"\n  }\n ],\n \"chosen\": \"감지 원뿔 각도를 ±60°로 확대하고 E_TURN을 0.3으로 높이는 방안을 선택. 실패 사례의 bearing(41°~60°)을 확실히 커버하면서도 과도한 정지를 방지하기 위함\",\n \"target\": \"_front_dynamic_min_dist, controller\",\n \"direction\": \"1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t2_s207202623",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.867,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.19m/s",
+   "partner_rel_xy": [
+    0.45,
+    0.5
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.8852,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t2_s1344146878",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 589.1,
+   "sim_time_s": 62.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 56.02,
+   "goal_dist_m": 0.5502,
+   "time_to_goal_s": 58.017
+  },
+  {
+   "run": "c71t2_s699155880",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 527.2,
+   "sim_time_s": 52.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 46.12,
+   "goal_dist_m": 0.5354,
+   "time_to_goal_s": 48.133
+  },
+  {
+   "run": "c71t2_s2028742210",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 475.1,
+   "sim_time_s": 66.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 60.82,
+   "goal_dist_m": 0.5694,
+   "time_to_goal_s": 62.85
+  },
+  {
+   "run": "c71t2_s437589161",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 408.3,
+   "sim_time_s": 57.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 51.85,
+   "goal_dist_m": 0.5471,
+   "time_to_goal_s": 53.867
+  },
+  {
+   "run": "c71t2_s162658614",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 350.4,
+   "sim_time_s": 63.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 57.65,
+   "goal_dist_m": 0.5514,
+   "time_to_goal_s": 59.633
+  },
+  {
+   "run": "c71t2_s631295930",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 286.9,
+   "sim_time_s": 70.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 64.75,
+   "goal_dist_m": 0.5704,
+   "time_to_goal_s": 66.517
+  },
+  {
+   "run": "c71t2_s365322545",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 216.4,
+   "sim_time_s": 62.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": 56.82,
+   "goal_dist_m": 0.5685,
+   "time_to_goal_s": 58.817
+  },
+  {
+   "run": "c71t2_s1888431607",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 153.6,
+   "sim_time_s": 66.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 60.15,
+   "goal_dist_m": 0.542,
+   "time_to_goal_s": 61.983
+  },
+  {
+   "run": "c71t2_s952631108",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 87.7,
+   "sim_time_s": 60.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 27,
+   "first_seen_within_2m_t": 54.25,
+   "goal_dist_m": 0.5535,
+   "time_to_goal_s": 56.25
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

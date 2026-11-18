@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 측면 충돌 3건은 `_clearance` 가 0.6 m 폭 상자를 점처럼 다뤄 실제 외곽 간 거리를 너무 크게 본 것이 원인이므로, 지시 1대로 위협과의 예상 최소 거리에서 물체 반폭 `_MOVER_HALF`(0.3 m)를 뺍니다. 지시 2대로 능동 회피 진입 임계값 `_ESC_C` 를 0.45에서 0.7 m로 높였습니다. 지시 3대로 `_SIDE_GAP` 을 0.8 m, `_SIDE_WARN` 을 2.0 m로 넓혀 옆에서 가로질러 오는 물체를 더 일찍 위험으로 판단합니다. 지시 4대로 `_safe_speed` 의 일반 전진 허용 조건을 `_clearance >= 0.40` 에서 `_CLR_GO`(0.7 m)로 높였고, 지시 5대로 `_ESC_GAIN`(0.01 m)은 바꾸지 않았습니다.\n\n```python\n_ESC_C = 0.70            # 진단 지시 2: 멈춰 있어도 예상 최소거리(물체 반폭 반영)가 이보다 작으면 능동 회피 (0.45 -> 0.7 m)\n\n\n_SIDE_GAP = 0.8          # 진단 지시 3: 몸체 옆면에서 이 거리 안으로 다가오면 위험 (0.6 -> 0.8 m)\n\n\n_SIDE_WARN = 2.0         # 진단 지시 3: 옆면 감시 범위 (1.5 -> 2.0 m)\n\n\n_MOVER_HALF = 0.30       # 진단 지시 1: 움직이는 상자(0.6 x 0.6 m)의 반폭, 예상 최소거리에서 뺌\n\n\n_CLR_GO = 0.70           # 진단 지시 4: 일반 주행에서 전진을 허용하는 예상 최소거리 (0.40 -> 0.7 m)\n\n\ndef _clearance(t, pose, v_cand):\n    \"\"\"전진 속도 v_cand 로 2.5 s 동안 직진할 때 위협(추적 + 접근 속도 추정)과 몸체 사이의 예상 최소 거리.\n    진단 지시 1: 물체는 0.6 m 폭 상자이므로 계산된 최소 거리에서 반폭 _MOVER_HALF (0.3 m) 를 빼 외곽 간 거리로 봅니다.\n    속도에 비례하는 안전 여유 _CLR_K * |v_cand| 도 빼서 고속일수록 보수적으로 판단합니다.\"\"\"\n    S = _SAFE\n    thr = _threats(t, pose)\n    if not thr:\n        return 9.0\n    x, y, yaw = pose\n    c, s = math.cos(yaw), math.sin(yaw)\n    ts = _PRED_T\n    v0, acc = S[\"v_meas\"], 1.2\n    if v_cand >= v0:\n        vs = np.minimum(v_cand, v0 + acc * ts)\n    else:\n        vs = np.maximum(v_cand, v0 - acc * ts)\n    sx = np.concatenate([[0.0], np.cumsum(0.5 * (vs[1:] + vs[:-1]) * np.diff(ts))])\n    best = 9.0\n    for P, u, n in thr:\n        p = P - np.array([x, y])\n        if float(np.min(np.hypot(p[:, 0], p[:, 1]))) > 7.0:\n            continue\n        px = c * p[:, 0] + s * p[:, 1]\n        py = -s * p[:, 0] + c * p[:, 1]\n        ux = c * u[0] + s * u[1]\n        uy = -s * u[0] + c * u[1]\n        X = px[None, :] + ux * ts[:, None] - sx[:, None]\n        Y = py[None, :] + uy * ts[:, None]\n        ddx = np.maximum(np.maximum(_BODY[0] - X, X - _BODY[1]), 0.0)\n        ddy = np.maximum(np.maximum(_BODY[2] - Y, Y - _BODY[3]), 0.0)\n        best = min(best, float(np.hypot(ddx, ddy).min()))\n    return best - _MOVER_HALF - _CLR_K * abs(v_cand)\n\n\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 0.7 m/s) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    진단 지시 5: 능동 회피는 예상 거리가 _ESC_GAIN (0.01 m) 만 늘어나도 그 속도로 움직입니다(유지).\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO (진단 지시 4: 0.7 m) 이상이면 전진,\n      아니면 정지 대기(대기 2 s 초과 시 몸통 폭 통로가 비면 0.4 m/s 이하 전진).\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C (진단 지시 2: 0.7 m)):\n      정적 장애물이 없는 전진·후진 속도 중 가장 멀어지는 쪽으로 이동.\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            elif S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vf = min(v_law, 0.4)\n                if _clearance(t, pose, vf) >= 0.35:\n                    return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    best_v, best_c = 0.0, c0\n    for vc in cands:\n        if not _static_free(pose, vc):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        if cv > best_c + _ESC_GAIN:\n            best_v, best_c = vc, cv\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 27080,
+  "completion_tokens": 5598
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 48183,
+  "total_cost_usd": 0.328592,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 5598,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 27078,
+    "webSearchRequests": 0,
+    "costUSD": 0.328592,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2727,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 27078,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "1114218b-90ad-402c-abc4-1b1131a553a9"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시 1에 따라 정지 구역을 정면 ±`_STOP_CONE_DEG`(30°) 원뿔 하나로 줄였습니다. `_front_dynamic_min_dist` 의 stop 마스크와 controller 의 `in_path` 를 모두 `|bearing| <= 30°` 로 맞추고 통로 항은 뺐습니다. 지시 2에 따라 후진은 원뿔 안 물체가 1.5 s(`_BACK_AFTER_STEPS`) 넘게 머물고 뒤가 비었을 때만 하며, 지시 3에 따라 `_STOP_R = 0.6` 으로 단순하게 썼습니다. 이 출력 형식으로는 정의를 바꾸거나 추가할 수만 있고 지울 수는 없습니다. 그래서 `_PATH_HALF_W` 와 `_BACK_R` 는 새 정의에 넣지 않았고, 어디서도 참조하지 않습니다. 하네스가 따로 지우지 않으면 쓰이지 않는 대입문으로 남습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow the way-points (v_max 3.0, k_d 3.5, k_w 10.0, rotate in place when |e_cmd| > _E_TURN = 0.6).\n    Moving objects (front 2D lidar, static map filtered out):\n      - within _AVOID_R (2.0 m) in the forward ±90° half-plane: add a limited avoidance yaw rate (|dpsi| <= 0.35 rad,\n        |w| <= 1.0) and scale v down; v is capped at 1.5 m/s while avoiding; an object outside the ±_STOP_CONE_DEG\n        stop cone never scales v below 0.25, so side traffic does not stall the robot.\n      - v = 0 only when an object inside the stop cone (|bearing| <= 30 deg) is closer than _STOP_R (0.6 m).\n      - avoidance steering is dropped when a static obstacle is near the turning front side or the swinging rear.\n      - back up (straight, w = 0) only when a stop-cone object stays > 1.5 s and the rear is clear.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.side = 0.0\n        controller.stop_steps = 0\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    K_W = 10.0\n\n    # 3) Moving objects: closest in the ±90 deg half-plane (steer + slow) and closest in the stop cone (stop)\n    d_obj, b_obj, d_cone = _front_dynamic_min_dist(pose, 90.0)\n    avoiding = d_obj < _AVOID_R\n    w_avoid = 0.0\n    scale = 1.0\n    span = _AVOID_R - _STOP_R\n    if avoiding:\n        if abs(b_obj) >= _B_TIE:\n            controller.side = 1.0 if b_obj > 0.0 else -1.0       # object on the left (+1) / right (-1)\n        elif controller.side == 0.0:\n            controller.side = 1.0 if e <= 0.0 else -1.0          # dead ahead: pass on the waypoint side\n        side = controller.side\n        k = _clamp((_AVOID_R - d_obj) / span, 0.0, 1.0)\n        dpsi = -side * _DPSI_MAX * k * max(0.3, math.cos(b_obj))  # turn away from the object (limited)\n        if _static_close_on_side(pose, -side):\n            dpsi = 0.0                                            # do not steer / swing into walls, boxes, racks\n        w_avoid = K_W * dpsi\n        s_all = _clamp((d_obj - _STOP_R) / span, 0.0, 1.0)\n        in_path = abs(b_obj) <= math.radians(_STOP_CONE_DEG)\n        if not in_path:\n            s_all = max(s_all, _SIDE_SCALE_MIN)                   # side object: slow down, never stall\n        s_cone = _clamp((d_cone - _STOP_R) / span, 0.0, 1.0) if d_cone < float(\"inf\") else 1.0\n        scale = min(s_all, s_cone)\n    else:\n        controller.side = 0.0\n\n    # 4) Control law: waypoint heading + limited avoidance yaw rate\n    w_lim = _W_AVOID_MAX if avoiding else 2.0\n    w = _clamp(K_W * e + w_avoid, -w_lim, w_lim)\n    e_cmd = _wrap_angle(e + w_avoid / K_W)\n    if abs(e_cmd) > _E_TURN:\n        v = 0.0\n    else:\n        v = min(3.0, 3.5 * dist + 0.5) * scale\n        if avoiding:\n            v = min(v, _V_AVOID_MAX)\n\n    # 5) Full stop only for the frontal stop cone; back up only if it lasts and the rear is clear\n    if d_cone < _STOP_R:\n        controller.stop_steps += 1\n        v = 0.0\n        if controller.stop_steps > _BACK_AFTER_STEPS and _rear_clear():\n            v = -_V_BACK\n            w = 0.0\n    else:\n        controller.stop_steps = 0\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n\n\ndef _front_dynamic_min_dist(pose, half_angle_deg=90.0):\n    \"\"\"(min distance, bearing [rad], stop-cone min distance) of non-static front-lidar points in the robot frame.\n    The first two are for the closest point with |bearing| <= half_angle_deg ((inf, 0.0) if none); the third is the\n    closest point with |bearing| <= _STOP_CONE_DEG; inf if none.\"\"\"\n    inf = float(\"inf\")\n    pts = lidar2d_points(\"front\")\n    if pts is None or len(pts) == 0:\n        return inf, 0.0, inf\n    wp = to_world(pts, pose)\n    dyn = pts[~_static_mask(wp)]\n    if len(dyn) == 0:\n        return inf, 0.0, inf\n    r = np.hypot(dyn[:, 0], dyn[:, 1])\n    bearing = np.arctan2(dyn[:, 1], dyn[:, 0])\n    stop = np.abs(bearing) <= math.radians(_STOP_CONE_DEG)\n    d_cone = float(np.min(r[stop])) if np.any(stop) else inf\n    half = np.abs(bearing) <= math.radians(half_angle_deg)\n    if not np.any(half):\n        return inf, 0.0, d_cone\n    rh = r[half]\n    bh = bearing[half]\n    i = int(np.argmin(rh))\n    return float(rh[i]), float(bh[i]), d_cone\n\n\n_STOP_R = 0.6           # full stop radius inside the stop cone [m]\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 23415,
+  "completion_tokens": 3180
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 24594,
+  "total_cost_usd": 0.250912,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3180,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 23413,
+    "webSearchRequests": 0,
+    "costUSD": 0.250912,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 413,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 23413,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "3bea1e23-883b-48f3-b50b-e6026062ede1"
+ }
+}

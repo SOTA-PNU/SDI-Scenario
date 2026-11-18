@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _V_EVADE_MIN을 0.8m/s로 올린다\", \"implemented\": true, \"note\": \"_V_EVADE_MIN = 0.8 로 바뀜(0.6에서). controller 5)단계 floor와 목표 정렬 단계에서 이 값을 그대로 씀\"},\n  {\"instruction\": \"2. _EVADE_GAP을 1.5m로 늘린다\", \"implemented\": true, \"note\": \"_EVADE_GAP = 1.5 로 바뀜(1.2에서). near_side 판정과 조향 비율 k 계산에 반영됨\"},\n  {\"instruction\": \"3. _DPSI_MAX를 1.0rad로 올린다\", \"implemented\": true, \"note\": \"_DPSI_MAX = 1.0 으로 바뀜(0.8에서). 3)단계 측면 물체 조향 오프셋에 쓰임\"},\n  {\"instruction\": \"4. floor_ok의 전방 통로 검사(_CLEAR_X) 범위를 유지한다\", \"implemented\": true, \"note\": \"floor_ok 식, _CLEAR_X, _CORR_STOP_X, _static_front_pts 모두 그대로임. 다만 floor_ok는 _CLEAR_X를 쓰지 않음\"},\n  {\"instruction\": \"5. 정면 ±30° stop cone의 v=0 정지·후진 로직을 유지한다\", \"implemented\": true, \"note\": \"_STOP_CONE_DEG=30, 6)단계 정지·_rear_clear 후진 코드가 바뀌지 않음\"},\n  {\"instruction\": \"6. 회피 조향 중 정적 장애물 측면 검사를 엄격히 유지한다\", \"implemented\": true, \"note\": \"controller가 쓰는 _static_side_pts와 _static_close_on_side가 둘 다 바뀌지 않음. dpsi=0 차단, _V_EVADE_STATIC 감속도 그대로임\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거 s1726979171의 충돌 때 v=0.5는 기존 floor 0.6보다 낮음. 그때 floor_ok가 꺼져 있었거나 _V_EVADE_STATIC(0.3)이 적용된 것이어서, floor를 0.8로 올려도 이 사례에는 효과가 없을 수 있음\",\n  \"s1304964377은 v=1.59로 달리던 중 충돌했으므로 속도 floor와 상관없음\",\n  \"지시 4의 _CLEAR_X는 controller의 floor_ok에서 쓰이지 않음. _get_dynamic_min에만 있고 그 함수는 호출되지 않음. 실제 전방 검사는 _CORR_STOP_X(0.7)와 _static_front_pts(1.0m)임\",\n  \"목표 정렬 단계도 floor_ok일 때 v=_V_EVADE_MIN으로 전진하므로, 0.8로 올리면 GOAL에서 _GOAL_REENTER(0.55m) 밖으로 더 쉽게 밀려날 수 있음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 33194,
+  "completion_tokens": 2207
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 20490,
+  "total_cost_usd": 0.309684,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2207,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 33192,
+    "webSearchRequests": 0,
+    "costUSD": 0.309684,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1075,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 33192,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "850cb1c1-ddbd-4f83-956a-ecabc0350b3c"
+ }
+}

@@ -1,0 +1,166 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t16_s1726979171: t=41.183, 로봇 v=0.50m/s w=-1.1rad/s, 물체 상대위치 [-0.22, 0.57], 접근속도 0.36m/s. 측면 물체 감지 후 회피 중이었으나 속도가 낮아 물체 경로를 벗어나기 전 충돌",
+   "c71t16_s1818128848: t=14.683, 로봇 v=0.38m/s w=0.7rad/s, 물체 상대위치 [0.37, -0.4], 접근속도 0.5m/s. 정면-측면 물체에 대해 감속하며 회피했으나 오히려 물체 경로로 진입하며 충돌",
+   "c71t16_s1304964377: t=2.867, 로봇 v=1.59m/s w=-0.7rad/s, 물체 상대위치 [-0.44, 0.6]. 고속 주행 중 측면 물체와 조향 방향이 겹쳐 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "최소 속도 0.6m/s 보장이 측면 충돌(앉은 오리)을 방지한다",
+    "holds": false,
+    "why": "s1726979171에서 v=0.5m/s(floor 근처)로 주행했음에도 물체 횡단 경로를 빠르게 벗어나지 못해 충돌함"
+   },
+   {
+    "assumption": "조향 오프셋 0.8rad가 충분한 회피 각도를 제공한다",
+    "holds": false,
+    "why": "s1304964377에서 강한 조향 중에도 물체와 거리 0.3~0.5m 수준에서 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지/가속 (Stop-and-Go)",
+    "turns": "6",
+    "result": "초반 통과율 높았으나 stall_abort 발생"
+   },
+   {
+    "family": "거리 기반 감속 및 조향 오프셋",
+    "turns": "6",
+    "result": "측면 충돌 및 정적 장애물 충돌 빈번"
+   },
+   {
+    "family": "능동 회피 모드 (최소 속도 + 강한 오프셋)",
+    "turns": "2",
+    "result": "2/5 통과, 여전히 측면 스침 충돌 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 모드의 강도 상향 (속도 floor 및 조향 오프셋 증가)",
+    "new_family": false,
+    "for": "물체 경로를 더 빠르게, 더 멀리 벗어나야 함",
+    "risk": "정적 장애물(벽, 박스)과의 충돌 위험 증가"
+   },
+   {
+    "idea": "측면 접근 시 '일시 정지 후 대기' 로직 도입",
+    "new_family": true,
+    "for": "무조건적인 전진보다 물체가 지나가길 기다리는 것이 안전한 배치 존재",
+    "risk": "stall_abort 또는 주행 시간 초과 위험"
+   }
+  ],
+  "chosen": "회피 모드의 강도 상향. 현재 구조에서 속도가 약간 부족해 경로를 못 벗어나는 경우가 많으므로, 속도와 각도를 더 공격적으로 설정하여 돌파력을 높임",
+  "target": "_V_EVADE_MIN, _EVADE_GAP, _DPSI_MAX",
+  "direction": "1. _V_EVADE_MIN을 0.8m/s로 높여 물체의 횡단 경로를 더 빠르게 통과하게 합니다. 2. _EVADE_GAP을 1.5m로 늘려 더 먼 거리에서부터 회피 조향을 시작합니다. 3. _DPSI_MAX를 1.0rad로 상향하여 더 확실한 회피 각도를 확보합니다. 4. floor_ok 판정 시 전방 통로 검사(_CLEAR_X) 범위를 유지하여 정적 장애물 충돌을 방지합니다. 5. 정면 stop cone(±30°) 내 물체에 대한 v=0 정지 및 후진 로직은 그대로 유지하여 정면 충돌을 막습니다. 6. _static_close_on_side 체크를 엄격히 유지하여 회피 조향 중 벽 충돌을 방지합니다.",
+  "confidence": "medium"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t16_s1726979171: t=41.183, 로봇 v=0.50m/s w=-1.1rad/s, 물체 상대위치 [-0.22, 0.57], 접근속도 0.36m/s. 측면 물체 감지 후 회피 중이었으나 속도가 낮아 물체 경로를 벗어나기 전 충돌\",\n  \"c71t16_s1818128848: t=14.683, 로봇 v=0.38m/s w=0.7rad/s, 물체 상대위치 [0.37, -0.4], 접근속도 0.5m/s. 정면-측면 물체에 대해 감속하며 회피했으나 오히려 물체 경로로 진입하며 충돌\",\n  \"c71t16_s1304964377: t=2.867, 로봇 v=1.59m/s w=-0.7rad/s, 물체 상대위치 [-0.44, 0.6]. 고속 주행 중 측면 물체와 조향 방향이 겹쳐 충돌\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"최소 속도 0.6m/s 보장이 측면 충돌(앉은 오리)을 방지한다\",\n   \"holds\": false,\n   \"why\": \"s1726979171에서 v=0.5m/s(floor 근처)로 주행했음에도 물체 횡단 경로를 빠르게 벗어나지 못해 충돌함\"\n  },\n  {\n   \"assumption\": \"조향 오프셋 0.8rad가 충분한 회피 각도를 제공한다\",\n   \"holds\": false,\n   \"why\": \"s1304964377에서 강한 조향 중에도 물체와 거리 0.3~0.5m 수준에서 충돌함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 정지/가속 (Stop-and-Go)\",\n   \"turns\": \"6\",\n   \"result\": \"초반 통과율 높았으나 stall_abort 발생\"\n  },\n  {\n   \"family\": \"거리 기반 감속 및 조향 오프셋\",\n   \"turns\": \"6\",\n   \"result\": \"측면 충돌 및 정적 장애물 충돌 빈번\"\n  },\n  {\n   \"family\": \"능동 회피 모드 (최소 속도 + 강한 오프셋)\",\n   \"turns\": \"2\",\n   \"result\": \"2/5 통과, 여전히 측면 스침 충돌 발생\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"회피 모드의 강도 상향 (속도 floor 및 조향 오프셋 증가)\",\n   \"new_family\": false,\n   \"for\": \"물체 경로를 더 빠르게, 더 멀리 벗어나야 함\",\n   \"risk\": \"정적 장애물(벽, 박스)과의 충돌 위험 증가\"\n  },\n  {\n   \"idea\": \"측면 접근 시 '일시 정지 후 대기' 로직 도입\",\n   \"new_family\": true,\n   \"for\": \"무조건적인 전진보다 물체가 지나가길 기다리는 것이 안전한 배치 존재\",\n   \"risk\": \"stall_abort 또는 주행 시간 초과 위험\"\n  }\n ],\n \"chosen\": \"회피 모드의 강도 상향. 현재 구조에서 속도가 약간 부족해 경로를 못 벗어나는 경우가 많으므로, 속도와 각도를 더 공격적으로 설정하여 돌파력을 높임\",\n \"target\": \"_V_EVADE_MIN, _EVADE_GAP, _DPSI_MAX\",\n \"direction\": \"1. _V_EVADE_MIN을 0.8m/s로 높여 물체의 횡단 경로를 더 빠르게 통과하게 합니다. 2. _EVADE_GAP을 1.5m로 늘려 더 먼 거리에서부터 회피 조향을 시작합니다. 3. _DPSI_MAX를 1.0rad로 상향하여 더 확실한 회피 각도를 확보합니다. 4. floor_ok 판정 시 전방 통로 검사(_CLEAR_X) 범위를 유지하여 정적 장애물 충돌을 방지합니다. 5. 정면 stop cone(±30°) 내 물체에 대한 v=0 정지 및 후진 로직은 그대로 유지하여 정면 충돌을 막습니다. 6. _static_close_on_side 체크를 엄격히 유지하여 회피 조향 중 벽 충돌을 방지합니다.\",\n \"confidence\": \"medium\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t16_s1726979171",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 47.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 41.183,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.50m/s 회전 -1.1",
+   "partner_rel_xy": [
+    -0.22,
+    0.57
+   ],
+   "closing_m_s": 0.36,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 38.65,
+   "goal_dist_m": 0.6242,
+   "time_to_goal_s": 44.667
+  },
+  {
+   "run": "c71t16_s1268144997",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 552.8,
+   "sim_time_s": 38.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 32.73,
+   "goal_dist_m": 0.2286,
+   "time_to_goal_s": 35.267
+  },
+  {
+   "run": "c71t16_s1818128848",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 514.1,
+   "sim_time_s": 20.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.683,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.38m/s 회전 +0.7",
+   "partner_rel_xy": [
+    0.37,
+    -0.4
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 13.75,
+   "goal_dist_m": 13.9175,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t16_s1225062190",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 493.5,
+   "sim_time_s": 34.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 29.02,
+   "goal_dist_m": 0.5292,
+   "time_to_goal_s": 30.65
+  },
+  {
+   "run": "c71t16_s1304964377",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 458.6,
+   "sim_time_s": 8.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.867,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.59m/s 회전 -0.7",
+   "partner_rel_xy": [
+    -0.44,
+    0.6
+   ],
+   "closing_m_s": -0.03,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 1.02,
+   "goal_dist_m": 21.7506,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

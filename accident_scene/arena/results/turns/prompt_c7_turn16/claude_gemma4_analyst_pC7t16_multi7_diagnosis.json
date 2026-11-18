@@ -1,0 +1,184 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t16_s926636492: 79.6s 충돌, 로봇 0.35m/s 주행 중 mover_03이 상대 좌표 [-0.23, -0.53]에서 접근 (closing 0.75m/s)",
+   "c7t16_s1343381799: 112.2s 충돌, 로봇 0.35m/s 주행 중 mover_03이 상대 좌표 [-0.14, -0.54]에서 접근 (closing 0.74m/s)",
+   "s926636492의 기록에서 78.9s(0.39m/s) -> 79.1s(0.11m/s) -> 79.4s(0.30m/s)로 속도가 변하며 물체에 접근하다 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 교차 시 속도 유지 보너스가 교차 지점을 빠르게 통과하게 하여 충돌을 줄일 것이다",
+    "holds": false,
+    "why": "보너스 값이 너무 커서 실제로는 위험한 저속(0.35m/s) 주행이 정지보다 유리하다고 판단, 결국 물체가 로봇 측면을 들이받는 상황을 초래함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Momentum-based Side Avoidance",
+    "turns": "5",
+    "result": "Turn 14(7/7) 성공 후 Turn 16(4/7) 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "보너스 값 및 임계값 환원 (Turn 14 설정)",
+    "new_family": false,
+    "for": "검증된 안정성 확보 및 과도한 낙관적 속도 선택 방지",
+    "risk": "일부 상황에서 다시 주춤거리는 현상이 나타날 수 있음"
+   },
+   {
+    "idea": "상대 접근 속도에 반비례하는 가변 보너스 도입",
+    "new_family": true,
+    "for": "물체가 매우 빠르게 다가올 때는 보너스를 제거해 확실한 정지/후진 유도",
+    "risk": "로직 복잡도 증가 및 튜닝 파라미터 증가"
+   }
+  ],
+  "chosen": "보너스 값 및 임계값 환원. Turn 16의 공격적인 설정이 오히려 위험한 속도를 선택하게 했으므로, 성공 경험이 있는 Turn 14 수준으로 되돌리는 것이 가장 확실한 해결책임.",
+  "target": "_SIDE_MOMENTUM_BONUS, _MOMENTUM_C0",
+  "direction": "_SIDE_MOMENTUM_BONUS를 0.5에서 0.2로 낮추고, _MOMENTUM_C0를 0.4에서 0.6으로 높입니다. 이를 통해 물체가 근접했을 때 과도한 낙관주의로 속도를 유지하는 대신, 더 보수적으로 감속하거나 정지하도록 유도합니다. Turn 14에서 확인된 안정적인 임계값으로 복구하여 측면 충돌을 방지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c7t16_s926636492: 79.6s 충돌, 로봇 0.35m/s 주행 중 mover_03이 상대 좌표 [-0.23, -0.53]에서 접근 (closing 0.75m/s)\",\n  \"c7t16_s1343381799: 112.2s 충돌, 로봇 0.35m/s 주행 중 mover_03이 상대 좌표 [-0.14, -0.54]에서 접근 (closing 0.74m/s)\",\n  \"s926636492의 기록에서 78.9s(0.39m/s) -> 79.1s(0.11m/s) -> 79.4s(0.30m/s)로 속도가 변하며 물체에 접근하다 충돌함\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"측면 교차 시 속도 유지 보너스가 교차 지점을 빠르게 통과하게 하여 충돌을 줄일 것이다\",\n   \"holds\": false,\n   \"why\": \"보너스 값이 너무 커서 실제로는 위험한 저속(0.35m/s) 주행이 정지보다 유리하다고 판단, 결국 물체가 로봇 측면을 들이받는 상황을 초래함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"Momentum-based Side Avoidance\",\n   \"turns\": \"5\",\n   \"result\": \"Turn 14(7/7) 성공 후 Turn 16(4/7) 실패\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"보너스 값 및 임계값 환원 (Turn 14 설정)\",\n   \"new_family\": false,\n   \"for\": \"검증된 안정성 확보 및 과도한 낙관적 속도 선택 방지\",\n   \"risk\": \"일부 상황에서 다시 주춤거리는 현상이 나타날 수 있음\"\n  },\n  {\n   \"idea\": \"상대 접근 속도에 반비례하는 가변 보너스 도입\",\n   \"new_family\": true,\n   \"for\": \"물체가 매우 빠르게 다가올 때는 보너스를 제거해 확실한 정지/후진 유도\",\n   \"risk\": \"로직 복잡도 증가 및 튜닝 파라미터 증가\"\n  }\n ],\n \"chosen\": \"보너스 값 및 임계값 환원. Turn 16의 공격적인 설정이 오히려 위험한 속도를 선택하게 했으므로, 성공 경험이 있는 Turn 14 수준으로 되돌리는 것이 가장 확실한 해결책임.\",\n \"target\": \"_SIDE_MOMENTUM_BONUS, _MOMENTUM_C0\",\n \"direction\": \"_SIDE_MOMENTUM_BONUS를 0.5에서 0.2로 낮추고, _MOMENTUM_C0를 0.4에서 0.6으로 높입니다. 이를 통해 물체가 근접했을 때 과도한 낙관주의로 속도를 유지하는 대신, 더 보수적으로 감속하거나 정지하도록 유도합니다. Turn 14에서 확인된 안정적인 임계값으로 복구하여 측면 충돌을 방지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t16_s926636492",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 85.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 79.633,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.35m/s",
+   "partner_rel_xy": [
+    -0.23,
+    -0.53
+   ],
+   "closing_m_s": 0.75,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 74.72,
+   "goal_dist_m": 2.7882,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t16_s1350964006",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 514.4,
+   "sim_time_s": 85.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 79.62,
+   "goal_dist_m": 0.2553,
+   "time_to_goal_s": 82.567
+  },
+  {
+   "run": "c7t16_s1343381799",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 428.8,
+   "sim_time_s": 118.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 112.2,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.35m/s",
+   "partner_rel_xy": [
+    -0.14,
+    -0.54
+   ],
+   "closing_m_s": 0.74,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 107.22,
+   "goal_dist_m": 4.3534,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t16_s217362221",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 310.6,
+   "sim_time_s": 96.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 90.62,
+   "goal_dist_m": 0.1875,
+   "time_to_goal_s": 93.6
+  },
+  {
+   "run": "c7t16_s1717294560",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 214.0,
+   "sim_time_s": 97.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 91.82,
+   "goal_dist_m": 0.1721,
+   "time_to_goal_s": 94.683
+  },
+  {
+   "run": "c7t16_s861308152",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 116.2,
+   "sim_time_s": 85.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 79.95,
+   "goal_dist_m": 0.1868,
+   "time_to_goal_s": 82.883
+  },
+  {
+   "run": "c7t16_s1370039023",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 30.2,
+   "sim_time_s": 31.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 25.52,
+   "goal_dist_m": 20.4013,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

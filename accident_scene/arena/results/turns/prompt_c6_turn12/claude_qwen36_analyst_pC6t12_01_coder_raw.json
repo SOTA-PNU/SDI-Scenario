@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 지시대로 `controller` 의 k=0 분기에 `_NAV[\"blocked_t\"]` 를 두어 정지가 시작된 시각을 기록합니다. 정지가 0.5초를 넘었는데 감시 영역의 물체가 1.2 m 안에 있으면, 제자리에서 기다리지 않고 v=-0.2 로 후진합니다. 뒤쪽 라이다로 잰 몸 뒤 통로의 거리가 1.0 m 미만이면 후진 대신 w=0.8 로 물체 반대쪽을 향해 제자리 회전합니다. 회피는 d_watch 가 1.5 m 를 넘을 때까지 이어지고, 그때 blocked_t 를 초기화해 기존 연속 k 주행으로 돌아가므로, 정지 대기 중에 다가오는 물체에 맞던 실패를 막습니다.\n\n```python\n_BLOCK_HOLD = 0.5       # k = 0 이 이 시간보다 오래 이어지면 능동 회피 [s] (진단: t - blocked_t > 0.5)\n\n\n_EVADE_D = 1.2          # 감시 영역 최단 거리가 이보다 작으면 회피 시작 [m] (진단: d_watch < 1.2)\n\n\n_EVADE_CLEAR = 1.5      # 감시 영역 최단 거리가 이보다 크면 blocked_t 초기화, 정상 주행 복귀 [m] (진단: d_watch > 1.5)\n\n\n_REAR_MIN = 1.0         # 뒤쪽 라이다 기준 후진 통로 거리가 이보다 작으면 후진 대신 회전 [m] (진단: 1.0 m)\n\n\n_REAR_LANE = 0.45       # 후진 통로 반폭 [m] (몸 반폭 0.34 m + 여유)\n\n\n_REAR_X = -0.489        # 뒤쪽 2D 라이다 장착 x [m] (로봇 기준)\n\n\ndef _rear_gap(raw):\n    \"\"\"뒤쪽 라이다 위치에서 몸 뒤 통로(|y| < _REAR_LANE)의 가장 가까운 점까지의 거리. 정적·움직이는 점을 모두 봅니다.\"\"\"\n    if raw.shape[0] == 0:\n        return float(\"inf\")\n    m = (raw[:, 0] < _REAR_X) & (np.abs(raw[:, 1]) < _REAR_LANE)\n    return _min_or_inf(_REAR_X - raw[m, 0])\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 닫힘 속도 기반 연속 속도 조절 + 정지 지속 시 능동 회피 (C-2 시도 12, 진단 반영).\n    - 연속 가중치 k 는 시도 11 과 같다.\n    - k = 0 이 된 시각을 _NAV[\"blocked_t\"] 에 기록한다. t - blocked_t > 0.5 s 이고 d_watch < 1.2 m 이면 회피 모드:\n        뒤쪽 통로 거리 >= 1.0 m 이면 후진 v = -0.2, 아니면 물체 반대쪽으로 제자리 회전 |w| = 0.8.\n    - 회피는 d_watch > 1.5 m 가 될 때까지 이어지고, 그때 blocked_t 를 초기화해 정상 주행(k 계산)으로 돌아간다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    _NAV.setdefault(\"blocked_t\", None)\n    _NAV.setdefault(\"evading\", False)\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ays, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n    wx_all, wy_all = dyn_w[ok, 0], dyn_w[ok, 1]\n    ay = np.abs(ays)\n    b = np.arctan2(ay, ax)                                    # |bearing| [0, pi]\n\n    sec_front = b < _FRONT_B                                  # 전방 ±60°\n    sec_side = (b >= _FRONT_B) & (b < _SIDE_B)                # 측면 ±60°~120°\n    watch = b < _SIDE_B                                       # 감시 영역\n    d_fs = _min_or_inf(d[sec_front])\n    d_sd = _min_or_inf(d[sec_side])\n    d_watch = _min_or_inf(d[watch])\n    d_near = _min_or_inf(d)\n    lane = (ax > 0.0) & (ay < _SIDE_Y)                        # 몸 정면 통로\n    d_lane = _min_or_inf(ax[lane])\n\n    closing = _update_closing(t, pose, wx_all[watch], wy_all[watch], d[watch])\n\n    # ---- 기존 섹터별 선형 감속 ----\n    k_front = _clamp((d_fs - _HARD_STOP) / (_SLOW_GAP - _HARD_STOP), 0.0, 1.0)\n    k_side = _clamp((d_sd - _SIDE_HARD) / (_SIDE_SLOW - _SIDE_HARD), 0.0, 1.0)\n    k_dist = min(k_front, k_side)\n\n    # ---- 닫힘 속도 + 거리로 연속 가중치 k ----\n    if closing is None:\n        k = k_dist                                            # 속도 추정 전: 기존 감속\n    elif closing >= _CLOSE_STOP and d_watch < _CLOSE_D:\n        k = 0.0                                               # 가까이서 다가오는 중: 정지\n    elif closing < _CLOSE_SLOW:\n        k = max(_SLOW_K, k_dist) if d_lane >= _CREEP_MIN else 0.0   # 멈춤/멀어짐: 서행 진행\n    else:\n        k = k_dist\n\n    # ---- 정지 누적 기록과 능동 회피 (진단) ----\n    if d_watch > _EVADE_CLEAR:\n        _NAV[\"blocked_t\"] = None                              # 물체가 1.5 m 밖: 정상 주행 복귀\n        _NAV[\"evading\"] = False\n    elif k <= 0.0 and _NAV[\"blocked_t\"] is None:\n        _NAV[\"blocked_t\"] = t                                 # k = 0 이 된 시각\n\n    bt = _NAV[\"blocked_t\"]\n    if bt is not None and (_NAV[\"evading\"] or (t - bt > _BLOCK_HOLD and d_watch < _EVADE_D)):\n        _NAV[\"evading\"] = True\n        if _rear_gap(raw) >= _REAR_MIN:\n            return -_EVADE_V, 0.0, False                      # 뒤가 비었음: 직선 후진\n        wi = np.where(watch)[0]\n        side = float(ays[wi[int(np.argmin(d[wi]))]]) if wi.size else 0.0\n        return 0.0, (-_EVADE_W if side > 0.0 else _EVADE_W), False   # 뒤가 막힘: 물체 반대쪽으로 제자리 회전\n\n    if k <= 0.0 and d_near < _SWEEP_R:\n        w = 0.0                                               # 물체가 몸 회전 반경 근처면 제자리 회전도 금지\n\n    if v > 0.0:\n        v = v * k\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 25133,
+  "completion_tokens": 6042
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 53399,
+  "total_cost_usd": 0.32189599999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6042,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 25131,
+    "webSearchRequests": 0,
+    "costUSD": 0.32189599999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3234,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 25131,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "e48388ab-30a9-48d9-98c3-044f9f665dd6"
+ }
+}

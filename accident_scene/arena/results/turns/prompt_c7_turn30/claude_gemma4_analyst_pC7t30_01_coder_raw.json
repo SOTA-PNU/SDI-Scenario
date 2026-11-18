@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 시도 28·29에서 정지를 더 선호하게 만든 뒤, 로봇이 멈춰 있거나 아주 느릴 때 측면에서 0.7 m/s 이상으로 다가오는 물체에 맞는 실패가 다시 생겼습니다. 그래서 진단 지시 1~3대로 `_SIDE_STOP_PEN` 을 0.05에서 0.20으로 올렸습니다. 함께 `_ESC_GAIN` 을 0.05에서 0.02로, `_CLOSE_FWD_GAIN` 을 0.15에서 0.10으로 낮춰, 측면 위협이 있을 때 정지 대신 전진이나 후진 회피 후보가 채택되도록 했습니다. 지시 4·5에 따라 `_ESC_V` 후보군과 회피 시 `critical=True` 정적 검사는 손대지 않았습니다.\n\n```python\n_SIDE_STOP_PEN = 0.20    # 진단 지시(시도 30) 1: 측면 위협 시 '정지' 에 주는 페널티 [m] (0.05 -> 0.20), 측면 접근 물체 앞에서 멈춰 서지 않고 이동 후보를 강하게 선호\n\n\n_ESC_GAIN = 0.02         # 진단 지시(시도 30) 2: 회피 속도 채택에 필요한 예상 거리 이득 (0.05 -> 0.02 m), 정지보다 조금만 나아도 이동 채택\n\n\n_CLOSE_FWD_GAIN = 0.10   # 진단 지시(시도 30) 3: 매우 근접 시 전진 후보 채택에 필요한 이득 [m] (0.15 -> 0.10), 근접 상황에서도 전진 회피 가능성 확보\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 39840,
+  "completion_tokens": 1348
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 13132,
+  "total_cost_usd": 0.345672,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1348,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 39838,
+    "webSearchRequests": 0,
+    "costUSD": 0.345672,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 707,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 39838,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "1445a6d5-9c72-4e4a-bc3f-6a0d4e093423"
+ }
+}

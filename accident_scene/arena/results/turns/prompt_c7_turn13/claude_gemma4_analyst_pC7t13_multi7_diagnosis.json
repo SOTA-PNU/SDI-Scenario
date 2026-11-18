@@ -1,0 +1,182 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "c7t13_s1624331939: t=79.0~83.5s 구간에서 물체가 0.9~1.3m 거리에 있을 때 정지와 저속 주행(0.08~0.47m/s)을 반복하며 정체",
+   "최종 목표 거리 5.219m 상태에서 time_limit으로 종료"
+  ],
+  "assumptions": [
+   {
+    "assumption": "1.0m 이내의 추적되지 않은 점은 모두 즉각적인 정지가 필요한 위험 요소이다",
+    "holds": false,
+    "why": "s1624331939에서 물체가 1m 내외에 머물 때 로봇이 위험하지 않은 상황임에도 계속 정지-재출발을 반복함"
+   },
+   {
+    "assumption": "1.0s의 대기 시간(_WAIT_RELAX_S)은 안전한 저속 전진을 위해 적절한 시간이다",
+    "holds": false,
+    "why": "반복적인 정지-대기 사이클이 누적되어 목표 지점까지 도달하기 전에 시간 제한에 걸림"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "보수적 센서 안전 계층 (정지-대기-저속전진)",
+    "turns": "13",
+    "result": "최근 7개 배치 중 6개 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정면 위험 감지 임계값(_FRONT_UNTRACKED_R)을 낮추고 대기 시간(_WAIT_RELAX_S)을 단축",
+    "new_family": false,
+    "for": "불필요한 정지를 줄이고 정체 상황에서 더 빠르게 주행을 재개하여 시간 효율 개선",
+    "risk": "매우 가까운 추적 불가 물체에 대한 반응이 약간 늦어질 수 있음"
+   },
+   {
+    "idea": "dz['front'] 기반의 하드 스톱 로직을 제거하고 _clearance 기반의 연속적 속도 제어 체계로 변경",
+    "new_family": true,
+    "for": "정지-재출발의 불연속성을 없애 주행 흐름을 매끄럽게 하고 정체 가능성을 근본적으로 제거",
+    "risk": "급격하게 나타나는 물체에 대해 정지 거리가 부족하여 충돌할 위험이 있음"
+   }
+  ],
+  "chosen": "첫 번째 후보. 현재의 안전 구조를 유지하면서 임계값 조정만으로 s1624331939의 정체 문제를 해결할 수 있으며, 구조 변경보다 리스크가 낮음",
+  "target": "_FRONT_UNTRACKED_R, _WAIT_RELAX_S, _RELAX_V",
+  "direction": "_FRONT_UNTRACKED_R을 1.0에서 0.6으로 낮춰 추적되지 않은 점에 의한 불필요한 정지를 줄입니다. _WAIT_RELAX_S를 1.0에서 0.5로 줄여 정체 시 더 빠르게 주행을 재개합니다. _RELAX_V를 0.8에서 1.0으로 높여 저속 전진 시의 통과 속도를 개선합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"timeout\",\n \"evidence\": [\n  \"c7t13_s1624331939: t=79.0~83.5s 구간에서 물체가 0.9~1.3m 거리에 있을 때 정지와 저속 주행(0.08~0.47m/s)을 반복하며 정체\",\n  \"최종 목표 거리 5.219m 상태에서 time_limit으로 종료\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"1.0m 이내의 추적되지 않은 점은 모두 즉각적인 정지가 필요한 위험 요소이다\",\n   \"holds\": false,\n   \"why\": \"s1624331939에서 물체가 1m 내외에 머물 때 로봇이 위험하지 않은 상황임에도 계속 정지-재출발을 반복함\"\n  },\n  {\n   \"assumption\": \"1.0s의 대기 시간(_WAIT_RELAX_S)은 안전한 저속 전진을 위해 적절한 시간이다\",\n   \"holds\": false,\n   \"why\": \"반복적인 정지-대기 사이클이 누적되어 목표 지점까지 도달하기 전에 시간 제한에 걸림\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"보수적 센서 안전 계층 (정지-대기-저속전진)\",\n   \"turns\": \"13\",\n   \"result\": \"최근 7개 배치 중 6개 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정면 위험 감지 임계값(_FRONT_UNTRACKED_R)을 낮추고 대기 시간(_WAIT_RELAX_S)을 단축\",\n   \"new_family\": false,\n   \"for\": \"불필요한 정지를 줄이고 정체 상황에서 더 빠르게 주행을 재개하여 시간 효율 개선\",\n   \"risk\": \"매우 가까운 추적 불가 물체에 대한 반응이 약간 늦어질 수 있음\"\n  },\n  {\n   \"idea\": \"dz['front'] 기반의 하드 스톱 로직을 제거하고 _clearance 기반의 연속적 속도 제어 체계로 변경\",\n   \"new_family\": true,\n   \"for\": \"정지-재출발의 불연속성을 없애 주행 흐름을 매끄럽게 하고 정체 가능성을 근본적으로 제거\",\n   \"risk\": \"급격하게 나타나는 물체에 대해 정지 거리가 부족하여 충돌할 위험이 있음\"\n  }\n ],\n \"chosen\": \"첫 번째 후보. 현재의 안전 구조를 유지하면서 임계값 조정만으로 s1624331939의 정체 문제를 해결할 수 있으며, 구조 변경보다 리스크가 낮음\",\n \"target\": \"_FRONT_UNTRACKED_R, _WAIT_RELAX_S, _RELAX_V\",\n \"direction\": \"_FRONT_UNTRACKED_R을 1.0에서 0.6으로 낮춰 추적되지 않은 점에 의한 불필요한 정지를 줄입니다. _WAIT_RELAX_S를 1.0에서 0.5로 줄여 정체 시 더 빠르게 주행을 재개합니다. _RELAX_V를 0.8에서 1.0으로 높여 저속 전진 시의 통과 속도를 개선합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t13_s1105312585",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 76.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 70.35,
+   "goal_dist_m": 0.1859,
+   "time_to_goal_s": 73.3
+  },
+  {
+   "run": "c7t13_s940934996",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 523.7,
+   "sim_time_s": 89.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 83.45,
+   "goal_dist_m": 0.1791,
+   "time_to_goal_s": 86.367
+  },
+  {
+   "run": "c7t13_s413808271",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 434.2,
+   "sim_time_s": 82.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1732,
+   "time_to_goal_s": 75.917
+  },
+  {
+   "run": "c7t13_s1383891690",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 352.3,
+   "sim_time_s": 85.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 79.12,
+   "goal_dist_m": 0.1673,
+   "time_to_goal_s": 82.1
+  },
+  {
+   "run": "c7t13_s109465285",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 267.2,
+   "sim_time_s": 89.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 83.42,
+   "goal_dist_m": 0.1893,
+   "time_to_goal_s": 86.383
+  },
+  {
+   "run": "c7t13_s126579310",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 177.8,
+   "sim_time_s": 94.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 88.32,
+   "goal_dist_m": 0.1759,
+   "time_to_goal_s": 91.283
+  },
+  {
+   "run": "c7t13_s1624331939",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 83.5,
+   "sim_time_s": 84.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 78.55,
+   "goal_dist_m": 5.219,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

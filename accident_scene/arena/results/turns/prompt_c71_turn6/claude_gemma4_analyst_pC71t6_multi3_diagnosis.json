@@ -1,0 +1,118 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 c71t6_s424488756: t=63.15s에 물체 감지(0.52m, -26deg) 후 정지, t=68.12s에 stall_abort. 물체 거리가 0.52m~1.33m 사이에서 유지됨.",
+   "실행 c71t6_s1278613007: t=65.45s에 물체 감지(1.16m, 18deg) 후 정지, t=70.4s에 stall_abort. 물체 거리가 0.78m~1.16m 사이에서 유지됨.",
+   "실행 c71t6_s1572164758: t=56.32s에 물체 감지(0.52m, -77deg) 후 정지, t=61.23s에 stall_abort. 물체 거리가 0.37m~1.41m 사이에서 유지됨.",
+   "모든 실행이 출발지 근처([-8, -10] 부근)에서 발생했으며, 전방 ±90°라는 넓은 정지 구역과 2.0m라는 높은 해제 조건 때문에 물체가 완전히 멀어질 때까지 로봇이 갇힘."
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±90° 범위 내 1.8m 이내에 물체가 있으면 정지하는 것이 안전하며, 물체는 곧 2.0m 밖으로 사라질 것이다.",
+    "holds": false,
+    "why": "물체가 로봇 근처에서 느리게 움직이거나 횡단할 경우, 로봇은 정지 상태에서 60초를 보내 stall_abort가 발생함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 및 대기 (Stop-and-Wait)",
+    "turns": "1, 2, 3, 6",
+    "result": "초기엔 성공적이었으나 감시 구역을 넓히자(Turn 6) 전멸"
+   },
+   {
+    "family": "저속 주행 (Creep)",
+    "turns": "4, 5",
+    "result": "stall은 줄었으나 측면 충돌 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 구역 각도를 다시 좁히고(±30~45°) 정지 거리 임계값을 낮춤",
+    "new_family": false,
+    "for": "Turn 1의 성공 사례로 회귀하여 stall 방지",
+    "risk": "이전 턴에서 확인된 측면 충돌 문제가 다시 발생함"
+   },
+   {
+    "idea": "거리 기반 연속적 속도 감속 (Adaptive Speed Scaling)",
+    "new_family": true,
+    "for": "이진법적 정지/출발이 아닌 거리 비례 감속으로 stall 가능성을 낮춤",
+    "risk": "감속도가 부족할 경우 정면 충돌 위험"
+   },
+   {
+    "idea": "반발력 기반 회피 조향 (Reactive Steering Avoidance)",
+    "new_family": true,
+    "for": "물체의 bearing 방향 반대쪽으로 조향을 더해 정지하지 않고 비켜가게 함",
+    "risk": "회피 중 정적 장애물(벽, 박스)과 충돌할 가능성"
+   }
+  ],
+  "chosen": "반발력 기반 회피 조향을 선택합니다. 단순히 멈추는 것은 물체 배치에 따라 무조건 stall을 유발하므로, 속도를 줄이면서 동시에 물체 반대 방향으로 휜 경로를 생성해 탈출해야 합니다.",
+  "target": "controller 및 _front_dynamic_min_dist",
+  "direction": "1. _front_dynamic_min_dist가 가장 가까운 물체의 거리와 bearing을 반환하게 합니다. 2. 물체가 2.5m 이내에 있으면, bearing의 부호에 따라 반대 방향으로 회전하는 회피 yaw rate(w_avoid)를 계산해 기존 w에 더합니다. 3. 속도 v는 (dist - 1.0) / 1.5 비율로 선형적으로 감속시키며, 1.0m 미만일 때만 v=0으로 완전히 정지합니다. 4. 회피 조향 시 w의 최대치를 제한하여 급격한 회전으로 인한 경로 이탈을 막습니다. 5. 정적 지도 필터링은 유지하여 벽 때문에 회피 동작이 발동하지 않게 합니다. 6. E_TURN을 0.5 정도로 낮춰 경로 추종 정밀도를 높입니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"stall\",\n \"evidence\": [\n  \"실행 c71t6_s424488756: t=63.15s에 물체 감지(0.52m, -26deg) 후 정지, t=68.12s에 stall_abort. 물체 거리가 0.52m~1.33m 사이에서 유지됨.\",\n  \"실행 c71t6_s1278613007: t=65.45s에 물체 감지(1.16m, 18deg) 후 정지, t=70.4s에 stall_abort. 물체 거리가 0.78m~1.16m 사이에서 유지됨.\",\n  \"실행 c71t6_s1572164758: t=56.32s에 물체 감지(0.52m, -77deg) 후 정지, t=61.23s에 stall_abort. 물체 거리가 0.37m~1.41m 사이에서 유지됨.\",\n  \"모든 실행이 출발지 근처([-8, -10] 부근)에서 발생했으며, 전방 ±90°라는 넓은 정지 구역과 2.0m라는 높은 해제 조건 때문에 물체가 완전히 멀어질 때까지 로봇이 갇힘.\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"전방 ±90° 범위 내 1.8m 이내에 물체가 있으면 정지하는 것이 안전하며, 물체는 곧 2.0m 밖으로 사라질 것이다.\",\n   \"holds\": false,\n   \"why\": \"물체가 로봇 근처에서 느리게 움직이거나 횡단할 경우, 로봇은 정지 상태에서 60초를 보내 stall_abort가 발생함.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"정지 및 대기 (Stop-and-Wait)\",\n   \"turns\": \"1, 2, 3, 6\",\n   \"result\": \"초기엔 성공적이었으나 감시 구역을 넓히자(Turn 6) 전멸\"\n  },\n  {\n   \"family\": \"저속 주행 (Creep)\",\n   \"turns\": \"4, 5\",\n   \"result\": \"stall은 줄었으나 측면 충돌 증가\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정지 구역 각도를 다시 좁히고(±30~45°) 정지 거리 임계값을 낮춤\",\n   \"new_family\": false,\n   \"for\": \"Turn 1의 성공 사례로 회귀하여 stall 방지\",\n   \"risk\": \"이전 턴에서 확인된 측면 충돌 문제가 다시 발생함\"\n  },\n  {\n   \"idea\": \"거리 기반 연속적 속도 감속 (Adaptive Speed Scaling)\",\n   \"new_family\": true,\n   \"for\": \"이진법적 정지/출발이 아닌 거리 비례 감속으로 stall 가능성을 낮춤\",\n   \"risk\": \"감속도가 부족할 경우 정면 충돌 위험\"\n  },\n  {\n   \"idea\": \"반발력 기반 회피 조향 (Reactive Steering Avoidance)\",\n   \"new_family\": true,\n   \"for\": \"물체의 bearing 방향 반대쪽으로 조향을 더해 정지하지 않고 비켜가게 함\",\n   \"risk\": \"회피 중 정적 장애물(벽, 박스)과 충돌할 가능성\"\n  }\n ],\n \"chosen\": \"반발력 기반 회피 조향을 선택합니다. 단순히 멈추는 것은 물체 배치에 따라 무조건 stall을 유발하므로, 속도를 줄이면서 동시에 물체 반대 방향으로 휜 경로를 생성해 탈출해야 합니다.\",\n \"target\": \"controller 및 _front_dynamic_min_dist\",\n \"direction\": \"1. _front_dynamic_min_dist가 가장 가까운 물체의 거리와 bearing을 반환하게 합니다. 2. 물체가 2.5m 이내에 있으면, bearing의 부호에 따라 반대 방향으로 회전하는 회피 yaw rate(w_avoid)를 계산해 기존 w에 더합니다. 3. 속도 v는 (dist - 1.0) / 1.5 비율로 선형적으로 감속시키며, 1.0m 미만일 때만 v=0으로 완전히 정지합니다. 4. 회피 조향 시 w의 최대치를 제한하여 급격한 회전으로 인한 경로 이탈을 막습니다. 5. 정적 지도 필터링은 유지하여 벽 때문에 회피 동작이 발동하지 않게 합니다. 6. E_TURN을 0.5 정도로 낮춰 경로 추종 정밀도를 높입니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t6_s424488756",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 69.1,
+   "stall_abort_t": 68.12,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 63.15,
+   "goal_dist_m": 30.9727,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t6_s1278613007",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 530.9,
+   "sim_time_s": 71.4,
+   "stall_abort_t": 70.4,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 65.45,
+   "goal_dist_m": 31.2335,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t6_s1572164758",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 459.4,
+   "sim_time_s": 62.2,
+   "stall_abort_t": 61.23,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 56.32,
+   "goal_dist_m": 31.0341,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 실패 3건 모두 d_min < 0.8 m에서 v=0, w=0으로 멈춘 로봇을 물체가 덮쳤습니다. 진단의 chosen(후보 1)과 direction에 맞춰 이 하드 정지 분기를 상태 없는 능동 회피로 바꿨습니다. 정면 물체(|b_min| < 1.0 rad)이고 뒤 통로 `_rear_gap(raw)`가 1.0 m 이상이면 v=-0.2로 직선 후진하고, 뒤가 막혔으면 w=-0.6·sign(b_min)으로 제자리 회전합니다. 측면 물체이면 w=+0.6·sign(b_min)으로 회전하고, 회피 명령은 |v| ≤ 0.3, |w| ≤ 0.8로 제한합니다. 래치나 타이머는 추가하지 않아 d_min ≥ 0.8 m가 되면 다음 스텝에 기존 연속 감속·반발 조향(0.8~1.5 m)이나 경유점 추종(≥ 1.5 m)으로 바로 돌아갑니다.\n\n```python\n_AE_D = 0.8             # 감시 영역 최단 거리가 이보다 작으면 정지 대신 능동 회피 [m] (진단 시도 29: d_min < 0.8 m)\n\n\n_AE_FRONT_B = 1.0       # |b_min| 이 이보다 작으면 정면, 크거나 같으면 측면 [rad] (진단: 1.0 rad)\n\n\n_AE_BACK_V = 0.2        # 정면 물체 + 뒤 통로 비었을 때 직선 후진 속도 [m/s] (진단: v = -0.2)\n\n\n_AE_REAR_MIN = 1.0      # 후진 허용 최소 뒤 통로 거리 _rear_gap(raw) [m] (진단: >= 1.0 m)\n\n\n_AE_TURN_W = 0.6        # 능동 회피 제자리 회전 속도 크기 [rad/s] (진단: w = ±0.6)\n\n\n_AE_V_MAX = 0.3         # 능동 회피 명령의 |v| 상한 [m/s] (진단: |v| <= 0.3)\n\n\n_AE_W_MAX = 0.8         # 능동 회피 명령의 |w| 상한 [rad/s] (진단: |w| <= 0.8)\n\n\ndef _active_evade(raw, d_min, b_min):\n    \"\"\"d_min < _AE_D 일 때 매 스텝 부르는 상태 없는 능동 회피 (진단 시도 29).\n    - 정면(|b_min| < 1.0 rad): 뒤 통로 _rear_gap(raw) >= 1.0 m 이면 v = -0.2 직선 후진,\n      막혔으면 v = 0, w = -0.6 * sign(b_min) 제자리 회전.\n    - 측면(|b_min| >= 1.0 rad): v = 0, w = 0.6 * sign(b_min) 제자리 회전.\n    - 모든 회피 명령은 |v| <= 0.3, |w| <= 0.8 로 제한합니다.\"\"\"\n    side = 1.0 if b_min >= 0.0 else -1.0\n    if abs(b_min) < _AE_FRONT_B:\n        if _rear_gap(raw) >= _AE_REAR_MIN:\n            v, w = -_AE_BACK_V, 0.0\n        else:\n            v, w = 0.0, -_AE_TURN_W * side\n    else:\n        v, w = 0.0, _AE_TURN_W * side\n    return _clamp(v, -_AE_V_MAX, _AE_V_MAX), _clamp(w, -_AE_W_MAX, _AE_W_MAX)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 상태 없는 능동 회피 + 연속 거리 기반 속도 제한기 + 반발 조향 (C-2 시도 29, 진단 반영).\n    - 상태 래치·타이머 없음: 매 스텝 _watch_min 의 d_min, b_min 으로 v, w 를 바로 계산합니다.\n    - d_min < 0.8 m: 정지 대신 _active_evade (정면이면 후진 또는 물체 반대 회전, 측면이면 회전), |v|<=0.3, |w|<=0.8.\n    - 0.8 m <= d_min < 1.5 m: v_cmd = v_nom * max(0, min(1, (d_min - 0.6) / 0.9)),\n      w_cmd = clamp(w_nom - 1.5 * sign(b_min) / max(d_min, 0.5), -1.0, 1.0).\n    - d_min >= 1.5 m (또는 감시 영역에 움직이는 점 없음): 경유점 추종 (v_nom, w_nom) 그대로.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_min, b_min, _x_min = _watch_min(dyn_r)\n\n    # ---- 가까운 움직이는 물체 없음: 경유점 추종 그대로 ----\n    if not math.isfinite(d_min) or d_min >= _GOV_FULL_D:\n        return v_nom, w_nom, False\n\n    # ---- 0.8 m 안: 정지 대신 상태 없는 능동 회피 (물체 진행 경로에서 이탈) ----\n    if d_min < _AE_D:\n        v_ev, w_ev = _active_evade(raw, d_min, b_min)\n        return v_ev, w_ev, False\n\n    # ---- 0.8 ~ 1.5 m: 기존 연속 속도 제한 (0.6 m 에서 0, 1.5 m 에서 1) ----\n    scale = max(0.0, min(1.0, (d_min - _GOV_D0) / _GOV_SPAN))\n    v_cmd = max(0.0, v_nom * scale)\n\n    # ---- 반발 조향: 물체가 왼쪽(+)이면 오른쪽(-)으로, |w| <= 1.0 rad/s ----\n    side = 1.0 if b_min >= 0.0 else -1.0\n    w_rep = -_GOV_REP_K * side / max(d_min, _GOV_REP_DFLOOR)\n    w_cmd = _clamp(w_nom + w_rep, -_GOV_W_MAX, _GOV_W_MAX)\n    return v_cmd, w_cmd, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 36202,
+  "completion_tokens": 3401
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 28101,
+  "total_cost_usd": 0.357628,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3401,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 36200,
+    "webSearchRequests": 0,
+    "costUSD": 0.357628,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1012,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 36200,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b3867ac5-674e-440f-ad48-79b8262e031d"
+ }
+}

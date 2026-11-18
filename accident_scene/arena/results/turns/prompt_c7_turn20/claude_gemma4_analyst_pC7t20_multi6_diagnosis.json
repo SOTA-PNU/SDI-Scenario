@@ -1,0 +1,160 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 c7t20_s1440902891에서 150.9s 시점에 progress_abort 발생",
+   "마지막 5초간 t=146.9~148.4s까지 정지 후 t=148.6~149.9s까지 0.15~0.31m/s로 매우 느리게 주행",
+   "90초 윈도우 내 최근 진행 거리(best_recent_m)가 4.2m에 불과해 정체로 판정"
+  ],
+  "assumptions": [
+   {
+    "assumption": "안전 계층의 임계값(_ESC_C, _CLR_GO)이 너무 보수적이라 물체가 근처에만 있어도 빈번하게 정지하거나 저속 주행으로 전환됨",
+    "holds": true,
+    "why": "충돌은 없었으나 물체 거리 0.4~1.1m 구간에서 로봇이 잦은 정지와 저속 주행을 반복하며 진행 속도가 급감함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 회피 및 속도 제어",
+    "turns": "20",
+    "result": "다수의 pass가 있었으나 간헐적 progress_abort 및 collision_driving 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "능동 회피 진입 임계값(_ESC_C)과 일반 주행 허용 거리(_CLR_GO)를 낮추어 불필요한 정지를 줄임",
+    "new_family": false,
+    "for": "물체가 어느 정도 가까워지기 전까지는 정상 속도를 유지하게 하여 progress_abort를 방지함",
+    "risk": "안전 마진이 줄어들어 접근 속도가 매우 빠른 물체와 충돌할 가능성이 높아짐"
+   },
+   {
+    "idea": "정렬 구간(0.35 < |e| < 0.7)의 속도를 0.3m/s에서 0.6m/s로 높이고 _RELAX_V를 상향",
+    "new_family": false,
+    "for": "정지 후 복귀하거나 경유점을 추종할 때의 최소 진행 속도를 확보함",
+    "risk": "회전 중 원심력이나 제어 오차로 인해 정적 장애물에 쓸릴 위험이 미세하게 증가함"
+   }
+  ],
+  "chosen": "후보 1과 2를 동시에 적용하여 정지 횟수를 줄이고 복귀 속도를 높임",
+  "target": "controller 및 _ESC_C, _CLR_GO, _RELAX_V",
+  "direction": "1. _ESC_C를 0.6에서 0.4로, _CLR_GO를 0.5에서 0.3으로 낮춰 더 기민하게 주행하도록 수정합니다. 2. controller 함수 내에서 0.35 < |e| < 0.7 구간의 속도 v를 0.3에서 0.6m/s로 높입니다. 3. _RELAX_V를 1.0에서 1.2m/s로 높여 정체 구간 돌파력을 강화합니다. 4. 그 외의 _SIDE_STOP_PEN, _SIDE_MOMENTUM_BONUS 등 측면 회피 로직은 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"stall\",\n \"evidence\": [\"실행 c7t20_s1440902891에서 150.9s 시점에 progress_abort 발생\", \"마지막 5초간 t=146.9~148.4s까지 정지 후 t=148.6~149.9s까지 0.15~0.31m/s로 매우 느리게 주행\", \"90초 윈도우 내 최근 진행 거리(best_recent_m)가 4.2m에 불과해 정체로 판정\"],\n \"assumptions\": [{\"assumption\": \"안전 계층의 임계값(_ESC_C, _CLR_GO)이 너무 보수적이라 물체가 근처에만 있어도 빈번하게 정지하거나 저속 주행으로 전환됨\", \"holds\": true, \"why\": \"충돌은 없었으나 물체 거리 0.4~1.1m 구간에서 로봇이 잦은 정지와 저속 주행을 반복하며 진행 속도가 급감함\"}],\n \"approach_families\": [{\"family\": \"센서 기반 회피 및 속도 제어\", \"turns\": \"20\", \"result\": \"다수의 pass가 있었으나 간헐적 progress_abort 및 collision_driving 발생\"}],\n \"candidates\": [\n  {\n   \"idea\": \"능동 회피 진입 임계값(_ESC_C)과 일반 주행 허용 거리(_CLR_GO)를 낮추어 불필요한 정지를 줄임\",\n   \"new_family\": false,\n   \"for\": \"물체가 어느 정도 가까워지기 전까지는 정상 속도를 유지하게 하여 progress_abort를 방지함\",\n   \"risk\": \"안전 마진이 줄어들어 접근 속도가 매우 빠른 물체와 충돌할 가능성이 높아짐\"\n  },\n  {\n   \"idea\": \"정렬 구간(0.35 < |e| < 0.7)의 속도를 0.3m/s에서 0.6m/s로 높이고 _RELAX_V를 상향\",\n   \"new_family\": false,\n   \"for\": \"정지 후 복귀하거나 경유점을 추종할 때의 최소 진행 속도를 확보함\",\n   \"risk\": \"회전 중 원심력이나 제어 오차로 인해 정적 장애물에 쓸릴 위험이 미세하게 증가함\"\n  }\n ],\n \"chosen\": \"후보 1과 2를 동시에 적용하여 정지 횟수를 줄이고 복귀 속도를 높임\",\n \"target\": \"controller 및 _ESC_C, _CLR_GO, _RELAX_V\",\n \"direction\": \"1. _ESC_C를 0.6에서 0.4로, _CLR_GO를 0.5에서 0.3으로 낮춰 더 기민하게 주행하도록 수정합니다. 2. controller 함수 내에서 0.35 < |e| < 0.7 구간의 속도 v를 0.3에서 0.6m/s로 높입니다. 3. _RELAX_V를 1.0에서 1.2m/s로 높여 정체 구간 돌파력을 강화합니다. 4. 그 외의 _SIDE_STOP_PEN, _SIDE_MOMENTUM_BONUS 등 측면 회피 로직은 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t20_s554989941",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 76.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 70.55,
+   "goal_dist_m": 0.1829,
+   "time_to_goal_s": 73.367
+  },
+  {
+   "run": "c7t20_s1440902891",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 523.5,
+   "sim_time_s": 150.9,
+   "stall_abort_t": null,
+   "progress_abort_t": 149.87,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 144.92,
+   "goal_dist_m": 5.4674,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t20_s2034277930",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 372.6,
+   "sim_time_s": 73.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 67.75,
+   "goal_dist_m": 0.1736,
+   "time_to_goal_s": 70.7
+  },
+  {
+   "run": "c7t20_s1944640439",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 298.9,
+   "sim_time_s": 110.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.5622,
+   "time_to_goal_s": 95.483
+  },
+  {
+   "run": "c7t20_s191191590",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 188.6,
+   "sim_time_s": 87.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2583,
+   "time_to_goal_s": 71.633
+  },
+  {
+   "run": "c7t20_s1646736090",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 100.9,
+   "sim_time_s": 83.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 77.92,
+   "goal_dist_m": 0.177,
+   "time_to_goal_s": 80.967
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

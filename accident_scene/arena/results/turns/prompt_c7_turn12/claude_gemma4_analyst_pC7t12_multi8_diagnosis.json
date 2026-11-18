@@ -1,0 +1,198 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "s1756312704: 30.767s에 mover_01과 충돌, 당시 로봇 속도 0.81m/s, 상대 위치 [-0.62, -0.47]",
+   "s1756312704: 충돌 전 29.8s(0.69m) -> 30.5s(0.41m)로 거리가 급격히 좁혀지는 중에도 속도 0.81m/s를 유지함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 교차 상황에서 현재 속도를 유지(Momentum)하는 것이 물체 경로에 갇히는 것보다 안전하다",
+    "holds": false,
+    "why": "s1756312704에서 고속을 유지했으나 물체의 횡단 경로를 피하지 못하고 측면 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "측면 감지 및 능동 회피(Momentum 보너스 포함)",
+    "turns": "5",
+    "result": "6/8 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Momentum 보너스 적용 조건에 현재 거리(c0) 임계값 추가",
+    "new_family": false,
+    "for": "물체가 이미 매우 근접한 상황에서는 보너스로 인해 위험한 고속 주행 후보가 선택되는 것을 방지",
+    "risk": "판단이 보수적으로 변하여 정체 구간이 늘어날 수 있음"
+   },
+   {
+    "idea": "물체의 상대 속도 벡터를 분석하여 '안전하게 통과 가능한' 경우에만 보너스 부여",
+    "new_family": true,
+    "for": "단순 거리/속도가 아닌 궤적 기반의 정밀한 통과 판단 가능",
+    "risk": "구현 복잡도가 높고 추적 오차에 민감할 수 있음"
+   }
+  ],
+  "chosen": "후보 1: 구현이 간단하며, 근접 상황에서 보너스를 제거함으로써 컨트롤러가 자연스럽게 감속/정지 후보를 선택하게 함",
+  "target": "_safe_speed 함수의 momentum 조건",
+  "direction": "_safe_speed 함수 내에서 momentum 변수를 계산하는 로직을 수정합니다. 기존 조건인 'dz[\"side\"] and v_now >= 0.5'에 'c0 >= 0.6' 조건을 추가하여, 현재 예상 최소 거리(c0)가 0.6m 이상으로 충분할 때만 속도 유지 보너스를 부여합니다. 이를 통해 물체가 이미 매우 근접한 경우에는 보너스가 제거되어, 로봇이 고속 주행 대신 감속이나 정지를 선택해 충돌을 피하도록 유도합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"s1756312704: 30.767s에 mover_01과 충돌, 당시 로봇 속도 0.81m/s, 상대 위치 [-0.62, -0.47]\",\n  \"s1756312704: 충돌 전 29.8s(0.69m) -> 30.5s(0.41m)로 거리가 급격히 좁혀지는 중에도 속도 0.81m/s를 유지함\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"측면 교차 상황에서 현재 속도를 유지(Momentum)하는 것이 물체 경로에 갇히는 것보다 안전하다\",\n   \"holds\": false,\n   \"why\": \"s1756312704에서 고속을 유지했으나 물체의 횡단 경로를 피하지 못하고 측면 충돌함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"측면 감지 및 능동 회피(Momentum 보너스 포함)\",\n   \"turns\": \"5\",\n   \"result\": \"6/8 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"Momentum 보너스 적용 조건에 현재 거리(c0) 임계값 추가\",\n   \"new_family\": false,\n   \"for\": \"물체가 이미 매우 근접한 상황에서는 보너스로 인해 위험한 고속 주행 후보가 선택되는 것을 방지\",\n   \"risk\": \"판단이 보수적으로 변하여 정체 구간이 늘어날 수 있음\"\n  },\n  {\n   \"idea\": \"물체의 상대 속도 벡터를 분석하여 '안전하게 통과 가능한' 경우에만 보너스 부여\",\n   \"new_family\": true,\n   \"for\": \"단순 거리/속도가 아닌 궤적 기반의 정밀한 통과 판단 가능\",\n   \"risk\": \"구현 복잡도가 높고 추적 오차에 민감할 수 있음\"\n  }\n ],\n \"chosen\": \"후보 1: 구현이 간단하며, 근접 상황에서 보너스를 제거함으로써 컨트롤러가 자연스럽게 감속/정지 후보를 선택하게 함\",\n \"target\": \"_safe_speed 함수의 momentum 조건\",\n \"direction\": \"_safe_speed 함수 내에서 momentum 변수를 계산하는 로직을 수정합니다. 기존 조건인 'dz[\\\"side\\\"] and v_now >= 0.5'에 'c0 >= 0.6' 조건을 추가하여, 현재 예상 최소 거리(c0)가 0.6m 이상으로 충분할 때만 속도 유지 보너스를 부여합니다. 이를 통해 물체가 이미 매우 근접한 경우에는 보너스가 제거되어, 로봇이 고속 주행 대신 감속이나 정지를 선택해 충돌을 피하도록 유도합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t12_s1512532508",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 81.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 75.85,
+   "goal_dist_m": 0.1757,
+   "time_to_goal_s": 78.783
+  },
+  {
+   "run": "c7t12_s1125791750",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 518.2,
+   "sim_time_s": 85.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 79.65,
+   "goal_dist_m": 0.1768,
+   "time_to_goal_s": 82.583
+  },
+  {
+   "run": "c7t12_s895773104",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 432.6,
+   "sim_time_s": 95.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 89.15,
+   "goal_dist_m": 0.1876,
+   "time_to_goal_s": 92.117
+  },
+  {
+   "run": "c7t12_s1756312704",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 337.5,
+   "sim_time_s": 36.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 30.767,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s",
+   "partner_rel_xy": [
+    -0.62,
+    -0.47
+   ],
+   "closing_m_s": 0.47,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 25.82,
+   "goal_dist_m": 19.3957,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t12_s250878653",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 300.7,
+   "sim_time_s": 85.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 79.92,
+   "goal_dist_m": 0.3314,
+   "time_to_goal_s": 82.45
+  },
+  {
+   "run": "c7t12_s1155723671",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 214.8,
+   "sim_time_s": 80.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 74.65,
+   "goal_dist_m": 0.1853,
+   "time_to_goal_s": 77.567
+  },
+  {
+   "run": "c7t12_s772301497",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 134.2,
+   "sim_time_s": 93.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 87.45,
+   "goal_dist_m": 0.2029,
+   "time_to_goal_s": 90.4
+  },
+  {
+   "run": "c7t12_s517031617",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 40.8,
+   "sim_time_s": 41.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 14.167,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

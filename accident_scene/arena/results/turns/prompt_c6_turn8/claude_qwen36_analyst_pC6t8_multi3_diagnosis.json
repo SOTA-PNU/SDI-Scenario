@@ -1,0 +1,141 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1, 2, 3 모두 정지 해제 후 충돌 발생. 예: 실행 1에서 6.2s 정지(1.31m, 92°) 후 7.4s 재개(0.74m, 92°), 8.43s 충돌",
+   "재개 순간 물체 bearing 이 약 ±90°(측면)이고 거리 0.6~0.8m 인데, 코드의 전방 감시 영역(ax > -0.3)을 벗어나 d_front 가 inf/large 로 변해 재개 조건(d_front > 1.7)이 성립",
+   "측면 통과 중 물체가 여전히 충돌 거리 내에 있음에도 d_front 기반 판단으로 주행 재개, 로봇이 측면을 지나가는 물체 앞부분에 들이박음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 180°(ax > -0.3) 영역의 최단 거리(d_front)만 모니터링하면 충돌 방지가 가능하다",
+    "holds": false,
+    "why": "측면(~90°)을 지나는 물체는 ax 가 -0.3 이하가 되어 d_front 에서 제외되지만, 실제 거리(near)는 0.7m 정도로 여전히 충돌 위험"
+   },
+   {
+    "assumption": "d_front > 1.7 이면 주변이 안전하므로 주행 재개가 가능하다",
+    "holds": false,
+    "why": "d_front 는 특정 섹터만 보므로 물체가 측면으로 빠지면 인공적으로 커지며, near 가 0.7m 일 때도 재개 조건을 만족해 즉시 충돌"
+   },
+   {
+    "assumption": "bearing 변화량(_BEARING_PASS)으로 측면 통과를 감지해 재개 타이머를 초기화하면 안전하다",
+    "holds": false,
+    "why": "bearing 변화 로직이 d_front >= 1.5 조건과 결합되어 있으나, d_front 가 inf 로 변하면 이 조건이 우회되거나 passing 판정이 지연되어 효과가 없음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 섹터 거리 기반 정지/재개 상태기계",
+    "turns": "1~8",
+    "result": "측면 통과 물체로 인한 재개 실패 및 충돌 반복(통과 0~4개/턴)"
+   },
+   {
+    "family": "거리 비례 연속 감속",
+    "turns": "5",
+    "result": "정지 고착(stall_abort)으로 진행 실패"
+   },
+   {
+    "family": "정지 누적 시간 기반 강제 탈출(크리프/회전)",
+    "turns": "4,6,7,8",
+    "result": "재개 로직 결함으로 인해 탈출 로직보다 먼저 충돌 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방 섹터 거리(d_front) 대신 전체 움직이는 점 중 최단 거리(near)를 정지/재개 주 기준으로 사용",
+    "new_family": true,
+    "for": "측면/정면/측후방 모든 방향의 물체를 동일하게 감지해 섹터 탈출 오탐을 근본적으로 차단",
+    "risk": "정적 장애물 경계 오탐이나 라이다 잡음으로 near 가 순간 작아지면 불필요한 정지가 발생할 수 있으나 _STATIC_MARGIN 과 잡음 필터로 완화 가능"
+   },
+   {
+    "idea": "가장 가까운 물체의 bearing 과 접근 속도(TTC)를 추적해 물체가 실제로 지났는지 판별",
+    "new_family": true,
+    "for": "측면 통과 시 물체의 운동 방향과 위치를 정확히 모델링해 재개 시점을 최적화",
+    "risk": "TTC 계산이 라이다 프레임 드롭이나 물체 속도 변화에 민감해 구현 복잡도가 높고, 실패 시 정지 고착 가능성"
+   },
+   {
+    "idea": "전방 감시 영역을 270°(ax > -1.0)로 확대",
+    "new_family": false,
+    "for": "측면 물체가 섹터에서 빠지는 것을 지연시켜 d_front 가 유지되도록 함",
+    "risk": "후방 물체까지 포함해 오탐 정지가 증가하고, 근본적인 방향성 결함(정면 vs 측면 구분 필요)을 해결하지 못함"
+   }
+  ],
+  "chosen": "후보 1을 선택한다. 섹터 기반 거리 판단의 구조적 결함을 제거하고 방향과 무관한 근접 거리(near)로 정지/재개를 제어하는 것이 가장 단순하고 신뢰할 수 있다.",
+  "target": "controller 정지/재개 상태 기계 및 거리 평가 기준(d_front -> near)",
+  "direction": "정지/재개 판단 기준을 전방 섹터 거리(d_front)에서 전체 움직이는 점의 최단 거리(near)로 변경한다. near < 1.5 이면 무조건 정지하며, near > 1.7 이 0.3초 지속되어야 재개한다. d_front 는 주행 중 전방 180° 점에 대해만 계산해 선형 감속과 방향 조정에만 사용한다. bearing 변화 감지 로직은 제거해 판단 경로를 단순화한다. 이를 통해 측면 통과 시에도 물체가 완전히 지날 때까지 정지해 충돌을 방지한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\",\n \"evidence\": [\"실행 1, 2, 3 모두 정지 해제 후 충돌 발생. 예: 실행 1에서 6.2s 정지(1.31m, 92°) 후 7.4s 재개(0.74m, 92°), 8.43s 충돌\", \"재개 순간 물체 bearing 이 약 ±90°(측면)이고 거리 0.6~0.8m 인데, 코드의 전방 감시 영역(ax > -0.3)을 벗어나 d_front 가 inf/large 로 변해 재개 조건(d_front > 1.7)이 성립\", \"측면 통과 중 물체가 여전히 충돌 거리 내에 있음에도 d_front 기반 판단으로 주행 재개, 로봇이 측면을 지나가는 물체 앞부분에 들이박음\"],\n \"assumptions\": [{\"assumption\": \"전방 180°(ax > -0.3) 영역의 최단 거리(d_front)만 모니터링하면 충돌 방지가 가능하다\", \"holds\": false, \"why\": \"측면(~90°)을 지나는 물체는 ax 가 -0.3 이하가 되어 d_front 에서 제외되지만, 실제 거리(near)는 0.7m 정도로 여전히 충돌 위험\"}, {\"assumption\": \"d_front > 1.7 이면 주변이 안전하므로 주행 재개가 가능하다\", \"holds\": false, \"why\": \"d_front 는 특정 섹터만 보므로 물체가 측면으로 빠지면 인공적으로 커지며, near 가 0.7m 일 때도 재개 조건을 만족해 즉시 충돌\"}, {\"assumption\": \"bearing 변화량(_BEARING_PASS)으로 측면 통과를 감지해 재개 타이머를 초기화하면 안전하다\", \"holds\": false, \"why\": \"bearing 변화 로직이 d_front >= 1.5 조건과 결합되어 있으나, d_front 가 inf 로 변하면 이 조건이 우회되거나 passing 판정이 지연되어 효과가 없음\"}],\n \"approach_families\": [{\"family\": \"전방 섹터 거리 기반 정지/재개 상태기계\", \"turns\": \"1~8\", \"result\": \"측면 통과 물체로 인한 재개 실패 및 충돌 반복(통과 0~4개/턴)\"}, {\"family\": \"거리 비례 연속 감속\", \"turns\": \"5\", \"result\": \"정지 고착(stall_abort)으로 진행 실패\"}, {\"family\": \"정지 누적 시간 기반 강제 탈출(크리프/회전)\", \"turns\": \"4,6,7,8\", \"result\": \"재개 로직 결함으로 인해 탈출 로직보다 먼저 충돌 발생\"}],\n \"candidates\": [{\"idea\": \"전방 섹터 거리(d_front) 대신 전체 움직이는 점 중 최단 거리(near)를 정지/재개 주 기준으로 사용\", \"new_family\": true, \"for\": \"측면/정면/측후방 모든 방향의 물체를 동일하게 감지해 섹터 탈출 오탐을 근본적으로 차단\", \"risk\": \"정적 장애물 경계 오탐이나 라이다 잡음으로 near 가 순간 작아지면 불필요한 정지가 발생할 수 있으나 _STATIC_MARGIN 과 잡음 필터로 완화 가능\"}, {\"idea\": \"가장 가까운 물체의 bearing 과 접근 속도(TTC)를 추적해 물체가 실제로 지났는지 판별\", \"new_family\": true, \"for\": \"측면 통과 시 물체의 운동 방향과 위치를 정확히 모델링해 재개 시점을 최적화\", \"risk\": \"TTC 계산이 라이다 프레임 드롭이나 물체 속도 변화에 민감해 구현 복잡도가 높고, 실패 시 정지 고착 가능성\"}, {\"idea\": \"전방 감시 영역을 270°(ax > -1.0)로 확대\", \"new_family\": false, \"for\": \"측면 물체가 섹터에서 빠지는 것을 지연시켜 d_front 가 유지되도록 함\", \"risk\": \"후방 물체까지 포함해 오탐 정지가 증가하고, 근본적인 방향성 결함(정면 vs 측면 구분 필요)을 해결하지 못함\"}],\n \"chosen\": \"후보 1을 선택한다. 섹터 기반 거리 판단의 구조적 결함을 제거하고 방향과 무관한 근접 거리(near)로 정지/재개를 제어하는 것이 가장 단순하고 신뢰할 수 있다.\",\n \"target\": \"controller 정지/재개 상태 기계 및 거리 평가 기준(d_front -> near)\",\n \"direction\": \"정지/재개 판단 기준을 전방 섹터 거리(d_front)에서 전체 움직이는 점의 최단 거리(near)로 변경한다. near < 1.5 이면 무조건 정지하며, near > 1.7 이 0.3초 지속되어야 재개한다. d_front 는 주행 중 전방 180° 점에 대해만 계산해 선형 감속과 방향 조정에만 사용한다. bearing 변화 감지 로직은 제거해 판단 경로를 단순화한다. 이를 통해 측면 통과 시에도 물체가 완전히 지날 때까지 정지해 충돌을 방지한다.\",\n \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t8_s1537959310",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 14.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.433,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.09,
+    0.55
+   ],
+   "closing_m_s": 0.48,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 3.52,
+   "goal_dist_m": 32.1688,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t8_s1740480133",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 585.6,
+   "sim_time_s": 19.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.783,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.16,
+    0.56
+   ],
+   "closing_m_s": 0.38,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 8.82,
+   "goal_dist_m": 32.2222,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t8_s2011790699",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 565.8,
+   "sim_time_s": 78.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 72.867,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.22m/s",
+   "partner_rel_xy": [
+    0.23,
+    -0.54
+   ],
+   "closing_m_s": 0.61,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 67.95,
+   "goal_dist_m": 4.4918,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

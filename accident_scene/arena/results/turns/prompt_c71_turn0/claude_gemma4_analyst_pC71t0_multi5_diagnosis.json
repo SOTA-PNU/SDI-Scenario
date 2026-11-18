@@ -1,0 +1,151 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t0_s1072418218: t=3.283s, 로봇 속도 1.32m/s, mover_00이 정면 0.45m 거리에서 충돌",
+   "c71t0_s304499256: t=27.617s, 로봇 속도 1.25m/s, mover_02가 정면 0.47m 거리에서 충돌",
+   "c71t0_s1508231181: t=3.283s, 로봇 속도 1.27m/s, mover_00이 정면 0.45m 거리에서 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정적인 경유점 추종만으로 모든 주행 상황(움직이는 물체 포함)을 해결할 수 있다.",
+    "holds": false,
+    "why": "물체 배치가 바뀔 때마다 경로상에 물체가 나타나며, 센서 없이 주행 시 이를 피할 방법이 없어 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Blind Waypoint Following",
+    "turns": "1",
+    "result": "2/5 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "라이다 기반 반응형 제동 (Reactive Braking)",
+    "new_family": true,
+    "for": "충돌 직전 모든 실행에서 라이다에 물체가 감지되었으므로, 전방 장애물 감지 시 정지하는 것만으로도 충돌을 방지할 수 있음",
+    "risk": "정적 장애물(벽, 박스)을 움직이는 물체로 오인해 멈출 수 있으나, 현재 경유점이 정적 장애물을 잘 피하고 있어 가능성이 낮음"
+   },
+   {
+    "idea": "동적 장애물 회피 (Local Obstacle Avoidance)",
+    "new_family": true,
+    "for": "정지하지 않고 우회하므로 주행 시간이 단축됨",
+    "risk": "회피 기동 중 정적 장애물이나 벽에 충돌할 위험이 있으며 구현 복잡도가 높음"
+   }
+  ],
+  "chosen": "라이다 기반 반응형 제동을 선택함. 현재 속도가 매우 빨라 즉각적인 정지가 가장 안전하며, 구현이 단순하여 신뢰도가 높기 때문임",
+  "target": "controller",
+  "direction": "lidar2d_points('front')를 호출하여 전방 점들을 가져옵니다. 로봇 기준 x > 0 및 |y/x| < tan(30°) 범위(전방 약 ±30°) 내의 점들 중 최소 거리를 구합니다. 이 최소 거리가 2.0m 미만이면 전진 속도 v를 0.0으로 강제 설정하여 정지합니다. 장애물이 감지되지 않을 때만 기존의 경유점 추종 속도 v를 사용합니다. 정지 중에도 회전 속도 w는 그대로 적용하여 목표 방향을 유지하게 합니다. 기존의 _WAYPOINTS와 제어 로직은 그대로 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t0_s1072418218: t=3.283s, 로봇 속도 1.32m/s, mover_00이 정면 0.45m 거리에서 충돌\",\n  \"c71t0_s304499256: t=27.617s, 로봇 속도 1.25m/s, mover_02가 정면 0.47m 거리에서 충돌\",\n  \"c71t0_s1508231181: t=3.283s, 로봇 속도 1.27m/s, mover_00이 정면 0.45m 거리에서 충돌\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"정적인 경유점 추종만으로 모든 주행 상황(움직이는 물체 포함)을 해결할 수 있다.\",\n   \"holds\": false,\n   \"why\": \"물체 배치가 바뀔 때마다 경로상에 물체가 나타나며, 센서 없이 주행 시 이를 피할 방법이 없어 충돌함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"Blind Waypoint Following\",\n   \"turns\": \"1\",\n   \"result\": \"2/5 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"라이다 기반 반응형 제동 (Reactive Braking)\",\n   \"new_family\": true,\n   \"for\": \"충돌 직전 모든 실행에서 라이다에 물체가 감지되었으므로, 전방 장애물 감지 시 정지하는 것만으로도 충돌을 방지할 수 있음\",\n   \"risk\": \"정적 장애물(벽, 박스)을 움직이는 물체로 오인해 멈출 수 있으나, 현재 경유점이 정적 장애물을 잘 피하고 있어 가능성이 낮음\"\n  },\n  {\n   \"idea\": \"동적 장애물 회피 (Local Obstacle Avoidance)\",\n   \"new_family\": true,\n   \"for\": \"정지하지 않고 우회하므로 주행 시간이 단축됨\",\n   \"risk\": \"회피 기동 중 정적 장애물이나 벽에 충돌할 위험이 있으며 구현 복잡도가 높음\"\n  }\n ],\n \"chosen\": \"라이다 기반 반응형 제동을 선택함. 현재 속도가 매우 빨라 즉각적인 정지가 가장 안전하며, 구현이 단순하여 신뢰도가 높기 때문임\",\n \"target\": \"controller\",\n \"direction\": \"lidar2d_points('front')를 호출하여 전방 점들을 가져옵니다. 로봇 기준 x > 0 및 |y/x| < tan(30°) 범위(전방 약 ±30°) 내의 점들 중 최소 거리를 구합니다. 이 최소 거리가 2.0m 미만이면 전진 속도 v를 0.0으로 강제 설정하여 정지합니다. 장애물이 감지되지 않을 때만 기존의 경유점 추종 속도 v를 사용합니다. 정지 중에도 회전 속도 w는 그대로 적용하여 목표 방향을 유지하게 합니다. 기존의 _WAYPOINTS와 제어 로직은 그대로 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t0_s985684618",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 52.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 46.72,
+   "goal_dist_m": 0.2215,
+   "time_to_goal_s": 48.767
+  },
+  {
+   "run": "c71t0_s364213218",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 547.3,
+   "sim_time_s": 52.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 46.72,
+   "goal_dist_m": 0.2215,
+   "time_to_goal_s": 48.767
+  },
+  {
+   "run": "c71t0_s1072418218",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 494.6,
+   "sim_time_s": 9.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.32m/s 회전 -1.3",
+   "partner_rel_xy": [
+    0.45,
+    -0.23
+   ],
+   "closing_m_s": -0.27,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.75,
+   "goal_dist_m": 29.7715,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t0_s304499256",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 485.3,
+   "sim_time_s": 33.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 27.617,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 1.25m/s 회전 -1.3",
+   "partner_rel_xy": [
+    0.47,
+    0.02
+   ],
+   "closing_m_s": 0.06,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 26.32,
+   "goal_dist_m": 11.3655,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t0_s1508231181",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 451.7,
+   "sim_time_s": 9.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.27m/s 회전 -1.0",
+   "partner_rel_xy": [
+    0.45,
+    -0.16
+   ],
+   "closing_m_s": -0.23,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 1.02,
+   "goal_dist_m": 30.1627,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

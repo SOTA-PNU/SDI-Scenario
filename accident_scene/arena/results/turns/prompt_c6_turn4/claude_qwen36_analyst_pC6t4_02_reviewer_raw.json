@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_STATIC_MARGIN 을 0.0 으로 바꿔 정적 사각형 내부 점만 거른다\", \"implemented\": true, \"note\": \"_STATIC_MARGIN = 0.0 이다. _build_static_rects 와 _dynamic_world 의 벽 판정에 그대로 반영된다.\"},\n  {\"instruction\": \"정지 조건을 d_f < 1.2 하나로 단순화\", \"implemented\": true, \"note\": \"_STOP_GAP = 1.2 이고, blocked 가 아닐 때 d_f < _STOP_GAP 이면 blocked 로 바뀐다.\"},\n  {\"instruction\": \"정지 시 blocked_t 기록\", \"implemented\": true, \"note\": \"정지 진입 때 _NAV['blocked_t'] = t 로 기록한다. _NAV 초기값에 키가 있다.\"},\n  {\"instruction\": \"재개 조건을 d_f > 1.5 로 단순화\", \"implemented\": true, \"note\": \"_RESUME_GAP = 1.5 이고, blocked 이며 d_f > _RESUME_GAP 이면 바로 해제한다. 타이머는 없다.\"},\n  {\"instruction\": \"t - blocked_t > 2.0 이면 v=0.1 크리프\", \"implemented\": true, \"note\": \"_CREEP_T=2.0, _CREEP_V=0.1 이다. 다만 진단에 없던 조건이 붙었다: 경유점 명령 v > 0 이고 d_f > 0.7 일 때만 전진하고, near > 0.9 이면 w 회전도 허용한다. d_f ≤ 0.7 에서 거짓 점이 계속 보이면 다시 멈출 수 있다.\"},\n  {\"instruction\": \"접근 속도 계산과 복잡한 재개 타이머 제거\", \"implemented\": true, \"note\": \"n_rate, nhist, clear_since 판정을 지웠다. 옆면 비켜나기 분기와 뒤쪽 회피 전진 분기도 지웠다. _NAV 의 남은 키는 쓰이지 않는다.\"},\n  {\"instruction\": \"정지 중 near < 0.8 이면 후진 v=-0.2 로 대체\", \"implemented\": true, \"note\": \"_EVADE_R=0.8, _EVADE_V=0.2 이다. 물체가 앞쪽이고 rear_free 이면 -0.2 로 후진한다. 진단에 없던 처리로, 물체가 뒤쪽이면 +0.2 로 전진하고 앞뒤가 막히면 정지한다.\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"실패는 주행 중(0.65~0.72 m/s) 충돌인데, 정지 거리를 1.5 m 에서 1.2 m 로 줄였다. 정면에서 다가오는 물체에 대한 여유가 줄어드는 방향이다.\",\n  \"물체는 로봇을 피하지 않는다. 그런데 후진 속도를 0.3 이상에서 0.2 m/s 로 낮췄고, 뒤가 막히면 정지한다. 다가오는 물체를 피하기에 느릴 수 있다.\",\n  \"마진 0.0 이면 정적 표면에 맞은 라이다 점이 사각형 밖으로 조금만 나가도 움직이는 점으로 남는다. 불필요한 정지가 늘 수 있다.\",\n  \"필터가 d_f 를 inf 로 만들었다는 근거는 '추정'이다. 로그로 확인한 근거가 아니다.\",\n  \"조건 없는 크리프는 실제 물체 쪽으로 다가갈 위험이 있다. 수정 담당이 넣은 d_f > 0.7 조건은 이 위험을 막지만, 무한 정지를 막는 효과는 약해진다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 33554,
+  "completion_tokens": 4731
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 46378,
+  "total_cost_usd": 0.363044,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4731,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 33552,
+    "webSearchRequests": 0,
+    "costUSD": 0.363044,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3346,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 33552,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "d602b1a1-91e4-489e-89a4-ec7269e62430"
+ }
+}

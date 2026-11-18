@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 direction에 맞춰 controller에서 연속 가중치 k와 닫힘 속도 추정(`_update_closing` 호출), 섹터별 선형 감속, 후진·크리프 분기를 모두 제거했습니다. 그 대신 감시 영역(|bearing| < 120°, 0.2 m 미만 잡음 제외)에서 움직이는 점까지의 최단 거리 `d_watch` 하나로 이진 상태 머신을 만들었습니다. `d_watch < 1.5 m`이면 v=0으로 정지하고, 이 상태가 0.5 s 넘게 이어지면 가장 가까운 점의 로봇 기준 y 부호 반대쪽으로 w=±0.8 제자리 회전만 합니다. 정지는 `d_watch > 2.0 m`가 1.0 s 이어져야 풀리며, 정지 중에는 어떤 경우에도 전진하지 않으므로 진단이 지적한 '1.0 m 안쪽에서의 전진'이 생기지 않습니다.\n\n```python\n_BUB_STOP = 1.5         # 감시 영역 최단 거리가 이보다 작으면 정지 v = 0 [m] (진단: 1.5 m)\n\n\n_BUB_HOLD = 0.5         # 정지가 이 시간보다 오래 이어지고 아직 _BUB_STOP 안이면 제자리 회전 [s] (진단: 0.5 s)\n\n\n_BUB_W = 0.8            # 정지 중 제자리 회전 속도 크기 [rad/s] (진단: w = ±0.8)\n\n\n_BUB_CLEAR = 2.0        # 정지 해제 조건: 감시 영역 최단 거리가 이보다 커야 함 [m] (진단: 2.0 m)\n\n\n_BUB_CLEAR_T = 1.0      # 정지 해제 전 _BUB_CLEAR 밖 상태가 이어져야 하는 시간 [s] (진단: 1.0 s)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 안전 버블 이진 정지 + 순수 제자리 회전 회피 (C-2 시도 13, 진단 반영).\n    - 연속 가중치 k, 닫힘 속도 추정, 섹터 선형 감속, 후진·크리프를 모두 쓰지 않는다.\n    - 감시 영역(|bearing| < _SIDE_B, 0.2 m 미만 잡음 제외) 의 움직이는 점 최단 거리 d_watch 로 판단한다.\n    - d_watch < 1.5 m 이면 정지 상태(v = 0, w = 0).\n    - 정지가 0.5 s 넘게 이어지고 d_watch < 1.5 m 이면 가장 가까운 점의 y 부호 반대쪽으로 w = ±0.8 제자리 회전만 한다.\n    - 정지 중 전진은 절대 하지 않는다.\n    - d_watch > 2.0 m 가 1.0 s 이어지면 정지를 풀고 경유점 추종으로 돌아간다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    _NAV.setdefault(\"stopped\", False)\n    _NAV.setdefault(\"stop_t\", None)\n    _NAV.setdefault(\"clear_t\", None)\n    _NAV.setdefault(\"rot_dir\", 0.0)\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ays, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n    b = np.arctan2(np.abs(ays), ax)                           # |bearing| [0, pi]\n    watch = b < _SIDE_B                                       # 감시 영역 ±120°\n    d_watch = _min_or_inf(d[watch])\n    if np.any(watch):\n        wi = np.where(watch)[0]\n        side = float(ays[wi[int(np.argmin(d[wi]))]])          # 가장 가까운 감시 점의 로봇 기준 y\n    else:\n        side = 0.0\n\n    # ---- 정지 진입 ----\n    if d_watch < _BUB_STOP:\n        if not _NAV[\"stopped\"]:\n            _NAV[\"stopped\"] = True\n            _NAV[\"stop_t\"] = t\n            _NAV[\"rot_dir\"] = 0.0\n        _NAV[\"clear_t\"] = None\n\n    # ---- 정지 해제: 2.0 m 밖이 1.0 s 지속 ----\n    if _NAV[\"stopped\"]:\n        if d_watch > _BUB_CLEAR:\n            if _NAV[\"clear_t\"] is None:\n                _NAV[\"clear_t\"] = t\n            if t - _NAV[\"clear_t\"] >= _BUB_CLEAR_T:\n                _NAV[\"stopped\"] = False\n                _NAV[\"stop_t\"] = None\n                _NAV[\"clear_t\"] = None\n                _NAV[\"rot_dir\"] = 0.0\n        else:\n            _NAV[\"clear_t\"] = None\n\n    # ---- 정지 상태: 전진 금지, 필요 시 제자리 회전만 ----\n    if _NAV[\"stopped\"]:\n        if d_watch < _BUB_STOP and t - _NAV[\"stop_t\"] > _BUB_HOLD:\n            if _NAV[\"rot_dir\"] == 0.0:\n                _NAV[\"rot_dir\"] = -_BUB_W if side > 0.0 else _BUB_W   # 물체 반대쪽으로 회전 (방향은 회전 시작 때 고정)\n            return 0.0, _NAV[\"rot_dir\"], False\n        return 0.0, 0.0, False\n\n    # ---- 정상 주행: 경유점 추종 ----\n    if v > 0.0 and np.any((ax > 0.0) & (ax < 3.5) & (np.abs(ays) < 2.0)):\n        v = min(v, 1.0)                                       # 앞쪽에 움직이는 점이 보이면 최고 속도만 제한\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 26396,
+  "completion_tokens": 5405
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 49413,
+  "total_cost_usd": 0.31926,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 5405,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 26394,
+    "webSearchRequests": 0,
+    "costUSD": 0.31926,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3122,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 26394,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "9b456212-c0bb-40e0-9610-125521ff7e7b"
+ }
+}

@@ -1,0 +1,106 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "모든 실행(c7t6_s129896857, c7t6_s5161284, c7t6_s1699984949)에서 x=2.6~3.2, y=16.2 부근의 최종 구간에서 정체되어 progress_abort 발생",
+   "로봇이 정지와 저속 주행(0.21m/s)을 반복하며 전진하지 못함",
+   "물체가 0.7m~1.5m 거리에서 감지되는 상황에서 _clearance 또는 _is_danger에 의해 속도가 계속 제한됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "보수적인 안전 거리(0.5m)와 예측 기반 정지가 충돌을 막는 가장 효율적인 방법이다",
+    "holds": false,
+    "why": "충돌은 없으나 물체가 근처에 있을 때 너무 자주 멈추거나 속도를 줄여 목표 지점까지 도달하지 못하고 정체됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "복합 예측 및 능동 회피",
+    "turns": "5",
+    "result": "초기에는 7/9로 높았으나, 최근 3턴 모두 0/3으로 progress_abort 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 임계값 대폭 완화 및 주행 우선 정책",
+    "new_family": false,
+    "for": "현재 충돌이 전혀 발생하지 않으므로, 정체 해소를 위해 안전 마진을 줄이고 저속 전진 속도를 높여도 안전함",
+    "risk": "임계값을 너무 낮추면 근접한 물체와 충돌할 가능성이 있음"
+   },
+   {
+    "idea": "예측 기반 _clearance 제거 및 단순 감지-정지 로직으로 회귀",
+    "new_family": true,
+    "for": "복잡한 예측 로직이 오히려 불필요한 정지를 유발하므로, _front_closing 필터가 적용된 단순 감지 로직만 사용",
+    "risk": "측면에서 빠르게 접근하는 물체에 대한 대응력이 떨어짐"
+   }
+  ],
+  "chosen": "후보 1. 현재 시스템의 구조를 유지하되, 정체를 유발하는 임계값들을 낮추고 돌파력을 높이는 것이 가장 안정적인 개선 방향임",
+  "target": "안전 임계값 상수 및 _safe_speed 로직",
+  "direction": "1. _CLR_GO와 _ESC_C를 0.5m에서 0.3m로 낮춰 더 근접할 때까지 주행을 허용합니다. 2. _WAIT_RELAX_S를 1.0s로 줄이고 _RELAX_V를 0.8m/s로 높여 정체 시 더 빠르게 돌파를 시도합니다. 3. _CLR_K를 0.10으로 낮춰 속도에 따른 거리 페널티를 줄입니다. 4. _SIDE_GAP을 0.6m로 줄여 좁은 통로에서 측면 물체에 과민하게 반응하지 않도록 합니다. 5. _CAP_MIN을 0.8m/s로 올려 회피 및 저속 주행 시 최소 속도를 확보합니다. 6. _ESC_GAIN을 0.01로 유지하여 미세한 이득만으로도 회피 기동을 수행하게 합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"stall\",\n \"evidence\": [\n  \"모든 실행(c7t6_s129896857, c7t6_s5161284, c7t6_s1699984949)에서 x=2.6~3.2, y=16.2 부근의 최종 구간에서 정체되어 progress_abort 발생\",\n  \"로봇이 정지와 저속 주행(0.21m/s)을 반복하며 전진하지 못함\",\n  \"물체가 0.7m~1.5m 거리에서 감지되는 상황에서 _clearance 또는 _is_danger에 의해 속도가 계속 제한됨\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"보수적인 안전 거리(0.5m)와 예측 기반 정지가 충돌을 막는 가장 효율적인 방법이다\",\n   \"holds\": false,\n   \"why\": \"충돌은 없으나 물체가 근처에 있을 때 너무 자주 멈추거나 속도를 줄여 목표 지점까지 도달하지 못하고 정체됨\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"복합 예측 및 능동 회피\",\n   \"turns\": \"5\",\n   \"result\": \"초기에는 7/9로 높았으나, 최근 3턴 모두 0/3으로 progress_abort 발생\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"안전 임계값 대폭 완화 및 주행 우선 정책\",\n   \"new_family\": false,\n   \"for\": \"현재 충돌이 전혀 발생하지 않으므로, 정체 해소를 위해 안전 마진을 줄이고 저속 전진 속도를 높여도 안전함\",\n   \"risk\": \"임계값을 너무 낮추면 근접한 물체와 충돌할 가능성이 있음\"\n  },\n  {\n   \"idea\": \"예측 기반 _clearance 제거 및 단순 감지-정지 로직으로 회귀\",\n   \"new_family\": true,\n   \"for\": \"복잡한 예측 로직이 오히려 불필요한 정지를 유발하므로, _front_closing 필터가 적용된 단순 감지 로직만 사용\",\n   \"risk\": \"측면에서 빠르게 접근하는 물체에 대한 대응력이 떨어짐\"\n  }\n ],\n \"chosen\": \"후보 1. 현재 시스템의 구조를 유지하되, 정체를 유발하는 임계값들을 낮추고 돌파력을 높이는 것이 가장 안정적인 개선 방향임\",\n \"target\": \"안전 임계값 상수 및 _safe_speed 로직\",\n \"direction\": \"1. _CLR_GO와 _ESC_C를 0.5m에서 0.3m로 낮춰 더 근접할 때까지 주행을 허용합니다. 2. _WAIT_RELAX_S를 1.0s로 줄이고 _RELAX_V를 0.8m/s로 높여 정체 시 더 빠르게 돌파를 시도합니다. 3. _CLR_K를 0.10으로 낮춰 속도에 따른 거리 페널티를 줄입니다. 4. _SIDE_GAP을 0.6m로 줄여 좁은 통로에서 측면 물체에 과민하게 반응하지 않도록 합니다. 5. _CAP_MIN을 0.8m/s로 올려 회피 및 저속 주행 시 최소 속도를 확보합니다. 6. _ESC_GAIN을 0.01로 유지하여 미세한 이득만으로도 회피 기동을 수행하게 합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t6_s129896857",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 166.3,
+   "stall_abort_t": null,
+   "progress_abort_t": 165.27,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 160.35,
+   "goal_dist_m": 5.0567,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t6_s5161284",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 433.7,
+   "sim_time_s": 174.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 173.73,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 168.75,
+   "goal_dist_m": 5.3104,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t6_s1699984949",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 259.0,
+   "sim_time_s": 160.7,
+   "stall_abort_t": null,
+   "progress_abort_t": 159.65,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 154.72,
+   "goal_dist_m": 4.9303,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

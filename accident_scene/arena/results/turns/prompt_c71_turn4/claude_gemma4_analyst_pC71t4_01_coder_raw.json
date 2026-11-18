@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따라 v_max 를 2.5, 거리 계수 k_d 를 3.5, E_TURN 을 0.5 로 올렸습니다. 순항 속도를 높이고 제자리 회전을 줄여 실행당 시간을 60초 안으로 줄이려는 것입니다(지시 1·2). `_front_dynamic_min_dist` 는 (최소 거리, 그 점의 bearing) 을 돌려주도록 바꿨습니다(지시 3). 정지는 bearing ±20° 이내이고 2.0 m 미만일 때만 하고, ±60°·3.0 m 이내는 v ≤ 0.7 m/s 저속 주행으로 바꿔 측면 물체 때문에 서 버리는 stall_abort 를 막습니다(지시 4·5·6). 두 영역에서 각 영역 안의 가장 가까운 점을 따로 구합니다. 그래서 ±20° 안의 점이 ±60° 쪽의 더 가까운 점에 가려 정지 판정에서 빠지는 일이 없습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow the pre-computed way-points (v_max 2.5, k_d 3.5, k_w 8.5, rotate in place when |e| > 0.5);\n    stop (v=0) only when a non-static object is within 2.0 m at bearing within ±20° (release at 2.2 m),\n    and creep (v <= 0.7 m/s) when one is within 3.0 m at bearing within ±60°.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.done_align = False\n        controller.blocked = False\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3) Control law (diagnosis: E_TURN 0.5, v_max 2.5, k_d 3.5, k_w 8.5)\n    E_TURN = 0.5\n    w = _clamp(8.5 * e, -2.0, 2.0)\n    if abs(e) > E_TURN:\n        v = 0.0\n    else:\n        v = min(2.5, 3.5 * dist + 0.5)\n\n    # 4) Reactive response to moving objects (front 2D lidar, static map filtered out)\n    #    caution cone: bearing within ±60° and closer than 3.0 m -> creep at <= 0.7 m/s\n    d_wide, b_wide = _front_dynamic_min_dist(pose, 60.0)\n    if d_wide < 3.0 and abs(b_wide) <= math.radians(60.0):\n        v = min(v, 0.7)\n    #    stop cone: bearing within ±20° and closer than 2.0 m -> v = 0 (hysteresis: release at 2.2 m)\n    d_stop, b_stop = _front_dynamic_min_dist(pose, 20.0)\n    stop_r = 2.2 if controller.blocked else 2.0\n    controller.blocked = (d_stop < stop_r) and (abs(b_stop) <= math.radians(20.0))\n    if controller.blocked:\n        v = 0.0                                   # stop; keep w so the heading stays on the waypoint\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n\n\ndef _front_dynamic_min_dist(pose, half_angle_deg=60.0):\n    \"\"\"(min distance, bearing [rad]) in the robot frame of the closest non-static front-lidar point inside the\n    forward ±half_angle_deg cone; (inf, 0.0) if none.\"\"\"\n    pts = lidar2d_points(\"front\")\n    if pts is None or len(pts) == 0:\n        return float(\"inf\"), 0.0\n    wp = to_world(pts, pose)\n    dyn = pts[~_static_mask(wp)]\n    if len(dyn) == 0:\n        return float(\"inf\"), 0.0\n    cone = (dyn[:, 0] > 0.0) & (np.abs(dyn[:, 1]) < dyn[:, 0] * math.tan(math.radians(half_angle_deg)))\n    if not np.any(cone):\n        return float(\"inf\"), 0.0\n    c = dyn[cone]\n    r = np.hypot(c[:, 0], c[:, 1])\n    i = int(np.argmin(r))\n    return float(r[i]), float(math.atan2(c[i, 1], c[i, 0]))\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 16060,
+  "completion_tokens": 3553
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 29978,
+  "total_cost_usd": 0.199532,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3553,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 16058,
+    "webSearchRequests": 0,
+    "costUSD": 0.199532,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1673,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 16058,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "6152f960-0433-4317-a2d7-8a59854ce645"
+ }
+}

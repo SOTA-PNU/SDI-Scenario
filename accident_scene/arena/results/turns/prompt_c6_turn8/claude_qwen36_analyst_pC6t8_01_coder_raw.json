@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 실패 원인은 측면을 지나가는 물체가 1.5~2.0 m 구간에 머무는 동안 엄격한 재개 조건(2.0 m, 0.8 s)이 풀리지 않아 생긴 정지 고착입니다. 그래서 정지/재개 상태 기계를 진단 1~5대로 바꿨습니다. 재개는 d_front > 1.7 m가 0.3 s 이어질 때 합니다. 가장 가까운 전방 물체의 월드 기준 bearing이 최근 0.5 s 동안 30° 이상 바뀌면 통과 중으로 보고 즉시 재개합니다. 다만 1.5 m 안이면 다음 스텝에 바로 다시 막히므로, 이 즉시 재개는 d_front ≥ 1.5 m일 때만 허용합니다. 정지가 누적 2.0 s를 넘으면 d_front > 1.2 m일 때 v=0.15로 크리프하고, 아니면 w=0.6으로 물체 반대쪽으로 제자리 회전합니다. 정지 중 near < 0.9 m이면 직선으로만 비켜나고, 앞으로 비켜날 때는 d_front < 1.5 m면 즉시 정지합니다. 진단 3(1.2 m 초과 시 크리프)과 4(1.5 m 미만 시 정지)가 문자 그대로는 서로 맞지 않아, 4의 즉시 정지는 직선 회피의 전진에 적용했고 크리프는 3의 1.2 m 기준만으로 매 스텝 멈추게 했습니다. 기존 2.0→1.5 m 선형 감속은 진단 6대로 주행 상태에서만 쓰도록 정지 분기와 분리해 두었습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 정지/재개 상태 기계 (C-2 시도 8, 진단 반영).\n    - 주행 중: 전방 180°(ax > -0.3) 최단 거리 d_front 가 2.0 m 안이면 1.5 m 에서 0 이 되도록 선형 감속(주행 상태에서만).\n    - d_front < 1.5 m 이면 blocked 정지. 재개 후 1.0 s 안에 다시 막히면 정지 시간을 누적한다.\n    - 재개: d_front > 1.7 m 가 0.3 s 지속, 또는 최근 0.5 s bearing 변화 >= 30°(측면 통과) 이고 d_front >= 1.5 m.\n    - 정지 중 near < 0.9 m: 직선 후진/전진만(전진 회피는 d_front < 1.5 m 면 하지 않음).\n    - 정지 누적 2.0 s 초과: d_front > 1.2 m 면 v=0.15 크리프, 아니면 w=0.6 제자리 회전(물체 반대쪽).\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    fx, rx = _BODY[1], _BODY[0]\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ays, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n    ay = np.abs(ays)\n    wx, wy = dyn_w[ok, 0], dyn_w[ok, 1]\n\n    front = ax > _FRONT_X                                     # 전방 180°\n    d_front = _min_or_inf(d[front])\n    near = _min_or_inf(d)\n    ox = float(ax[int(np.argmin(d))]) if d.size else 0.0\n\n    # 진단 2: 가장 가까운 전방 물체의 월드 기준 bearing 변화로 측면 통과 판단\n    passing = _update_bearing(t, pose, wx[front], wy[front], d[front])\n\n    # ---- 정지/재개 상태 기계 (정지 1.5 m, 재개 1.7 m 가 0.3 s 지속 또는 bearing 통과) ----\n    if not _NAV[\"blocked\"]:\n        if d_front < _HARD_STOP:\n            _NAV[\"blocked\"] = True\n            rt, lb = _NAV[\"resume_t\"], _NAV[\"last_blocked_t\"]\n            if rt is not None and lb is not None and t - rt < _REBLOCK_T:\n                _NAV[\"blocked_t\"] = lb          # 재개 직후 다시 막히면 정지 시간 누적\n            else:\n                _NAV[\"blocked_t\"] = t\n            _NAV[\"clear_since\"] = None\n    else:\n        resume = False\n        if d_front > _RESUME_D:\n            if _NAV[\"clear_since\"] is None:\n                _NAV[\"clear_since\"] = t\n            if t - _NAV[\"clear_since\"] >= _RESUME_HOLD:\n                resume = True\n        else:\n            _NAV[\"clear_since\"] = None\n        if passing and d_front >= _HARD_STOP:\n            resume = True                       # 측면 통과 중: 즉시 재개\n        if resume:\n            _NAV[\"blocked\"] = False\n            _NAV[\"last_blocked_t\"] = _NAV[\"blocked_t\"]\n            _NAV[\"resume_t\"] = t\n            _NAV[\"blocked_t\"] = None\n            _NAV[\"clear_since\"] = None\n            _NAV[\"bhist\"] = []\n\n    if _NAV[\"blocked\"]:\n        # 진단 4: 정지 중 물체가 0.9 m 안이면 직선으로만 비켜남(앞쪽 물체면 후진, 뒤쪽 물체면 전진)\n        if near < _EVADE_R:\n            gap_r = _min_or_inf(rx - ax[(ax < rx + 0.05) & (ay < _HW)])\n            bx, by = raw[:, 0], np.abs(raw[:, 1])\n            rear_free = np.count_nonzero((bx < rx) & (bx > rx - 0.9) & (by < 0.45)) < 3 and gap_r > 0.5\n            front_free = np.count_nonzero((bx > fx) & (bx < fx + 0.9) & (by < 0.45)) < 3\n            if ox >= 0.5 * (fx + rx):\n                if rear_free:\n                    return -_EVADE_V, 0.0, False\n            elif front_free and d_front >= _HARD_STOP:   # 전진 회피 중에도 d_front < 1.5 m 면 정지\n                return _EVADE_V, 0.0, False\n            return 0.0, 0.0, False\n        # 진단 3: 정지 누적 2.0 s 초과 시 강제 탈출\n        if _NAV[\"blocked_t\"] is not None and t - _NAV[\"blocked_t\"] > _ESCAPE_T:\n            if d_front > _CREEP_D:\n                cv = _CREEP_V if v > 0.0 else 0.0\n                return cv, _clamp(w, -_ESCAPE_W, _ESCAPE_W), False\n            fi = int(np.argmin(d[front]))\n            side = float(ays[front][fi])\n            return 0.0, (-_ESCAPE_W if side > 0.0 else _ESCAPE_W), False\n        return 0.0, 0.0, False\n\n    # ---- 주행: d_front 가 2.0 m 안이면 1.5 m 에서 0 이 되도록 선형 감속 (주행 상태에서만) ----\n    if v > 0.0:\n        if d_front < _SLOW_GAP:\n            v = v * _clamp((d_front - _HARD_STOP) / (_SLOW_GAP - _HARD_STOP), 0.0, 1.0)\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    return v, w, False\n\n\n_NAV = {\"scan\": {}, \"dyn\": {}, \"got\": False, \"fresh\": False, \"blocked\": False, \"blocked_t\": None,\n        \"clear_since\": None, \"hist\": [], \"esc\": 0, \"nhist\": [], \"bhist\": [],\n        \"resume_t\": None, \"last_blocked_t\": None}\n\n\n_RESUME_HOLD = 0.3      # 재개 전 전방이 _RESUME_D 밖으로 비어 있어야 하는 시간 [s] (진단: 0.8 -> 0.3)\n\n\n_EVADE_R = 0.9          # 정지 중 가장 가까운 움직이는 점이 이 거리 안이면 직선 회피 [m] (진단: 0.9 m)\n\n\n_ESCAPE_W = 0.6         # 강제 탈출 제자리 회전 속도 [rad/s] (진단: w=0.6)\n\n\n_CREEP_V = 0.15         # 강제 탈출 크리프 전진 속도 [m/s] (진단: v=0.15)\n\n\n_RESUME_D = 1.7         # 정지 해제 조건: 전방 180° 최단 거리가 이보다 커야 함 [m] (진단: 2.0 -> 1.7)\n\n\n_ESCAPE_T = 2.0         # 정지 누적 시간이 이보다 길면 강제 탈출 [s] (진단: 2.0 s)\n\n\n_CREEP_D = 1.2          # 강제 탈출 시 d_front 가 이보다 크면 크리프, 아니면 제자리 회전 [m] (진단: 1.2 m)\n\n\n_BEARING_WIN = 0.5      # bearing 변화를 볼 최근 시간 창 [s] (진단: 0.5 s)\n\n\n_BEARING_PASS = math.radians(30.0)   # 이 이상 bearing 이 바뀌면 측면 통과로 판단 (진단: 30°)\n\n\n_REBLOCK_T = 1.0        # 재개 후 이 시간 안에 다시 막히면 정지 시간을 누적 [s]\n\n\ndef _update_bearing(t, pose, wx, wy, d):\n    \"\"\"가장 가까운 전방 움직이는 점의 월드 기준 bearing(로봇 위치에서, 자기 yaw 와 무관)을 기록하고,\n    최근 _BEARING_WIN 초 동안 현재 값과의 차이가 _BEARING_PASS 이상이면 True(측면 통과 중).\"\"\"\n    h = _NAV[\"bhist\"]\n    if d.size:\n        i = int(np.argmin(d))\n        h.append((t, math.atan2(float(wy[i]) - pose[1], float(wx[i]) - pose[0])))\n    while h and t - h[0][0] > _BEARING_WIN:\n        h.pop(0)\n    if len(h) < 2 or h[-1][0] - h[0][0] < 0.6 * _BEARING_WIN:\n        return False\n    b_now = h[-1][1]\n    return max(abs(_wrap_angle(b - b_now)) for _, b in h) >= _BEARING_PASS\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 22240,
+  "completion_tokens": 10524
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 107217,
+  "total_cost_usd": 0.388392,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 10524,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 22238,
+    "webSearchRequests": 0,
+    "costUSD": 0.388392,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 6585,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 22238,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "ee9444ff-5854-4656-9586-2fe15d0e956d"
+ }
+}

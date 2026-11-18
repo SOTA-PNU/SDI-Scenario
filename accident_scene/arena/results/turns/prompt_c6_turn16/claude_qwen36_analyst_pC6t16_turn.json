@@ -1,0 +1,371 @@
+{
+ "turn": 16,
+ "started": "2026-11-17 20:02:42",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c6_turn15/claude_qwen36_analyst_pC6t15_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1, 8에서 로봇이 정지(또는 0.08m/s) 상태일 때 충돌 발생. 충돌 직전 물체가 정면-측면(bearing 11~72°)에서 교차하며 접근(closing 0.58~0.79m/s).",
+   "0.8m 이진 정지 로직은 물리적 정지 거리와 시뮬 지연으로 인해 0.8m 도달 시 이미 충돌 궤적에 진입하며, 정지 중 경로 이탈 조치가 없어 정지 상태 그대로 충돌."
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지하면 물체가 피하거나 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "움직이는 물체는 로봇을 피하지 않으며, 실행 1, 8에서 정지 중 물체가 로봇 위치를 통과하며 충돌함"
+   },
+   {
+    "assumption": "0.8m 이내 감속/정지가 접근 속도를 상쇄하기에 충분하다",
+    "holds": false,
+    "why": "1.5m/s 주행 시 정지 거리와 지연으로 0.8m 진입 시 이미 0.4~0.5m까지 접근해 충돌 불가피"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "반발 조향+이진 정지",
+    "turns": "14-15",
+    "result": "5/8 통과 but 정지 중 충돌 다수"
+   },
+   {
+    "family": "연속 비례 감속",
+    "turns": "5-7",
+    "result": "정지/주행 충돌 또는 stall"
+   },
+   {
+    "family": "상태 기반 크리프/회피",
+    "turns": "4,6,8,12",
+    "result": "로직 복잡성으로 오탐/데드락 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 시 누적 시간 또는 거리 감소 감지 시 후진/회전 회피",
+    "new_family": true,
+    "for": "정지 중 충돌 원인을 직접 해결하며 로직이 단순하고 상태 전이가 명확함",
+    "risk": "후진 시 뒤쪽 장애물 충돌 가능, 타이밍 상수 조정 필요"
+   },
+   {
+    "idea": "감지 범위를 2.0m로 확대하고 0.6m까지 연속 감속하되 정지 없이 서행 유지",
+    "new_family": false,
+    "for": "정지 데드락 방지",
+    "risk": "서행 중 측면 접근 시 충돌 재발, 교차 물체 대응 약함"
+   },
+   {
+    "idea": "닫힘 속도(TTC) 기반 예측 정지",
+    "new_family": true,
+    "for": "조기 대응으로 정지 거리 확보",
+    "risk": "속도 추정 노이즈로 과민 반응 또는 오탐 정지"
+   }
+  ],
+  "chosen": "후보 1 선택: 정지 상태가 지속되거나 거리가 계속 줄면 후진 또는 제자리 회전으로 물체 진행 경로를 비켜주는 능동 회피를 도입한다.",
+  "target": "controller 상태 변수(blocked_t, evade_flag) 및 후진/회피 로직",
+  "direction": "controller에 정지 시작 시각 blocked_t와 회피 상태 evade_flag를 추가한다. d_min < 0.8m 시 v=0, w=0로 정지하고 blocked_t를 기록한다. 정지 중 d_min이 계속 줄거나 t - blocked_t > 0.5초가 되면 evade_flag=True로 전환한다. 회피 중 뒤쪽 라이다(_rear_gap)가 1.0m 이상이면 v=-0.2로 후진한다. 뒤쪽이 막히면 w=0.6으로 제자리 회전하며 d_min을 증가시킨다. d_min > 1.0m가 되면 evade_flag=False, blocked_t를 초기화하고 정상 주행으로 복귀한다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단에 따르면 0.8 m 이진 정지는 정지한 채로 물체에 부딪히는 원인이었으므로, 진단의 `direction` 지시대로 controller 에 `blocked_t` 와 `evade_flag` 상태를 추가했습니다. d_min < 0.8 m 이면 정지하면서 정지 시각과 그때 거리를 기록합니다. 정지가 0.5 초를 넘거나 거리가 그 뒤로 더 줄면 회피로 넘어가, 뒤쪽 통로(`_rear_gap`)가 1.0 m 이상이면 v = -0.2 로 후진하고 막혀 있으면 w = 0.6 으로 제자리 회전합니다. d_min 이 1.0 m 를 넘으면 상태를 초기화하고 정상 주행으로 돌아갑니다. 0.8~1.5 m 반발 조향·감속과 경유점 추종은 그대로 두었고, 시각 t 는 정지 지속 타이머에만 쓰며 물체 위치 추정에는 쓰지 않습니다.",
+   "changed": [
+    "_EVADE_DEC",
+    "_EVADE_EXIT",
+    "_evade_cmd",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "controller 에 정지 시작 시각 blocked_t 와 회피 상태 evade_flag 를 추가",
+      "implemented": true,
+      "note": "hasattr 초기화로 controller.evade_flag=False, blocked_t=None 을 둠. 거리 감소 판정용 blocked_d 도 추가함"
+     },
+     {
+      "instruction": "d_min < 0.8 m 이면 v=0, w=0 정지하고 blocked_t 기록",
+      "implemented": true,
+      "note": "d_min < _HALT_D(0.8) 이고 blocked_t 가 None 이면 t 와 d_min 을 기록하고 (0,0,False) 를 반환"
+     },
+     {
+      "instruction": "정지 중 d_min 이 계속 줄거나 t - blocked_t > 0.5 s 이면 evade_flag=True",
+      "implemented": true,
+      "note": "t - blocked_t > _BLOCK_HOLD(0.5) 또는 d_min < blocked_d - 0.05 이면 전환. '계속 줄면'을 정지 시작 거리 대비 0.05 m 감소로 구현함"
+     },
+     {
+      "instruction": "회피 중 _rear_gap 이 1.0 m 이상이면 v=-0.2 후진",
+      "implemented": true,
+      "note": "_evade_cmd 에서 _rear_gap(raw) >= _REAR_MIN(1.0) 이면 (-0.2, 0.0) 반환"
+     },
+     {
+      "instruction": "뒤쪽이 막히면 w=0.6 제자리 회전",
+      "implemented": true,
+      "note": "크기 0.6 으로 물체 반대쪽(-0.6*side)으로 회전. 부호는 진단에 없어 side 로 정함"
+     },
+     {
+      "instruction": "d_min > 1.0 m 이면 evade_flag=False, blocked_t 초기화 후 정상 주행 복귀",
+      "implemented": true,
+      "note": "회피 분기에서 d_min > _EVADE_EXIT(1.0) 이면 세 상태를 초기화하고 아래 반발·경유점 로직으로 진행"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "충돌 직전 접근 속도가 0.58~0.79 m/s 인데 0.2 m/s 직선 후진으로는 거리를 벌리기 어렵고, 측면(11~72°)에서 교차하는 물체의 진행 경로를 로봇 축 방향 후진으로 비키지 못할 수 있음",
+     "몸체 회전 반경이 약 0.78 m 이므로 d_min < 0.8 m 에서 제자리 회전하면 회전 중 몸 모서리가 물체에 닿을 수 있고, 제자리 회전은 물체 경로 밖으로 이동하지도 않음",
+     "증거에서 0.8 m 정지가 늦다고 했는데 정지 임계 0.8 m 를 그대로 둠",
+     "blocked_t 는 d_min > 1.0 m 일 때만 초기화되므로 0.8~1.0 m 를 오가면 이전 정지 시각이 남아 곧바로 회피로 전환됨(의도와 다를 수 있음)"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단에 따르면 0.8 m 이진 정지는 정지한 채로 물체에 부딪히는 원인이었으므로, 진단의 `direction` 지시대로 controller 에 `blocked_t` 와 `evade_flag` 상태를 추가했습니다. d_min < 0.8 m 이면 정지하면서 정지 시각과 그때 거리를 기록합니다. 정지가 0.5 초를 넘거나 거리가 그 뒤로 더 줄면 회피로 넘어가, 뒤쪽 통로(`_rear_gap`)가 1.0 m 이상이면 v = -0.2 로 후진하고 막혀 있으면 w = 0.6 으로 제자리 회전합니다. d_min 이 1.0 m 를 넘으면 상태를 초기화하고 정상 주행으로 돌아갑니다. 0.8~1.5 m 반발 조향·감속과 경유점 추종은 그대로 두었고, 시각 t 는 정지 지속 타이머에만 쓰며 물체 위치 추정에는 쓰지 않습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1995667907,
+  2024118792,
+  1084419599,
+  304136099,
+  764679170,
+  1440801781,
+  334097545,
+  218151126
+ ],
+ "sim_used_s": 430.5,
+ "verdicts": {
+  "1995667907": "pass",
+  "2024118792": "pass",
+  "1084419599": "pass",
+  "304136099": "pass",
+  "764679170": "fail",
+  "1440801781": "pass",
+  "334097545": "fail",
+  "218151126": "fail"
+ },
+ "passes": 5,
+ "prior_chars": 12535,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 5(c6t16_s764679170): 45.5초 거리 0.81m, 45.7초 0.64m로 0.8m 임계값 하향 돌파했으나 로봇은 0.11~0.20m/s 주행 유지 후 46.48초 충돌.",
+   "실행 8(c6t16_s218151126): 55.6초 거리 0.81m, 55.8초 0.59m 감소 중 0.06m/s 서행 상태로 56.33초 충돌.",
+   "실행 3(c6t16_s334097545): 초기 주행 중 측면 접근 물체와 0.52m 거리에서도 정지 조건 미해당으로 0.14m/s 주행 중 충돌.",
+   "공통 패턴: d_min < 0.8m 조건이 센서 잡음/필터링 떨림으로 일시 해제되거나, 0.8~1.5m 반발 구간의 비례 감속이 v>0을 허용해 서행 충돌(creep)로 이어짐."
+  ],
+  "assumptions": [
+   {
+    "assumption": "d_min 이 매 스텝 안정적으로 측정되어 임계값 비교가 신뢰할 수 있음",
+    "holds": false,
+    "why": "라이다 점군 필터링 또는 정적 장애물 근접으로 d_min 이 inf나 큰 값으로 깜빡이며, 정지 조건이 일시 해제되어 재가속 발생."
+   },
+   {
+    "assumption": "0.8~1.5m 구간의 거리 비례 감속(v *= scale) 만으로 충돌 방지가 충분함",
+    "holds": false,
+    "why": "scale이 0.2~0.5 수준일 때 남은 전진 속도로 물체 진행 경로에 갇혀 밀려듦."
+   },
+   {
+    "assumption": "정지 시작 시각 기록과 회피 플래그가 복잡한 상황을 잘 처리함",
+    "holds": false,
+    "why": "상태 전환 지연과 조건 깜빡임이 오히려 정지 타이밍을 흐리게 하여 충돌로 직결됨."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지/재개 상태머신",
+    "turns": "2,4,6,7,9,10,13",
+    "result": "통과 0/3~3/6. 임계값 엄격시 stall, 느슨시 collision."
+   },
+   {
+    "family": "연속 거리 비례 감속/반발 조향",
+    "turns": "14,15,16",
+    "result": "통과 1/4~5/8. 주행 흐름 양호하나 임계값 근처 떨림으로 서행 충돌 반복."
+   },
+   {
+    "family": "닫힘 속도/추정 기반 제어",
+    "turns": "11,12",
+    "result": "통과 0/3. 속도 추정 노이즈로 오탐 및 정지 실패."
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 속도 Governor + 히스테리시스 타이머",
+    "new_family": true,
+    "for": "d_min 기반 선형 속도 제한에 0.2초 정지 래치를 추가해 센서 떨림과 서행 충돌을 동시에 차단.",
+    "risk": "타이머가 환경에 비해 길면 진행이 약간 지연될 수 있으나 0.2초는 안전 마진으로 충분."
+   },
+   {
+    "idea": "TTC(접근 시간) 기반 정지",
+    "new_family": false,
+    "for": "거리보다 상대 속도를 고려해 더 일찍 정지.",
+    "risk": "라이다로 추정하는 물체 속도가 노이즈에 매우 민감해 오탐 정지 빈발."
+   },
+   {
+    "idea": "최근 N스캔 d_min 최소값 사용(스무딩)",
+    "new_family": false,
+    "for": "단일 프레임 잡음을 평균화해 조건 깜빡임 감소.",
+    "risk": "반응 지연이 발생해 고속 접근 시 충돌 위험 증가."
+   }
+  ],
+  "chosen": "안전 속도 Governor + 히스테리시스 타이머를 선택. 기존 상태 머신의 복잡성과 떨림 문제를 제거하고, 직관적인 거리 기반 속도 제한과 짧은 정지 래치로 서행 충돌을 근본 차단하기 때문.",
+  "target": "controller (속도 제한 로직 및 상태 변수)",
+  "direction": "controller 내 blocked_t/evade_flag 상태를 제거하고 controller.caution_t를 추가한다. d_min < 0.9m이면 caution_t = t로 갱신하며, t - caution_t < 0.2s 간에는 v_cmd를 무조건 0.0으로 강제한다. 정상 주행 시 v_cmd는 v_nom * max(0.0, (d_min - 0.6) / 1.0)으로 계산해 0.6m에서부터 선형 감속하도록 한다. d_min >= 1.2m이면 caution_t = None으로 초기화해 재가속을 허용한다. 회전 속도는 기존 반발 조향을 유지하되, v_cmd == 0.0일 때 w도 0.0으로 묶어 정지 중 회전을 방지한다. 이로써 임계값 근처 센서 떨림으로 인한 재가속을 차단하고 서행 충돌을 막는다.",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c6t16_s1995667907",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 69.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 63.65,
+   "goal_dist_m": 0.2003,
+   "time_to_goal_s": 65.617
+  },
+  {
+   "run": "c6t16_s2024118792",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 530.4,
+   "sim_time_s": 51.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 45.02,
+   "goal_dist_m": 0.2054,
+   "time_to_goal_s": 47.0
+  },
+  {
+   "run": "c6t16_s1084419599",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 479.4,
+   "sim_time_s": 59.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 53.33,
+   "goal_dist_m": 0.1966,
+   "time_to_goal_s": 55.317
+  },
+  {
+   "run": "c6t16_s304136099",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 420.0,
+   "sim_time_s": 67.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 61.92,
+   "goal_dist_m": 0.2222,
+   "time_to_goal_s": 63.8
+  },
+  {
+   "run": "c6t16_s764679170",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 352.2,
+   "sim_time_s": 52.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 46.483,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.12,
+    -0.55
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 44.25,
+   "goal_dist_m": 4.2031,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t16_s1440801781",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 299.7,
+   "sim_time_s": 56.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 50.78,
+   "goal_dist_m": 0.1999,
+   "time_to_goal_s": 52.733
+  },
+  {
+   "run": "c6t16_s334097545",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 242.9,
+   "sim_time_s": 11.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.067,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.14m/s 회전 -0.3",
+   "partner_rel_xy": [
+    -0.23,
+    0.54
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.12,
+   "goal_dist_m": 30.9649,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t16_s218151126",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 231.9,
+   "sim_time_s": 62.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 56.333,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.06m/s",
+   "partner_rel_xy": [
+    -0.18,
+    -0.54
+   ],
+   "closing_m_s": 0.77,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 52.35,
+   "goal_dist_m": 4.1747,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 40 s / 한도 600 s)\n#1 이번 코드(진단 \"controller 내에서 매 스텝마다 lidar2d_points('front')를 호출해 로봇 기준 점군을 가져온다. 주어진 정적 지도(WALLS, FIXED_OBSTACLES, MISSION boxes)를 활용해 로봇 좌표계에서 정적 장애물로 판정되는 점을 제거한다. 제거 후 남아있는 점 중 앞쪽 2.0m 이내에 있으면 전진 속도 v를 0으로 강제한다. 안전 거리 이상으로 물체가 벗어나면 원래 경유점 추종 속도로 복구한다. 회전 속도 w는 기존 로직을 유지하되 정지 중에는 0으로 고정한다. 이렇게 하면 무작위 배치에서도 센서로 실시간 감지해 충돌을 피할 수 있다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 348 s / 한도 600 s)\n#2 이번 코드(진단 \"in_f 조건을 로봇 폭(_BODY[2]~_BODY[3])과 앞쪽 여유(x > -0.2)로 넓혀 측면 접근도 감지한다. _kth_smallest를 제거하고, 거리 0.2m 미만 잡음을 제외 후 np.min을 사용해 1개 점만 있어도 거리 계산이 되도록 한다. 정지 조건을 감지된 점 중 로봇 중심 기준 최단 거리가 _STOP_GAP(1.5m) 미만이면 v=0, w=0으로 강제하도록 단순화한다. 재개 조건을 최단 거리가 _RESUME_GAP(2.5m) 이상인 상태가 0.5s 지속되면 풀도록 한다. 학습(_NAV[learned]) 로직은 제거하여 상태 관리를 안정화한다. 수정 에이전트는 위 조건을 반영해 거리 계산과 정지 분기를 재작성한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 243 s / 한도 600 s)\n#3 이번 코드(진단 \"_HW를 0.8m로 확대해 정면-측면 경계 접근을 감지 영역에 포함한다. 정지 상태(v=0)에서도 near<1.0m이면 무조건 후진(v=-0.3) 또는 측면 회피 회전(w=±0.8)을 수행하며, 물체가 1.5m 이상 벗어나야 정지 해제를 허용한다. 재개 시에는 정면 3.0m 이상이어야 하고, 물체의 접근 속도가 양수이면 재개를 지연한다. 정적 필터링은 기존 _dynamic_world를 유지하되, 감시 영역 확대에 맞춰 _STATIC_MARGIN을 0.2m로 줄여 불필요한 정지를 방지한다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 314 s / 한도 600 s)\n#4 이번 코드(진단 \"_STATIC_MARGIN 을 0.0 으로 변경하여 정적 사각형 내부 점만 필터링하도록 하고, 정지 조건을 d_f < 1.2 로 단순화한다. 정지 시 blocked_t 를 기록하며, 재개 조건을 d_f > 1.5 로 단순화한다. t - blocked_t > 2.0 이면 정적 혼동 또는 가림으로 판단하여 v=0.1 로 서서히 전진(크리프) 하도록 한다. 접근 속도 계산과 복잡한 재개 타이머를 제거하고, 정지 중 near < 0.8 이면 후진(v=-0.2) 으로 대체한다. 이를 통해 인접 물체 감지 실패를 해결하고 무한 정지를 방지한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 52 s / 한도 600 s)\n#5 이번 코드(진단 \"1. _HW 기반 좁은 통로 대신 ax > -0.3 조건으로 전방 180° 점군을 추출한다. 2. 추출된 점의 최단 거리 d_front를 계산한다. 3. d_front < 1.5이면 v = v * (d_front / 1.5)로 비례 감속하고, d_front < 0.8이면 v=0으로 강제 정지한다. 4. 기존 d_f < 1.2 정지/재개 분기와 크리프 로직을 제거하고 거리 기반 연속 감속/재가속으로 대체한다. 5. 측면 물체(|ay| > 0.5)가 d < 1.0에 있으면 즉시 v=0한다. 6. 이렇게 하면 정면-측면 경계 접근 시에도 조기에 감속해 충돌을 피할 수 있다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 272 s / 한도 600 s)\n#6 이번 코드(진단 \"_STATIC_MARGIN을 0.15로 복원하여 정적 장애물 경계 오탐을 줄인다. stop 플래그 대신 d_front < 0.8일 때 v를 0으로 하고 blocked_t를 기록한다. 정지 누적 시간 1.5초가 지나면 near 거리와 무관하게 v=0.1 크리프 또는 w=0.5 회전을 강제해 데드락을 깨는다. 재개는 d_front > 1.2가 0.5초 지속될 때만 허용하여 진동을 방지한다. 측면 정지 조건(_SIDE_STOP)을 제거하고 전방 180° 거리 비례 감속으로 통합한다. 이를 통해 오탐 정지에 갇히지 않으면서 실제 물체는 안전하게 피할 수 있다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 449 s / 한도 600 s)\n#7 이번 코드(진단 \"1. 기존 비례 감속(v *= d/1.5)과 0.8m 정지 조건을 제거한다. 2. 전방 180° 최단 거리 d_front < 2.0m이면 v를 선형으로 0으로 감속시키고, d_front < 1.5m이면 무조건 v=0으로 정지한다. 3. 정지 시 blocked 플래그를 켜고, 재개 조건을 d_front > 2.0m가 0.8s 이상 지속될 때로 엄격히 한다. 4. 정지 중 크리프/회전 탈출 로직을 제거하고, 정지 3초가 넘어도 물체가 안 비면 v=0을 유지한다. 5. 측면 정지 조건은 유지하지 않고 전방 180° 거리 기준으로 통합해 로직을 단순화한다. 6. 상수(_SLOW_GAP=2.0, _HARD_STOP=1.5, _RESUME_D=2.0, _RESUME_HOLD=0.8)를 새 값으로 업데이트한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 206 s / 한도 600 s)\n#8 이번 코드(진단 \"1. 재개 조건을 d_front > 1.7m 가 0.3s 지속으로 완화한다. 2. 정지 중 최근 0.5초 간 bearing 변화량이 30도 이상이면 측면 통과로 판단해 재개 타이머를 초기화하거나 즉시 재개 허용한다. 3. 정지 누적 시간 2.0초 초과 시 d_front > 1.2m 라면 v=0.15 크리프 전진, 아니면 w=0.6 제자리 회전으로 강제 탈출한다. 4. 회피 로직을 정지 중 near < 0.9m 시 직선 후진/전진으로 단순화하고, 탈출 중에도 d_front < 1.5m 면 즉시 정지한다. 5. 상수(_RESUME_D=1.7, _RESUME_HOLD=0.3, _ESCAPE_T=2.0, _CREEP_V=0.15)를 새 값으로 업데이트한다. 6. 기존 비례 감속(d_front < 2.0m 시)은 유지하되, 정지 상태 진입 시만 적용되도록 분리를 명확히 한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 113 s / 한도 600 s)\n#9 이번 코드(진단 \"정지/재개 판단 기준을 전방 섹터 거리(d_front)에서 전체 움직이는 점의 최단 거리(near)로 변경한다. near < 1.5 이면 무조건 정지하며, near > 1.7 이 0.3초 지속되어야 재개한다. d_front 는 주행 중 전방 180° 점에 대해만 계산해 선형 감속과 방향 조정에만 사용한다. bearing 변화 감지 로직은 제거해 판단 경로를 단순화한다. 이를 통해 측면 통과 시에도 물체가 완전히 지날 때까지 정지해 충돌을 방지한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 208 s / 한도 600 s)\n#10 이번 코드(진단 \"dyn_r 점들의 bearing(math.atan2(ay, ax))을 계산해 전방(|b|<1.05 rad)과 측면(1.05<=|b|<2.09 rad)으로 분류한다. 전방 점은 1.5m 미만, 측면 점은 2.0m 미만 시 정지 플래그를 설정하며, 주행 중 v는 해당 섹터 최단 거리에 비례해 선형 감속한다. 재개 조건을 모든 감시 영역(|b|<2.09)의 점이 2.2m 이상인 상태가 0.5초 지속되어야 함으로 강화한다. 정지 중 직선 회피 로직을 제거하고 정지 유지로 단순화하며, _STATIC_MARGIN은 0.15m로 유지해 정적 오탐을 방지한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 230 s / 한도 600 s)\n#11 이번 코드(진단 \"_NAV에 최근 0.1초 간격으로 저장된 움직이는 점의 평균 위치를 추가해 상대 속도(닫힘 속도)를 계산한다. 이진 blocked 플래그를 제거하고, 대신 접근 속도와 거리를 조합한 연속 가중치(k)를 계산한다. 접근 속도가 0.2m/s 이상이고 거리가 1.5m 미만이면 k=0(정지), 접근 속도가 음수(멀어짐)이거나 0.1m/s 미만이면 k=0.3(서행), 그 외에는 기존 감속 로직을 적용한다. 서행 중에도 접근 속도가 양수로 급증하면 즉시 k=0으로 떨어뜨린다. _RESUME_D와 _RESUME_HOLD 관련 코드를 제거하고, 상태 변수를 속도 기록용으로 단순화한다. 이를 통해 물체가 근처에서 왕복하더라도 서행으로 경유점을 향해 진행하며, 실제 충돌 위험이 있을 때만 멈춘다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 50 s / 한도 600 s)\n#12 이번 코드(진단 \"controller 내에서 k=0 상태가 지속되면 정지 대신 강제 회피를 수행하도록 수정한다. _NAV에 정지 누적 시간 blocked_t를 추가해 k=0이 된 시각을 기록한다. t - blocked_t > 0.5이고 d_watch < 1.2이면 v = -0.2(후진) 또는 w = 0.8(제자리 회전)을 반환해 물체를 피한다. 후진 시 뒤쪽 라이다 거리가 1.0m 미만이면 후진 대신 회전을 사용한다. d_watch > 1.5가 되면 blocked_t를 초기화하고 정상 주행(k 계산)으로 복귀한다. 이를 통해 정지 대기 중 발생하는 충돌을 근본적으로 차단한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 131 s / 한도 600 s)\n#13 이번 코드(진단 \"기존의 연속 가중치(k)와 닫힘 속도 추정 로직을 완전히 제거한다. 대신 감시 영역(|bearing|<120°) 내 움직이는 점의 최단 거리를 기준으로 이진 상태 머신을 구성한다. 점이 1.5m 이내면 v=0으로 정지하며, 0.5s 지속되면 물체의 y 좌표 부호에 따라 w=±0.8로 제자리 회전만 수행한다. 전진 크리프 로직을 제거하여 위험 거리에서의 접근을 차단한다. 점이 2.0m 밖으로 1.0s 동안 벗어나야 정지 상태를 해제하고 경유점 추종으로 복귀한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 102 s / 한도 600 s)\n#14 이번 코드(진단 \"1. _NAV 내 정지/회전 상태 변수를 모두 제거한다. 2. 감시 영역 내 움직이는 점의 최단 거리 d와 bearing b를 매 스텝마다 계산한다. 3. d < 1.5m일 때 경유점 조향에 반발 조향 w_rep = K * (1/d - 1/1.5) * sign(b)를 더한다. 4. 전진 속도는 d < 1.5m 시 v_nom * max(0.2, (d-0.5)/1.0)으로 감속하되 0.2m/s 이상 유지해 정지를 피한다. 5. d >= 1.5m이면 기존 경유점 추종을 그대로 반환한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 149 s / 한도 600 s)\n#15 이번 코드(진단 \"controller 에서 d_min < 0.8 일 때 v_cmd = 0.0 으로 강제 정지하고 반발 조향은 적용하지 않는다. 0.8 <= d_min < 1.5 구간에서만 기존 반발 조향과 거리 비례 감속을 적용하되, _REP_VMIN 하한을 제거해 v 가 0 에 가까워질 수 있도록 한다. d_min >= 1.5 이면 정상 경유점 추종으로 복귀한다. 정지 중 d_min 이 0.8 m 를 넘으면 즉시 주행 재개 타이머 없이 정상 속도로 전환한다. 이로써 근접 충돌은 정지로 차단하고, 중거리 회피는 연속 조향으로 처리한다.\" 반영, 검토 통과): 새 배치 8개 중 5개 pass, 3개 fail (시뮬 시간 합계 392 s / 한도 600 s)\n#16 이번 코드(진단 \"controller에 정지 시작 시각 blocked_t와 회피 상태 evade_flag를 추가한다. d_min < 0.8m 시 v=0, w=0로 정지하고 blocked_t를 기록한다. 정지 중 d_min이 계속 줄거나 t - blocked_t > 0.5초가 되면 evade_flag=True로 전환한다. 회피 중 뒤쪽 라이다(_rear_gap)가 1.0m 이상이면 v=-0.2로 후진한다. 뒤쪽이 막히면 w=0.6으로 제자리 회전하며 d_min을 증가시킨다. d_min > 1.0m가 되면 evade_flag=False, blocked_t를 초기화하고 정상 주행으로 복귀한다.\" 반영, 검토 통과): 새 배치 8개 중 5개 pass, 3개 fail (시뮬 시간 합계 430 s / 한도 600 s)",
+ "ended": "2026-11-17 20:20:23"
+}

@@ -1,0 +1,135 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "Run 1,2: 시작점 근처에서 near<1.5m 정지 후 near>1.7m 0.3s 지속 재개 로직 반복으로 정지-주행 진동 발생. 5초 내 평균 속도 0.15~0.20m/s로 목표까지 31m 이상 떨어져 진행 불가(progress_abort) 판정.",
+   "Run 3: 충돌 시각 19.68s. 물체 상대 위치 [0.33, 0.56](bearing ~59°), 접근 속도 0.37m/s. near<0.9m 직선 회피 로직 실행 중 rear_free/front_free 조건 불일치로 예기치 않은 전진(0.20m/s) 발생, 물체 경로와 교차해 충돌.",
+   "공통: 전방향 동일 기준(near 1.5m) 정지와 짧은 재개 대기(0.3s)가 측면 접근/교차 통과 물체를 구분하지 못해 조기 정지 또는 재개 실패를 반복함."
+  ],
+  "assumptions": [
+   {
+    "assumption": "near < 1.5m가 모든 방향에서 안전한 정지 거리이다",
+    "holds": false,
+    "why": "Run 3에서 bearing 59° 측면 접근 시 정지 거리 부족으로 충돌"
+   },
+   {
+    "assumption": "near > 1.7m가 0.3s 지속되면 경로가 안전하다",
+    "holds": false,
+    "why": "Run 1,2에서 교차 물체 통과 중 조기 재개되어 진동 및 정체 발생"
+   },
+   {
+    "assumption": "정지 중 직선 전진/후진 회피가 좁은 통로에서 유효하다",
+    "holds": false,
+    "why": "Run 3에서 후진/전진 조건 판단 오류로 물체 쪽으로 이동하거나 정지 해제 실패"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 섹터 거리 게이트",
+    "turns": "1~3",
+    "result": "측면 접근 실패로 충돌 다수"
+   },
+   {
+    "family": "전방향 near 게이트 + 시간 재개",
+    "turns": "9(현재)",
+    "result": "조기 재개로 진동, 정체(progress_abort) 2회, 충돌 1회"
+   },
+   {
+    "family": "비례 감속 / 시간 기반 탈출",
+    "turns": "4~8",
+    "result": "정지 거리 부족 또는 오탐 정지로 실패 반복"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "bearing-반응형 계단식 거리 게이트",
+    "new_family": true,
+    "for": "전방(±60°)은 1.5m, 측면(±60~120°)은 2.0m 정지 기준으로 차등화하면 Run 3 측면 충돌과 Run 1,2 측면 통과 시 조기 재개를 동시에 해결",
+    "risk": "정적 장애물 경계 오탐 시 불필요한 정지 가능성"
+   },
+   {
+    "idea": "거리 변화율(추세) 기반 정지/재개",
+    "new_family": true,
+    "for": "절대 거리보다 0.5초 간 거리 감소/증가 추세를 보면 접근 물체와 통과 물체를 명확히 구분 가능",
+    "risk": "라이다 거리 잡음으로 추세 계산이 불안정할 수 있음"
+   },
+   {
+    "idea": "섹터별 잠재장(Potential Field) 기반 속도 벡터 합성",
+    "new_family": true,
+    "for": "경유점 추종과 장애물 반발력을 벡터 합성해 자연스러운 회피 경로 생성",
+    "risk": "로직 복잡도가 높아 [EDIT REGION] 내 구현이 까다롭고 진동 위험"
+   }
+  ],
+  "chosen": "bearing-반응형 계단식 거리 게이트를 선택한다. 구현이 명확하고 기존 전방향 동일 기준과 구조적으로 차별화되며 측면 접근 실패와 진동을 직접 타겟팅하기 때문이다.",
+  "target": "controller 내 거리 판단 및 정지/재개 상태 기계, _EVADE_* 관련 로직",
+  "direction": "dyn_r 점들의 bearing(math.atan2(ay, ax))을 계산해 전방(|b|<1.05 rad)과 측면(1.05<=|b|<2.09 rad)으로 분류한다. 전방 점은 1.5m 미만, 측면 점은 2.0m 미만 시 정지 플래그를 설정하며, 주행 중 v는 해당 섹터 최단 거리에 비례해 선형 감속한다. 재개 조건을 모든 감시 영역(|b|<2.09)의 점이 2.2m 이상인 상태가 0.5초 지속되어야 함으로 강화한다. 정지 중 직선 회피 로직을 제거하고 정지 유지로 단순화하며, _STATIC_MARGIN은 0.15m로 유지해 정적 오탐을 방지한다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n```json\n{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"Run 1,2: 시작점 근처에서 near<1.5m 정지 후 near>1.7m 0.3s 지속 재개 로직 반복으로 정지-주행 진동 발생. 5초 내 평균 속도 0.15~0.20m/s로 목표까지 31m 이상 떨어져 진행 불가(progress_abort) 판정.\",\n    \"Run 3: 충돌 시각 19.68s. 물체 상대 위치 [0.33, 0.56](bearing ~59°), 접근 속도 0.37m/s. near<0.9m 직선 회피 로직 실행 중 rear_free/front_free 조건 불일치로 예기치 않은 전진(0.20m/s) 발생, 물체 경로와 교차해 충돌.\",\n    \"공통: 전방향 동일 기준(near 1.5m) 정지와 짧은 재개 대기(0.3s)가 측면 접근/교차 통과 물체를 구분하지 못해 조기 정지 또는 재개 실패를 반복함.\"\n  ],\n  \"assumptions\": [\n    {\"assumption\": \"near < 1.5m가 모든 방향에서 안전한 정지 거리이다\", \"holds\": false, \"why\": \"Run 3에서 bearing 59° 측면 접근 시 정지 거리 부족으로 충돌\"},\n    {\"assumption\": \"near > 1.7m가 0.3s 지속되면 경로가 안전하다\", \"holds\": false, \"why\": \"Run 1,2에서 교차 물체 통과 중 조기 재개되어 진동 및 정체 발생\"},\n    {\"assumption\": \"정지 중 직선 전진/후진 회피가 좁은 통로에서 유효하다\", \"holds\": false, \"why\": \"Run 3에서 후진/전진 조건 판단 오류로 물체 쪽으로 이동하거나 정지 해제 실패\"}\n  ],\n  \"approach_families\": [\n    {\"family\": \"전방 섹터 거리 게이트\", \"turns\": \"1~3\", \"result\": \"측면 접근 실패로 충돌 다수\"},\n    {\"family\": \"전방향 near 게이트 + 시간 재개\", \"turns\": \"9(현재)\", \"result\": \"조기 재개로 진동, 정체(progress_abort) 2회, 충돌 1회\"},\n    {\"family\": \"비례 감속 / 시간 기반 탈출\", \"turns\": \"4~8\", \"result\": \"정지 거리 부족 또는 오탐 정지로 실패 반복\"}\n  ],\n  \"candidates\": [\n    {\"idea\": \"bearing-반응형 계단식 거리 게이트\", \"new_family\": true, \"for\": \"전방(±60°)은 1.5m, 측면(±60~120°)은 2.0m 정지 기준으로 차등화하면 Run 3 측면 충돌과 Run 1,2 측면 통과 시 조기 재개를 동시에 해결\", \"risk\": \"정적 장애물 경계 오탐 시 불필요한 정지 가능성\"},\n    {\"idea\": \"거리 변화율(추세) 기반 정지/재개\", \"new_family\": true, \"for\": \"절대 거리보다 0.5초 간 거리 감소/증가 추세를 보면 접근 물체와 통과 물체를 명확히 구분 가능\", \"risk\": \"라이다 거리 잡음으로 추세 계산이 불안정할 수 있음\"},\n    {\"idea\": \"섹터별 잠재장(Potential Field) 기반 속도 벡터 합성\", \"new_family\": true, \"for\": \"경유점 추종과 장애물 반발력을 벡터 합성해 자연스러운 회피 경로 생성\", \"risk\": \"로직 복잡도가 높아 [EDIT REGION] 내 구현이 까다롭고 진동 위험\"}\n  ],\n  \"chosen\": \"bearing-반응형 계단식 거리 게이트를 선택한다. 구현이 명확하고 기존 전방향 동일 기준과 구조적으로 차별화되며 측면 접근 실패와 진동을 직접 타겟팅하기 때문이다.\",\n  \"target\": \"controller 내 거리 판단 및 정지/재개 상태 기계, _EVADE_* 관련 로직\",\n  \"direction\": \"dyn_r 점들의 bearing(math.atan2(ay, ax))을 계산해 전방(|b|<1.05 rad)과 측면(1.05<=|b|<2.09 rad)으로 분류한다. 전방 점은 1.5m 미만, 측면 점은 2.0m 미만 시 정지 플래그를 설정하며, 주행 중 v는 해당 섹터 최단 거리에 비례해 선형 감속한다. 재개 조건을 모든 감시 영역(|b|<2.09)의 점이 2.2m 이상인 상태가 0.5초 지속되어야 함으로 강화한다. 정지 중 직선 회피 로직을 제거하고 정지 유지로 단순화하며, _STATIC_MARGIN은 0.15m로 유지해 정적 오탐을 방지한다.\",\n  \"confidence\": \"medium\"\n}\n```",
+ "table": [
+  {
+   "run": "c6t9_s1929660090",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 85.02,
+   "goal_dist_m": 31.5697,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t9_s846303069",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 509.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 85.02,
+   "goal_dist_m": 31.3652,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t9_s2119990198",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 418.0,
+   "sim_time_s": 25.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 19.683,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.33,
+    0.56
+   ],
+   "closing_m_s": 0.37,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 14.72,
+   "goal_dist_m": 31.4184,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

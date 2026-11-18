@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 측면 교차 상황에서 0.8 m/s로 달리던 로봇이 예상 거리를 조금 늘리려고 0.3 m/s 회피 후보로 감속했고, 그 때문에 물체 경로 안에 머물다 충돌했습니다. 진단 지시 1~4에 따라 `_safe_speed`의 능동 회피 루프(`for vc in cands:`)를 고쳤습니다. `dz['side']`가 참이고 `S['v_meas'] >= 0.5`이면, 현재 속도의 80% 이상인 후보 `vc`의 `cv`에 `_SIDE_MOMENTUM_BONUS = 0.2` m를 더해 속도를 유지하며 빠르게 통과하도록 했습니다. 지시 5에 따라 정적 장애물 검사(`critical=True`), 정지 페널티, `_ESC_MIN_V` 되돌림 등 나머지 로직은 그대로 두었습니다.\n\n```python\n_SIDE_MOMENTUM_BONUS = 0.2   # 진단 지시 4: 측면 위협 + 고속 주행 중 현재 속도 유지 후보에 주는 예상 거리 보너스 [m]\n\n\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 _CAP_MIN = 0.8 m/s) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO 이상이면 전진.\n      대기가 _WAIT_RELAX_S 를 넘으면 몸통 폭 통로가 빌 때 _RELAX_V 또는 그 절반으로 저속 전진.\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C (0.4 m)):\n      정적 검사를 critical=True (probe 0.05 m) 로 완화해, 전진·후진 후보(|v| >= 0.3) 중\n      가장 멀어지는 쪽으로 이동합니다 (_ESC_GAIN 이득 이상일 때 채택).\n      측면 위협(dz['side'])이면 정지의 기준값을 c0 - _SIDE_STOP_PEN 으로 낮춰 이동을 선호합니다.\n      진단 지시 1~3 (주행 관성): 측면 위협이고 측정 속도 S['v_meas'] >= 0.5 m/s 이면,\n      현재 속도의 80% 이상인 후보(vc >= 0.8 * v_meas)의 예상 거리에 _SIDE_MOMENTUM_BONUS 를 더해\n      어중간한 저속으로 감속해 물체 경로에 갇히는 대신 현재 속도로 빠르게 통과하는 쪽을 고르게 합니다.\n      진단 지시 5: 정적 장애물 검사(critical=True)와 _ESC_MIN_V / _ESC_SURE_GAIN 되돌림 로직은 그대로 유지합니다.\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            if S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vr = min(v_law, _RELAX_V)\n                for vf in (vr, 0.5 * vr):\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    # 긴급 회피이므로 정적 검사는 critical=True (probe 0.05 m)\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    # 측면 위협이면 정지에 페널티를 주어 이동을 선호\n    best_v = 0.0\n    best_c = c0 - _SIDE_STOP_PEN if dz[\"side\"] else c0\n    # 진단 지시 1: 측면 위협 + 이미 고속 주행 중(v_meas >= 0.5 m/s) 인지 확인\n    v_now = S[\"v_meas\"]\n    momentum = dz[\"side\"] and v_now >= 0.5\n    for vc in cands:\n        if not _static_free(pose, vc, critical=True):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        # 진단 지시 2: 현재 속도의 80% 이상을 유지하는 후보에 보너스\n        if momentum and vc >= v_now * 0.8:\n            cv += _SIDE_MOMENTUM_BONUS\n        if cv > best_c + _ESC_GAIN:\n            best_v, best_c = vc, cv\n    # 아주 느린 회피이면서 이득도 크지 않으면 정지 (현재 후보는 모두 |v| >= _ESC_MIN_V)\n    if best_v != 0.0 and abs(best_v) < _ESC_MIN_V and best_c < c0 + _ESC_SURE_GAIN:\n        best_v = 0.0\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 32568,
+  "completion_tokens": 3264
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 26725,
+  "total_cost_usd": 0.325816,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3264,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 32566,
+    "webSearchRequests": 0,
+    "costUSD": 0.325816,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 769,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 32566,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "fb5e5c0a-369a-4126-898b-10e8e07508ef"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1에 따라 측면 위협 시 정지 페널티 `_SIDE_STOP_PEN`을 0.35에서 0.15 m로 낮추고, 매우 근접한 상황의 추가 페널티 `_CLOSE_STOP_PEN`을 0.20에서 0.0으로 없앴습니다. 이로써 시도 27에서 사실상 배제됐던 정지를 다시 선택할 수 있습니다. 진단 지시 2·3에 따라 `_ESC_GAIN`은 0.01 m, `_ESC_SURE_GAIN`은 0.10 m, `_CLOSE_FWD_GAIN`은 0.10 m로 올렸습니다. 그래서 이동 후보는 정지보다 확실히 유리할 때만 채택되고, 근접 상황에서 측면이나 후방 물체를 향해 어설프게 전진하던 충돌(s1262234946, s2121830703)을 줄입니다. 지시 4·5에 따라 `_ESC_C`(0.45)와 `_CLR_GO`(0.35), 회피 후보의 정적 검사(`critical=True`)는 그대로 두었고, 로직은 바꾸지 않고 상수만 조정했습니다.\n\n```python\n_SIDE_STOP_PEN = 0.15    # 진단 지시(시도 28) 1: 측면 위협 시 '정지' 에 주는 페널티 [m] (0.35 -> 0.15), 정지 선택지를 복구\n\n\n_CLOSE_STOP_PEN = 0.0    # 진단 지시(시도 28) 1: 매우 근접 + 접근 시 정지 추가 페널티 제거 [m] (0.20 -> 0.0)\n\n\n_ESC_GAIN = 0.01         # 진단 지시(시도 28) 2: 회피 속도 채택에 필요한 예상 거리 이득 (0.005 -> 0.01 m), 확실히 유리할 때만 이동\n\n\n_ESC_SURE_GAIN = 0.10    # 진단 지시(시도 28) 2: 저속 회피를 허용하는 데 필요한 예상 거리 이득 [m] (0.05 -> 0.10)\n\n\n_CLOSE_FWD_GAIN = 0.10   # 진단 지시(시도 28) 3: 매우 근접 시 전진 후보 채택에 필요한 이득 [m] (0.03 -> 0.10), 무분별한 전진 억제\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 38677,
+  "completion_tokens": 1435
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 13240,
+  "total_cost_usd": 0.338108,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1435,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 38675,
+    "webSearchRequests": 0,
+    "costUSD": 0.338108,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 568,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 38675,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "163222e3-cf13-4cbd-bfaf-f21481b06e7b"
+ }
+}

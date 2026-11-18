@@ -1,0 +1,147 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c71t3_s106926726: t=165.2부터 정지, 물체가 0.62m 7deg(정면)에 위치하여 170.2까지 60초간 정체되어 stall_abort 발생",
+   "c71t3_s1959134779: t=136.0부터 정지, 물체가 1.05m -6deg(정면)에 위치하여 141.0까지 정체되어 stall_abort 발생",
+   "통과한 실행들의 시뮬 시간(78~101s)이 목표 평균(60s)보다 훨씬 길어 시간 예산 부족으로 5개 실행이 누락됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "±60° 범위 내 물체 감지 시 정지하는 것이 안전하다",
+    "holds": false,
+    "why": "정면이 아닌 측면 물체에 의해서도 정지하여 stall_abort를 유발하고 주행 시간을 크게 늘림"
+   },
+   {
+    "assumption": "v_max 2.0와 E_TURN 0.3으로 충분한 속도를 낼 수 있다",
+    "holds": false,
+    "why": "통과 실행들의 평균 시간이 80초를 상회하여 10개 배치 통과를 위한 60초 기준을 맞추지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Reactive Stop (전방 감지 시 정지)",
+    "turns": "3",
+    "result": "초기엔 성공적이었으나, 현재는 stall_abort 및 시간 초과 문제 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 영역(Stop Cone)을 좁히고 감속 영역(Caution Cone)을 도입하며 순항 속도를 높임",
+    "new_family": true,
+    "for": "물체가 완전히 정면을 막지 않은 경우 저속 주행(creep)을 허용하여 stall_abort를 방지하고, v_max 상향으로 시간 예산을 확보할 수 있음",
+    "risk": "정지 영역을 너무 좁히면 정면 충돌 위험이 증가함"
+   },
+   {
+    "idea": "정체 시 일시적인 경유점 오프셋(Local Offset)을 주어 회피 주행",
+    "new_family": true,
+    "for": "물체가 경로를 완전히 막고 있을 때 정지하지 않고 돌아갈 수 있음",
+    "risk": "좁은 통로에서 벽이나 정적 장애물과 충돌할 가능성이 높음"
+   }
+  ],
+  "chosen": "후보 1. 구현이 단순하면서도 stall_abort 방지와 시간 단축이라는 두 가지 핵심 문제를 동시에 해결할 수 있음",
+  "target": "controller 및 _front_dynamic_min_dist",
+  "direction": "1. v_max를 2.5로, 거리 계수 k_d를 3.5로 높여 주행 속도를 개선합니다. 2. E_TURN을 0.5로 높여 불필요한 제자리 회전 횟수를 줄입니다. 3. _front_dynamic_min_dist가 (최소 거리, 해당 점의 bearing)을 함께 반환하도록 수정합니다. 4. controller에서 bearing이 ±20° 이내이고 거리가 2.0m 미만일 때만 v=0으로 완전히 정지합니다. 5. bearing이 ±60° 이내이고 거리가 3.0m 미만인 경우에는 v를 최대 0.7m/s로 제한하는 '저속 주행(creep)' 모드를 적용합니다. 6. 이를 통해 정면을 완전히 막지 않은 물체 때문에 멈춰 서는 일을 방지하여 stall_abort를 해결하고 전체 시간을 단축합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"stall\",\n \"evidence\": [\n  \"c71t3_s106926726: t=165.2부터 정지, 물체가 0.62m 7deg(정면)에 위치하여 170.2까지 60초간 정체되어 stall_abort 발생\",\n  \"c71t3_s1959134779: t=136.0부터 정지, 물체가 1.05m -6deg(정면)에 위치하여 141.0까지 정체되어 stall_abort 발생\",\n  \"통과한 실행들의 시뮬 시간(78~101s)이 목표 평균(60s)보다 훨씬 길어 시간 예산 부족으로 5개 실행이 누락됨\"\n ],\n \"assumptions\": [\n  {\"assumption\": \"±60° 범위 내 물체 감지 시 정지하는 것이 안전하다\", \"holds\": false, \"why\": \"정면이 아닌 측면 물체에 의해서도 정지하여 stall_abort를 유발하고 주행 시간을 크게 늘림\"},\n  {\"assumption\": \"v_max 2.0와 E_TURN 0.3으로 충분한 속도를 낼 수 있다\", \"holds\": false, \"why\": \"통과 실행들의 평균 시간이 80초를 상회하여 10개 배치 통과를 위한 60초 기준을 맞추지 못함\"}\n ],\n \"approach_families\": [\n  {\"family\": \"Reactive Stop (전방 감지 시 정지)\", \"turns\": \"3\", \"result\": \"초기엔 성공적이었으나, 현재는 stall_abort 및 시간 초과 문제 발생\"}\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정지 영역(Stop Cone)을 좁히고 감속 영역(Caution Cone)을 도입하며 순항 속도를 높임\",\n   \"new_family\": true,\n   \"for\": \"물체가 완전히 정면을 막지 않은 경우 저속 주행(creep)을 허용하여 stall_abort를 방지하고, v_max 상향으로 시간 예산을 확보할 수 있음\",\n   \"risk\": \"정지 영역을 너무 좁히면 정면 충돌 위험이 증가함\"\n  },\n  {\n   \"idea\": \"정체 시 일시적인 경유점 오프셋(Local Offset)을 주어 회피 주행\",\n   \"new_family\": true,\n   \"for\": \"물체가 경로를 완전히 막고 있을 때 정지하지 않고 돌아갈 수 있음\",\n   \"risk\": \"좁은 통로에서 벽이나 정적 장애물과 충돌할 가능성이 높음\"\n  }\n ],\n \"chosen\": \"후보 1. 구현이 단순하면서도 stall_abort 방지와 시간 단축이라는 두 가지 핵심 문제를 동시에 해결할 수 있음\",\n \"target\": \"controller 및 _front_dynamic_min_dist\",\n \"direction\": \"1. v_max를 2.5로, 거리 계수 k_d를 3.5로 높여 주행 속도를 개선합니다. 2. E_TURN을 0.5로 높여 불필요한 제자리 회전 횟수를 줄입니다. 3. _front_dynamic_min_dist가 (최소 거리, 해당 점의 bearing)을 함께 반환하도록 수정합니다. 4. controller에서 bearing이 ±20° 이내이고 거리가 2.0m 미만일 때만 v=0으로 완전히 정지합니다. 5. bearing이 ±60° 이내이고 거리가 3.0m 미만인 경우에는 v를 최대 0.7m/s로 제한하는 '저속 주행(creep)' 모드를 적용합니다. 6. 이를 통해 정면을 완전히 막지 않은 물체 때문에 멈춰 서는 일을 방지하여 stall_abort를 해결하고 전체 시간을 단축합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t3_s106926726",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 171.2,
+   "stall_abort_t": 170.2,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 165.25,
+   "goal_dist_m": 4.913,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t3_s1959134779",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 428.8,
+   "sim_time_s": 142.0,
+   "stall_abort_t": 141.02,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 136.05,
+   "goal_dist_m": 5.3443,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t3_s712816087",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 286.8,
+   "sim_time_s": 101.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 96.02,
+   "goal_dist_m": 0.5881,
+   "time_to_goal_s": 97.75
+  },
+  {
+   "run": "c71t3_s581634200",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 185.0,
+   "sim_time_s": 78.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 72.72,
+   "goal_dist_m": 0.5695,
+   "time_to_goal_s": 74.683
+  },
+  {
+   "run": "c71t3_s1270477532",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 106.4,
+   "sim_time_s": 79.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 73.25,
+   "goal_dist_m": 0.5823,
+   "time_to_goal_s": 75.217
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,227 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c6t19_s1883362514: 56.85s 충돌, 로봇 저속(0.14m/s)→정지 중 좌측 전방 물체([-0.14, -0.54]) 접근 시 충돌",
+   "실행 c6t19_s2112304192: 22.85s 충돌, 로봇 정지 상태 유지 중 동일 방향 물체([-0.04, -0.56]) 접근 시 정지 해제 전 충돌",
+   "실행 c6t19_s712390466: 8.85s 충돌, 저속 주행(0.12m/s) 중 측면 물체([-0.42, 0.5]) 교차 시 충돌",
+   "공통: d_min < 0.7m 구간에서 v=0, w=0 정지 또는 극저속 주행 시 능동 회피가 없어 물체 진행 경로에 로봇이 노출됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "d_min < 0.7m 시 v=0, w=0 정지로 물체가 지나갈 때까지 기다리면 안전하다",
+    "holds": false,
+    "why": "정지 중에도 물체가 계속 접근하거나 측면 통과 시 로봇을 충돌시킴(3개 실패 공통)"
+   },
+   {
+    "assumption": "감시 영역 ±120°와 거리 비례 감속이 주행 중 충돌을 충분히 막는다",
+    "holds": true,
+    "why": "5개 실행에서 성공, 주행 중 정면 충돌은 발생하지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 브레이킹/정지",
+    "turns": "0-3, 5-7, 9-10",
+    "result": "정지 중 충돌 또는 스톨 빈발"
+   },
+   {
+    "family": "연속 반발 조향+경직 정지",
+    "turns": "14, 19",
+    "result": "주행 충돌 감소(5/8)나 정지 무방비로 인한 실패 지속"
+   },
+   {
+    "family": "정지 중 능동 회피/후진",
+    "turns": "2, 3, 6, 8, 12, 16, 18",
+    "result": "복잡한 상태 머신으로 스톨/로직 충돌 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 중 w=0 유지 대신 b_min 부호에 따른 강한 회전 회피 적용",
+    "new_family": false,
+    "for": "코드 수정이 간단하고 기존 조향 이득 재활용 가능",
+    "risk": "회전 중 다른 방향 물체와 2차 충돌 가능"
+   },
+   {
+    "idea": "d_min < 0.7m 시 v=0, w=0 대신 v=-0.15 후진 또는 w 회피로 전환하는 능동 회피 모드 도입",
+    "new_family": true,
+    "for": "정지 중 충돌을 근본 차단, 과거 후진/회피 조합 유효성 확인",
+    "risk": "후진 시 뒤쪽 장애물 충돌 가능성, 로직 단순화 필요"
+   },
+   {
+    "idea": "TTC 계산해 조기에 후진/회피",
+    "new_family": true,
+    "for": "예측 기반 회피로 안정성 높임",
+    "risk": "센서 노이즈로 TTC 불안정, 구현 복잡"
+   }
+  ],
+  "chosen": "후보 2 선택. 정지 대기 로직을 제거하고 d_min < 0.7m 시 무조건 후진 또는 측면 회피 회전을 수행하도록 변경해 정지 중 충돌을 차단한다.",
+  "target": "controller 함수 내 d_min < _CONT_STOP_D 분기 및 정지/재개 로직",
+  "direction": "d_min < 0.7m 일 때 v=0, w=0 정지 대신 v=-0.15 후진(또는 b_min 부호 반대 w=±0.8 회전)을 반환하도록 수정한다. 정지 해제 조건(free_t 지속)은 유지하되, 회피 동작 중 d_min > 1.0m 이 되면 즉시 회피 해제하고 연속 감속/추종 로직으로 복귀한다. w=0 강제 정지 로직을 제거하여 물체 진행 경로에 로봇이 노출되지 않도록 한다. 상수 _EVADE_V, _EVADE_W 를 재활용해 단순 조건문으로 구현한다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\",\n \"evidence\": [\"실행 c6t19_s1883362514: 56.85s 충돌, 로봇 저속(0.14m/s)→정지 중 좌측 전방 물체([-0.14, -0.54]) 접근 시 충돌\", \"실행 c6t19_s2112304192: 22.85s 충돌, 로봇 정지 상태 유지 중 동일 방향 물체([-0.04, -0.56]) 접근 시 정지 해제 전 충돌\", \"실행 c6t19_s712390466: 8.85s 충돌, 저속 주행(0.12m/s) 중 측면 물체([-0.42, 0.5]) 교차 시 충돌\", \"공통: d_min < 0.7m 구간에서 v=0, w=0 정지 또는 극저속 주행 시 능동 회피가 없어 물체 진행 경로에 로봇이 노출됨\"],\n \"assumptions\": [{\"assumption\": \"d_min < 0.7m 시 v=0, w=0 정지로 물체가 지나갈 때까지 기다리면 안전하다\", \"holds\": false, \"why\": \"정지 중에도 물체가 계속 접근하거나 측면 통과 시 로봇을 충돌시킴(3개 실패 공통)\"}, {\"assumption\": \"감시 영역 ±120°와 거리 비례 감속이 주행 중 충돌을 충분히 막는다\", \"holds\": true, \"why\": \"5개 실행에서 성공, 주행 중 정면 충돌은 발생하지 않음\"}],\n \"approach_families\": [{\"family\": \"거리 기반 브레이킹/정지\", \"turns\": \"0-3, 5-7, 9-10\", \"result\": \"정지 중 충돌 또는 스톨 빈발\"}, {\"family\": \"연속 반발 조향+경직 정지\", \"turns\": \"14, 19\", \"result\": \"주행 충돌 감소(5/8)나 정지 무방비로 인한 실패 지속\"}, {\"family\": \"정지 중 능동 회피/후진\", \"turns\": \"2, 3, 6, 8, 12, 16, 18\", \"result\": \"복잡한 상태 머신으로 스톨/로직 충돌 발생\"}],\n \"candidates\": [{\"idea\": \"정지 중 w=0 유지 대신 b_min 부호에 따른 강한 회전 회피 적용\", \"new_family\": false, \"for\": \"코드 수정이 간단하고 기존 조향 이득 재활용 가능\", \"risk\": \"회전 중 다른 방향 물체와 2차 충돌 가능\"}, {\"idea\": \"d_min < 0.7m 시 v=0, w=0 대신 v=-0.15 후진 또는 w 회피로 전환하는 능동 회피 모드 도입\", \"new_family\": true, \"for\": \"정지 중 충돌을 근본 차단, 과거 후진/회피 조합 유효성 확인\", \"risk\": \"후진 시 뒤쪽 장애물 충돌 가능성, 로직 단순화 필요\"}, {\"idea\": \"TTC 계산해 조기에 후진/회피\", \"new_family\": true, \"for\": \"예측 기반 회피로 안정성 높임\", \"risk\": \"센서 노이즈로 TTC 불안정, 구현 복잡\"}],\n \"chosen\": \"후보 2 선택. 정지 대기 로직을 제거하고 d_min < 0.7m 시 무조건 후진 또는 측면 회피 회전을 수행하도록 변경해 정지 중 충돌을 차단한다.\",\n \"target\": \"controller 함수 내 d_min < _CONT_STOP_D 분기 및 정지/재개 로직\",\n \"direction\": \"d_min < 0.7m 일 때 v=0, w=0 정지 대신 v=-0.15 후진(또는 b_min 부호 반대 w=±0.8 회전)을 반환하도록 수정한다. 정지 해제 조건(free_t 지속)은 유지하되, 회피 동작 중 d_min > 1.0m 이 되면 즉시 회피 해제하고 연속 감속/추종 로직으로 복귀한다. w=0 강제 정지 로직을 제거하여 물체 진행 경로에 로봇이 노출되지 않도록 한다. 상수 _EVADE_V, _EVADE_W 를 재활용해 단순 조건문으로 구현한다.\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c6t19_s1883362514",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 62.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 56.85,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.14m/s",
+   "partner_rel_xy": [
+    -0.14,
+    -0.54
+   ],
+   "closing_m_s": 0.7,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 54.85,
+   "goal_dist_m": 4.0451,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t19_s2112304192",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 537.1,
+   "sim_time_s": 28.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 22.85,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.04,
+    -0.56
+   ],
+   "closing_m_s": 0.7,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 19.05,
+   "goal_dist_m": 23.8424,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t19_s1989883827",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 508.3,
+   "sim_time_s": 58.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 52.25,
+   "goal_dist_m": 0.2229,
+   "time_to_goal_s": 54.233
+  },
+  {
+   "run": "c6t19_s163671998",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 450.1,
+   "sim_time_s": 71.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 65.42,
+   "goal_dist_m": 0.2017,
+   "time_to_goal_s": 67.383
+  },
+  {
+   "run": "c6t19_s1921084458",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 378.7,
+   "sim_time_s": 62.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 56.12,
+   "goal_dist_m": 0.2037,
+   "time_to_goal_s": 58.067
+  },
+  {
+   "run": "c6t19_s337845370",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 316.7,
+   "sim_time_s": 65.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 59.45,
+   "goal_dist_m": 0.2254,
+   "time_to_goal_s": 61.417
+  },
+  {
+   "run": "c6t19_s2002577643",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 251.3,
+   "sim_time_s": 65.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 59.85,
+   "goal_dist_m": 0.2206,
+   "time_to_goal_s": 61.817
+  },
+  {
+   "run": "c6t19_s712390466",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 185.5,
+   "sim_time_s": 14.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.85,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.12m/s",
+   "partner_rel_xy": [
+    -0.42,
+    0.5
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 3.92,
+   "goal_dist_m": 28.4618,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

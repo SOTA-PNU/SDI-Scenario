@@ -1,0 +1,314 @@
+{
+ "turn": 28,
+ "started": "2026-11-18 16:41:39",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c71_turn27/claude_gemma4_analyst_pC71t27_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c71t27_s296850332: t=76.3~80.3s 구간에서 v=0.0~0.14m/s로 매우 느리게 이동하며 stall_abort 발생",
+   "해당 시점 물체는 bearing 163~180deg로 로봇 후방에 위치하여 정지 원뿔(±30deg)에 해당하지 않으며, 로봇의 전진을 방해할 위치가 아님"
+  ],
+  "assumptions": [
+   {
+    "assumption": "safe 풀이 비었을 때 no-safe 풀의 진행도 가중치(0.01)가 충분하여 로봇이 전진하려 할 것이다",
+    "holds": false,
+    "why": "물체가 뒤에 있어 전진에 제약이 없음에도 불구하고 v=0 근처에서 정체되어 stall_abort가 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "안전 풀 임계값 및 정지 페널티 조정",
+    "turns": "1",
+    "result": "9/10 통과, 1개 stall"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "no-safe 풀의 prog 가중치를 대폭 상향 (0.01 -> 0.5)",
+    "new_family": false,
+    "for": "safe 풀이 비었을 때(marginal한 정적/동적 장애물 상황)에도 전진 의지를 유지하여 정체 해결",
+    "risk": "정적 장애물에 대해 다소 공격적으로 접근할 가능성이 있음"
+   }
+  ],
+  "chosen": "no-safe 풀의 prog 가중치를 상향하여 정체 상황에서의 탈출 능력을 높임",
+  "target": "_safety_filter",
+  "direction": "_safety_filter 함수 내 non-repulse 모드의 no-safe 풀 score 계산식에서 `0.01 * prog` 부분을 `0.5 * prog`로 수정합니다. 이를 통해 safe 풀이 비어 정지 후보와 전진 후보가 경합할 때, 전진으로 인한 이득을 더 크게 평가하여 stall 상황을 방지합니다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단에 따르면 물체가 로봇 뒤(bearing 163~180°)에 있는데도 non-repulse 모드의 safe 풀이 비면 no-safe 풀 점수에서 진행도 가중치가 0.01밖에 되지 않았습니다. 그래서 회피 점수(esc_full, t_viol)만으로 후보가 갈려 v≈0 근처에서 정체했고, 결국 stall_abort가 났습니다. 진단의 direction대로 `_safety_filter` 의 no-safe 풀 score에서 `0.01 * prog` 를 `0.5 * prog` 로 올렸습니다. 이 값은 새 상수 `_K_PROG_UNSAFE` 로 두었고, 전진 후보가 정지 후보보다 확실히 높게 평가됩니다. 그 밖의 척력 모드, safe 풀, 속도 캡(`_MV[\"cap\"]` 클리핑) 로직은 바꾸지 않았습니다.",
+   "changed": [
+    "_K_PROG_UNSAFE",
+    "_safety_filter"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "_safety_filter 의 non-repulse 모드 no-safe 풀 score 에서 0.01 * prog 를 0.5 * prog 로 바꾼다",
+      "implemented": true,
+      "note": "no-safe 풀 score 의 0.01 * prog 가 _K_PROG_UNSAFE * prog 로 바뀌었고, 새 상수 _K_PROG_UNSAFE = 0.5 가 EDIT REGION 끝에 정의됨. safe 풀, repulse 분기, 캡 클리핑은 그대로임"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "no-safe 풀은 모든 후보가 마진 -0.1 m 미만으로 침범이 예측된 경우임. prog 는 1.5초 동안 최대 수 m 이고 esc_full 은 약 1.5 이하로 잘리므로, 0.5 * prog 가 회피 점수를 압도해 물체 쪽 전진 후보가 뽑힐 수 있음",
+     "물체가 0.8 m 안에 있으면 raw 감지로 repulse 분기에 들어가므로 정체 시점에 no-safe 풀이 실제로 쓰였는지 근거가 없음. v 0~0.14 정체는 _speed_caps 의 v_hi 나 nominal 정지에서 왔을 수도 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단에 따르면 물체가 로봇 뒤(bearing 163~180°)에 있는데도 non-repulse 모드의 safe 풀이 비면 no-safe 풀 점수에서 진행도 가중치가 0.01밖에 되지 않았습니다. 그래서 회피 점수(esc_full, t_viol)만으로 후보가 갈려 v≈0 근처에서 정체했고, 결국 stall_abort가 났습니다. 진단의 direction대로 `_safety_filter` 의 no-safe 풀 score에서 `0.01 * prog` 를 `0.5 * prog` 로 올렸습니다. 이 값은 새 상수 `_K_PROG_UNSAFE` 로 두었고, 전진 후보가 정지 후보보다 확실히 높게 평가됩니다. 그 밖의 척력 모드, safe 풀, 속도 캡(`_MV[\"cap\"]` 클리핑) 로직은 바꾸지 않았습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  2109590133,
+  1149198162,
+  426973093,
+  1546153504,
+  1354355625,
+  1213016013,
+  340861779,
+  1153182517,
+  904473985
+ ],
+ "sim_used_s": 458.0,
+ "verdicts": {
+  "2109590133": "pass",
+  "1149198162": "fail",
+  "426973093": "pass",
+  "1546153504": "pass",
+  "1354355625": "pass",
+  "1213016013": "pass",
+  "340861779": "fail",
+  "1153182517": "pass",
+  "904473985": "fail"
+ },
+ "passes": 6,
+ "prior_chars": 21837,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 9개를 실행했고, 1개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 6개, 실패 3개. 시뮬 시간 합계 458초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 51초 (가장 짧은 것 41초, 가장 긴 것 58초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) no-safe 풀은 모든 후보가 마진 -0.1 m 미만으로 침범이 예측된 경우임. prog 는 1.5초 동안 최대 수 m 이고 esc_full 은 약 1.5 이하로 잘리므로, 0.5 * prog 가 회피 점수를 압도해 물체 쪽 전진 후보가 뽑힐 수 있음\n- (검토 1회차, 판정 pass) 물체가 0.8 m 안에 있으면 raw 감지로 repulse 분기에 들어가므로 정체 시점에 no-safe 풀이 실제로 쓰였는지 근거가 없음. v 0~0.14 정체는 _speed_caps 의 v_hi 나 nominal 정지에서 왔을 수도 있음\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t28_s340861779: 충돌 시 로봇 속도 1.35m/s, 물체 거리 0.35m, 접근 속도 0.73m/s로 매우 빠르게 충돌",
+   "c71t28_s1149198162: 충돌 시 로봇 속도 0.59m/s, 물체 거리 0.35m로 근접 거리에서 충돌",
+   "c71t28_s904473985: 로봇이 정지한 상태에서 물체가 0.64m/s로 다가와 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "no-safe 풀의 _K_PROG_UNSAFE=0.5 설정이 stall을 방지하면서도 안전을 유지할 것이다.",
+    "holds": false,
+    "why": "s340861779에서 보듯, 안전 마진을 확보하지 못한 상황(no-safe 풀)에서 진행도(prog) 가중치가 너무 높아 충돌 위험이 큰 고속 전진 후보가 선택됨"
+   },
+   {
+    "assumption": "_speed_caps가 측면 물체에 대해 전진 속도를 적절히 제한할 것이다.",
+    "holds": false,
+    "why": "nx(법선 x성분)가 작은 측면 물체의 경우 v_hi가 제한되지 않아, s340861779처럼 물체가 바로 옆에 있음에도 1.35m/s의 고속 주행이 허용됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "예측 기반 안전 필터 및 동적 속도 캡",
+    "turns": "9",
+    "result": "최고 9/10 통과 (Turn 22, 27)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "no-safe 풀의 진행도 가중치를 낮추고 충돌 시각(t_viol) 페널티를 강화하여 '최악 중 최선'을 선택하게 함",
+    "new_family": false,
+    "for": "진행도보다 충돌 회피/지연을 우선시하여 고속 충돌 방지",
+    "risk": "다시 stall_abort가 발생할 가능성 있음"
+   },
+   {
+    "idea": "_speed_caps 로직을 수정하여 물체가 매우 가까운 경우(예: 0.5m 이내) nx 값과 관계없이 v_hi를 강제로 낮춤",
+    "new_family": false,
+    "for": "측면 근접 상황에서 물리적으로 불가능한 고속 주행을 원천 차단",
+    "risk": "정상적인 회피 주행 시 속도가 너무 느려질 수 있음"
+   }
+  ],
+  "chosen": "no-safe 풀의 가중치 조정과 speed_caps의 근접 제한을 동시에 적용하여 안전성과 진행도의 균형을 맞춤",
+  "target": "_safety_filter, _speed_caps, _K_PROG_UNSAFE",
+  "direction": "1. _K_PROG_UNSAFE를 0.5에서 0.2로 낮추어 no-safe 풀에서 무리한 전진을 억제합니다. 2. no-safe 풀 score 계산 시 t_viol의 가중치를 0.05에서 0.5로 높여, 즉각적인 충돌 후보를 강력하게 배제합니다. 3. _speed_caps 함수에서 물체와의 거리 gj가 0.5m 미만인 경우, nx 값에 상관없이 v_hi를 max(v_hi, 0.0)에서 0.3m/s 수준으로 추가 제한하는 로직을 넣습니다. 4. 이를 통해 측면 근접 상황에서의 고속 충돌을 방지하고, safe 풀이 비었을 때도 최대한 늦게 충돌하는 후보를 고르게 합니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c71t28_s2109590133",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 56.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 50.85,
+   "goal_dist_m": 0.1537,
+   "time_to_goal_s": 52.333
+  },
+  {
+   "run": "c71t28_s1149198162",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 543.2,
+   "sim_time_s": 64.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 58.717,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.59m/s",
+   "partner_rel_xy": [
+    -0.26,
+    -0.6
+   ],
+   "closing_m_s": 0.13,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 53.75,
+   "goal_dist_m": 6.0771,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t28_s426973093",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 478.5,
+   "sim_time_s": 48.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1457,
+   "time_to_goal_s": 44.417
+  },
+  {
+   "run": "c71t28_s1546153504",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 429.9,
+   "sim_time_s": 47.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.3231,
+   "time_to_goal_s": 43.117
+  },
+  {
+   "run": "c71t28_s1354355625",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 382.1,
+   "sim_time_s": 41.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.262,
+   "time_to_goal_s": 35.85
+  },
+  {
+   "run": "c71t28_s1213016013",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 340.8,
+   "sim_time_s": 58.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 52.32,
+   "goal_dist_m": 0.1606,
+   "time_to_goal_s": 55.25
+  },
+  {
+   "run": "c71t28_s340861779",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 282.5,
+   "sim_time_s": 63.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 59.05,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.35m/s 회전 -0.3",
+   "partner_rel_xy": [
+    -0.36,
+    -0.53
+   ],
+   "closing_m_s": 0.73,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 54.42,
+   "goal_dist_m": 0.0969,
+   "time_to_goal_s": 61.417
+  },
+  {
+   "run": "c71t28_s1153182517",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 219.5,
+   "sim_time_s": 51.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 45.82,
+   "goal_dist_m": 0.1828,
+   "time_to_goal_s": 49.7
+  },
+  {
+   "run": "c71t28_s904473985",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 167.7,
+   "sim_time_s": 25.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 19.683,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.88,
+    0.43
+   ],
+   "closing_m_s": 0.64,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 14.72,
+   "goal_dist_m": 28.4308,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 158 s / 한도 600 s)\n#1 이번 코드(진단 \"lidar2d_points('front')를 호출하여 전방 점들을 가져옵니다. 로봇 기준 x > 0 및 |y/x| < tan(30°) 범위(전방 약 ±30°) 내의 점들 중 최소 거리를 구합니다. 이 최소 거리가 2.0m 미만이면 전진 속도 v를 0.0으로 강제 설정하여 정지합니다. 장애물이 감지되지 않을 때만 기존의 경유점 추종 속도 v를 사용합니다. 정지 중에도 회전 속도 w는 그대로 적용하여 목표 방향을 유지하게 합니다. 기존의 _WAYPOINTS와 제어 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 588 s / 한도 600 s)\n#2 이번 코드(진단 \"1. v_max를 1.5에서 2.0으로 상향하여 순항 속도를 높입니다. 2. v=0이 되는 각도 오차 임계값 abs(e) > 0.35를 0.2로 낮추어 제자리 회전 횟수와 시간을 줄입니다. 3. v의 거리 비례 계수를 2.5에서 3.0으로 높여 목표점 접근 시 가속력을 높입니다. 4. w의 이득(gain)을 7.5에서 8.5로 높여 정렬 속도를 개선합니다. 5. 기존의 정적 지도 필터링 및 2.0m 기반 제동 로직은 그대로 유지하여 안전성을 확보합니다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 573 s / 한도 600 s)\n#3 이번 코드(진단 \"1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.\" 반영, 검토 통과): 새 배치 5개 중 3개 pass, 2개 fail (시뮬 시간 합계 573 s / 한도 600 s)\n#4 이번 코드(진단 \"1. v_max를 2.5로, 거리 계수 k_d를 3.5로 높여 주행 속도를 개선합니다. 2. E_TURN을 0.5로 높여 불필요한 제자리 회전 횟수를 줄입니다. 3. _front_dynamic_min_dist가 (최소 거리, 해당 점의 bearing)을 함께 반환하도록 수정합니다. 4. controller에서 bearing이 ±20° 이내이고 거리가 2.0m 미만일 때만 v=0으로 완전히 정지합니다. 5. bearing이 ±60° 이내이고 거리가 3.0m 미만인 경우에는 v를 최대 0.7m/s로 제한하는 '저속 주행(creep)' 모드를 적용합니다. 6. 이를 통해 정면을 완전히 막지 않은 물체 때문에 멈춰 서는 일을 방지하여 stall_abort를 해결하고 전체 시간을 단축합니다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 316 s / 한도 600 s)\n#5 이번 코드(진단 \"1. 정지 구역(stop cone)의 각도를 ±20°에서 ±40°로 확장하고, 거리는 2.0m를 유지합니다. 2. 저속 주행(creep) 속도를 0.7m/s에서 0.3m/s로 낮추어 측면 충돌 시 위험을 줄입니다. 3. 평균 주행 시간을 60초 이내로 줄이기 위해 E_TURN을 0.5에서 0.7로, w 이득을 8.5에서 10.0으로 높여 제자리 회전 시간을 단축합니다. 4. 정지 해제 히스테리시스는 2.2m를 유지합니다. 5. 기존의 정적 지도 필터링 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 388 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _WAYPOINTS를 단순화하여 불필요한 꺾임과 이동 거리를 줄여 주행 시간을 60초 이내로 단축합니다. 2. _front_dynamic_min_dist의 half_angle_deg를 90.0으로 설정하여 전방 180도 전체를 감시합니다. 3. controller에서 v=0.3의 creep 로직을 완전히 삭제하고, ±90° 구역 내 1.8m 이내 물체 감지 시 즉시 v=0으로 정지하게 합니다. 4. v_max를 3.0으로 높이고 E_TURN을 0.8로 상향하여 직선 주행 및 회전 효율을 극대화합니다. 5. 정지 해제 거리(hysteresis)를 2.0m로 설정하여 잦은 가감속을 방지합니다. 6. 기존의 정적 지도 필터링은 유지하여 벽으로 인한 정지를 막습니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 203 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _front_dynamic_min_dist가 가장 가까운 물체의 거리와 bearing을 반환하게 합니다. 2. 물체가 2.5m 이내에 있으면, bearing의 부호에 따라 반대 방향으로 회전하는 회피 yaw rate(w_avoid)를 계산해 기존 w에 더합니다. 3. 속도 v는 (dist - 1.0) / 1.5 비율로 선형적으로 감속시키며, 1.0m 미만일 때만 v=0으로 완전히 정지합니다. 4. 회피 조향 시 w의 최대치를 제한하여 급격한 회전으로 인한 경로 이탈을 막습니다. 5. 정적 지도 필터링은 유지하여 벽 때문에 회피 동작이 발동하지 않게 합니다. 6. E_TURN을 0.5 정도로 낮춰 경로 추종 정밀도를 높입니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 225 s / 한도 600 s)\n#8 이번 코드(진단 \"1. _STOP_R을 0.6m로 낮추고, v=0이 되는 조건을 '거리 < _STOP_R AND bearing ±30° 이내'로 제한하여 측면 물체에 의한 정지를 방지합니다. 2. _AVOID_R을 2.0m로 조정하고, ±90° 영역에서는 w_avoid와 감속(scale)만 적용합니다. 3. _static_close_on_side의 감지 범위를 넓혀 회전 시 로봇의 측면/후면이 벽이나 박스에 닿지 않도록 조향을 더 엄격히 제한합니다. 4. w_avoid의 최대치를 낮추어 급격한 회전으로 인한 정적 장애물 충돌을 막습니다. 5. E_TURN을 0.6으로 상향하여 불필요한 제자리 회전을 줄입니다. 6. 후진 로직은 정면 Stop Cone 내에 물체가 오래 머물 때만 작동하도록 수정합니다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 86 s / 한도 600 s)\n#9 이번 코드(진단 \"1. _front_dynamic_min_dist를 _get_dynamic_min으로 변경하고, 앞/뒤 라이다 점을 모두 사용하여 360° 전체에서 가장 가까운 동적 물체를 찾도록 수정합니다. 2. controller에서 d_obj < _AVOID_R 이면 방향과 관계없이 항상 scale을 적용하여 감속합니다. 3. w_avoid(회피 조향)는 물체의 bearing이 ±90° 이내일 때만 계산하여 적용함으로써 후방 물체로 인한 비정상적 조향을 방지합니다. 4. 정지 원뿔(stop cone) 로직은 전방 정면 물체에 대해서만 완전히 정지하도록 그대로 유지합니다. 5. 이를 통해 측면/후방에서 접근하는 물체에 대해 즉각적으로 감속하여 충돌을 방지합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 35 s / 한도 600 s)\n#10 이번 코드(진단 \"1. _STOP_R_WIDE = 0.7 상수를 추가합니다. 2. controller의 정지 조건에 'd_front < _STOP_R_WIDE'를 추가하여, ±90° 범위 내 물체가 0.7m 이내로 들어오면 즉시 v=0이 되게 합니다. 3. 이 정지 조건은 _SIDE_SCALE_MIN에 의한 속도 하한보다 우선하여 적용합니다. 4. 기존의 ±30° 정지 원뿔 및 후진 로직은 그대로 유지합니다. 5. 0.7m~2.0m 구간에서는 기존처럼 감속과 회피 조향을 수행합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 33 s / 한도 600 s)\n#11 이번 코드(진단 \"1. _STOP_R_WIDE 로직을 완전히 제거하여 측면 물체 때문에 로봇이 멈춰 서는 것을 막습니다. 2. 물체가 1.5m 이내에 있고 정지 원뿔(±30°) 밖에 있는 '측면 접근' 상황을 정의합니다. 3. 이 상황에서 '능동 회피 모드'를 활성화하여, w_avoid의 강도를 높이고 v의 하한선(예: 0.5m/s)을 강제하여 로봇이 실제로 위치를 이동하게 합니다. 4. 이 회피 속도는 _E_TURN에 의한 정지나 _SIDE_SCALE_MIN보다 우선하여 적용합니다. 5. 단, _static_close_on_side가 true인 경우(벽에 붙은 경우)에는 회피 조향과 속도를 제한하여 정적 충돌을 방지합니다. 6. 정면 정지 원뿔(±30°) 내의 물체에 대해서는 기존처럼 v=0 정지와 후진 로직을 유지합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#12 이번 코드(진단 \"1. _V_EVADE_MIN, _V_EVADE_STATIC 및 floor_ok 관련 모든 로직을 삭제합니다. 2. 전/측면(±120도)의 가장 가까운 물체 거리 d_all을 기준으로 속도 스케일 factor를 계산합니다. 3. d_all < 0.8m 이면 scale = 0.0, 0.8m <= d_all < 2.0m 이면 0.0에서 1.0으로 선형 증가시킵니다. 4. 이 scale을 최종 v에 곱하여, 물체가 가까우면 반드시 정지하거나 매우 느리게 움직이게 합니다. 5. 기존의 회피 조향(w_avoid)은 유지하되, 이것이 v의 하한선을 만들지 않도록 합니다. 6. _E_TURN에 의한 제자리 회전 시 v=0 조건이 최우선으로 적용되게 유지합니다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 176 s / 한도 600 s)\n#13 이번 코드(진단 \"1. ±120° 범위의 d_fs 기반 전체 속도 scale(0.8m 미만 v=0) 로직을 완전히 제거합니다. 2. v=0이 되는 조건은 오직 정지 원뿔(±30°, _STOP_R 0.6m) 내에 물체가 있을 때만 적용합니다. 3. ±90° 범위 내에 물체가 _AVOID_R(2.0m) 이내로 들어오면 v를 _V_AVOID_MAX(0.7m/s)로 캡핑하여 저속 주행하게 합니다. 4. 이때 w_avoid를 통해 물체 반대 방향으로 계속 이동하게 하여 '앉은 오리' 상황을 방지합니다. 5. _DPSI_MAX를 0.5로 높여 회피 조향을 더 공격적으로 수행합니다. 6. _static_close_on_side 체크를 엄격히 유지하여 회피 중 벽 충돌을 막습니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 82 s / 한도 600 s)\n#14 이번 코드(진단 \"1. 하드 캡인 _V_AVOID_MAX(0.7m/s)를 제거하고 거리 기반 scale 도입. 2. ±90° 범위 내 물체 거리 d_front에 대해 speed_scale = clamp((d_front - 0.7) / (1.5 - 0.7), 0.0, 1.0)를 계산. 3. 기본 전진 속도 v에 이 speed_scale을 곱해, 0.7m 이내 접근 시 반드시 정지하게 함. 4. 정지 원뿔(±30°)의 _STOP_R을 0.6m에서 0.8m로 상향하여 전방 안전거리 확보. 5. 기존의 w_avoid와 _static_close_on_side 로직을 유지하여 감속 중에도 벽을 피하며 물체 반대쪽으로 밀려나도록 함. 6. _E_TURN에 의한 제자리 회전 정지 조건이 scale=0인 정지 상태보다 우선하지 않도록 순서 조정.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 39 s / 한도 600 s)\n#15 이번 코드(진단 \"1. _get_dynamic_min, _static_close_on_side, _static_ahead 함수 내에서 to_world(pts, pose) 호출 부분을 모두 to_world(pts.copy(), pose)로 수정하여 원본 pts(로봇 기준 좌표)가 오염되는 것을 방지합니다. 2. 이를 통해 dyn 배열이 로봇 기준 좌표를 유지하게 하여 거리와 bearing 계산이 정상화되도록 합니다. 3. _WAYPOINTS의 첫 번째 점을 (-6.0, -9.5) 정도로 수정하여 출발지에서 박스 00의 남쪽으로 더 명확하게 우회하도록 경로를 조정합니다. 4. 나머지 speed_scale 및 w_avoid 로직은 유지하여 정상적인 거리 기반 제어가 작동하게 합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 27 s / 한도 600 s)\n#16 이번 코드(진단 \"1. speed_scale(감속) 로직을 정면 stop cone(±30°) 내의 물체에 대해서만 적용하도록 제한합니다. 2. 물체가 ±90° 범위 내에 있지만 stop cone 밖(측면)에 있을 때는 v=0이 되지 않도록 최소 속도(예: 0.5m/s)를 강제합니다. 3. 측면 물체 감지 시 w_avoid의 강도(_DPSI_MAX)를 높여 더 빠르게 측면으로 회피하게 합니다. 4. v 결정 시 '측면 물체 존재 시 v_min 적용' 로직을 speed_scale보다 우선하거나 결합하여 적용합니다. 5. _static_close_on_side 체크를 유지하여 회피 조향이 벽 충돌로 이어지지 않게 합니다. 6. 정면 stop cone 내 물체에 대해서만 기존의 v=0 정지 및 후진 로직을 유지합니다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 150 s / 한도 600 s)\n#17 이번 코드(진단 \"1. _V_EVADE_MIN을 0.8m/s로 높여 물체의 횡단 경로를 더 빠르게 통과하게 합니다. 2. _EVADE_GAP을 1.5m로 늘려 더 먼 거리에서부터 회피 조향을 시작합니다. 3. _DPSI_MAX를 1.0rad로 상향하여 더 확실한 회피 각도를 확보합니다. 4. floor_ok 판정 시 전방 통로 검사(_CLEAR_X) 범위를 유지하여 정적 장애물 충돌을 방지합니다. 5. 정면 stop cone(±30°) 내 물체에 대한 v=0 정지 및 후진 로직은 그대로 유지하여 정면 충돌을 막습니다. 6. _static_close_on_side 체크를 엄격히 유지하여 회피 조향 중 벽 충돌을 방지합니다.\" 반영, 검토 통과): 새 배치 1개 중 0개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#18 이번 코드(진단 \"1. _V_EVADE_MIN을 0.8에서 0.3으로 낮춰 일반 주행 및 정렬 시의 급격한 튀어나감을 방지합니다. 2. goal alignment 구간 내에서 floor_ok일 때 적용되는 속도를 별도의 낮은 값(예: 0.1m/s)으로 제한하여 정밀도를 높입니다. 3. _GOAL_YAW_DONE을 0.12에서 0.20으로 높여 정렬 완료 판정을 더 빠르게 내립니다. 4. _K_ALIGN을 약간 낮춰 회전 시의 오버슈트와 진동을 줄입니다. 5. _GOAL_REENTER를 0.6으로 약간 높여 목표 구역 복귀 판정을 더 유연하게 합니다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 114 s / 한도 600 s)\n#19 이번 코드(진단 \"1. 측면 물체 거리 g_side가 1.0m 미만인 '임계 위험 상태'를 정의합니다. 2. 임계 위험 상태일 때는 abs(e_cmd) > _E_TURN 조건이더라도 v=0으로 만들지 않고, 최소 _V_EVADE_MIN의 속도를 강제하여 제자리 회전을 방지합니다. 3. _DPSI_MAX를 1.2rad로 상향하여 물체 반대 방향으로 더 급격하게 회피 조향을 수행합니다. 4. _static_side_pts가 true인 방향으로는 조향하지 않는 기존의 정적 장애물 보호 로직을 엄격히 유지합니다. 5. 목표 지점 정렬 구간에서는 기존 _V_ALIGN_FLOOR를 유지하여 이전의 오버슈트 및 시간 초과 문제를 방지합니다. 6. _EVADE_GAP은 1.5m를 유지하여 충분히 미리 회피를 시작하게 합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 49 s / 한도 600 s)\n#20 이번 코드(진단 \"1. _V_EVADE_MIN을 0.5~0.6m/s로 높여 위험 구역을 더 빠르게 통과하게 합니다. 2. 임계 상태(critical)에서 현재의 w가 물체가 있는 방향으로 회전하고 있다면(예: b_side < 0인데 w < 0), w를 즉시 0 또는 반대 방향으로 강제합니다. 3. _DPSI_MAX를 1.5 rad로 높여 더 공격적인 회피 각도를 생성합니다. 4. g_side가 매우 작을 때(예: 0.5m 미만)는 waypoint 추종보다 물체로부터 멀어지는 방향의 조향을 최우선으로 합니다. 5. _static_side_pts의 감지 범위를 x축 방향으로 더 확장하여 회피 중 정적 충돌을 방지합니다. 6. crit_ok 판정 시 x_body 검사를 조금 더 완화하여 로봇이 멈추지 않고 탈출할 수 있게 합니다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 283 s / 한도 600 s)\n#21 이번 코드(진단 \"가장 가까운 물체의 상대 속도(closing speed)와 거리를 이용해 동적 속도 상한선 v_cap을 계산합니다. TTC(거리/접근속도)가 임계값(예: 2.0s) 미만으로 떨어지면 v_nom과 안전 필터의 모든 후보 v를 v_cap으로 제한합니다. v_cap은 거리와 접근 속도의 함수로, 매우 가까워지면 0에 수렴하게 설계합니다. 특히 척력(repulse) 모드에서도 v_cap을 적용하여, 무조건적인 v_evade_min 강제가 아닌 안전한 범위 내에서의 탈출을 유도합니다. 이를 통해 고속으로 물체에 돌진하는 상황을 원천적으로 차단합니다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 344 s / 한도 600 s)\n#22 이번 코드(진단 \"1. _G_SAFE를 0.22에서 0.4m로, _G_GROW를 0.06에서 0.15m로 높여 예측 시 더 넓은 여유 공간을 요구합니다. 2. _REPULSE_GAP을 0.5에서 0.8m로 상향하여 척력 모드를 더 일찍 활성화합니다. 3. _safety_filter의 repulse 모드에서 물체가 측면(|nx| < 0.3)에 있고 접근 중일 때, v < 0.5m/s인 후보의 score에 강한 페널티를 부여합니다. 4. repulse score 계산 시 prog(진행도)의 가중치를 높여 위험 구역을 빠르게 벗어나도록 유도합니다. 5. _speed_caps의 _NX_MIN을 0.2로 높여 순수 측면 물체가 전진 속도를 과도하게 제한하지 않도록 합니다. 6. stall 방지를 위해 _E_TURN 임계값을 약간 조정하여 제자리 회전 진입을 최적화합니다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 560 s / 한도 600 s)\n#23 이번 코드(진단 \"controller 함수의 마지막 반환 직전에 _sense(pose)를 호출하여 dyn 점들을 확인합니다. dyn 점들 중 로봇 기준 거리 0.8m 이내이며 전방 ±90도 범위에 있는 점이 하나라도 있다면 v를 0.0으로 강제합니다. 이 로직은 _safety_filter와 _speed_caps 이후에 적용되는 최우선 순위의 '가상 범퍼'로 작동하게 합니다. 정적 지도 필터링이 이미 _sense에 포함되어 있으므로 벽으로 인한 오작동은 최소화되며, 트래커가 물체를 놓친 상황에서도 충돌을 방지할 수 있습니다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 297 s / 한도 600 s)\n#24 이번 코드(진단 \"1. controller에서 v=0을 강제하는 _emergency_brake 호출을 삭제합니다. 2. _emergency_brake 함수를 _raw_mover_detected로 변경하여 단순 감지 여부만 반환하게 합니다. 3. _safety_filter 내에서 repulse 모드 진입 조건에 '트래킹된 근접 물체' 또는 '_raw_mover_detected'가 True인 경우를 모두 포함시킵니다. 4. 이를 통해 트래커가 놓친 물체에 대해서도 정지가 아닌 '척력 기반 회피/후진' 후보를 선택하게 합니다. 5. v=0 강제보다는 _nominal_cmd의 후진 로직과 _safety_filter의 척력 후보가 작동하도록 우선순위를 조정합니다.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 390 s / 한도 600 s)\n#25 이번 코드(진단 \"1. _raw_mover_detected에서 _EBRAKE_HALF_DEG(±90도) 제한을 제거하여 360도 모든 방향의 비정적 점을 감지하게 합니다. 2. _safety_filter의 repulse 모드에서 g_near < _CRIT_GAP인 경우, v=0인 후보의 score에 큰 페널티를 부여하여 정지 대신 최선의 탈출 방향을 선택하게 합니다. 3. 단, 모든 v!=0 후보가 _static_hits(정적 충돌)인 경우에만 v=0을 허용합니다. 4. _E_TURN을 0.75에서 0.9로 높여 불필요한 제자리 회전 정지 구간을 줄여 stall_abort를 방지합니다. 5. _nominal_cmd의 v=0 조건에서도 critical 상태라면 최소 v_min을 유지하도록 보완합니다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 512 s / 한도 600 s)\n#26 이번 코드(진단 \"1. _safety_filter 함수 내 non-repulse 모드의 score 계산식에서 -0.03 * np.abs(cand[:, 1]) 항을 완전히 제거합니다. 2. 동일 식에서 prog의 가중치를 높여(예: 1.0 -> 1.5) 조금이라도 목표에 다가가는 후보를 강력하게 선호하게 합니다. 3. v=0인 후보들 사이에서 w=0인 후보보다 목표 방향으로 회전하는 후보가 우선 선택되도록 score 구성을 조정합니다. 4. _E_TURN 상수를 0.9에서 1.0으로 높여 제자리 회전 진입 조건을 더 완화하여 직선 주행 구간을 늘립니다. 5. non-repulse pool에서 candidates의 v=0, w=0 조합이 최후의 수단이 되도록 페널티를 부여합니다.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 596 s / 한도 600 s)\n#27 이번 코드(진단 \"1. _safety_filter 내 safe 풀 판정 조건인 'margin >= 0.0'을 'margin >= -0.1'로 수정합니다. 2. _STILL_PEN 및 _STILL_PEN_UNSAFE 값을 모두 2.0으로 높여 정지 후보의 우선순위를 낮춥니다. 3. _K_PROG_SAFE를 1.5에서 2.0으로 높여 safe 풀 내에서 진행도를 더 강력하게 선호하게 합니다. 4. _E_TURN=1.0을 유지하여 공칭 제어 단계에서의 불필요한 정지를 방지합니다. 5. 그 외의 척력 및 속도 캡 로직은 유지합니다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 523 s / 한도 600 s)\n#28 이번 코드(진단 \"_safety_filter 함수 내 non-repulse 모드의 no-safe 풀 score 계산식에서 `0.01 * prog` 부분을 `0.5 * prog`로 수정합니다. 이를 통해 safe 풀이 비어 정지 후보와 전진 후보가 경합할 때, 전진으로 인한 이득을 더 크게 평가하여 stall 상황을 방지합니다.\" 반영, 검토 통과): 새 배치 9개 중 6개 pass, 3개 fail (시뮬 시간 합계 458 s / 한도 600 s)",
+ "ended": "2026-11-18 16:57:47"
+}

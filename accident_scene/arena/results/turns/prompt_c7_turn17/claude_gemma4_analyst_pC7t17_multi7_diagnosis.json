@@ -1,0 +1,171 @@
+{
+ "diagnosis": {
+  "failure_mode": "time_limit",
+  "evidence": [
+   "실행 c7t17_s192420437 이 74.4s 에 time_limit 으로 종료됨 (한도 73.4s), 종료 시 goal_dist_m 이 3.04m 로 목표 근처였음",
+   "통과한 실행들의 time_to_goal_s 평균이 약 84.8s (74.3~93.4s) 이며, 이는 10개 배치 통과 기준인 평균 60s (총 600s) 를 크게 초과함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재의 '정지 후 회전(stop-turn-go)' 방식과 낮은 최소 속도 상한(_CAP_MIN=0.8)이 평균 주행 시간을 늘리는 주원인이다",
+    "holds": true,
+    "why": "경로 거리(약 44m) 대비 주행 시간이 길며, stop_turns 기록에서 잦은 정지 구간이 확인됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "속도 최적화 (Speed Optimization)",
+    "turns": "1",
+    "result": "0/1 (이번 턴에서 시간 초과 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회전 시 정지 대신 저속 전진을 허용하고 최소 속도 상한을 높여 평균 속도 개선",
+    "new_family": true,
+    "for": "정지-회전-출발 반복 시간을 줄이고, 물체 근접 시에도 최소 속도를 높여 전체 시간을 단축할 수 있음",
+    "risk": "회전 중 전진 시 정적 장애물에 더 가까워질 수 있으나 _static_guard 가 이를 방어함"
+   }
+  ],
+  "chosen": "회전 시 저속 전진 허용 및 _CAP_MIN 상향을 통해 평균 주행 시간을 60s 이내로 단축",
+  "target": "controller 및 _CAP_MIN",
+  "direction": "1. controller 내에서 abs(e) > 0.35 일 때 v=0.0 로 설정하던 로직을 수정하여, 0.35 < abs(e) < 0.7 구간에서는 v=0.3 으로 저속 전진하며 회전하도록 변경합니다. 2. abs(e) >= 0.7 인 경우에만 v=0.0 으로 정지합니다. 3. _CAP_MIN 을 0.8 에서 1.0 으로 높여 물체 근접 시의 기본 속도를 상향합니다. 4. 그 외의 _safe_speed 및 _static_guard 로직은 그대로 유지하여 안전성을 확보합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"time_limit\",\n \"evidence\": [\"실행 c7t17_s192420437 이 74.4s 에 time_limit 으로 종료됨 (한도 73.4s), 종료 시 goal_dist_m 이 3.04m 로 목표 근처였음\", \"통과한 실행들의 time_to_goal_s 평균이 약 84.8s (74.3~93.4s) 이며, 이는 10개 배치 통과 기준인 평균 60s (총 600s) 를 크게 초과함\"],\n \"assumptions\": [{\"assumption\": \"현재의 '정지 후 회전(stop-turn-go)' 방식과 낮은 최소 속도 상한(_CAP_MIN=0.8)이 평균 주행 시간을 늘리는 주원인이다\", \"holds\": true, \"why\": \"경로 거리(약 44m) 대비 주행 시간이 길며, stop_turns 기록에서 잦은 정지 구간이 확인됨\"}],\n \"approach_families\": [{\"family\": \"속도 최적화 (Speed Optimization)\", \"turns\": \"1\", \"result\": \"0/1 (이번 턴에서 시간 초과 발생)\"}],\n \"candidates\": [{\"idea\": \"회전 시 정지 대신 저속 전진을 허용하고 최소 속도 상한을 높여 평균 속도 개선\", \"new_family\": true, \"for\": \"정지-회전-출발 반복 시간을 줄이고, 물체 근접 시에도 최소 속도를 높여 전체 시간을 단축할 수 있음\", \"risk\": \"회전 중 전진 시 정적 장애물에 더 가까워질 수 있으나 _static_guard 가 이를 방어함\"}],\n \"chosen\": \"회전 시 저속 전진 허용 및 _CAP_MIN 상향을 통해 평균 주행 시간을 60s 이내로 단축\",\n \"target\": \"controller 및 _CAP_MIN\",\n \"direction\": \"1. controller 내에서 abs(e) > 0.35 일 때 v=0.0 로 설정하던 로직을 수정하여, 0.35 < abs(e) < 0.7 구간에서는 v=0.3 으로 저속 전진하며 회전하도록 변경합니다. 2. abs(e) >= 0.7 인 경우에만 v=0.0 으로 정지합니다. 3. _CAP_MIN 을 0.8 에서 1.0 으로 높여 물체 근접 시의 기본 속도를 상향합니다. 4. 그 외의 _safe_speed 및 _static_guard 로직은 그대로 유지하여 안전성을 확보합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t17_s987157645",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 89.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 83.42,
+   "goal_dist_m": 0.3427,
+   "time_to_goal_s": 86.267
+  },
+  {
+   "run": "c7t17_s579896626",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 510.6,
+   "sim_time_s": 92.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 86.05,
+   "goal_dist_m": 0.1778,
+   "time_to_goal_s": 88.95
+  },
+  {
+   "run": "c7t17_s168383046",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 418.6,
+   "sim_time_s": 77.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 71.42,
+   "goal_dist_m": 0.1855,
+   "time_to_goal_s": 74.35
+  },
+  {
+   "run": "c7t17_s943621813",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 341.2,
+   "sim_time_s": 96.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 90.45,
+   "goal_dist_m": 0.1772,
+   "time_to_goal_s": 93.433
+  },
+  {
+   "run": "c7t17_s2063612283",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 244.8,
+   "sim_time_s": 85.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 79.95,
+   "goal_dist_m": 0.1867,
+   "time_to_goal_s": 82.833
+  },
+  {
+   "run": "c7t17_s2039485436",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 158.9,
+   "sim_time_s": 85.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 79.48,
+   "goal_dist_m": 0.1858,
+   "time_to_goal_s": 82.467
+  },
+  {
+   "run": "c7t17_s192420437",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 73.4,
+   "sim_time_s": 74.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 69.22,
+   "goal_dist_m": 3.0412,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

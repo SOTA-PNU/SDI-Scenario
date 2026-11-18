@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 0.5 m 앞까지 다가온 물체를 트래커가 놓쳤고, 그 순간 `_safety_filter` 가 풀려 `v_nom` 대로 급가속하다가 충돌했습니다. 그래서 진단의 `direction` 대로, `controller` 가 값을 돌려주기 직전에 `_sense(pose)` 를 다시 불러 정적 지도로 걸러낸 raw 동적 점을 확인하는 가상 범퍼 `_emergency_brake` 를 넣었습니다. 로봇 기준 0.8 m 이내, 전방 ±90° 안에 동적 점이 하나라도 있으면 `_speed_caps` 와 `_safety_filter` 결과보다 우선해 v=0.0 으로 강제합니다. 회전 w 는 그대로 두며, 이 판단은 트래킹 결과와 무관하게 작동합니다.\n\n```python\n_EBRAKE_R = 0.8         # raw-sensor emergency brake radius (robot frame distance from the base origin) [m] (diagnosis)\n\n\n_EBRAKE_HALF_DEG = 90.0  # raw-sensor emergency brake half angle (front +-90 deg) [deg] (diagnosis)\n\n\ndef _emergency_brake(pose):\n    \"\"\"Tracker-independent virtual bumper (diagnosis): re-reads the front + back 2D lidars through _sense(pose)\n    (static map already removed) and returns True if any moving-object point lies within _EBRAKE_R of the robot\n    (robot frame) and within +-_EBRAKE_HALF_DEG of the forward direction.\"\"\"\n    dyn, _ = _sense(pose)\n    if len(dyn) == 0:\n        return False\n    r = np.hypot(dyn[:, 0], dyn[:, 1])\n    b = np.arctan2(dyn[:, 1], dyn[:, 0])\n    hit = (r < _EBRAKE_R) & (np.abs(b) <= math.radians(_EBRAKE_HALF_DEG))\n    return bool(np.any(hit))\n\n\ndef controller(t, pose, env):\n    \"\"\"Way-point following (_nominal_cmd) + a mover-aware safety filter (_safety_filter) + dynamic speed cap\n    (_speed_caps). Last of all, a raw-sensor emergency brake (_emergency_brake, diagnosis): independent of the\n    tracker, any moving-object point within 0.8 m and +-90 deg ahead forces v = 0.0 right before returning,\n    overriding the safety filter and the speed caps (w is kept).\"\"\"\n    x, y, yaw = pose\n    S = _MV\n    if S[\"prev\"] is not None:\n        dt = t - S[\"prev\"][0]\n        if dt > 1e-4:\n            vi = ((x - S[\"prev\"][1]) * math.cos(yaw) + (y - S[\"prev\"][2]) * math.sin(yaw)) / dt\n            S[\"v_est\"] = _clamp(0.6 * S[\"v_est\"] + 0.4 * vi, -1.5, 3.5)\n            S[\"vmax_seen\"] = max(S[\"vmax_seen\"], S[\"v_est\"])\n    S[\"prev\"] = (t, x, y)\n\n    dyn, st = _sense(pose)\n    obs = _dyn_summary(dyn)\n    try:\n        _track_update(t, pose, dyn)\n    except Exception:\n        S[\"tracks\"] = []\n    try:\n        v_hi, v_lo = _speed_caps(t, pose)\n    except Exception:\n        v_hi, v_lo = _V_MAX, -_V_MAX\n    S[\"cap\"] = (v_hi, v_lo)\n    v_nom, w_nom, done, target, align = _nominal_cmd(pose, st, obs)\n    if done:\n        return 0.0, 0.0, True\n    v_nom = _clamp(v_nom, v_lo, v_hi)\n    try:\n        v, w = _safety_filter(t, pose, v_nom, w_nom, target, align)\n    except Exception:\n        v, w = v_nom, w_nom\n    v = _clamp(v, v_lo, v_hi)\n\n    # raw-sensor emergency brake (highest priority, after _safety_filter and _speed_caps)\n    try:\n        if _emergency_brake(pose):\n            v = 0.0\n    except Exception:\n        v = 0.0\n\n    S[\"last\"] = (v, w)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 40598,
+  "completion_tokens": 2312
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 21410,
+  "total_cost_usd": 0.371016,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2312,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 40596,
+    "webSearchRequests": 0,
+    "costUSD": 0.371016,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 794,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 40596,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "f8894854-798f-40f4-8447-95dfa3a50540"
+ }
+}

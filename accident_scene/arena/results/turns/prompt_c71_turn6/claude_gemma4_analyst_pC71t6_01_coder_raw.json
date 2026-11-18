@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 충돌은 모두 물체가 감시 구역(±60°) 밖인 ±80°~±100° 측면에서 다가올 때 일어났습니다. 그래서 진단 2·3·5에 따라 `_front_dynamic_min_dist` 의 감시 범위를 전방 ±90° 반원으로 넓혔습니다. 이 범위 안 1.8 m 이내에 움직이는 물체가 보이면 즉시 정지(v=0)하고 2.0 m 밖으로 멀어지면 다시 출발하게 했으며, 0.3 m/s 저속 주행(creep)은 없앴습니다. 진단 1·4에 따라 경유점을 정적 장애물에서 1 m 안팎 떨어진 사선 경로로 줄여 거리를 약 44 m에서 36 m로 줄이고, v_max 3.0, E_TURN 0.8 로 올렸습니다. 정적 지도 필터링(`_static_mask`)은 진단 6에 따라 그대로 두었습니다.\n\n```python\n_WAYPOINTS = [\n    (-5.0, -8.5),    # pass south-east of box 00\n    (-4.0, 2.0),     # go north between forklift_01 / box 00 and boxes 01, 02\n    (-2.8, 7.5),     # pass west of box 03, east of box 09\n    (0.5, 11.0),     # pass east of box 10, west of box 07\n    (1.5, 15.0),     # pass west of box 08, north of box 10\n    (GOAL[0], GOAL[1])  # final goal position (north of box 06)\n]\n\n\ndef controller(t, pose, env):\n    \"\"\"Follow the simplified way-points (v_max 3.0, k_d 3.5, k_w 10.0, rotate in place when |e| > 0.8);\n    stop (v=0) when a non-static object is within 1.8 m inside the forward ±90° half-plane (release at 2.0 m).\n    No creep mode: either full stop or normal speed.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.blocked = False\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3) Control law (diagnosis: v_max 3.0, E_TURN 0.8; k_d 3.5, k_w 10.0 unchanged)\n    E_TURN = 0.8\n    w = _clamp(10.0 * e, -2.0, 2.0)\n    if abs(e) > E_TURN:\n        v = 0.0\n    else:\n        v = min(3.0, 3.5 * dist + 0.5)\n\n    # 4) Reactive stop for moving objects (front 2D lidar, static map filtered out)\n    #    stop zone: forward half-plane (bearing within ±90°) closer than 1.8 m -> v = 0\n    #    hysteresis: stay stopped until the object is farther than 2.0 m. No creep mode.\n    d_stop, b_stop = _front_dynamic_min_dist(pose, 90.0)\n    stop_r = 2.0 if controller.blocked else 1.8\n    controller.blocked = (d_stop < stop_r) and (abs(b_stop) <= math.radians(90.0))\n    if controller.blocked:\n        v = 0.0                                   # stop; keep w so the heading stays on the waypoint\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n\n\ndef _front_dynamic_min_dist(pose, half_angle_deg=90.0):\n    \"\"\"(min distance, bearing [rad]) in the robot frame of the closest non-static front-lidar point whose\n    bearing is within ±half_angle_deg (default ±90°: the whole forward half-plane); (inf, 0.0) if none.\"\"\"\n    pts = lidar2d_points(\"front\")\n    if pts is None or len(pts) == 0:\n        return float(\"inf\"), 0.0\n    wp = to_world(pts, pose)\n    dyn = pts[~_static_mask(wp)]\n    if len(dyn) == 0:\n        return float(\"inf\"), 0.0\n    bearing = np.arctan2(dyn[:, 1], dyn[:, 0])\n    cone = np.abs(bearing) <= math.radians(half_angle_deg)\n    if not np.any(cone):\n        return float(\"inf\"), 0.0\n    c = dyn[cone]\n    r = np.hypot(c[:, 0], c[:, 1])\n    i = int(np.argmin(r))\n    return float(r[i]), float(math.atan2(c[i, 1], c[i, 0]))\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 17179,
+  "completion_tokens": 9461
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 88209,
+  "total_cost_usd": 0.32664400000000005,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 9461,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 17177,
+    "webSearchRequests": 0,
+    "costUSD": 0.32664400000000005,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 7515,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 17177,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "7b5622fb-7aec-4b6c-9794-20ae9a9d6b2f"
+ }
+}

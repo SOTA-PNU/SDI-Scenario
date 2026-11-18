@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_safe_speed 의 능동 회피 루프(for vc in cands:)에서 dz['side'] 가 참이고 S['v_meas'] >= 0.5 인지 확인\", \"implemented\": true, \"note\": \"루프 앞에서 v_now = S['v_meas'], momentum = dz['side'] and v_now >= 0.5 를 계산해 루프 안에서 씀\"},\n  {\"instruction\": \"vc >= S['v_meas'] * 0.8 인 후보의 cv 에 0.2 m 보너스를 더함\", \"implemented\": true, \"note\": \"if momentum and vc >= v_now * 0.8: cv += _SIDE_MOMENTUM_BONUS. esc_v 히스테리시스(+0.05)를 더한 뒤 best_c 와 비교하기 전에 적용함\"},\n  {\"instruction\": \"측면 위협 때 어중간한 저속 감속 대신 현재 속도를 유지해 통과하도록 유도\", \"implemented\": true, \"note\": \"지시 1·2 를 구현한 결과로 달성됨. cap 0.8 이면 1.0·1.5 후보가 0.8 로 잘려 v_meas 0.81 일 때 0.8 후보가 보너스를 받음\"},\n  {\"instruction\": \"보너스 값을 _SIDE_MOMENTUM_BONUS = 0.2 로 정의해 관리\", \"implemented\": true, \"note\": \"[END EDIT REGION] 바로 앞에 모듈 상수로 정의함\"},\n  {\"instruction\": \"그 외 정적 장애물 검사와 기본 회피 로직은 그대로 유지\", \"implemented\": true, \"note\": \"diff 에 바뀐 것은 docstring·주석, 보너스 3줄, 상수 정의뿐. critical=True 정적 검사, _SIDE_STOP_PEN, _ESC_MIN_V 되돌림은 그대로임\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"보너스는 예측 최소거리가 0 이하(접촉 예상)인 후보에도 붙습니다. 그래서 정지가 안전한 상황에서도 충돌 예상 경로로 전진을 고를 수 있습니다.\",\n  \"v_meas 는 필터된 값입니다. 감속이 일단 시작돼 0.5 m/s 아래로 내려가면 보너스가 바로 꺼지므로 효과가 첫 판단 순간에만 국한될 수 있습니다.\",\n  \"증거의 0.81 -> 0.36 m/s 감속이 능동 회피 루프에서 났다는 확인이 없습니다. 측면 플래그 전 일반 주행의 f 루프(1.0/0.6/0.3)나 _static_guard 에서 났다면 이번 수정은 효과가 없습니다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 46342,
+  "completion_tokens": 2036
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 19739,
+  "total_cost_usd": 0.411448,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2036,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 46340,
+    "webSearchRequests": 0,
+    "costUSD": 0.411448,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1001,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 46340,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "ace1a842-669f-41c3-8603-b93e13fab0b3"
+ }
+}

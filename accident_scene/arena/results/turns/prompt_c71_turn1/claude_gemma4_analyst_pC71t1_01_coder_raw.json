@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 지시대로 매 호출마다 `lidar2d_points('front')` 를 읽습니다. 전방 ±30°(x>0, |y/x|<tan30°) 안의 가장 가까운 점이 2.0 m 미만이면 전진 속도 v 를 0 으로 바꾸고, 회전 속도 w 와 기존 `_WAYPOINTS`·추종 로직은 그대로 둡니다. 다만 경로 근처에는 정적 장애물이 2 m 안에 들어오는 곳이 있습니다(경유점 (-5, 5.8) 앞의 박스 09, (1.5, 16.5) 앞의 북쪽 벽, GOAL 앞의 동쪽 벽). 이 점들 때문에 멈추면 영구 정지(deadlock)가 되므로, 진단의 risk 항목에 대응해 `WALLS`·`FIXED_OBSTACLES`·`MISSION[\"boxes\"]` 에 해당하는 점은 0.25 m 여유를 두고 걸러 냅니다. 정지·재출발이 반복되지 않도록 정지 2.0 m, 재출발 2.2 m 의 히스테리시스를 둡니다. 물체가 0.9 m 안까지 다가오고 뒤쪽 라이다로 본 후방이 비어 있으면 0.3 m/s 로 천천히 후진합니다.\n\n```python\n_STATIC_RECTS = ([(b[\"x\"] - b[\"width\"] / 2.0, b[\"x\"] + b[\"width\"] / 2.0,\n                   b[\"y\"] - b[\"depth\"] / 2.0, b[\"y\"] + b[\"depth\"] / 2.0) for b in MISSION[\"boxes\"]]\n                 + [(o[1], o[2], o[3], o[4]) for o in FIXED_OBSTACLES])\n\n\ndef _static_mask(wp, m=0.25):\n    \"\"\"World points (N, >=2) -> bool mask of points explained by the static map (walls, fixed obstacles, boxes).\"\"\"\n    x, y = wp[:, 0], wp[:, 1]\n    s = (x <= WALLS[0] + m) | (x >= WALLS[1] - m) | (y <= WALLS[2] + m) | (y >= WALLS[3] - m)\n    for (x0, x1, y0, y1) in _STATIC_RECTS:\n        s |= (x >= x0 - m) & (x <= x1 + m) & (y >= y0 - m) & (y <= y1 + m)\n    return s\n\n\ndef _front_dynamic_min_dist(pose):\n    \"\"\"Min distance (robot frame) to non-static front-lidar points inside the forward ±30° cone; inf if none.\"\"\"\n    pts = lidar2d_points(\"front\")\n    if pts is None or len(pts) == 0:\n        return float(\"inf\")\n    wp = to_world(pts, pose)\n    dyn = pts[~_static_mask(wp)]\n    if len(dyn) == 0:\n        return float(\"inf\")\n    cone = (dyn[:, 0] > 0.0) & (np.abs(dyn[:, 1]) < dyn[:, 0] * math.tan(math.radians(30.0)))\n    if not np.any(cone):\n        return float(\"inf\")\n    return float(np.min(np.hypot(dyn[cone, 0], dyn[cone, 1])))\n\n\ndef _rear_clear():\n    \"\"\"True if the back lidar sees nothing in a strip just behind the chassis (static or moving).\"\"\"\n    pts = lidar2d_points(\"back\")\n    if pts is None or len(pts) == 0:\n        return False\n    behind = (pts[:, 0] < -0.70) & (pts[:, 0] > -1.40) & (np.abs(pts[:, 1]) < 0.45)\n    return not bool(np.any(behind))\n\n\ndef controller(t, pose, env):\n    \"\"\"Follow the pre-computed way-points; brake (v=0) when a non-static object is within 2.0 m in the ±30° front cone.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.done_align = False\n        controller.blocked = False\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following (unchanged)\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3) Control law (unchanged)\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # 4) Reactive braking on moving objects (front 2D lidar, static map filtered out)\n    d_front = _front_dynamic_min_dist(pose)\n    controller.blocked = d_front < (2.2 if controller.blocked else 2.0)\n    if controller.blocked and v > 0.0:\n        v = 0.0                                   # stop; keep w so the heading stays on the waypoint\n        if d_front < 0.9 and _rear_clear():\n            v = -0.3                              # object still closing in: give way slowly backwards\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 14095,
+  "completion_tokens": 5145
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 51428,
+  "total_cost_usd": 0.215652,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 5145,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 14093,
+    "webSearchRequests": 0,
+    "costUSD": 0.215652,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3008,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 14093,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "dbfa01ff-dda2-4ba6-ae42-024831f3afe5"
+ }
+}

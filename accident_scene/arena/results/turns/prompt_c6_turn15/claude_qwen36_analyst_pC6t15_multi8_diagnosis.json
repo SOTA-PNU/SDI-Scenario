@@ -1,0 +1,225 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1, 8에서 로봇이 정지(또는 0.08m/s) 상태일 때 충돌 발생. 충돌 직전 물체가 정면-측면(bearing 11~72°)에서 교차하며 접근(closing 0.58~0.79m/s).",
+   "0.8m 이진 정지 로직은 물리적 정지 거리와 시뮬 지연으로 인해 0.8m 도달 시 이미 충돌 궤적에 진입하며, 정지 중 경로 이탈 조치가 없어 정지 상태 그대로 충돌."
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지하면 물체가 피하거나 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "움직이는 물체는 로봇을 피하지 않으며, 실행 1, 8에서 정지 중 물체가 로봇 위치를 통과하며 충돌함"
+   },
+   {
+    "assumption": "0.8m 이내 감속/정지가 접근 속도를 상쇄하기에 충분하다",
+    "holds": false,
+    "why": "1.5m/s 주행 시 정지 거리와 지연으로 0.8m 진입 시 이미 0.4~0.5m까지 접근해 충돌 불가피"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "반발 조향+이진 정지",
+    "turns": "14-15",
+    "result": "5/8 통과 but 정지 중 충돌 다수"
+   },
+   {
+    "family": "연속 비례 감속",
+    "turns": "5-7",
+    "result": "정지/주행 충돌 또는 stall"
+   },
+   {
+    "family": "상태 기반 크리프/회피",
+    "turns": "4,6,8,12",
+    "result": "로직 복잡성으로 오탐/데드락 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 시 누적 시간 또는 거리 감소 감지 시 후진/회전 회피",
+    "new_family": true,
+    "for": "정지 중 충돌 원인을 직접 해결하며 로직이 단순하고 상태 전이가 명확함",
+    "risk": "후진 시 뒤쪽 장애물 충돌 가능, 타이밍 상수 조정 필요"
+   },
+   {
+    "idea": "감지 범위를 2.0m로 확대하고 0.6m까지 연속 감속하되 정지 없이 서행 유지",
+    "new_family": false,
+    "for": "정지 데드락 방지",
+    "risk": "서행 중 측면 접근 시 충돌 재발, 교차 물체 대응 약함"
+   },
+   {
+    "idea": "닫힘 속도(TTC) 기반 예측 정지",
+    "new_family": true,
+    "for": "조기 대응으로 정지 거리 확보",
+    "risk": "속도 추정 노이즈로 과민 반응 또는 오탐 정지"
+   }
+  ],
+  "chosen": "후보 1 선택: 정지 상태가 지속되거나 거리가 계속 줄면 후진 또는 제자리 회전으로 물체 진행 경로를 비켜주는 능동 회피를 도입한다.",
+  "target": "controller 상태 변수(blocked_t, evade_flag) 및 후진/회피 로직",
+  "direction": "controller에 정지 시작 시각 blocked_t와 회피 상태 evade_flag를 추가한다. d_min < 0.8m 시 v=0, w=0로 정지하고 blocked_t를 기록한다. 정지 중 d_min이 계속 줄거나 t - blocked_t > 0.5초가 되면 evade_flag=True로 전환한다. 회피 중 뒤쪽 라이다(_rear_gap)가 1.0m 이상이면 v=-0.2로 후진한다. 뒤쪽이 막히면 w=0.6으로 제자리 회전하며 d_min을 증가시킨다. d_min > 1.0m가 되면 evade_flag=False, blocked_t를 초기화하고 정상 주행으로 복귀한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n```json\n{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"실행 1, 8에서 로봇이 정지(또는 0.08m/s) 상태일 때 충돌 발생. 충돌 직전 물체가 정면-측면(bearing 11~72°)에서 교차하며 접근(closing 0.58~0.79m/s).\",\n    \"0.8m 이진 정지 로직은 물리적 정지 거리와 시뮬 지연으로 인해 0.8m 도달 시 이미 충돌 궤적에 진입하며, 정지 중 경로 이탈 조치가 없어 정지 상태 그대로 충돌.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"정지하면 물체가 피하거나 충돌을 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"움직이는 물체는 로봇을 피하지 않으며, 실행 1, 8에서 정지 중 물체가 로봇 위치를 통과하며 충돌함\"\n    },\n    {\n      \"assumption\": \"0.8m 이내 감속/정지가 접근 속도를 상쇄하기에 충분하다\",\n      \"holds\": false,\n      \"why\": \"1.5m/s 주행 시 정지 거리와 지연으로 0.8m 진입 시 이미 0.4~0.5m까지 접근해 충돌 불가피\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"반발 조향+이진 정지\",\n      \"turns\": \"14-15\",\n      \"result\": \"5/8 통과 but 정지 중 충돌 다수\"\n    },\n    {\n      \"family\": \"연속 비례 감속\",\n      \"turns\": \"5-7\",\n      \"result\": \"정지/주행 충돌 또는 stall\"\n    },\n    {\n      \"family\": \"상태 기반 크리프/회피\",\n      \"turns\": \"4,6,8,12\",\n      \"result\": \"로직 복잡성으로 오탐/데드락 실패\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"정지 시 누적 시간 또는 거리 감소 감지 시 후진/회전 회피\",\n      \"new_family\": true,\n      \"for\": \"정지 중 충돌 원인을 직접 해결하며 로직이 단순하고 상태 전이가 명확함\",\n      \"risk\": \"후진 시 뒤쪽 장애물 충돌 가능, 타이밍 상수 조정 필요\"\n    },\n    {\n      \"idea\": \"감지 범위를 2.0m로 확대하고 0.6m까지 연속 감속하되 정지 없이 서행 유지\",\n      \"new_family\": false,\n      \"for\": \"정지 데드락 방지\",\n      \"risk\": \"서행 중 측면 접근 시 충돌 재발, 교차 물체 대응 약함\"\n    },\n    {\n      \"idea\": \"닫힘 속도(TTC) 기반 예측 정지\",\n      \"new_family\": true,\n      \"for\": \"조기 대응으로 정지 거리 확보\",\n      \"risk\": \"속도 추정 노이즈로 과민 반응 또는 오탐 정지\"\n    }\n  ],\n  \"chosen\": \"후보 1 선택: 정지 상태가 지속되거나 거리가 계속 줄면 후진 또는 제자리 회전으로 물체 진행 경로를 비켜주는 능동 회피를 도입한다.\",\n  \"target\": \"controller 상태 변수(blocked_t, evade_flag) 및 후진/회피 로직\",\n  \"direction\": \"controller에 정지 시작 시각 blocked_t와 회피 상태 evade_flag를 추가한다. d_min < 0.8m 시 v=0, w=0로 정지하고 blocked_t를 기록한다. 정지 중 d_min이 계속 줄거나 t - blocked_t > 0.5초가 되면 evade_flag=True로 전환한다. 회피 중 뒤쪽 라이다(_rear_gap)가 1.0m 이상이면 v=-0.2로 후진한다. 뒤쪽이 막히면 w=0.6으로 제자리 회전하며 d_min을 증가시킨다. d_min > 1.0m가 되면 evade_flag=False, blocked_t를 초기화하고 정상 주행으로 복귀한다.\",\n  \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c6t15_s84740215",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 21.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 15.867,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.43,
+    0.54
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 14.42,
+   "goal_dist_m": 21.5868,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t15_s1562050599",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 578.1,
+   "sim_time_s": 24.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 18.583,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.08m/s",
+   "partner_rel_xy": [
+    -0.35,
+    -0.52
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 13.62,
+   "goal_dist_m": 22.5058,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t15_s1650681522",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 553.5,
+   "sim_time_s": 60.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 54.92,
+   "goal_dist_m": 0.222,
+   "time_to_goal_s": 56.883
+  },
+  {
+   "run": "c6t15_s1909923725",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 492.7,
+   "sim_time_s": 56.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 50.35,
+   "goal_dist_m": 0.2225,
+   "time_to_goal_s": 52.35
+  },
+  {
+   "run": "c6t15_s706922957",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 436.3,
+   "sim_time_s": 75.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 69.92,
+   "goal_dist_m": 0.2255,
+   "time_to_goal_s": 71.817
+  },
+  {
+   "run": "c6t15_s871355909",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 360.5,
+   "sim_time_s": 64.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 58.95,
+   "goal_dist_m": 0.2025,
+   "time_to_goal_s": 60.867
+  },
+  {
+   "run": "c6t15_s404455937",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 295.6,
+   "sim_time_s": 63.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 57.95,
+   "goal_dist_m": 0.2299,
+   "time_to_goal_s": 59.85
+  },
+  {
+   "run": "c6t15_s296296993",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 231.7,
+   "sim_time_s": 23.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.383,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.1,
+    -0.55
+   ],
+   "closing_m_s": 0.79,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 12.62,
+   "goal_dist_m": 23.7992,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

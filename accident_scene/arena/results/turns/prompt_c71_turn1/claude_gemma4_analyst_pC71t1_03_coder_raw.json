@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시에 따라 제동 블록의 후진 분기(`d_front < 0.9 and _rear_clear()` → `v = -0.3`)를 지웠습니다. 이제 전방 ±30° 안의 비정적 점이 2.0 m 미만이면(재출발은 2.2 m 히스테리시스) `v = 0.0` 만 쓰고, `w` 는 그대로 둡니다. 정적 지도 필터와 기존 `_WAYPOINTS`·추종 로직은 진단의 `direction` 그대로 유지했습니다. 출력 형식은 정의를 바꾸거나 추가할 수만 있어서 `_rear_clear` 를 지울 수 없으므로, 아무도 부르지 않는 정의로 남습니다. 하네스에 정의를 지우는 방법이 있으면 함께 지워 주십시오. 정면에서 다가오는 물체를 멈춰 서서 맞는 위험은 남아 있습니다. 이 문제는 다음 진단에서 다룰 사안으로 넘깁니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow the pre-computed way-points; brake (v=0) when a non-static object is within 2.0 m in the ±30° front cone.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.done_align = False\n        controller.blocked = False\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following (unchanged)\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3) Control law (unchanged)\n    if abs(e) > 0.35:\n        v = 0.0\n        w = _clamp(7.5 * e, -2.0, 2.0)\n    else:\n        v = min(1.5, 2.5 * dist + 0.5)\n        w = _clamp(7.5 * e, -2.0, 2.0)\n\n    # 4) Reactive braking on moving objects (front 2D lidar, static map filtered out): stop only, no reversing\n    d_front = _front_dynamic_min_dist(pose)\n    controller.blocked = d_front < (2.2 if controller.blocked else 2.0)\n    if controller.blocked:\n        v = 0.0                                   # stop; keep w so the heading stays on the waypoint\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 16578,
+  "completion_tokens": 1573
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 14218,
+  "total_cost_usd": 0.164076,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1573,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 16576,
+    "webSearchRequests": 0,
+    "costUSD": 0.164076,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 387,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 16576,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "4a699bb5-f88e-431c-9b7b-937032314fe1"
+ }
+}

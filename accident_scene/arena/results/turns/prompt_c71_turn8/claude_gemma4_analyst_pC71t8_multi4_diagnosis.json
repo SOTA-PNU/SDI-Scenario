@@ -1,0 +1,127 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t8_s724350739: 충돌 시 물체 bearing -120°, 거리 0.4m (감지 범위 ±90° 밖)",
+   "c71t8_s338442051: 충돌 시 물체 bearing -124°, 거리 0.42m (감지 범위 ±90° 밖)",
+   "c71t8_s500327565: 충돌 시 물체 bearing 133°, 거리 0.46m (감지 범위 ±90° 밖)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±90° 범위 내의 물체만 감지하고 회피하면 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "발생한 모든 충돌 사례에서 물체가 ±90° 범위를 벗어난 측후방(±120°~140°)에 위치하여 로봇이 이를 무시하고 주행함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 조향 및 감속",
+    "turns": "2",
+    "result": "1/4 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감지 범위를 360°로 확장하여 모든 방향의 움직이는 물체에 대해 속도 감속을 적용하고, 조향 회피는 전방 물체에 대해서만 수행",
+    "new_family": false,
+    "for": "물체가 로봇의 측면이나 후방 모서리에 인접해 있어도 감속을 통해 충돌 가능성을 낮출 수 있음",
+    "risk": "후방의 무관한 물체 때문에 불필요하게 감속되어 주행 시간이 늘어날 수 있음"
+   }
+  ],
+  "chosen": "감지 범위를 360°로 확장하여 모든 방향의 움직이는 물체에 대해 속도 감속을 적용하는 방안. 현재의 모든 충돌이 감지 범위 밖의 물체로 인해 발생했기 때문임.",
+  "target": "_front_dynamic_min_dist 및 controller의 avoiding 로직",
+  "direction": "1. _front_dynamic_min_dist를 _get_dynamic_min으로 변경하고, 앞/뒤 라이다 점을 모두 사용하여 360° 전체에서 가장 가까운 동적 물체를 찾도록 수정합니다. 2. controller에서 d_obj < _AVOID_R 이면 방향과 관계없이 항상 scale을 적용하여 감속합니다. 3. w_avoid(회피 조향)는 물체의 bearing이 ±90° 이내일 때만 계산하여 적용함으로써 후방 물체로 인한 비정상적 조향을 방지합니다. 4. 정지 원뿔(stop cone) 로직은 전방 정면 물체에 대해서만 완전히 정지하도록 그대로 유지합니다. 5. 이를 통해 측면/후방에서 접근하는 물체에 대해 즉각적으로 감속하여 충돌을 방지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t8_s724350739: 충돌 시 물체 bearing -120°, 거리 0.4m (감지 범위 ±90° 밖)\",\n  \"c71t8_s338442051: 충돌 시 물체 bearing -124°, 거리 0.42m (감지 범위 ±90° 밖)\",\n  \"c71t8_s500327565: 충돌 시 물체 bearing 133°, 거리 0.46m (감지 범위 ±90° 밖)\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"전방 ±90° 범위 내의 물체만 감지하고 회피하면 충돌을 피할 수 있다\",\n   \"holds\": false,\n   \"why\": \"발생한 모든 충돌 사례에서 물체가 ±90° 범위를 벗어난 측후방(±120°~140°)에 위치하여 로봇이 이를 무시하고 주행함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"회피 조향 및 감속\",\n   \"turns\": \"2\",\n   \"result\": \"1/4 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"감지 범위를 360°로 확장하여 모든 방향의 움직이는 물체에 대해 속도 감속을 적용하고, 조향 회피는 전방 물체에 대해서만 수행\",\n   \"new_family\": false,\n   \"for\": \"물체가 로봇의 측면이나 후방 모서리에 인접해 있어도 감속을 통해 충돌 가능성을 낮출 수 있음\",\n   \"risk\": \"후방의 무관한 물체 때문에 불필요하게 감속되어 주행 시간이 늘어날 수 있음\"\n  }\n ],\n \"chosen\": \"감지 범위를 360°로 확장하여 모든 방향의 움직이는 물체에 대해 속도 감속을 적용하는 방안. 현재의 모든 충돌이 감지 범위 밖의 물체로 인해 발생했기 때문임.\",\n \"target\": \"_front_dynamic_min_dist 및 controller의 avoiding 로직\",\n \"direction\": \"1. _front_dynamic_min_dist를 _get_dynamic_min으로 변경하고, 앞/뒤 라이다 점을 모두 사용하여 360° 전체에서 가장 가까운 동적 물체를 찾도록 수정합니다. 2. controller에서 d_obj < _AVOID_R 이면 방향과 관계없이 항상 scale을 적용하여 감속합니다. 3. w_avoid(회피 조향)는 물체의 bearing이 ±90° 이내일 때만 계산하여 적용함으로써 후방 물체로 인한 비정상적 조향을 방지합니다. 4. 정지 원뿔(stop cone) 로직은 전방 정면 물체에 대해서만 완전히 정지하도록 그대로 유지합니다. 5. 이를 통해 측면/후방에서 접근하는 물체에 대해 즉각적으로 감속하여 충돌을 방지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t8_s460827482",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 34.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 27.95,
+   "goal_dist_m": 0.6083,
+   "time_to_goal_s": 30.667
+  },
+  {
+   "run": "c71t8_s724350739",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 566.0,
+   "sim_time_s": 18.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.15,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s 회전 +0.3",
+   "partner_rel_xy": [
+    -0.56,
+    -0.5
+   ],
+   "closing_m_s": 0.3,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 9.32,
+   "goal_dist_m": 13.4647,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t8_s338442051",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 547.9,
+   "sim_time_s": 8.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.633,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.76m/s",
+   "partner_rel_xy": [
+    -0.39,
+    -0.59
+   ],
+   "closing_m_s": 0.76,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 28.281,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t8_s500327565",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 539.3,
+   "sim_time_s": 25.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 19.317,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.76m/s",
+   "partner_rel_xy": [
+    -0.43,
+    0.61
+   ],
+   "closing_m_s": 0.68,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 16.65,
+   "goal_dist_m": 9.7401,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 direction 1·2에 따라 `_SIDE_MOMENTUM_BONUS`를 0.2에서 0.5로, `_MOMENTUM_C0`를 0.6에서 0.4로 바꿨습니다. 측면 교차 물체가 있을 때 감속 후보(0.1~0.3 m/s)가 아니라 현재 속도의 80% 이상을 유지하는 후보가 선택되게 해, c7t15 실행처럼 주춤거리다 부딪히는 상황을 줄이려는 것입니다. direction 4에 따라 다른 임계값, `_static_free(critical=True)`, `_ESC_MIN_V`/`_ESC_SURE_GAIN` 로직은 그대로 두었고, `_safe_speed` 안의 docstring에 남은 \"0.6 m\" 표기는 이번 수정에 맞춰 고치지 않았습니다. 주의할 점이 둘 있습니다. 보너스가 0.5이면 예상 외곽 거리가 음수(접촉 예상)인 고속 후보도 정지 후보(c0 − 0.15)를 이길 수 있어 진단이 적은 근접 충돌 위험이 실제로 생기고, 실행당 평균 약 85 s인 현재 주행 시간(10개 합계 600 s 기준 초과)은 이번 변경으로 해결되지 않습니다.\n\n```python\n_SIDE_MOMENTUM_BONUS = 0.5   # 진단 지시(시도 16): 측면 위협 + 고속 주행 중 현재 속도 유지 후보에 주는 예상 거리 보너스 [m] (0.2 -> 0.5)\n\n\n_MOMENTUM_C0 = 0.4       # 진단 지시(시도 16): 측면 momentum 보너스를 주려면 현재 예상 최소거리 c0 가 이 값 이상이어야 함 [m] (0.6 -> 0.4)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 34254,
+  "completion_tokens": 1575
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 16904,
+  "total_cost_usd": 0.30552399999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1575,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 34252,
+    "webSearchRequests": 0,
+    "costUSD": 0.30552399999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 889,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 34252,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "39d6085a-23cc-44e2-b451-20390eceac8e"
+ }
+}

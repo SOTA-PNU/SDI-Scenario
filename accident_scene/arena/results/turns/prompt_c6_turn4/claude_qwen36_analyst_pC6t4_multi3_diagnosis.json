@@ -1,0 +1,136 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1, 3 모두 충돌 직전(4.3~4.6초) 물체가 bearing ±86~96°, 거리 0.5~0.8m 위치에서 로봇을 측면-정면 경계로 접근함",
+   "이 각도에서 ay ≈ 0.8~0.84m로 _HW(0.8m)를 초과해 d_f가 inf로 계산되어 정지 조건(d_f < 1.2)이 작동하지 않음",
+   "로봇은 측면 감지 로직(v < 1.0 제한)만 적용된 채 1.01m/s로 주행 중이었고, 충돌 순간 robot_state는 모두 '주행 0.20m/s'로 늦은 감속 후 충돌 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정적 필터 마진 0.0m이 움직이는 물체 점을 정확히 분리한다",
+    "holds": true,
+    "why": "first_seen_within_2m_t가 0.15~2.45초로 초기에 물체를 잘 감지함"
+   },
+   {
+    "assumption": "폭 0.8m의 정면 통로(_HW) 모니터링만으로 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "bearing ±80~100° 접근 시 ay가 0.8m를 넘어 d_f 체크에서 제외되어 무감속 주행 발생"
+   },
+   {
+    "assumption": "측면 물체(v < 1.0 제한)만으로도 안전하다",
+    "holds": false,
+    "why": "접근 속도 0.5m/s에 로봇 속도 1.0m/s이면 1m 거리에서 0.67초 내 충돌, 감속 반응 시간이 부족함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정면 통로 기반 정지/재개",
+    "turns": "1~4",
+    "result": "통과 0회(최근 3연속 실패), 측면 접근 시 무조건 충돌"
+   },
+   {
+    "family": "전방 넓은 영역 거리 비례 감속",
+    "turns": "미시도",
+    "result": "측면-정면 경계 접근도 포괄해 조속 감속 유도"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방 180°(x > -0.3) 점군 최단 거리 기반 연속 감속/정지",
+    "new_family": true,
+    "for": "bearing ±80~100° 접근도 d_f 계산에 포함되므로 조기에 v를 0으로 수렴하게 함",
+    "risk": "정적 장애물 인접 시 오감속 가능성(정적 필터가 정확하므로 관리 가능)"
+   },
+   {
+    "idea": "TTC(Time-to-Collision) 기반 긴급 제동",
+    "new_family": true,
+    "for": "접근 속도를 직접 계산해 예측 정지",
+    "risk": "라이다 점 간격으로 속도 추정 시 잡음에 민감해 오탐/무반응 동시 발생 가능"
+   },
+   {
+    "idea": "3D 라이다 높이 정보 활용",
+    "new_family": true,
+    "for": "바닥 물체 분리 정확도 향상",
+    "risk": "처리 부하 증가 및 기존 2D 로직과 통합 복잡도 높음"
+   }
+  ],
+  "chosen": "첫 번째 후보 선택: 좁은 통로 체크 대신 전방 180° 넓은 영역을 모니터링하고 거리에 비례해 속도를 서서히 줄이는 방식으로, 측면 접근 시에도 조기에 감속해 충돌을 피할 수 있다.",
+  "target": "controller 내 d_f 계산 조건, 정지/재개 분기, 감속 로직",
+  "direction": "1. _HW 기반 좁은 통로 대신 ax > -0.3 조건으로 전방 180° 점군을 추출한다. 2. 추출된 점의 최단 거리 d_front를 계산한다. 3. d_front < 1.5이면 v = v * (d_front / 1.5)로 비례 감속하고, d_front < 0.8이면 v=0으로 강제 정지한다. 4. 기존 d_f < 1.2 정지/재개 분기와 크리프 로직을 제거하고 거리 기반 연속 감속/재가속으로 대체한다. 5. 측면 물체(|ay| > 0.5)가 d < 1.0에 있으면 즉시 v=0한다. 6. 이렇게 하면 정면-측면 경계 접근 시에도 조기에 감속해 충돌을 피할 수 있다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 1, 3 모두 충돌 직전(4.3~4.6초) 물체가 bearing ±86~96°, 거리 0.5~0.8m 위치에서 로봇을 측면-정면 경계로 접근함\", \"이 각도에서 ay ≈ 0.8~0.84m로 _HW(0.8m)를 초과해 d_f가 inf로 계산되어 정지 조건(d_f < 1.2)이 작동하지 않음\", \"로봇은 측면 감지 로직(v < 1.0 제한)만 적용된 채 1.01m/s로 주행 중이었고, 충돌 순간 robot_state는 모두 '주행 0.20m/s'로 늦은 감속 후 충돌 발생\"], \"assumptions\": [{\"assumption\": \"정적 필터 마진 0.0m이 움직이는 물체 점을 정확히 분리한다\", \"holds\": true, \"why\": \"first_seen_within_2m_t가 0.15~2.45초로 초기에 물체를 잘 감지함\"}, {\"assumption\": \"폭 0.8m의 정면 통로(_HW) 모니터링만으로 충돌을 피할 수 있다\", \"holds\": false, \"why\": \"bearing ±80~100° 접근 시 ay가 0.8m를 넘어 d_f 체크에서 제외되어 무감속 주행 발생\"}, {\"assumption\": \"측면 물체(v < 1.0 제한)만으로도 안전하다\", \"holds\": false, \"why\": \"접근 속도 0.5m/s에 로봇 속도 1.0m/s이면 1m 거리에서 0.67초 내 충돌, 감속 반응 시간이 부족함\"}], \"approach_families\": [{\"family\": \"정면 통로 기반 정지/재개\", \"turns\": \"1~4\", \"result\": \"통과 0회(최근 3연속 실패), 측면 접근 시 무조건 충돌\"}, {\"family\": \"전방 넓은 영역 거리 비례 감속\", \"turns\": \"미시도\", \"result\": \"측면-정면 경계 접근도 포괄해 조속 감속 유도\"}], \"candidates\": [{\"idea\": \"전방 180°(x > -0.3) 점군 최단 거리 기반 연속 감속/정지\", \"new_family\": true, \"for\": \"bearing ±80~100° 접근도 d_f 계산에 포함되므로 조기에 v를 0으로 수렴하게 함\", \"risk\": \"정적 장애물 인접 시 오감속 가능성(정적 필터가 정확하므로 관리 가능)\"}, {\"idea\": \"TTC(Time-to-Collision) 기반 긴급 제동\", \"new_family\": true, \"for\": \"접근 속도를 직접 계산해 예측 정지\", \"risk\": \"라이다 점 간격으로 속도 추정 시 잡음에 민감해 오탐/무반응 동시 발생 가능\"}, {\"idea\": \"3D 라이다 높이 정보 활용\", \"new_family\": true, \"for\": \"바닥 물체 분리 정확도 향상\", \"risk\": \"처리 부하 증가 및 기존 2D 로직과 통합 복잡도 높음\"}], \"chosen\": \"첫 번째 후보 선택: 좁은 통로 체크 대신 전방 180° 넓은 영역을 모니터링하고 거리에 비례해 속도를 서서히 줄이는 방식으로, 측면 접근 시에도 조기에 감속해 충돌을 피할 수 있다.\", \"target\": \"controller 내 d_f 계산 조건, 정지/재개 분기, 감속 로직\", \"direction\": \"1. _HW 기반 좁은 통로 대신 ax > -0.3 조건으로 전방 180° 점군을 추출한다. 2. 추출된 점의 최단 거리 d_front를 계산한다. 3. d_front < 1.5이면 v = v * (d_front / 1.5)로 비례 감속하고, d_front < 0.8이면 v=0으로 강제 정지한다. 4. 기존 d_f < 1.2 정지/재개 분기와 크리프 로직을 제거하고 거리 기반 연속 감속/재가속으로 대체한다. 5. 측면 물체(|ay| > 0.5)가 d < 1.0에 있으면 즉시 v=0한다. 6. 이렇게 하면 정면-측면 경계 접근 시에도 조기에 감속해 충돌을 피할 수 있다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t4_s766033269",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.783,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.14,
+    0.57
+   ],
+   "closing_m_s": 0.48,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 2.45,
+   "goal_dist_m": 32.0628,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t4_s358304635",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 589.2,
+   "sim_time_s": 30.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 24.033,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.12,
+    -0.55
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 19.12,
+   "goal_dist_m": 20.4272,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t4_s945803492",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 559.2,
+   "sim_time_s": 11.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.117,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.12,
+    0.58
+   ],
+   "closing_m_s": 0.55,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.15,
+   "goal_dist_m": 31.4977,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

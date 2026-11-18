@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_STATIC_MARGIN을 0.15에서 0.05 m로 줄인다\", \"implemented\": true, \"note\": \"_STATIC_MARGIN = 0.05로 바뀌었다. _build_static_rects와 _dynamic_world의 벽 판정에 모두 반영된다\"},\n  {\"instruction\": \"매 스텝 _watch_min으로 d_min, b_min을 구한다\", \"implemented\": true, \"note\": \"controller가 매 호출마다 d_min, b_min, _x_min = _watch_min(dyn_r)를 계산한다\"},\n  {\"instruction\": \"v_cmd = v_nom * max(0, min(1, (d_min-0.6)/0.9))로 계산해 0.6 m 이하에서 정지한다\", \"implemented\": true, \"note\": \"_GOV_D0=0.6, _GOV_SPAN=0.9로 scale을 계산하고 v_cmd = v_nom * scale이다\"},\n  {\"instruction\": \"경유점 조향에 w_rep = -1.5*sign(b_min)/max(d_min,0.5)를 더하고 |w|를 1.5 이하로 제한한다\", \"implemented\": true, \"note\": \"w_cmd = _clamp(w_nom + w_rep, -1.5, 1.5)이다. b_min=0이면 side=+1로 처리한다\"},\n  {\"instruction\": \"d_min >= 1.5 m이면 반발을 0으로 두고 정상 추종으로 복귀한다\", \"implemented\": true, \"note\": \"d_min이 inf이거나 _GOV_FULL_D(1.5) 이상이면 (v_nom, w_nom)을 그대로 반환한다\"},\n  {\"instruction\": \"controller.evading 등 이진 상태를 제거하고 매 스텝 순수 계산한다\", \"implemented\": true, \"note\": \"evading 초기화·갱신과 후진·제자리 회전 분기가 삭제됐다. 남은 상태는 경유점 인덱스 idx뿐이다\"},\n  {\"instruction\": \"_front_blocked는 유지하되 v_cmd가 0일 때만 적용한다\", \"implemented\": true, \"note\": \"v_cmd <= 0일 때만 _front_blocked(raw)를 확인하고, 막혀 있으면 w_cmd = 0으로 둔다\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"정지 기준 0.6 m가 로봇 중심 거리라서 옆면(0.34 m) 기준 여유가 약 0.26 m뿐이다. 정지한 뒤에도 물체가 다가오면 피하지 못한다\",\n  \"반발 조향은 코를 물체 반대로 돌리는 방식이라, 뒤쪽 감시 영역의 물체에는 꼬리가 오히려 물체 쪽으로 갈 수 있다\",\n  \"마진을 0.05 m로 줄이면 라이다 잡음이나 자세 지연으로 벽·선반 점이 움직이는 점으로 잡혀 불필요한 감속이 생길 수 있다. 과다 필터링이 원인이라는 근거도 추정이다\",\n  \"v_nom이 0인 경우(방향 오차 0.35 rad 초과, 목표 정렬 중)에도 w_rep가 더해져 정렬이 늦어지거나 흔들릴 수 있다\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 42162,
+  "completion_tokens": 2730
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 26315,
+  "total_cost_usd": 0.391888,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2730,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 42160,
+    "webSearchRequests": 0,
+    "costUSD": 0.391888,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1514,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 42160,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "e8b5fc3e-a617-4562-bb45-867e920b9121"
+ }
+}

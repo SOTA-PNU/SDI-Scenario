@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 target 인 `_SIDE_MOMENTUM_BONUS` 와 `_MOMENTUM_C0` 를 direction 대로 시도 14(7/7 통과) 때 값으로 되돌렸습니다. 보너스는 0.5 → 0.2, 임계값은 0.4 → 0.6 입니다. 시도 16에서는 큰 보너스와 낮은 임계값 때문에 측면 물체가 이미 가까울 때도 0.35 m/s 안팎의 어중간한 속도 유지가 정지·후진보다 유리하게 계산됐고, 그 결과 mover_03 이 측면을 들이받았습니다. 이제 c0 가 0.6 m 이상일 때만 작은 보너스를 주므로, 물체가 가까우면 예상 거리만으로 감속·정지·후진을 고릅니다. 다른 로직은 바꾸지 않았습니다.\n\n```python\n_SIDE_MOMENTUM_BONUS = 0.2   # 진단 지시(시도 17): 측면 위협 + 고속 주행 중 현재 속도 유지 후보에 주는 예상 거리 보너스 [m] (0.5 -> 0.2, 시도 14 값으로 환원)\n\n\n_MOMENTUM_C0 = 0.6       # 진단 지시(시도 17): 측면 momentum 보너스를 주려면 현재 예상 최소거리 c0 가 이 값 이상이어야 함 [m] (0.4 -> 0.6, 시도 14 값으로 환원)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 34091,
+  "completion_tokens": 802
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 9065,
+  "total_cost_usd": 0.28876,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 802,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 34089,
+    "webSearchRequests": 0,
+    "costUSD": 0.28876,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 253,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 34089,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "34297bbd-2839-4740-ad33-4d6482bf1c47"
+ }
+}

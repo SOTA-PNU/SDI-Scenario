@@ -1,0 +1,159 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 2~4 모두 충돌 시 robot_state가 '주행 0.10~0.11m/s' 또는 '회전 +0.3'이며, 이는 코드 내 _LAT_V(0.1)와 _LAT_W(0.3) 반환값과 정확히 일치함",
+   "partner_rel_xy의 y값이 양수(로봇 기준 좌측)인 반면 충돌 시 회전 방향이 +0.3(좌회전)으로, 물체 쪽으로 회전해 충돌함",
+   "first_seen_within_2m_t가 3.25~15.42초로 조기에 감지되었으나, 정지 래치 해제 후의 측면 천이 로직이 안전 거리를 확보하지 못해 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 천이 회전 방향이 물체 반대쪽이다",
+    "holds": false,
+    "why": "w=_LAT_W*side 로 b_min>0(좌측) 시 w>0(좌회전) 되어 물체 쪽으로 회전함"
+   },
+   {
+    "assumption": "정지 중 v=0.1 서행은 안전하다",
+    "holds": false,
+    "why": "d_min<1.0m 상태에서 전진하면 물체와 충돌 확률이 높음(실행 2~4 모두 v~0.1m/s 충돌)"
+   },
+   {
+    "assumption": "정적 필터링이 정확히 동작한다",
+    "holds": true,
+    "why": "first_seen 시각과 충돌 전 라이다 기록이 일관되게 움직이는 물체를 조기에 감지함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지/재개+타이머",
+    "turns": "1~13,15~17",
+    "result": "최대 5/8 통과, 정지 중 또는 재가속 시 충돌 다수"
+   },
+   {
+    "family": "연속 반발/감속",
+    "turns": "14,19",
+    "result": "최대 5/8 통과, 저속 주행 중 충돌"
+   },
+   {
+    "family": "측면 천이/크리프",
+    "turns": "21(현재)",
+    "result": "1/4 통과, 회전 방향 오류로 정지 중 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "후진 우선 능동 회피",
+    "new_family": true,
+    "for": "정지 중 전진 제거 및 반대 방향 회전으로 충돌 경로 이탈, 후진으로 물체 진행 공간 확보",
+    "risk": "뒤쪽 정적 장애물 오감지 시 후진 실패, 회전 중 물체가 교차할 경우 충돌"
+   },
+   {
+    "idea": "측면 천이 방향 수정 및 v=0 고정",
+    "new_family": false,
+    "for": "기존 로직 유지하면서 회전 방향만 반전해 물체 반대쪽 회피",
+    "risk": "제자리 회전만으로는 좁은 통로에서 물체 통과 대기 시간이 길어 stall 가능성"
+   },
+   {
+    "idea": "정지 조건 완화 및 연속 반발 강화",
+    "new_family": false,
+    "for": "정지 대신 저속 서행 유지로 진행성 확보",
+    "risk": "이전 시도(턴 14,19)에서 저속 주행 중 충돌이 반복됨"
+   }
+  ],
+  "chosen": "후진 우선 능동 회피를 선택한다. 정지 중 전진 크리프와 방향 오류 회전을 제거하고, 후진 가능 시 직선 후진으로 물체 경로 이탈, 불가 시 반대 방향 제자리 회전으로 안전한 대기 공간을 확보하기 때문이다.",
+  "target": "controller 정지 래치 분기 및 _evade_cmd 로직",
+  "direction": "정지 래치 내 측면 천이(_LAT_V, _LAT_W) 분기를 제거한다. 정지 누적 시간 0.5초 경과 시 _rear_gap(raw) >= 1.0이면 v=-0.15, w=0.0으로 직선 후진한다. 뒤쪽이 막혔으면 v=0.0, w=-0.5*(1.0 if b_min >= 0.0 else -1.0)으로 물체 반대 방향 제자리 회전한다. 회피 중 전진 속도를 0.0으로 고정해 회전 시 충돌을 차단한다. 재개 조건은 기존 d_min > 1.5m 가 0.5초 지속될 때로 유지한다. 이 로직은 정지 상태를 깨며 물체 진행 경로에서 안전하게 이탈시킨다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 2~4 모두 충돌 시 robot_state가 '주행 0.10~0.11m/s' 또는 '회전 +0.3'이며, 이는 코드 내 _LAT_V(0.1)와 _LAT_W(0.3) 반환값과 정확히 일치함\", \"partner_rel_xy의 y값이 양수(로봇 기준 좌측)인 반면 충돌 시 회전 방향이 +0.3(좌회전)으로, 물체 쪽으로 회전해 충돌함\", \"first_seen_within_2m_t가 3.25~15.42초로 조기에 감지되었으나, 정지 래치 해제 후의 측면 천이 로직이 안전 거리를 확보하지 못해 충돌함\"], \"assumptions\": [{\"assumption\": \"측면 천이 회전 방향이 물체 반대쪽이다\", \"holds\": false, \"why\": \"w=_LAT_W*side 로 b_min>0(좌측) 시 w>0(좌회전) 되어 물체 쪽으로 회전함\"}, {\"assumption\": \"정지 중 v=0.1 서행은 안전하다\", \"holds\": false, \"why\": \"d_min<1.0m 상태에서 전진하면 물체와 충돌 확률이 높음(실행 2~4 모두 v~0.1m/s 충돌)\"}, {\"assumption\": \"정적 필터링이 정확히 동작한다\", \"holds\": true, \"why\": \"first_seen 시각과 충돌 전 라이다 기록이 일관되게 움직이는 물체를 조기에 감지함\"}], \"approach_families\": [{\"family\": \"이진 정지/재개+타이머\", \"turns\": \"1~13,15~17\", \"result\": \"최대 5/8 통과, 정지 중 또는 재가속 시 충돌 다수\"}, {\"family\": \"연속 반발/감속\", \"turns\": \"14,19\", \"result\": \"최대 5/8 통과, 저속 주행 중 충돌\"}, {\"family\": \"측면 천이/크리프\", \"turns\": \"21(현재)\", \"result\": \"1/4 통과, 회전 방향 오류로 정지 중 충돌\"}], \"candidates\": [{\"idea\": \"후진 우선 능동 회피\", \"new_family\": true, \"for\": \"정지 중 전진 제거 및 반대 방향 회전으로 충돌 경로 이탈, 후진으로 물체 진행 공간 확보\", \"risk\": \"뒤쪽 정적 장애물 오감지 시 후진 실패, 회전 중 물체가 교차할 경우 충돌\"}, {\"idea\": \"측면 천이 방향 수정 및 v=0 고정\", \"new_family\": false, \"for\": \"기존 로직 유지하면서 회전 방향만 반전해 물체 반대쪽 회피\", \"risk\": \"제자리 회전만으로는 좁은 통로에서 물체 통과 대기 시간이 길어 stall 가능성\"}, {\"idea\": \"정지 조건 완화 및 연속 반발 강화\", \"new_family\": false, \"for\": \"정지 대신 저속 서행 유지로 진행성 확보\", \"risk\": \"이전 시도(턴 14,19)에서 저속 주행 중 충돌이 반복됨\"}], \"chosen\": \"후진 우선 능동 회피를 선택한다. 정지 중 전진 크리프와 방향 오류 회전을 제거하고, 후진 가능 시 직선 후진으로 물체 경로 이탈, 불가 시 반대 방향 제자리 회전으로 안전한 대기 공간을 확보하기 때문이다.\", \"target\": \"controller 정지 래치 분기 및 _evade_cmd 로직\", \"direction\": \"정지 래치 내 측면 천이(_LAT_V, _LAT_W) 분기를 제거한다. 정지 누적 시간 0.5초 경과 시 _rear_gap(raw) >= 1.0이면 v=-0.15, w=0.0으로 직선 후진한다. 뒤쪽이 막혔으면 v=0.0, w=-0.5*(1.0 if b_min >= 0.0 else -1.0)으로 물체 반대 방향 제자리 회전한다. 회피 중 전진 속도를 0.0으로 고정해 회전 시 충돌을 차단한다. 재개 조건은 기존 d_min > 1.5m 가 0.5초 지속될 때로 유지한다. 이 로직은 정지 상태를 깨며 물체 진행 경로에서 안전하게 이탈시킨다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t21_s29018816",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 69.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 63.12,
+   "goal_dist_m": 0.2261,
+   "time_to_goal_s": 65.1
+  },
+  {
+   "run": "c6t21_s449261287",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 530.9,
+   "sim_time_s": 14.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.2,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.11m/s",
+   "partner_rel_xy": [
+    0.36,
+    0.53
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 3.25,
+   "goal_dist_m": 32.3548,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t21_s276345151",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 516.7,
+   "sim_time_s": 24.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 18.9,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.10m/s",
+   "partner_rel_xy": [
+    -0.03,
+    0.58
+   ],
+   "closing_m_s": 0.36,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 13.95,
+   "goal_dist_m": 32.1118,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t21_s109396719",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 491.8,
+   "sim_time_s": 26.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 20.333,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.10m/s 회전 +0.3",
+   "partner_rel_xy": [
+    0.45,
+    0.42
+   ],
+   "closing_m_s": 0.34,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 15.42,
+   "goal_dist_m": 30.4729,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

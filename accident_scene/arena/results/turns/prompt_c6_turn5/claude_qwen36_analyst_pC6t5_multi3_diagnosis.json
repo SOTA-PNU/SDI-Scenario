@@ -1,0 +1,132 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 3개 모두 stall_abort로 종료(84~98초). 60초 창내 이동거리 0.29m 미만.",
+   "last_5s 기록에서 로봇이 연속 정지 상태이나, 지도에 없는 최근접 물체는 2.2~3.6m 떨어져 있음(HARD_STOP=0.8, SIDE_STOP=1.0 초과).",
+   "stop 조건이 지속触发되나 재개 로직이 없어 무한 정지. _STATIC_MARGIN=0.0으로 정적 장애물 경계 점이 움직이는 물체로 오탐되어 stop을 고정시킨 것으로 판단됨."
+  ],
+  "assumptions": [
+   {
+    "assumption": "정적 사각형 경계에 0.0 여유만 주면 정적/움직이는 점을 완벽 분리할 수 있다",
+    "holds": false,
+    "why": "라이다 잡음과 로봇 자세 오차로 정적 구조물 경계 점이 사각형 밖으로 나와 움직이는 점으로 분류되어 stop을 고정触发함"
+   },
+   {
+    "assumption": "d_front > 0.8이 되면 코드 구조상 자연스럽게 주행이 재개된다",
+    "holds": false,
+    "why": "오탐 정적 점이 0.8m 내로 유지되면 stop이 풀리지 않고, 크리프/타이머 로직이 제거되어 탈출 경로가 없음"
+   },
+   {
+    "assumption": "측면 물체 1.0m 이내 정지 조건이 실제 회피에 필수적이다",
+    "holds": false,
+    "why": "전방 180° 감시와 비례 감속으로 대부분 커버 가능하며, 측면 임계값이 정적 선반 모서리와 충돌해 불필요한 정지를 유발함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 임계값 기반 정지/재개",
+    "turns": "턴 1~3, 5",
+    "result": "통과 0개, stall/collision 반복"
+   },
+   {
+    "family": "정지 타이머/크리프/회피 기반",
+    "turns": "턴 4",
+    "result": "통과 0개, collision 누적"
+   },
+   {
+    "family": "TTC(접근 시간) 기반 동적 감속",
+    "turns": "미시도",
+    "result": "미검증"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_STATIC_MARGIN을 0.15로 복원하고, 정지 누적 1.5초 후 크리프/회전 강제 탈출",
+    "new_family": false,
+    "for": "오탐 정지 고정 문제를 직접 해결하며, 기존 거리 기반 감속의 안정성을 유지함",
+    "risk": "크리프 속도가 빠르면 실제 물체와 충돌할 수 있으나 0.1m/s로 낮추면 안전"
+   },
+   {
+    "idea": "거리 임계값 대신 TTC < 2.0s 기준으로 감속/정지, 정지 시 접근 방향 반대 회피",
+    "new_family": true,
+    "for": "속도 고려로 정적 오탐에 덜 민감하고, 동적 물체에 더 자연스럽게 반응함",
+    "risk": "TTC 계산에 속도 추정 오차가 들어가면 과민 반응 또는 늦은 정지 발생 가능"
+   },
+   {
+    "idea": "정적 필터링을 사각형 매칭 대신 최근접 정적 장애물 거리 클러스터링으로 변경",
+    "new_family": true,
+    "for": "정적 구조물 형태 불일치로 인한 오탐을 근본적으로 줄일 수 있음",
+    "risk": "계산 부하 증가 및 코드 복잡도 상승, 실시간 60Hz 제어에서 지연 발생 가능"
+   }
+  ],
+  "chosen": "후보 1을 선택. 오탐 정지 고정 문제를 가장 직접적으로 해결하고, 수정 에이전트가 기존 구조를 최소 변경으로 안정화할 수 있음.",
+  "target": "controller, _STATIC_MARGIN, 정지/재개 로직",
+  "direction": "_STATIC_MARGIN을 0.15로 복원하여 정적 장애물 경계 오탐을 줄인다. stop 플래그 대신 d_front < 0.8일 때 v를 0으로 하고 blocked_t를 기록한다. 정지 누적 시간 1.5초가 지나면 near 거리와 무관하게 v=0.1 크리프 또는 w=0.5 회전을 강제해 데드락을 깨는다. 재개는 d_front > 1.2가 0.5초 지속될 때만 허용하여 진동을 방지한다. 측면 정지 조건(_SIDE_STOP)을 제거하고 전방 180° 거리 비례 감속으로 통합한다. 이를 통해 오탐 정지에 갇히지 않으면서 실제 물체는 안전하게 피할 수 있다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"실행 3개 모두 stall_abort로 종료(84~98초). 60초 창내 이동거리 0.29m 미만.\",\n    \"last_5s 기록에서 로봇이 연속 정지 상태이나, 지도에 없는 최근접 물체는 2.2~3.6m 떨어져 있음(HARD_STOP=0.8, SIDE_STOP=1.0 초과).\",\n    \"stop 조건이 지속触发되나 재개 로직이 없어 무한 정지. _STATIC_MARGIN=0.0으로 정적 장애물 경계 점이 움직이는 물체로 오탐되어 stop을 고정시킨 것으로 판단됨.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"정적 사각형 경계에 0.0 여유만 주면 정적/움직이는 점을 완벽 분리할 수 있다\",\n      \"holds\": false,\n      \"why\": \"라이다 잡음과 로봇 자세 오차로 정적 구조물 경계 점이 사각형 밖으로 나와 움직이는 점으로 분류되어 stop을 고정触发함\"\n    },\n    {\n      \"assumption\": \"d_front > 0.8이 되면 코드 구조상 자연스럽게 주행이 재개된다\",\n      \"holds\": false,\n      \"why\": \"오탐 정적 점이 0.8m 내로 유지되면 stop이 풀리지 않고, 크리프/타이머 로직이 제거되어 탈출 경로가 없음\"\n    },\n    {\n      \"assumption\": \"측면 물체 1.0m 이내 정지 조건이 실제 회피에 필수적이다\",\n      \"holds\": false,\n      \"why\": \"전방 180° 감시와 비례 감속으로 대부분 커버 가능하며, 측면 임계값이 정적 선반 모서리와 충돌해 불필요한 정지를 유발함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"거리 임계값 기반 정지/재개\",\n      \"turns\": \"턴 1~3, 5\",\n      \"result\": \"통과 0개, stall/collision 반복\"\n    },\n    {\n      \"family\": \"정지 타이머/크리프/회피 기반\",\n      \"turns\": \"턴 4\",\n      \"result\": \"통과 0개, collision 누적\"\n    },\n    {\n      \"family\": \"TTC(접근 시간) 기반 동적 감속\",\n      \"turns\": \"미시도\",\n      \"result\": \"미검증\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"_STATIC_MARGIN을 0.15로 복원하고, 정지 누적 1.5초 후 크리프/회전 강제 탈출\",\n      \"new_family\": false,\n      \"for\": \"오탐 정지 고정 문제를 직접 해결하며, 기존 거리 기반 감속의 안정성을 유지함\",\n      \"risk\": \"크리프 속도가 빠르면 실제 물체와 충돌할 수 있으나 0.1m/s로 낮추면 안전\"\n    },\n    {\n      \"idea\": \"거리 임계값 대신 TTC < 2.0s 기준으로 감속/정지, 정지 시 접근 방향 반대 회피\",\n      \"new_family\": true,\n      \"for\": \"속도 고려로 정적 오탐에 덜 민감하고, 동적 물체에 더 자연스럽게 반응함\",\n      \"risk\": \"TTC 계산에 속도 추정 오차가 들어가면 과민 반응 또는 늦은 정지 발생 가능\"\n    },\n    {\n      \"idea\": \"정적 필터링을 사각형 매칭 대신 최근접 정적 장애물 거리 클러스터링으로 변경\",\n      \"new_family\": true,\n      \"for\": \"정적 구조물 형태 불일치로 인한 오탐을 근본적으로 줄일 수 있음\",\n      \"risk\": \"계산 부하 증가 및 코드 복잡도 상승, 실시간 60Hz 제어에서 지연 발생 가능\"\n    }\n  ],\n  \"chosen\": \"후보 1을 선택. 오탐 정지 고정 문제를 가장 직접적으로 해결하고, 수정 에이전트가 기존 구조를 최소 변경으로 안정화할 수 있음.\",\n  \"target\": \"controller, _STATIC_MARGIN, 정지/재개 로직\",\n  \"direction\": \"_STATIC_MARGIN을 0.15로 복원하여 정적 장애물 경계 오탐을 줄인다. stop 플래그 대신 d_front < 0.8일 때 v를 0으로 하고 blocked_t를 기록한다. 정지 누적 시간 1.5초가 지나면 near 거리와 무관하게 v=0.1 크리프 또는 w=0.5 회전을 강제해 데드락을 깨는다. 재개는 d_front > 1.2가 0.5초 지속될 때만 허용하여 진동을 방지한다. 측면 정지 조건(_SIDE_STOP)을 제거하고 전방 180° 거리 비례 감속으로 통합한다. 이를 통해 오탐 정지에 갇히지 않으면서 실제 물체는 안전하게 피할 수 있다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c6t5_s1413518925",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 99.3,
+   "stall_abort_t": 98.3,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 9.6314,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t5_s1068784460",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 500.7,
+   "sim_time_s": 87.4,
+   "stall_abort_t": 86.35,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.6224,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t5_s974462999",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 413.3,
+   "sim_time_s": 84.9,
+   "stall_abort_t": 83.88,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.6238,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

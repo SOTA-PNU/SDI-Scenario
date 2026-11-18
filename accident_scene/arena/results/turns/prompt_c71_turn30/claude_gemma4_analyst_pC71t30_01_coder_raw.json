@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1에 맞춰 `_speed_caps`를 고쳤습니다. 근접(gj < `_NEAR_GAP`) 시의 0.3 m/s 전진 제한은 이제 물체가 정면 쪽(nx > `_NEAR_NX` = 0.5)에 있을 때만 걸립니다. 측면 물체 옆에서 저속으로 머물다 부딪히던 일을 막고 빠르게 빠져나가게 하려는 것입니다. 이를 위해 nx를 먼저 계산하고 그 뒤에 제한을 판정하도록 순서를 바꿨습니다. direction 2–4에 따라 예측 마진 `_G_SAFE` 0.4→0.5, `_G_GROW` 0.15→0.2, 척력 진입 거리 `_REPULSE_GAP` 0.8→1.0, 척력 score의 진행도 가중치 `_K_PROG_REP` 0.12→0.05로 바꿨습니다. 그 결과 더 일찍, 거리 확보를 우선해 회피합니다.\n\n```python\ndef _speed_caps(t, pose):\n    \"\"\"Dynamic speed cap (diagnosis direction): returns (v_hi >= 0, v_lo <= 0) [m/s].\n    For every tracked moving object: nearest point to the chassis rectangle -> gap g and unit normal n (robot\n    frame, from the chassis toward the object); object closing speed c_obj = -(n . u); total closing speed with\n    the measured robot speed; TTC = g / closing. Attempt 30 direction 1: the near cap v_hi <= _V_NEAR_CAP for\n    g < _NEAR_GAP applies only when the object is ahead (n_x > _NEAR_NX), so side objects do not pin the robot at\n    low speed inside the danger zone. If TTC < _TTC_CAP or g < _CAP_NEAR, the allowed robot closing contribution\n    is min(sqrt(2 * _A_CAP * (g - _G_CAP0)), (g - _G_CAP0) / _TTC_MIN) - max(c_obj, 0) (>= 0); the robot's\n    forward speed adds v * n_x to the closing speed, so v <= allow / n_x for objects ahead (n_x > 0) and\n    v >= -allow / |n_x| for objects behind. Goes to 0 as g -> _G_CAP0.\"\"\"\n    v_hi, v_lo = _V_MAX, -_V_MAX\n    v_r = float(_MV[\"v_est\"])\n    for P, u, mv in _mover_set(t, pose):\n        if not mv or len(P) == 0:\n            continue\n        bx = np.clip(P[:, 0], _BODY[0], _BODY[1])\n        by = np.clip(P[:, 1], _BODY[2], _BODY[3])\n        dx, dy = P[:, 0] - bx, P[:, 1] - by\n        g = np.hypot(dx, dy)\n        j = int(np.argmin(g))\n        gj = float(g[j])\n        if gj > 1e-3:\n            nx, ny = float(dx[j]) / gj, float(dy[j]) / gj\n        else:\n            cx, cy = float(P[j, 0]) + 0.225, float(P[j, 1])\n            nn = math.hypot(cx, cy)\n            nx, ny = (cx / nn, cy / nn) if nn > 1e-6 else (1.0, 0.0)\n        if gj < _NEAR_GAP and nx > _NEAR_NX:\n            v_hi = min(v_hi, _V_NEAR_CAP)\n        c_obj = -(nx * float(u[0]) + ny * float(u[1]))\n        close = c_obj + v_r * nx\n        ttc = gj / close if close > 1e-3 else float(\"inf\")\n        if ttc >= _TTC_CAP and gj >= _CAP_NEAR:\n            continue\n        room = max(gj - _G_CAP0, 0.0)\n        c_lim = min(math.sqrt(2.0 * _A_CAP * room), room / _TTC_MIN)\n        allow = max(c_lim - max(c_obj, 0.0), 0.0)\n        if nx > _NX_MIN:\n            v_hi = min(v_hi, allow / nx)\n        elif nx < -_NX_MIN:\n            v_lo = max(v_lo, -allow / (-nx))\n    return max(v_hi, 0.0), min(v_lo, 0.0)\n\n\n_G_SAFE = 0.5       # required gap chassis - moving object at tau = 0 [m] (0.4 -> 0.5, attempt 30 diagnosis direction 2)\n\n\n_G_GROW = 0.2       # required gap growth with prediction time [m/s] (0.15 -> 0.2, attempt 30 diagnosis direction 2)\n\n\n_REPULSE_GAP = 1.0  # moving object closer than this -> repulsion has priority [m] (0.8 -> 1.0, attempt 30 diagnosis direction 3)\n\n\n_K_PROG_REP = 0.05  # progress weight in the repulse score (0.12 -> 0.05, attempt 30 diagnosis direction 4)\n\n\n_NEAR_NX = 0.5      # the near cap _V_NEAR_CAP applies only to objects with chassis normal n_x above this (ahead) (attempt 30 diagnosis direction 1)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 46249,
+  "completion_tokens": 2191
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 17489,
+  "total_cost_usd": 0.413804,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2191,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 46247,
+    "webSearchRequests": 0,
+    "costUSD": 0.413804,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 340,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 46247,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "a2573554-4a58-42dc-9505-2f33001edbbb"
+ }
+}

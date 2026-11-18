@@ -1,0 +1,202 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t20_s872834747: t=17.267, v=1.52m/s, 물체 상대위치 [-0.2, 0.59], 접근속도 0.66m/s로 전방 좌측 충돌",
+   "c71t20_s1066282197: t=5.667, v=1.20m/s, 물체 상대위치 [0.07, 0.56], 접근속도 0.72m/s로 전방 좌측 충돌",
+   "c71t20_s1061324590: t=43.633, v=1.35m/s, 물체 상대위치 [0.45, -0.28], 접근속도 0.24m/s로 전방 우측 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "안전 필터의 롤아웃 예측이 충돌을 사전에 감지하고 회피 후보를 찾을 수 있다",
+    "holds": false,
+    "why": "물체가 감지되었음에도(first_seen_within_2m_t 확인) 로봇이 v > 1.2m/s의 고속을 유지하며 충돌함"
+   },
+   {
+    "assumption": "현재의 후보군(cand) 세트가 안전한 회피 기동을 충분히 포함하고 있다",
+    "holds": false,
+    "why": "고속 주행 중 물체가 접근할 때 속도를 충분히 줄이는 후보보다 전진 성능(prog)이 높은 후보가 선택된 것으로 보임"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 거리 기반 정지/감속",
+    "turns": "1~15",
+    "result": "stalls 및 측면 충돌 빈번"
+   },
+   {
+    "family": "능동 회피 및 속도 하한(Floor) 설정",
+    "turns": "16~20",
+    "result": "통과율 상승 중이나 고속 주행 시 반응성 부족으로 충돌"
+   },
+   {
+    "family": "예측 기반 안전 필터",
+    "turns": "1",
+    "result": "4/7 통과, 고속 접근 상황에서 제동 타이밍 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "상대 속도를 반영한 동적 속도 캡(Dynamic Speed Cap) 도입",
+    "new_family": true,
+    "for": "단순 거리가 아니라 '충돌 시간(TTC)' 개념을 도입하여, 접근 속도가 빠를수록 최대 허용 속도를 강하게 제한함으로써 물리적인 제동 거리 확보 가능",
+    "risk": "너무 보수적으로 설정할 경우 주행 시간이 늘어나 time_limit에 걸릴 수 있음"
+   },
+   {
+    "idea": "안전 필터의 후보군(cand) 밀도 상향 및 가중치 조정",
+    "new_family": false,
+    "for": "더 세밀한 v, w 조합을 탐색하고, 충돌 위험 시 prog(전진성)보다 gap 확보에 더 높은 가중치를 부여",
+    "risk": "계산량 증가 및 근본적인 고속 진입 문제 해결에 한계가 있을 수 있음"
+   }
+  ],
+  "chosen": "후보 1. 모든 실패 사례에서 v > 1.2m/s의 고속 주행 중 충돌이 발생했으므로, 상대 속도에 기반해 물리적으로 제동 가능한 속도로 상한선을 긋는 것이 가장 확실한 해결책임",
+  "target": "_safety_filter 및 속도 제한 로직",
+  "direction": "가장 가까운 물체의 상대 속도(closing speed)와 거리를 이용해 동적 속도 상한선 v_cap을 계산합니다. TTC(거리/접근속도)가 임계값(예: 2.0s) 미만으로 떨어지면 v_nom과 안전 필터의 모든 후보 v를 v_cap으로 제한합니다. v_cap은 거리와 접근 속도의 함수로, 매우 가까워지면 0에 수렴하게 설계합니다. 특히 척력(repulse) 모드에서도 v_cap을 적용하여, 무조건적인 v_evade_min 강제가 아닌 안전한 범위 내에서의 탈출을 유도합니다. 이를 통해 고속으로 물체에 돌진하는 상황을 원천적으로 차단합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t20_s872834747: t=17.267, v=1.52m/s, 물체 상대위치 [-0.2, 0.59], 접근속도 0.66m/s로 전방 좌측 충돌\",\n  \"c71t20_s1066282197: t=5.667, v=1.20m/s, 물체 상대위치 [0.07, 0.56], 접근속도 0.72m/s로 전방 좌측 충돌\",\n  \"c71t20_s1061324590: t=43.633, v=1.35m/s, 물체 상대위치 [0.45, -0.28], 접근속도 0.24m/s로 전방 우측 충돌\"\n ],\n \"assumptions\": [\n  {\n    \"assumption\": \"안전 필터의 롤아웃 예측이 충돌을 사전에 감지하고 회피 후보를 찾을 수 있다\",\n    \"holds\": false,\n    \"why\": \"물체가 감지되었음에도(first_seen_within_2m_t 확인) 로봇이 v > 1.2m/s의 고속을 유지하며 충돌함\"\n  },\n  {\n    \"assumption\": \"현재의 후보군(cand) 세트가 안전한 회피 기동을 충분히 포함하고 있다\",\n    \"holds\": false,\n    \"why\": \"고속 주행 중 물체가 접근할 때 속도를 충분히 줄이는 후보보다 전진 성능(prog)이 높은 후보가 선택된 것으로 보임\"\n  }\n ],\n \"approach_families\": [\n  {\n    \"family\": \"단순 거리 기반 정지/감속\",\n    \"turns\": \"1~15\",\n    \"result\": \"stalls 및 측면 충돌 빈번\"\n  },\n  {\n    \"family\": \"능동 회피 및 속도 하한(Floor) 설정\",\n    \"turns\": \"16~20\",\n    \"result\": \"통과율 상승 중이나 고속 주행 시 반응성 부족으로 충돌\"\n  },\n  {\n    \"family\": \"예측 기반 안전 필터\",\n    \"turns\": \"1\",\n    \"result\": \"4/7 통과, 고속 접근 상황에서 제동 타이밍 실패\"\n  }\n ],\n \"candidates\": [\n  {\n    \"idea\": \"상대 속도를 반영한 동적 속도 캡(Dynamic Speed Cap) 도입\",\n    \"new_family\": true,\n    \"for\": \"단순 거리가 아니라 '충돌 시간(TTC)' 개념을 도입하여, 접근 속도가 빠를수록 최대 허용 속도를 강하게 제한함으로써 물리적인 제동 거리 확보 가능\",\n    \"risk\": \"너무 보수적으로 설정할 경우 주행 시간이 늘어나 time_limit에 걸릴 수 있음\"\n  },\n  {\n    \"idea\": \"안전 필터의 후보군(cand) 밀도 상향 및 가중치 조정\",\n    \"new_family\": false,\n    \"for\": \"더 세밀한 v, w 조합을 탐색하고, 충돌 위험 시 prog(전진성)보다 gap 확보에 더 높은 가중치를 부여\",\n    \"risk\": \"계산량 증가 및 근본적인 고속 진입 문제 해결에 한계가 있을 수 있음\"\n  }\n ],\n \"chosen\": \"후보 1. 모든 실패 사례에서 v > 1.2m/s의 고속 주행 중 충돌이 발생했으므로, 상대 속도에 기반해 물리적으로 제동 가능한 속도로 상한선을 긋는 것이 가장 확실한 해결책임\",\n \"target\": \"_safety_filter 및 속도 제한 로직\",\n \"direction\": \"가장 가까운 물체의 상대 속도(closing speed)와 거리를 이용해 동적 속도 상한선 v_cap을 계산합니다. TTC(거리/접근속도)가 임계값(예: 2.0s) 미만으로 떨어지면 v_nom과 안전 필터의 모든 후보 v를 v_cap으로 제한합니다. v_cap은 거리와 접근 속도의 함수로, 매우 가까워지면 0에 수렴하게 설계합니다. 특히 척력(repulse) 모드에서도 v_cap을 적용하여, 무조건적인 v_evade_min 강제가 아닌 안전한 범위 내에서의 탈출을 유도합니다. 이를 통해 고속으로 물체에 돌진하는 상황을 원천적으로 차단합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t20_s872834747",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 23.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.267,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 1.52m/s 회전 -0.5",
+   "partner_rel_xy": [
+    -0.2,
+    0.59
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 14.45,
+   "goal_dist_m": 10.2755,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t20_s1008261731",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 576.7,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 66.83,
+   "goal_dist_m": 0.2593,
+   "time_to_goal_s": 69.3
+  },
+  {
+   "run": "c71t20_s1899291235",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 504.0,
+   "sim_time_s": 42.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 36.12,
+   "goal_dist_m": 0.3621,
+   "time_to_goal_s": 38.683
+  },
+  {
+   "run": "c71t20_s137332839",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 462.0,
+   "sim_time_s": 36.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 30.12,
+   "goal_dist_m": 0.1237,
+   "time_to_goal_s": 34.083
+  },
+  {
+   "run": "c71t20_s1796508770",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 426.0,
+   "sim_time_s": 47.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2612,
+   "time_to_goal_s": 42.233
+  },
+  {
+   "run": "c71t20_s1066282197",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 378.3,
+   "sim_time_s": 11.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.667,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.20m/s",
+   "partner_rel_xy": [
+    0.07,
+    0.56
+   ],
+   "closing_m_s": 0.72,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 0.75,
+   "goal_dist_m": 28.0745,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t20_s1061324590",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 366.7,
+   "sim_time_s": 49.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 43.633,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.35m/s 회전 -0.5",
+   "partner_rel_xy": [
+    0.45,
+    -0.28
+   ],
+   "closing_m_s": 0.24,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 42.72,
+   "goal_dist_m": 3.7188,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

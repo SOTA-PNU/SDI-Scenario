@@ -1,0 +1,141 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1: 정지 중 t=9.7~12.2s 동안 d_min이 1.51m→0.56m로 감소하며 충돌. 로봇은 v=0, w=0 유지.",
+   "실행 2: 정지 중 t=16.5~17.3s 동안 d_min이 0.8m→0.74m로 감소하며 충돌. 재개 조건(d_min>2.0m 등) 미달로 정지 유지.",
+   "실행 3: 정지 중 t=49.6~51.1s 동안 d_min이 1.23m→0.39m로 감소하며 충돌. closing_m_s 0.53로 접근 중."
+  ],
+  "assumptions": [
+   {
+    "assumption": "WAIT 상태에서 v=0, w=0 유지가 정적 충돌을 방지한다",
+    "holds": false,
+    "why": "실행 1,2,3 모두 정지 중 접근 물체에 정지 충돌 발생"
+   },
+   {
+    "assumption": "재개 조건(d_min>2.0m, 시간/각도)이 물체 통과를 보장한다",
+    "holds": false,
+    "why": "접근 중인 물체는 조건을 만족하지 못해 무한 정지로 이어짐"
+   },
+   {
+    "assumption": "정적 지도 검증으로 회피 방향의 안전성을 보장할 수 있다",
+    "holds": true,
+    "why": "기존 _static_front_blocked와 _rear_gap 로직이 정적 장애물 위치를 정확히 제공함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지-재개 FSM",
+    "turns": "30",
+    "result": "0/3 통과 (정지 중 접근 대응 불가)"
+   },
+   {
+    "family": "연속 감속/반발 조향",
+    "turns": "14, 19, 24",
+    "result": "최대 5/8 통과 (임계값 진동 및 서행 충돌)"
+   },
+   {
+    "family": "정지 중 강제 탈출",
+    "turns": "12, 16, 20, 22, 23, 26, 29",
+    "result": "최대 5/8 통과 (정적 충돌 및 데드락)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "WAIT 상태에서 d_min 감소 시 정적 검증 후 안전 후진/회전",
+    "new_family": false,
+    "for": "정지 충돌 직접 해결",
+    "risk": "정적 검증 누락 시 정적 충돌 재발"
+   },
+   {
+    "idea": "연속 거리 비례 감속 + d_min<0.8m 정지 래치 + 정지 감소 시 검증 탈출",
+    "new_family": false,
+    "for": "주행 안정성 확보 및 정지 충돌 해결",
+    "risk": "로직 복잡화 및 상태 전환 지연"
+   },
+   {
+    "idea": "TTC 기반 동적 안전 거리 계산",
+    "new_family": true,
+    "for": "물체 속도에 따른 선제 대응",
+    "risk": "센서 노이즈로 인한 TTC 추정 불안정"
+   }
+  ],
+  "chosen": "연속 거리 비례 감속 + d_min<0.8m 정지 래치 + 정지 감소 시 검증 탈출을 선택한다. 주행 중 부드러운 회피와 정지 중 안전한 이동을 결합해 진동과 정지 충돌을 동시에 차단한다.",
+  "target": "controller 함수의 상태 전환 로직 및 WAIT 상태의 명령 반환 부분",
+  "direction": "매 스텝 _watch_min으로 구한 d_min과 b_min을 이용해 전진 속도를 v_cmd = v_nom * max(0.0, min(1.0, (d_min - 0.6) / 1.0))으로 연속 감속한다. 회전 속도는 경유점 조향에 w_rep = 1.5 * sign(b_min) / max(d_min, 0.5)를 더해 물체 반대쪽으로 조향한다. d_min < 0.8m 시 v_cmd=0.0, w_cmd=0.0으로 무조건 정지 래치한다. 정지 누적 시간이 0.5초를 넘고 d_min이 이전 값보다 작아지면 _rear_gap(raw) >= 1.2m일 때 v=-0.15로 직선 후진한다. 뒤쪽이 막히면 정적 지도 검증 후 물체 반대 방향으로 w=±0.5로 제자리 회전한다. d_min > 1.5m가 0.5초 지속되면 래치 해제하고 연속 제어로 복귀한다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 1: 정지 중 t=9.7~12.2s 동안 d_min이 1.51m→0.56m로 감소하며 충돌. 로봇은 v=0, w=0 유지.\", \"실행 2: 정지 중 t=16.5~17.3s 동안 d_min이 0.8m→0.74m로 감소하며 충돌. 재개 조건(d_min>2.0m 등) 미달로 정지 유지.\", \"실행 3: 정지 중 t=49.6~51.1s 동안 d_min이 1.23m→0.39m로 감소하며 충돌. closing_m_s 0.53로 접근 중.\"], \"assumptions\": [{\"assumption\": \"WAIT 상태에서 v=0, w=0 유지가 정적 충돌을 방지한다\", \"holds\": false, \"why\": \"실행 1,2,3 모두 정지 중 접근 물체에 정지 충돌 발생\"}, {\"assumption\": \"재개 조건(d_min>2.0m, 시간/각도)이 물체 통과를 보장한다\", \"holds\": false, \"why\": \"접근 중인 물체는 조건을 만족하지 못해 무한 정지로 이어짐\"}, {\"assumption\": \"정적 지도 검증으로 회피 방향의 안전성을 보장할 수 있다\", \"holds\": true, \"why\": \"기존 _static_front_blocked와 _rear_gap 로직이 정적 장애물 위치를 정확히 제공함\"}], \"approach_families\": [{\"family\": \"이진 정지-재개 FSM\", \"turns\": \"30\", \"result\": \"0/3 통과 (정지 중 접근 대응 불가)\"}, {\"family\": \"연속 감속/반발 조향\", \"turns\": \"14, 19, 24\", \"result\": \"최대 5/8 통과 (임계값 진동 및 서행 충돌)\"}, {\"family\": \"정지 중 강제 탈출\", \"turns\": \"12, 16, 20, 22, 23, 26, 29\", \"result\": \"최대 5/8 통과 (정적 충돌 및 데드락)\"}], \"candidates\": [{\"idea\": \"WAIT 상태에서 d_min 감소 시 정적 검증 후 안전 후진/회전\", \"new_family\": false, \"for\": \"정지 충돌 직접 해결\", \"risk\": \"정적 검증 누락 시 정적 충돌 재발\"}, {\"idea\": \"연속 거리 비례 감속 + d_min<0.8m 정지 래치 + 정지 감소 시 검증 탈출\", \"new_family\": false, \"for\": \"주행 안정성 확보 및 정지 충돌 해결\", \"risk\": \"로직 복잡화 및 상태 전환 지연\"}, {\"idea\": \"TTC 기반 동적 안전 거리 계산\", \"new_family\": true, \"for\": \"물체 속도에 따른 선제 대응\", \"risk\": \"센서 노이즈로 인한 TTC 추정 불안정\"}], \"chosen\": \"연속 거리 비례 감속 + d_min<0.8m 정지 래치 + 정지 감소 시 검증 탈출을 선택한다. 주행 중 부드러운 회피와 정지 중 안전한 이동을 결합해 진동과 정지 충돌을 동시에 차단한다.\", \"target\": \"controller 함수의 상태 전환 로직 및 WAIT 상태의 명령 반환 부분\", \"direction\": \"매 스텝 _watch_min으로 구한 d_min과 b_min을 이용해 전진 속도를 v_cmd = v_nom * max(0.0, min(1.0, (d_min - 0.6) / 1.0))으로 연속 감속한다. 회전 속도는 경유점 조향에 w_rep = 1.5 * sign(b_min) / max(d_min, 0.5)를 더해 물체 반대쪽으로 조향한다. d_min < 0.8m 시 v_cmd=0.0, w_cmd=0.0으로 무조건 정지 래치한다. 정지 누적 시간이 0.5초를 넘고 d_min이 이전 값보다 작아지면 _rear_gap(raw) >= 1.2m일 때 v=-0.15로 직선 후진한다. 뒤쪽이 막히면 정적 지도 검증 후 물체 반대 방향으로 w=±0.5로 제자리 회전한다. d_min > 1.5m가 0.5초 지속되면 래치 해제하고 연속 제어로 복귀한다.\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c6t30_s1687600431",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 18.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.2,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.47,
+    0.49
+   ],
+   "closing_m_s": 0.43,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 9.05,
+   "goal_dist_m": 32.2193,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t30_s427903076",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 581.8,
+   "sim_time_s": 23.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.283,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.64,
+    0.5
+   ],
+   "closing_m_s": 0.42,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 12.32,
+   "goal_dist_m": 31.1312,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t30_s1019825052",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 558.5,
+   "sim_time_s": 57.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 51.117,
+   "partner": "mover_02",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.47,
+    0.48
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 48.65,
+   "goal_dist_m": 10.4587,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

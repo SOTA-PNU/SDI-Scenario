@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1·3·5에 따라 정면 감지 범위를 ±30°/±0.6 m로 줄이고, `_CLR_GO`와 `_ESC_C`를 0.5 m로, `_WAIT_RELAX_S`를 1.5 s로 낮췄습니다. 지시 2에 따라 새 함수 `_front_closing`을 넣어, 정면 범위 안의 점을 다음 두 경우에만 '정면 막힘'으로 판정합니다. 첫째는 접근 속도(`_approach` rate 또는 추적 속도의 로봇 방향 성분)가 양수(잡음 여유 0.05 m/s 초과)인 물체이고, 둘째는 아직 추적되지 않은(n < 2) 점입니다. 옆을 지나가거나 멀어지는 물체 때문에 멈추지 않게 하려는 것입니다. 지시 4·6에 따라 오래 기다린 뒤의 저속 전진을 0.6 m/s로 올렸고, 정면이 비어도 예상 거리 부족으로 정지가 길어지면 같은 저속 전진(0.6 → 0.3 m/s 순서)을 시도하게 했습니다. `_MOVER_HALF`, `_static_guard` 하드 스톱, 능동 회피는 그대로 두었습니다.\n\n```python\n_FRONT_CONE_DEG = 30.0   # 진단 지시 1: 정면 감지 원뿔 반각 (45 -> 30 deg)\n\n\n_FRONT_CORR = 0.6        # 진단 지시 1: 정면 통로 반폭 (0.8 -> 0.6 m)\n\n\n_CLR_GO = 0.50           # 진단 지시 3: 일반 주행에서 전진을 허용하는 예상 최소거리 (0.7 -> 0.5 m)\n\n\n_ESC_C = 0.50            # 진단 지시 3: 멈춰 있어도 예상 최소거리가 이보다 작으면 능동 회피 (0.7 -> 0.5 m)\n\n\n_WAIT_RELAX_S = 1.5      # 진단 지시 5: 대기가 이보다 길면 저속 전진 시도 (2.0 -> 1.5 s)\n\n\n_RELAX_V = 0.6           # 진단 지시 4: 오래 기다린 뒤 저속 전진 속도 (0.4 -> 0.6 m/s)\n\n\n_FRONT_CLOSE = 0.05      # 진단 지시 2: '접근 속도 양수' 판정 임계값 (속도 추정 잡음 여유) [m/s]\n\n\ndef _front_closing(t, pose, pts):\n    \"\"\"진단 지시 2: 정면 범위 안의 '지도에 없는 점' pts (월드 (N, 2)) 가 실제 위험인가.\n    - 가장 가까운 물체의 접근 속도(_approach rate)가 양수(> _FRONT_CLOSE)이고 그 점이 pts 근처면 위험.\n    - 추적된(n >= 2, 최근 0.6 s) 물체의 속도가 로봇 쪽 성분 > _FRONT_CLOSE 이면 위험.\n    - 어떤 추적에도 속하지 않는 점(추적 데이터 없음)이 하나라도 있으면 위험.\n    - 그 밖(추적된 물체가 옆으로 지나가거나 멀어짐)은 정면 막힘으로 보지 않습니다\n      (예상 경로 충돌은 _clearance, 근접 정지는 _static_guard 가 따로 막습니다).\"\"\"\n    S = _SAFE\n    if len(pts) == 0:\n        return False\n    ap = S[\"approach\"]\n    if ap is not None and ap[1] > _FRONT_CLOSE:\n        if float(np.min(np.hypot(pts[:, 0] - ap[0][0], pts[:, 1] - ap[0][1]))) < 0.8:\n            return True\n    covered = np.zeros(len(pts), dtype=bool)\n    for tr in S[\"tracks\"]:\n        if tr[\"n\"] < 2 or t - tr[\"t\"] > 0.6:\n            continue\n        P = tr[\"pts\"] + tr[\"u\"] * (t - tr[\"t\"])\n        if len(P) == 0:\n            continue\n        dmin = np.min(np.hypot(pts[:, 0, None] - P[None, :, 0], pts[:, 1, None] - P[None, :, 1]), axis=1)\n        hit = dmin < 0.5\n        if not np.any(hit):\n            continue\n        cx, cy = float(P[:, 0].mean()), float(P[:, 1].mean())\n        rx, ry = pose[0] - cx, pose[1] - cy\n        nn = math.hypot(rx, ry)\n        closing = (tr[\"u\"][0] * rx + tr[\"u\"][1] * ry) / nn if nn > 1e-6 else 0.0\n        if closing > _FRONT_CLOSE:\n            return True\n        covered |= hit\n    return bool(not np.all(covered))\n\n\ndef _is_danger(t, pose, v_ref):\n    \"\"\"정면/옆면 위험 판단.\n    front      진단 지시 1·2: 지도에 없는 점이 정면 ±30° 또는 폭 ±0.6 m 통로 안, 앞면에서 2.0 m 이내에 있고,\n               그 물체가 로봇 쪽으로 다가오거나(접근 속도 양수) 아직 추적되지 않았을 때만 True\n    front_near 몸통 폭(±0.45 m) 통로 안, 앞면에서 1.2 m 이내 (오래 기다린 뒤 저속 전진 판단용)\n    side       옆면 _SIDE_GAP 안에서 _SIDE_CLOSE_NEAR 이상 접근하거나,\n               _SIDE_WARN 안에서 _SIDE_CLOSE_FAR 이상으로 _SIDE_HORIZON 안에 닿을 속도로 접근\"\"\"\n    S = _SAFE\n    out = {\"front\": False, \"front_near\": False, \"side\": False}\n    m = S[\"mov_w\"]\n    if len(m):\n        loc = _to_robot(m, pose)\n        px, py = loc[:, 0], loc[:, 1]\n        L = max(2.0, 0.6 + 1.2 * max(v_ref, 0.0)) + (0.3 if S[\"blocked\"] else 0.0)\n        ahead = (px > _BODY[1] - 0.05) & (px < _BODY[1] + L)\n        cone = np.abs(np.arctan2(py, px)) <= math.radians(_FRONT_CONE_DEG)\n        corr = np.abs(py) <= _FRONT_CORR\n        zone = ahead & (cone | corr)\n        if np.any(zone):\n            out[\"front\"] = _front_closing(t, pose, m[zone])\n        near = (px > _BODY[1] - 0.05) & (px < _BODY[1] + 1.2) & (np.abs(py) <= 0.45)\n        out[\"front_near\"] = bool(np.any(near))\n    c, s = math.cos(pose[2]), math.sin(pose[2])\n    for P, u, n in _threats(t, pose):\n        loc = _to_robot(P, pose)\n        px, py = loc[:, 0], loc[:, 1]\n        gap = np.maximum(_BODY[2] - py, py - _BODY[3])\n        zone = (px >= _BODY[0] - 0.3) & (px <= _BODY[1] + 0.3) & (gap > -0.02) & (gap <= _SIDE_WARN)\n        if not np.any(zone):\n            continue\n        idx = np.flatnonzero(zone)\n        k = int(idx[int(np.argmin(gap[idx]))])\n        g = max(float(gap[k]), 0.0)\n        uy = -s * u[0] + c * u[1]\n        closing = -uy if py[k] > 0 else uy\n        if ((g <= _SIDE_GAP and closing >= _SIDE_CLOSE_NEAR) or\n                (closing >= _SIDE_CLOSE_FAR and g <= _SIDE_HORIZON * closing)):\n            out[\"side\"] = True\n            break\n    return out\n\n\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 0.7 m/s) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO (진단 지시 3: 0.5 m) 이상이면 전진.\n      진단 지시 4·5·6: 그렇지 못해 대기가 _WAIT_RELAX_S (1.5 s) 를 넘으면, 몸통 폭 통로가 빌 때\n      _RELAX_V (0.6 m/s) 또는 그 절반으로 저속 전진합니다(정면 막힘이든 예상 거리 부족이든 동일, 정지보다 저속 주행 우선).\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C (진단 지시 3: 0.5 m)):\n      정적 장애물이 없는 전진·후진 속도 중 가장 멀어지는 쪽으로 이동.\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            if S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vr = min(v_law, _RELAX_V)\n                for vf in (vr, 0.5 * vr):\n                    if _clearance(t, pose, vf) >= 0.35:\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    best_v, best_c = 0.0, c0\n    for vc in cands:\n        if not _static_free(pose, vc):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        if cv > best_c + _ESC_GAIN:\n            best_v, best_c = vc, cv\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 27697,
+  "completion_tokens": 8370
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 67313,
+  "total_cost_usd": 0.38896800000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 8370,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 27695,
+    "webSearchRequests": 0,
+    "costUSD": 0.38896800000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 4151,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 27695,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b3de3344-ef4f-44f9-abfc-63df3e9ed9e0"
+ }
+}

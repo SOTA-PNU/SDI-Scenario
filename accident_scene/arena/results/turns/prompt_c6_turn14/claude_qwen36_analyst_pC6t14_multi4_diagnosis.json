@@ -1,0 +1,143 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 2(20.55s 충돌): 로봇 속도 0.20 m/s, 물체 상대 위치 [-0.34, -0.6], 접근 속도 0.56 m/s. 코드 _REP_VMIN=0.2 로 정지 불가해 전진 중 충돌",
+   "실행 3(6.217s 충돌): 로봇 속도 0.57→0.30 m/s, 물체 상대 위치 [-0.79, 0.47]. 반발 조향으로 회전 시도했으나 v 하한 유지로 충돌 궤적 교차",
+   "실행 4(49.583s 충돌): 로봇 속도 0.19 m/s, 회전 -1.9 rad/s. 물체가 정면 가로지르는데 전진 속도 0 이 되지 않아 회전 반경 내 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "연속 반발 조향과 v >= 0.2 m/s 유지만으로도 모든 이동 물체를 피할 수 있다",
+    "holds": false,
+    "why": "실행 2,3,4 에서 물체가 0.4~0.8 m 거리에서 접근하거나 가로지를 때 0.2 m/s 전진 속도가 충돌을 유발함. 근접 교차 상황에서는 완전 정지가 필수적"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "상태 머신 정지/재개",
+    "turns": "턴 1~13",
+    "result": "10/41 통과, 정지 중 크리프 충돌 및 오탐 정지 누적"
+   },
+   {
+    "family": "연속 거리 비례 감속",
+    "turns": "턴 5,7,11",
+    "result": "0/9 통과, 크리프 유지 충돌 또는 무한 정지"
+   },
+   {
+    "family": "연속 반발 조향+최소 전진",
+    "turns": "턴 14",
+    "result": "1/4 통과, v_min 하한으로 인한 근접 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "d < 0.8 m 시 무조건 v=0 정지, 0.8 m <= d < 1.5 m 시 반발 조향+감속 적용",
+    "new_family": true,
+    "for": "실행 기록에서 v>=0.2 가 근접 충돌 직접 원인임. 완전 정지 구간 도입으로 안전 확보, 중거리에서는 기존 반발 유연성 유지",
+    "risk": "정지 중 물체가 매우 느리게 접근하면 정지 시간 길어질 수 있으나 충돌 확률보다 낮음"
+   },
+   {
+    "idea": "상대 속도(TTC) 기반으로 정지/회피 분기",
+    "new_family": true,
+    "for": "물체 운동 방향 고려해 효율적 회피 가능",
+    "risk": "속도 추정 노이즈로 진동 또는 오탐 정지 발생 가능성 높음(과거 턴 11,12 실패 교훈)"
+   }
+  ],
+  "chosen": "d < 0.8 m 시 무조건 정지하는 혼합 방식을 선택한다. 실행 기록에서 v>=0.2 가 근접 충돌의 직접 원인이었으므로 완전 정지 구간을 도입해 안전을 확보하되, 중거리에서는 반발 조향을 유지해 진동을 줄이기 때문이다.",
+  "target": "controller 함수 내 속도/조향 계산 로직 및 _REP_VMIN 상수",
+  "direction": "controller 에서 d_min < 0.8 일 때 v_cmd = 0.0 으로 강제 정지하고 반발 조향은 적용하지 않는다. 0.8 <= d_min < 1.5 구간에서만 기존 반발 조향과 거리 비례 감속을 적용하되, _REP_VMIN 하한을 제거해 v 가 0 에 가까워질 수 있도록 한다. d_min >= 1.5 이면 정상 경유점 추종으로 복귀한다. 정지 중 d_min 이 0.8 m 를 넘으면 즉시 주행 재개 타이머 없이 정상 속도로 전환한다. 이로써 근접 충돌은 정지로 차단하고, 중거리 회피는 연속 조향으로 처리한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\",\n \"evidence\": [\"실행 2(20.55s 충돌): 로봇 속도 0.20 m/s, 물체 상대 위치 [-0.34, -0.6], 접근 속도 0.56 m/s. 코드 _REP_VMIN=0.2 로 정지 불가해 전진 중 충돌\", \"실행 3(6.217s 충돌): 로봇 속도 0.57→0.30 m/s, 물체 상대 위치 [-0.79, 0.47]. 반발 조향으로 회전 시도했으나 v 하한 유지로 충돌 궤적 교차\", \"실행 4(49.583s 충돌): 로봇 속도 0.19 m/s, 회전 -1.9 rad/s. 물체가 정면 가로지르는데 전진 속도 0 이 되지 않아 회전 반경 내 충돌\"],\n \"assumptions\": [{\"assumption\": \"연속 반발 조향과 v >= 0.2 m/s 유지만으로도 모든 이동 물체를 피할 수 있다\", \"holds\": false, \"why\": \"실행 2,3,4 에서 물체가 0.4~0.8 m 거리에서 접근하거나 가로지를 때 0.2 m/s 전진 속도가 충돌을 유발함. 근접 교차 상황에서는 완전 정지가 필수적\"}],\n \"approach_families\": [{\"family\": \"상태 머신 정지/재개\", \"turns\": \"턴 1~13\", \"result\": \"10/41 통과, 정지 중 크리프 충돌 및 오탐 정지 누적\"}, {\"family\": \"연속 거리 비례 감속\", \"turns\": \"턴 5,7,11\", \"result\": \"0/9 통과, 크리프 유지 충돌 또는 무한 정지\"}, {\"family\": \"연속 반발 조향+최소 전진\", \"turns\": \"턴 14\", \"result\": \"1/4 통과, v_min 하한으로 인한 근접 충돌\"}],\n \"candidates\": [{\"idea\": \"d < 0.8 m 시 무조건 v=0 정지, 0.8 m <= d < 1.5 m 시 반발 조향+감속 적용\", \"new_family\": true, \"for\": \"실행 기록에서 v>=0.2 가 근접 충돌 직접 원인임. 완전 정지 구간 도입으로 안전 확보, 중거리에서는 기존 반발 유연성 유지\", \"risk\": \"정지 중 물체가 매우 느리게 접근하면 정지 시간 길어질 수 있으나 충돌 확률보다 낮음\"}, {\"idea\": \"상대 속도(TTC) 기반으로 정지/회피 분기\", \"new_family\": true, \"for\": \"물체 운동 방향 고려해 효율적 회피 가능\", \"risk\": \"속도 추정 노이즈로 진동 또는 오탐 정지 발생 가능성 높음(과거 턴 11,12 실패 교훈)\"}],\n \"chosen\": \"d < 0.8 m 시 무조건 정지하는 혼합 방식을 선택한다. 실행 기록에서 v>=0.2 가 근접 충돌의 직접 원인이었으므로 완전 정지 구간을 도입해 안전을 확보하되, 중거리에서는 반발 조향을 유지해 진동을 줄이기 때문이다.\",\n \"target\": \"controller 함수 내 속도/조향 계산 로직 및 _REP_VMIN 상수\",\n \"direction\": \"controller 에서 d_min < 0.8 일 때 v_cmd = 0.0 으로 강제 정지하고 반발 조향은 적용하지 않는다. 0.8 <= d_min < 1.5 구간에서만 기존 반발 조향과 거리 비례 감속을 적용하되, _REP_VMIN 하한을 제거해 v 가 0 에 가까워질 수 있도록 한다. d_min >= 1.5 이면 정상 경유점 추종으로 복귀한다. 정지 중 d_min 이 0.8 m 를 넘으면 즉시 주행 재개 타이머 없이 정상 속도로 전환한다. 이로써 근접 충돌은 정지로 차단하고, 중거리 회피는 연속 조향으로 처리한다.\",\n \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t14_s19649109",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 54.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 48.45,
+   "goal_dist_m": 0.2199,
+   "time_to_goal_s": 50.5
+  },
+  {
+   "run": "c6t14_s2129708348",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 545.6,
+   "sim_time_s": 26.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 20.55,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.34,
+    -0.6
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 15.55,
+   "goal_dist_m": 22.647,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t14_s541008925",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 519.0,
+   "sim_time_s": 12.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 6.217,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.57m/s",
+   "partner_rel_xy": [
+    -0.79,
+    0.47
+   ],
+   "closing_m_s": 0.19,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 2.42,
+   "goal_dist_m": 27.1649,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t14_s200769681",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 506.8,
+   "sim_time_s": 55.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 49.583,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.19m/s 회전 -1.9",
+   "partner_rel_xy": [
+    0.5,
+    0.44
+   ],
+   "closing_m_s": -0.27,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 45.62,
+   "goal_dist_m": 3.7966,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

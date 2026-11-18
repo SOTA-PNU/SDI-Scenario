@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적에 따라 강제 탈출 분기를 진단의 'near < 1.5 m 이면 무조건 정지' 지시에 맞췄습니다. 크리프 조건을 `near >= _HARD_STOP and d_front > _CREEP_D` 로 바꿔 near 가 1.5 m 미만이면 크리프하지 않게 했습니다. 제자리 회전 분기는 지웠습니다. d_front 는 near 를 계산하는 점들의 일부에서 구한 최솟값이라 항상 near 이상이므로, near >= 1.5 조건을 넣으면 그 분기에는 도달하지 않기 때문입니다. 이제 near < 1.5 m 에서 로봇이 움직이는 경우는 물체에서 멀어지는 0.9 m 직선 회피 하나뿐이고, docstring 도 이 동작에 맞췄습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 정지/재개 상태 기계 (C-2 시도 9, 진단 반영: d_front -> near).\n    - 정지/재개 판단은 방향과 무관한 near(모든 움직이는 점 중 최단 거리)로 한다.\n      near < 1.5 m 이면 정지하고, near > 1.7 m 가 0.3 s 지속되어야 재개한다.\n    - d_front(전방 180°, ax > -0.3)는 주행 중 선형 감속(2.0 m -> 1.5 m 에서 0)과 크리프 허용 판단에만 쓴다.\n    - bearing 변화 기반 측면 통과 재개 로직은 쓰지 않는다.\n    - 정지 중 near < 0.9 m: 물체에서 멀어지는 직선 후진(앞쪽 물체) 또는 직선 전진(뒤쪽 물체)만 한다.\n      near < 1.5 m 에서 움직이는 경우는 이 직선 회피 하나뿐이다.\n    - 정지 누적 2.0 s 초과: near >= 1.5 m 이고 d_front > 1.2 m 일 때만 v=0.15 크리프, 아니면 정지 유지.\n      제자리 회전 탈출은 하지 않는다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    fx, rx = _BODY[1], _BODY[0]\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ays, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n    ay = np.abs(ays)\n\n    front = ax > _FRONT_X                                     # 전방 180° (감속·크리프 판단 전용)\n    d_front = _min_or_inf(d[front])\n    near = _min_or_inf(d)                                     # 전 방향 최단 거리 (정지/재개 기준)\n    ox = float(ax[int(np.argmin(d))]) if d.size else 0.0\n\n    # ---- 정지/재개 상태 기계: near < 1.5 정지, near > 1.7 이 0.3 s 지속되면 재개 ----\n    if not _NAV[\"blocked\"]:\n        if near < _HARD_STOP:\n            _NAV[\"blocked\"] = True\n            rt, lb = _NAV[\"resume_t\"], _NAV[\"last_blocked_t\"]\n            if rt is not None and lb is not None and t - rt < _REBLOCK_T:\n                _NAV[\"blocked_t\"] = lb          # 재개 직후 다시 막히면 정지 시간 누적\n            else:\n                _NAV[\"blocked_t\"] = t\n            _NAV[\"clear_since\"] = None\n    else:\n        resume = False\n        if near > _RESUME_D:\n            if _NAV[\"clear_since\"] is None:\n                _NAV[\"clear_since\"] = t\n            if t - _NAV[\"clear_since\"] >= _RESUME_HOLD:\n                resume = True\n        else:\n            _NAV[\"clear_since\"] = None\n        if resume:\n            _NAV[\"blocked\"] = False\n            _NAV[\"last_blocked_t\"] = _NAV[\"blocked_t\"]\n            _NAV[\"resume_t\"] = t\n            _NAV[\"blocked_t\"] = None\n            _NAV[\"clear_since\"] = None\n\n    if _NAV[\"blocked\"]:\n        # near < 1.5 m 에서 허용되는 유일한 움직임: 0.9 m 안 물체에서 멀어지는 직선 회피\n        if near < _EVADE_R:\n            gap_r = _min_or_inf(rx - ax[(ax < rx + 0.05) & (ay < _HW)])\n            bx, by = raw[:, 0], np.abs(raw[:, 1])\n            rear_free = np.count_nonzero((bx < rx) & (bx > rx - 0.9) & (by < 0.45)) < 3 and gap_r > 0.5\n            front_free = np.count_nonzero((bx > fx) & (bx < fx + 0.9) & (by < 0.45)) < 3\n            if ox >= 0.5 * (fx + rx):\n                if rear_free:\n                    return -_EVADE_V, 0.0, False      # 앞쪽 물체: 직선 후진\n            elif front_free and d_front >= _HARD_STOP:\n                return _EVADE_V, 0.0, False           # 뒤쪽 물체: 직선 전진\n            return 0.0, 0.0, False\n        # 정지 누적 2.0 s 초과 시 강제 탈출: near >= 1.5 m 이고 d_front > 1.2 m 일 때만 크리프\n        if _NAV[\"blocked_t\"] is not None and t - _NAV[\"blocked_t\"] > _ESCAPE_T:\n            if near >= _HARD_STOP and d_front > _CREEP_D:\n                cv = _CREEP_V if v > 0.0 else 0.0\n                return cv, _clamp(w, -_ESCAPE_W, _ESCAPE_W), False\n            return 0.0, 0.0, False\n        return 0.0, 0.0, False\n\n    # ---- 주행: d_front 가 2.0 m 안이면 1.5 m 에서 0 이 되도록 선형 감속 (주행 상태에서만) ----\n    if v > 0.0:\n        if d_front < _SLOW_GAP:\n            v = v * _clamp((d_front - _HARD_STOP) / (_SLOW_GAP - _HARD_STOP), 0.0, 1.0)\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 26818,
+  "completion_tokens": 2901
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 22750,
+  "total_cost_usd": 0.272556,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2901,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 26816,
+    "webSearchRequests": 0,
+    "costUSD": 0.272556,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 423,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 26816,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "9156991c-cd68-4552-bd33-5b5001739d45"
+ }
+}

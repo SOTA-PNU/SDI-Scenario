@@ -1,0 +1,473 @@
+# [EDIT REGION] mission controller - modify ONLY this block
+# ===========================================================================
+
+def _wrap_angle(a):
+    """Wrap angle to [-π, π]."""
+    return math.atan2(math.sin(a), math.cos(a))
+
+
+def _clamp(v, lo, hi):
+    """Clamp v to the interval [lo, hi]."""
+    return max(lo, min(hi, v))
+
+
+# Way‑points that avoid all boxes and the fixed structures.
+# The last point is the goal (GOAL) itself.
+_WAYPOINTS = [
+    (-5.0, -10.8),   # move east away from the left wall
+    (-5.0, 5.8),     # go north, staying below the left‑side shelf
+    (0.0, 5.8),      # move east below the large central boxes
+    (0.0, 12.0),     # go north, staying left of the middle obstacles
+    (1.5, 12.0),     # shift east but still left of box 08
+    (1.5, 16.5),     # go north past all remaining boxes
+    (GOAL[0], GOAL[1])  # final goal position
+]
+
+def controller(t, pose, env):
+    """Follow the pre-computed way-points; v (and w while dodging) is overridden by the sensor safety layer."""
+    if not hasattr(controller, "idx"):
+        controller.idx = 0
+        controller.done_align = False
+    if not _SAFE:
+        _safety_reset()
+    _sense(t, pose)
+
+    x, y, yaw = pose
+    # 1. Goal-alignment phase: finish as soon as we are inside tolerance (with margin) and aligned
+    if controller.idx >= len(_WAYPOINTS):
+        dg = math.hypot(GOAL[0] - x, GOAL[1] - y)
+        if dg > 0.6:
+            controller.idx = len(_WAYPOINTS) - 1      # pushed off the goal while dodging: drive back
+        else:
+            e = _wrap_angle(GOAL[2] - yaw)
+            if abs(e) < 0.10 and abs(_SAFE["v_meas"]) < 0.3:
+                return 0.0, 0.0, True
+            w = _clamp(2.0 * e, -1.2, 1.2)
+            v, w = _safe_speed(t, pose, 0.0, w)
+            return v, w, False
+
+    # 2. Normal waypoint-following
+    tx, ty = _WAYPOINTS[controller.idx]
+    dx = tx - x
+    dy = ty - y
+    dist = math.hypot(dx, dy)
+    e = _wrap_angle(math.atan2(dy, dx) - yaw)
+
+    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:
+        controller.idx += 1
+        tx, ty = _WAYPOINTS[controller.idx]
+        dx = tx - x
+        dy = ty - y
+        dist = math.hypot(dx, dy)
+        e = _wrap_angle(math.atan2(dy, dx) - yaw)
+
+    # 3. Control law
+    last = controller.idx == len(_WAYPOINTS) - 1
+    if abs(e) > 0.35:
+        v = 0.0
+        w = _clamp(7.5 * e, -2.0, 2.0)
+    else:
+        v = min(1.5, 1.2 * dist + 0.25) if last else min(1.5, 2.5 * dist + 0.5)
+        w = _clamp(7.5 * e, -2.0, 2.0)
+
+    # 4. Sensor override (stop / creep / active dodge forward or backward)
+    v, w = _safe_speed(t, pose, v, w)
+
+    if last and dist < 0.3:
+        controller.idx += 1
+
+    return v, w, False
+
+
+
+
+_MAP_MARGIN = 0.30
+
+
+_STATIC_RECTS = np.array(
+    [(b["x"] - 0.5 * b["width"], b["x"] + 0.5 * b["width"], b["y"] - 0.5 * b["depth"], b["y"] + 0.5 * b["depth"])
+     for b in MISSION["boxes"]] + [tuple(o[1:5]) for o in FIXED_OBSTACLES], dtype=np.float64)
+
+
+_PRED_T = np.arange(0.0, 2.55, 0.1)
+
+
+_SAFE = {}
+
+
+def _safety_reset():
+    """센서 기반 안전 계층의 상태를 초기화합니다."""
+    _SAFE.clear()
+    _SAFE.update(hist=[], t_prev=None, raw={}, world={}, mov_w=np.zeros((0, 2)), all_w=np.zeros((0, 2)),
+                 tracks=[], t_trk=-1.0, v_meas=0.0, yaw_rate=0.0, blocked=False, have_scan=False,
+                 near_hist=[], approach=None, thr_t=None, thr=[], wait=0.0, t_cmd=None, esc_v=None)
+
+
+def _static_mask(pw, pose=None, yaw_rate=0.0):
+    """월드 점 (N, 2) 중 정적 지도(벽, 고정물, 바닥 박스)에 해당하는 점이면 True.
+    회전 중에는 스캔 번짐(약 ±0.05 s x 회전속도 x 거리)만큼 점마다 여유를 넓힙니다."""
+    x, y = pw[:, 0], pw[:, 1]
+    m = np.full(len(pw), _MAP_MARGIN)
+    if pose is not None and abs(yaw_rate) > 0.2:
+        m = m + 0.06 * abs(yaw_rate) * np.hypot(x - pose[0], y - pose[1])
+    st = (x <= WALLS[0] + m) | (x >= WALLS[1] - m) | (y <= WALLS[2] + m) | (y >= WALLS[3] - m)
+    r = _STATIC_RECTS
+    mm = m[:, None]
+    inr = ((x[:, None] >= r[None, :, 0] - mm) & (x[:, None] <= r[None, :, 1] + mm) &
+           (y[:, None] >= r[None, :, 2] - mm) & (y[:, None] <= r[None, :, 3] + mm)).any(axis=1)
+    return st | inr
+
+
+def _to_robot(pw, pose):
+    """월드 점 (N, 2) 를 현재 로봇 기준 좌표로 바꿉니다."""
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    dx, dy = pw[:, 0] - x, pw[:, 1] - y
+    return np.stack([c * dx + s * dy, -s * dx + c * dy], axis=1)
+
+
+def _clusters(p, cell=0.35):
+    """점들을 격자 이웃 연결로 묶습니다."""
+    if len(p) == 0:
+        return []
+    keys = np.floor(p / cell).astype(int).tolist()
+    cells = {}
+    for i, k in enumerate(keys):
+        cells.setdefault((k[0], k[1]), []).append(i)
+    seen, out = set(), []
+    for c0 in cells:
+        if c0 in seen:
+            continue
+        seen.add(c0)
+        stack, idx = [c0], []
+        while stack:
+            cc = stack.pop()
+            idx.extend(cells[cc])
+            for ddx in (-1, 0, 1):
+                for ddy in (-1, 0, 1):
+                    nb = (cc[0] + ddx, cc[1] + ddy)
+                    if nb in cells and nb not in seen:
+                        seen.add(nb)
+                        stack.append(nb)
+        out.append(p[idx])
+    return out
+
+
+def _update_tracks(t, mov, yaw_rate=0.0):
+    """지도에 없는 점 무리를 추적해 위치와 속도를 추정합니다.
+    진단 지시 2: 회전 중에도 갱신하되, 번짐 때문에 연결 범위는 넓히고 속도 갱신 이득은 낮춥니다."""
+    S = _SAFE
+    spin = abs(yaw_rate) > 0.8
+    gate = 1.1 if spin else 0.9
+    tracks = [tr for tr in S["tracks"] if t - tr["t"] <= 1.2]
+    for cl in _clusters(mov):
+        if len(cl) < 3:
+            continue
+        c = cl.mean(axis=0)
+        best, bd = None, gate
+        for tr in tracks:
+            if tr["hit"] == t:
+                continue
+            pred = tr["c"] + tr["u"] * (t - tr["t"])
+            dd = float(np.hypot(c[0] - pred[0], c[1] - pred[1]))
+            if dd < bd:
+                best, bd = tr, dd
+        if best is None:
+            tracks.append({"c": c, "u": np.zeros(2), "t": t, "pts": cl, "n": 0, "hit": t})
+            continue
+        dt = max(t - best["t"], 1e-3)
+        raw = (c - best["c"]) / dt
+        a = 0.6 if best["n"] == 0 else 0.35
+        if spin:
+            a *= 0.4
+        u = (1.0 - a) * best["u"] + a * raw
+        sp = float(np.hypot(u[0], u[1]))
+        if sp > 2.5:
+            u = u * (2.5 / sp)
+        best.update(c=c, u=u, t=t, pts=cl, n=best["n"] + 1, hit=t)
+    S["tracks"] = tracks
+
+
+def _sense(t, pose):
+    """앞·뒤 2D 라이다를 읽어 월드 점, 지도에 없는 점, 추적 상태, 접근 속도 추정을 갱신합니다."""
+    S = _SAFE
+    h = S["hist"]
+    if h and S["t_prev"] is not None and t - S["t_prev"] > 1e-6:
+        dt = t - S["t_prev"]
+        px, py, pyaw = h[-1]
+        vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt
+        yr = _wrap_angle(pose[2] - pyaw) / dt
+        S["v_meas"] = 0.7 * S["v_meas"] + 0.3 * vm
+        S["yaw_rate"] = 0.7 * S["yaw_rate"] + 0.3 * yr
+    S["t_prev"] = t
+    h.append(tuple(pose))
+    if len(h) > 8:
+        del h[0]
+    lag = h[max(0, len(h) - 4)]          # 스캔 한 바퀴(0.1 s)의 중간 시점 자세로 변환
+    new = False
+    for which in ("front", "back"):
+        try:
+            p = lidar2d_points(which)
+        except Exception:
+            continue
+        if len(p) == 0 or p is S["raw"].get(which):
+            continue
+        S["raw"][which] = p
+        S["world"][which] = to_world(p, lag)[:, :2]
+        new = True
+        if which == "front":
+            S["have_scan"] = True
+    if not new:
+        return
+    pts = np.concatenate(list(S["world"].values()))
+    d2 = (pts[:, 0] - pose[0]) ** 2 + (pts[:, 1] - pose[1]) ** 2
+    pts = pts[d2 < 64.0]
+    S["all_w"] = pts
+    S["mov_w"] = pts[~_static_mask(pts, pose, S["yaw_rate"])]
+    if t - S["t_trk"] >= 0.09:                      # 진단 지시 2: 회전 속도 제한 없이 추적
+        _update_tracks(t, S["mov_w"], S["yaw_rate"])
+        S["t_trk"] = t
+    _approach_update(t, pose)
+    S["thr_t"] = None
+
+
+def _front_blocked(pose, v_ref):
+    """진단 지시 3: 지도에 없는 점이 정면 ±30° 또는 몸통 폭 통로 안, 앞면에서 2.0 m 이내에 있는가."""
+    S = _SAFE
+    m = S["mov_w"]
+    if len(m) == 0:
+        return False
+    loc = _to_robot(m, pose)
+    px, py = loc[:, 0], loc[:, 1]
+    L = max(2.0, 0.6 + 1.2 * max(v_ref, 0.0)) + (0.3 if S["blocked"] else 0.0)
+    ahead = (px > _BODY[1] - 0.05) & (px < _BODY[1] + L)
+    cone = np.abs(np.arctan2(py, px)) <= math.radians(30.0)
+    corr = np.abs(py) <= 0.6
+    return bool(np.any(ahead & (cone | corr)))
+
+
+def _rear_clear(pose, v=-0.4):
+    """진단 지시 6: 후진할 때 뒤쪽이 비었는가. 범위를 좁혀(폭 ±0.40 m, 길이 0.2 + 0.4|v| m) 더 쉽게 후진합니다."""
+    a = _SAFE["all_w"]
+    if len(a) == 0:
+        return True
+    loc = _to_robot(a, pose)
+    px, py = loc[:, 0], loc[:, 1]
+    L = 0.2 + 0.4 * abs(v)
+    return not bool(np.any((px < _BODY[0] + 0.05) & (px > _BODY[0] - L) & (np.abs(py) < 0.40)))
+
+
+def _clearance(t, pose, v_cand):
+    """전진 속도 v_cand 로 2.5 s 동안 직진할 때 위협(추적 + 접근 속도 추정)과 몸체 사이의 예상 최소 거리."""
+    S = _SAFE
+    thr = _threats(t, pose)
+    if not thr:
+        return 9.0
+    x, y, yaw = pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    ts = _PRED_T
+    v0, acc = S["v_meas"], 1.2
+    if v_cand >= v0:
+        vs = np.minimum(v_cand, v0 + acc * ts)
+    else:
+        vs = np.maximum(v_cand, v0 - acc * ts)
+    sx = np.concatenate([[0.0], np.cumsum(0.5 * (vs[1:] + vs[:-1]) * np.diff(ts))])
+    best = 9.0
+    for P, u, n in thr:
+        p = P - np.array([x, y])
+        if float(np.min(np.hypot(p[:, 0], p[:, 1]))) > 7.0:
+            continue
+        px = c * p[:, 0] + s * p[:, 1]
+        py = -s * p[:, 0] + c * p[:, 1]
+        ux = c * u[0] + s * u[1]
+        uy = -s * u[0] + c * u[1]
+        X = px[None, :] + ux * ts[:, None] - sx[:, None]
+        Y = py[None, :] + uy * ts[:, None]
+        ddx = np.maximum(np.maximum(_BODY[0] - X, X - _BODY[1]), 0.0)
+        ddy = np.maximum(np.maximum(_BODY[2] - Y, Y - _BODY[3]), 0.0)
+        best = min(best, float(np.hypot(ddx, ddy).min()))
+    return best
+
+
+def _safe_speed(t, pose, v_law, w_law=0.0):
+    """경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다(진단 지시 3, 4).
+    - 위험 없음: 정면이 비고 예상 거리가 충분하면 전진, 아니면 정지 대기(대기 3 s 초과 시 몸통 폭 통로가 비면 0.4 m/s 전진).
+    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < 0.45 m): 정적 장애물이 없는 전진·후진 속도 중 가장 멀어지는 쪽으로 즉시 이동."""
+    S = _SAFE
+    dt = 0.0 if S["t_cmd"] is None else min(max(t - S["t_cmd"], 0.0), 0.1)
+    S["t_cmd"] = t
+    if not S["have_scan"] and t < 3.0:
+        return 0.0, 0.0
+    want = v_law > 0.05
+    dz = _is_danger(t, pose, max(v_law, S["v_meas"]))
+    S["blocked"] = dz["front"]
+    c0 = _clearance(t, pose, 0.0)
+
+    if not (dz["side"] or c0 < _ESC_C):
+        S["esc_v"] = None
+        if want:
+            if not dz["front"]:
+                for f in (1.0, 0.6, 0.3):
+                    vf = v_law * f
+                    if _clearance(t, pose, vf) >= 0.40:
+                        S["wait"] = 0.0
+                        return vf, w_law
+            elif S["wait"] >= _WAIT_RELAX_S and not dz["front_near"]:
+                vf = min(v_law, 0.4)
+                if _clearance(t, pose, vf) >= 0.35:
+                    return vf, w_law
+            S["wait"] += dt
+        return 0.0, w_law
+
+    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동
+    best_v, best_c = 0.0, c0
+    for vc in _ESC_V:
+        if not _static_free(pose, vc):
+            continue
+        cv = _clearance(t, pose, vc) + (0.05 if vc == S["esc_v"] else 0.0)
+        if cv > best_c + 0.05:
+            best_v, best_c = vc, cv
+    if best_v == 0.0:
+        S["esc_v"] = None
+        return 0.0, w_law
+    S["esc_v"] = best_v
+    return best_v, 0.0                               # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)
+
+
+
+
+_ESC_C = 0.45            # 멈춰 있어도 예상 최소거리가 이보다 작으면 능동 회피
+
+
+_SIDE_GAP = 0.6          # 진단 지시 1: 몸체 옆면에서 이 거리 안으로 다가오면 위험
+
+
+_SIDE_WARN = 1.2         # 옆면에서 이 거리 안이고 2 s 안에 닿을 속도로 다가오면 위험
+
+
+_WAIT_RELAX_S = 3.0      # 진단 지시 4: 정면 막힘 대기가 이보다 길면 저속 전진 시도
+
+
+_ESC_V = (-0.8, -0.5, 0.5, 1.0, 1.5)
+
+
+def _approach_update(t, pose):
+    """진단 지시 5: 가장 가까운 '지도에 없는 점' 까지 거리의 최근 2~3 스캔 변화로 물체의 접근 속도를 추정합니다.
+    로봇 자신의 전진 성분은 뺍니다. 제자리 회전은 이 거리를 바꾸지 않으므로 회전 직후에도 바로 쓸 수 있습니다."""
+    S = _SAFE
+    m = S["mov_w"]
+    h = S["near_hist"]
+    if len(m) == 0:
+        h.clear()
+        S["approach"] = None
+        return
+    d = np.hypot(m[:, 0] - pose[0], m[:, 1] - pose[1])
+    k = int(np.argmin(d))
+    dk = float(d[k])
+    p = m[k].copy()
+    if dk > 4.0:
+        h.clear()
+        S["approach"] = None
+        return
+    h.append((t, dk, p))
+    del h[:-3]
+    if len(h) < 2:
+        return
+    t0, d0, p0 = h[0]
+    if math.hypot(p[0] - p0[0], p[1] - p0[1]) > 0.8:   # 가장 가까운 물체가 바뀜
+        del h[:-1]
+        S["approach"] = None
+        return
+    if t - t0 < 0.04:
+        return
+    b = math.atan2(p[1] - pose[1], p[0] - pose[0]) - pose[2]
+    rate = (d0 - dk) / (t - t0) - S["v_meas"] * math.cos(b)
+    old = S["approach"]
+    if old is not None and math.hypot(old[0][0] - p[0], old[0][1] - p[1]) < 0.8:
+        rate = 0.5 * old[1] + 0.5 * rate
+    S["approach"] = (p, rate)
+
+
+def _threats(t, pose):
+    """현재 시각으로 옮긴 위협 목록 [(월드 점 (N, 2), 속도 (2,), 추적 횟수)].
+    추적이 덜 된 가장 가까운 물체는 거리 변화로 얻은 접근 속도로 로봇 쪽을 향해 움직인다고 봅니다."""
+    S = _SAFE
+    if S["thr_t"] == t:
+        return S["thr"]
+    out = [(tr["pts"] + tr["u"] * (t - tr["t"]), tr["u"], tr["n"]) for tr in S["tracks"]]
+    ap = S["approach"]
+    if ap is not None and ap[1] > 0.15:
+        p0 = ap[0]
+        covered = any(n >= 2 and float(np.min(np.hypot(P[:, 0] - p0[0], P[:, 1] - p0[1]))) < 0.6
+                      for P, u, n in out)
+        if not covered:
+            mv = S["mov_w"]
+            near = mv[np.hypot(mv[:, 0] - p0[0], mv[:, 1] - p0[1]) < 0.8] if len(mv) else mv
+            if len(near) == 0:
+                near = p0[None, :]
+            dv = np.array([pose[0] - p0[0], pose[1] - p0[1]])
+            nn = float(np.hypot(dv[0], dv[1]))
+            if nn > 1e-6:
+                out.append((near, dv / nn * min(ap[1], 1.5), 0))
+    S["thr_t"] = t
+    S["thr"] = out
+    return out
+
+
+def _is_danger(t, pose, v_ref):
+    """진단 지시 1: _front_blocked 확장.
+    front      지도에 없는 점이 정면 ±30° 또는 폭 ±0.6 m 통로 안, 앞면에서 2.0 m 이내
+    front_near 몸통 폭(±0.45 m) 통로 안, 앞면에서 1.2 m 이내 (오래 기다린 뒤 저속 전진 판단용)
+    side       몸체 옆면(y 방향)으로 다가오는 물체: 옆면 0.6 m 안에서 접근 중이거나, 1.2 m 안에서 2 s 안에 닿을 속도"""
+    S = _SAFE
+    out = {"front": False, "front_near": False, "side": False}
+    m = S["mov_w"]
+    if len(m):
+        loc = _to_robot(m, pose)
+        px, py = loc[:, 0], loc[:, 1]
+        L = max(2.0, 0.6 + 1.2 * max(v_ref, 0.0)) + (0.3 if S["blocked"] else 0.0)
+        ahead = (px > _BODY[1] - 0.05) & (px < _BODY[1] + L)
+        cone = np.abs(np.arctan2(py, px)) <= math.radians(30.0)
+        corr = np.abs(py) <= 0.6
+        out["front"] = bool(np.any(ahead & (cone | corr)))
+        near = (px > _BODY[1] - 0.05) & (px < _BODY[1] + 1.2) & (np.abs(py) <= 0.45)
+        out["front_near"] = bool(np.any(near))
+    c, s = math.cos(pose[2]), math.sin(pose[2])
+    for P, u, n in _threats(t, pose):
+        loc = _to_robot(P, pose)
+        px, py = loc[:, 0], loc[:, 1]
+        gap = np.maximum(_BODY[2] - py, py - _BODY[3])
+        zone = (px >= _BODY[0] - 0.3) & (px <= _BODY[1] + 0.3) & (gap > -0.02) & (gap <= _SIDE_WARN)
+        if not np.any(zone):
+            continue
+        idx = np.flatnonzero(zone)
+        k = int(idx[int(np.argmin(gap[idx]))])
+        g = max(float(gap[k]), 0.0)
+        uy = -s * u[0] + c * u[1]
+        closing = -uy if py[k] > 0 else uy
+        if (g <= _SIDE_GAP and closing >= 0.10) or (closing >= 0.15 and g <= 2.0 * closing):
+            out["side"] = True
+            break
+    return out
+
+
+def _static_free(pose, v):
+    """회피 속도 v 로 직진해도 정적 장애물(라이다 점 + 정적 지도)에 닿지 않는가."""
+    S = _SAFE
+    if v < 0:
+        if not _rear_clear(pose, v):
+            return False
+        ex = _BODY[0] - (0.2 + 0.4 * abs(v))
+    else:
+        L = 0.2 + 0.5 * v
+        a = S["all_w"]
+        if len(a):
+            loc = _to_robot(a, pose)
+            if np.any((loc[:, 0] > _BODY[1] - 0.05) & (loc[:, 0] < _BODY[1] + L) & (np.abs(loc[:, 1]) < 0.40)):
+                return False
+        ex = _BODY[1] + L
+    probe = np.array([[ex, _BODY[2]], [ex, 0.0], [ex, _BODY[3]]])
+    return not bool(_static_mask(to_world(probe, pose)[:, :2]).any())
+
+
+# ========================= [END EDIT REGION] ===============================

@@ -36,12 +36,15 @@ VIDEO_PY = Path.home() / "carter_ws/mamba/envs/isaacsim/bin/python"
 MAP_FILE = "base_carter_run_ros_map_lidartime_objects_check_v18.py"
 
 
+FACT_SERIES = ("c71", "c8")      # series whose analyst input carries the turn facts (see the analyst step)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--turn", type=int, required=True)
     ap.add_argument("--code", required=True, help="current EDIT block (file)")
     ap.add_argument("--diagnosis", default=None, help="json with key 'diagnosis' (previous turn's analyst); none for turn 0")
-    ap.add_argument("--series", default="c1", choices=["c1", "c2", "c3", "c4", "c5", "c6"],
+    ap.add_argument("--series", default="c1", choices=["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8"],
                     help="c1: base_carter_run_ros_noenv.py + PROMPT_C1_DRAFT.md; c2: base_carter_run_c2.py (+WALLS, "
                          "FIXED_OBSTACLES) + PROMPT_C2.md")
     ap.add_argument("--history-file", required=True)
@@ -53,11 +56,13 @@ def main():
     ap.add_argument("--reuse-block", default=None, help="skip coder/reviewer: use this reviewed block (resume a turn)")
     ap.add_argument("--reuse-reason", default="")
     ap.add_argument("--reuse-seeds", default=None, help="comma list of seeds whose runs already exist (resume a turn)")
+    ap.add_argument("--reuse-coder-log", default=None,
+                    help="with --reuse-block: a saved *_turn.json whose coder/reviewer records (the reviewer's concerns) are kept")
     ap.add_argument("--review-retries", type=int, default=2)
     ap.add_argument("--model", default="gpt-oss-120b")
     ap.add_argument("--base", default="http://127.0.0.1:8420/v1")
     a = ap.parse_args()
-    if a.series in ("c2", "c3", "c4", "c5", "c6"):
+    if a.series in ("c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8"):
         C1.BASE_FILE, C1.TASK_PROMPT = "base_carter_run_c2.py", "PROMPT_C2.md"
     model_tag = "gpu_gpt_oss_120b"
     if a.series == "c3":      # C-3 (2026-11-16): same task, base and prompts as C-2, every role is Claude Opus 5.5
@@ -73,6 +78,15 @@ def main():
     if a.series == "c6":      # C-6 (2026-11-17): as C-5, but the analyst is Qwen3.6-27B (thinking mode) on vLLM
         model_tag = "claude_qwen36_analyst"
         role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "qwen3.6-27b"}
+    if a.series == "c7":      # C-7 (2026-11-17): as C-6, but the analyst is Gemma 4 31B (thinking on) on vLLM
+        model_tag = "claude_gemma4_analyst"
+        role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "gemma-4-31b"}
+    if a.series == "c71":     # C-7b (2026-11-18): C-7 again (Gemma 4 31B analyst) with the turn facts below
+        model_tag = "claude_gemma4_analyst"
+        role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "gemma-4-31b"}
+    if a.series == "c8":      # C-8 (2026-11-18): as C-7b, but the analyst is EXAONE 4.5 33B on vLLM
+        model_tag = "claude_exaone45_analyst"
+        role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "exaone-4.5-33b"}
     AL.BASE_FILE = HERE / C1.BASE_FILE
     AL.BASE = AL.BASE_FILE.read_text()
     AL.SP.BASE = AL.BASE
@@ -96,6 +110,8 @@ def main():
     if a.reuse_block:
         block, reason = (HERE / a.reuse_block).read_text(), a.reuse_reason
         log["reused_block"] = a.reuse_block
+        if a.reuse_coder_log:
+            log["coder"] = json.loads((HERE / a.reuse_coder_log).read_text()).get("coder") or []
     for attempt in range(0 if a.reuse_block else a.review_retries + 1):
         content = T.ask("coder", coder_msgs)
         new_block, reason_i, changed, err = CT.merge(merge_base, content)
@@ -209,8 +225,42 @@ def main():
     prior = CMA.prior_analyses([(k, HERE / f"results/turns/prompt_{a.series}_turn{k}") for k in range(a.turn)
                                 if (HERE / f"results/turns/prompt_{a.series}_turn{k}").is_dir()])
     log["prior_chars"] = len(prior)
+    # C-7b on (user 2026-11-18): two facts the analyst did not get. (1) how many of the batches ran and why the rest did
+    # not, with the mean time of the passing runs against what 10 batches in the budget need - in C-7 turns 14 and 25
+    # the budget ran out exactly, no failed row existed, and the analyst read 7/7 and 8/8 as done. (2) what the
+    # reviewer wrote about the diagnosis - it never reached the next analysis.
+    facts = ""
+    if a.series in FACT_SERIES:
+        not_run = a.runs - len(seeds)
+        why = ("실패가 %d개 쌓여 시험을 끝냄" % fails if fails >= a.max_fail else
+               "남은 예산 %.0f초가 실행 하나의 최소 시간 %.0f초보다 적음" % (max(0.0, a.budget_s - used), a.min_run_s))
+        t_pass = []
+        for s_, v_ in zip(seeds, results):
+            f = HERE / "results" / f"{prefix}{s_}_result.json"
+            if v_ == "pass" and f.exists():
+                t_pass.append(json.loads(f.read_text())["metrics"].get("sim_time_s") or 0.0)
+        need = a.budget_s / a.runs
+        facts = ("\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n"
+                 f"- 배치 {a.runs}개 중 {len(seeds)}개를 실행했고, {not_run}개는 실행하지 못했습니다"
+                 + (f" (사유: {why})" if not_run else "") + ".\n"
+                 f"- 통과 {n_pass}개, 실패 {len(seeds) - n_pass}개. 시뮬 시간 합계 {used:.0f}초 / 예산 {a.budget_s:.0f}초.\n"
+                 + (f"- 통과한 실행의 시뮬 시간: 평균 {sum(t_pass) / len(t_pass):.0f}초 (가장 짧은 것 {min(t_pass):.0f}초, "
+                    f"가장 긴 것 {max(t_pass):.0f}초). 배치 {a.runs}개를 예산 안에 모두 돌리려면 실행당 평균 {need:.0f}초 이하여야 합니다.\n"
+                    if t_pass else f"- 통과한 실행이 없습니다. 배치 {a.runs}개를 예산 안에 모두 돌리려면 실행당 평균 {need:.0f}초 이하여야 합니다.\n")
+                 + f"- 통과 기준(배치 {a.runs}개 모두 통과, 합계 {a.budget_s:.0f}초 이내): "
+                 + ("충족" if n_pass == a.runs and used <= a.budget_s + 1 else "미충족") + ".\n")
+        concerns = []
+        for k, rec_ in enumerate(log["coder"], 1):
+            rv = rec_.get("review") or {}
+            for c in rv.get("diagnosis_concerns") or []:
+                concerns.append(f"- (검토 {k}회차, 판정 {rv.get('verdict')}) {c}")
+        if concerns:
+            facts += ("\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n"
+                      "(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n"
+                      + "\n".join(concerns) + "\n")
     diag, table = CMA.analyze(block, reason, hist2, ran, HERE / "results", HERE / out_dir / f"{tag}_multi{len(ran)}",
-                              role_models.get("analyst", a.model), a.base, prior=prior)
+                              role_models.get("analyst", a.model), a.base, prior=prior, facts=facts)
+    log["facts"] = facts
     log.update(diagnosis_out=diag, table=table, history_out=hist2, ended=time.strftime("%F %T"))
     save()
     (HERE / out_dir / f"{tag}_history.txt").write_text(hist2 + "\n")

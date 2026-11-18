@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_STATIC_MARGIN 을 0.15 로 복원\", \"implemented\": true, \"note\": \"_STATIC_MARGIN = 0.15 이고 _build_static_rects 호출보다 앞에 정의돼 있어 사각형과 WALLS 판정 모두에 반영됨\"},\n  {\"instruction\": \"stop 플래그 대신 d_front < 0.8 이면 v=0, blocked_t 기록\", \"implemented\": true, \"note\": \"_NAV['blocked']=True, blocked_t=t 로 기록하고, 1.5 s 이내에는 0,0 을 반환함(near<0.8 일 때 후진/전진 비켜남은 유지)\"},\n  {\"instruction\": \"정지 1.5 s 경과 시 near 와 무관하게 v=0.1 크리프 또는 w=0.5 회전 강제\", \"implemented\": true, \"note\": \"held >= _ESCAPE_T(1.5) 분기에서 near 검사 없이 _CREEP_V=0.1 또는 ±_ESCAPE_W=0.5 를 반환함\"},\n  {\"instruction\": \"재개는 d_front > 1.2 가 0.5 s 지속될 때만\", \"implemented\": true, \"note\": \"_RESUME_D=1.2, clear_since 와 _RESUME_HOLD=0.5 로 구현했고, 조건이 깨지면 clear_since 를 초기화함\"},\n  {\"instruction\": \"_SIDE_STOP 제거, 전방 180° 거리 비례 감속으로 통합\", \"implemented\": true, \"note\": \"d_side 와 stop 계산을 삭제하고 d_front < 1.5 이면 v *= d_front/1.5 로 감속함. 상수 정의는 남았지만 쓰이지 않아 무해함\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"증거상 지도 밖 최근접 물체가 2.2~3.6 m 인데, 0.8 m 안 오탐 점이 정지를 고정했다는 원인 추정과 맞지 않음. 이전 코드는 정지 래치도 없었으므로 stall 의 실제 원인이 다를 수 있음\",\n  \"near 와 무관하게 1.5 s 뒤 강제 크리프하면 실제 물체 쪽으로 다가가 충돌할 위험이 있음\",\n  \"오탐 점이 계속 0.8 m 안에 남으면 0.1 m/s 크리프만 이어져 평균 60 s 예산을 넘길 수 있음\",\n  \"측면 정지를 없애 x < -0.3 뒤·옆에서 다가오는 물체는 감속이나 정지 대상이 아님\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 30317,
+  "completion_tokens": 3199
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 32841,
+  "total_cost_usd": 0.306508,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3199,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 30315,
+    "webSearchRequests": 0,
+    "costUSD": 0.306508,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2212,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 30315,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "c9ca3a6d-73da-4086-9d63-c21b93b3703b"
+ }
+}

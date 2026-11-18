@@ -1,0 +1,178 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c71t25_s1797685948: t=88.25 stall_abort, 60초간 0.293m 이동, 최근접 물체 3.01m로 매우 멀음",
+   "c71t25_s1727248603: t=83.55 stall_abort, 60초간 0.299m 이동, 최근접 물체 2.41m로 충분한 거리",
+   "c71t25_s487173596: t=77.35 stall_abort, 60초간 0.299m 이동, 주변에 감지된 물체 없음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "안전 필터가 정적/동적 장애물을 피하면서도 항상 목표 방향으로의 전진 또는 회전을 선택하여 정체를 방지한다",
+    "holds": false,
+    "why": "물체가 멀리 있거나 없는 상황에서도 로봇이 v=0, w=0 상태로 완전히 정지하여 stall_abort가 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "예측 기반 척력 필터",
+    "turns": "10",
+    "result": "4/7 통과, 주 원인은 stall_abort"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 필터의 non-repulse 점수 계산에서 회전 페널티(-0.03 * |w|)를 제거하고 진행도(prog) 가중치를 높여 정체 상황 탈출 유도",
+    "new_family": false,
+    "for": "v=0인 상황에서 w=0이 최적점으로 선택되어 로봇이 굳어버리는 현상 방지",
+    "risk": "회전이 다소 잦아질 수 있으나 정지보다는 나음"
+   },
+   {
+    "idea": "정체 감지 로직을 추가하여 일정 시간 이동이 없으면 일시적으로 정적 충돌 허용 범위를 넓히거나 강제 회전 수행",
+    "new_family": true,
+    "for": "로컬 미니멈(벽 앞 정면 정지) 탈출",
+    "risk": "정적 장애물 충돌 위험 증가"
+   }
+  ],
+  "chosen": "회전 페널티 제거 및 진행도 가중치 강화. v=0일 때 w=0이 선택되는 구조적 원인을 제거하는 가장 직접적인 방법임.",
+  "target": "_safety_filter",
+  "direction": "1. _safety_filter 함수 내 non-repulse 모드의 score 계산식에서 -0.03 * np.abs(cand[:, 1]) 항을 완전히 제거합니다. 2. 동일 식에서 prog의 가중치를 높여(예: 1.0 -> 1.5) 조금이라도 목표에 다가가는 후보를 강력하게 선호하게 합니다. 3. v=0인 후보들 사이에서 w=0인 후보보다 목표 방향으로 회전하는 후보가 우선 선택되도록 score 구성을 조정합니다. 4. _E_TURN 상수를 0.9에서 1.0으로 높여 제자리 회전 진입 조건을 더 완화하여 직선 주행 구간을 늘립니다. 5. non-repulse pool에서 candidates의 v=0, w=0 조합이 최후의 수단이 되도록 페널티를 부여합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"stall\",\n \"evidence\": [\n  \"c71t25_s1797685948: t=88.25 stall_abort, 60초간 0.293m 이동, 최근접 물체 3.01m로 매우 멀음\",\n  \"c71t25_s1727248603: t=83.55 stall_abort, 60초간 0.299m 이동, 최근접 물체 2.41m로 충분한 거리\",\n  \"c71t25_s487173596: t=77.35 stall_abort, 60초간 0.299m 이동, 주변에 감지된 물체 없음\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"안전 필터가 정적/동적 장애물을 피하면서도 항상 목표 방향으로의 전진 또는 회전을 선택하여 정체를 방지한다\",\n   \"holds\": false,\n   \"why\": \"물체가 멀리 있거나 없는 상황에서도 로봇이 v=0, w=0 상태로 완전히 정지하여 stall_abort가 발생함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"예측 기반 척력 필터\",\n   \"turns\": \"10\",\n   \"result\": \"4/7 통과, 주 원인은 stall_abort\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"안전 필터의 non-repulse 점수 계산에서 회전 페널티(-0.03 * |w|)를 제거하고 진행도(prog) 가중치를 높여 정체 상황 탈출 유도\",\n   \"new_family\": false,\n   \"for\": \"v=0인 상황에서 w=0이 최적점으로 선택되어 로봇이 굳어버리는 현상 방지\",\n   \"risk\": \"회전이 다소 잦아질 수 있으나 정지보다는 나음\"\n  },\n  {\n   \"idea\": \"정체 감지 로직을 추가하여 일정 시간 이동이 없으면 일시적으로 정적 충돌 허용 범위를 넓히거나 강제 회전 수행\",\n   \"new_family\": true,\n   \"for\": \"로컬 미니멈(벽 앞 정면 정지) 탈출\",\n   \"risk\": \"정적 장애물 충돌 위험 증가\"\n  }\n ],\n \"chosen\": \"회전 페널티 제거 및 진행도 가중치 강화. v=0일 때 w=0이 선택되는 구조적 원인을 제거하는 가장 직접적인 방법임.\",\n \"target\": \"_safety_filter\",\n \"direction\": \"1. _safety_filter 함수 내 non-repulse 모드의 score 계산식에서 -0.03 * np.abs(cand[:, 1]) 항을 완전히 제거합니다. 2. 동일 식에서 prog의 가중치를 높여(예: 1.0 -> 1.5) 조금이라도 목표에 다가가는 후보를 강력하게 선호하게 합니다. 3. v=0인 후보들 사이에서 w=0인 후보보다 목표 방향으로 회전하는 후보가 우선 선택되도록 score 구성을 조정합니다. 4. _E_TURN 상수를 0.9에서 1.0으로 높여 제자리 회전 진입 조건을 더 완화하여 직선 주행 구간을 늘립니다. 5. non-repulse pool에서 candidates의 v=0, w=0 조합이 최후의 수단이 되도록 페널티를 부여합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t25_s1036813039",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 63.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 57.45,
+   "goal_dist_m": 0.3192,
+   "time_to_goal_s": 58.967
+  },
+  {
+   "run": "c71t25_s936107739",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 536.6,
+   "sim_time_s": 47.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 41.12,
+   "goal_dist_m": 0.072,
+   "time_to_goal_s": 44.267
+  },
+  {
+   "run": "c71t25_s1797685948",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 489.5,
+   "sim_time_s": 89.3,
+   "stall_abort_t": 88.25,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 18.028,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t25_s1763573513",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 400.2,
+   "sim_time_s": 96.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 90.53,
+   "goal_dist_m": 0.1403,
+   "time_to_goal_s": 94.067
+  },
+  {
+   "run": "c71t25_s124253899",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 303.8,
+   "sim_time_s": 53.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1123,
+   "time_to_goal_s": 47.317
+  },
+  {
+   "run": "c71t25_s1727248603",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 250.8,
+   "sim_time_s": 84.6,
+   "stall_abort_t": 83.55,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 18.5452,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t25_s487173596",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 166.2,
+   "sim_time_s": 78.4,
+   "stall_abort_t": 77.35,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 25.6566,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

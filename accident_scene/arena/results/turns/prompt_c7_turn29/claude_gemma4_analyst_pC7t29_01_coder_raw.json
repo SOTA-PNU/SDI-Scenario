@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1·2에 따라 `_SIDE_STOP_PEN` 을 0.15 → 0.05 m 로 낮추고 `_ESC_GAIN` 을 0.01 → 0.05 m 로 높였습니다. 이제 측면 위협 때 이동 후보는 정지의 예상 거리 c0 보다 실제로 나을 때만 채택됩니다(c0 − 0.05 + 0.05 = c0). 그래서 두 충돌 사례처럼 우측면에서 교차해 오는 물체 앞으로 어설프게 전진하는 대신 정지가 선택됩니다. direction 3은 \"0.15 m 유지 또는 상향\"이지만 현재 값이 0.10 m 이므로 `_CLOSE_FWD_GAIN` 을 0.15 m 로 올려 매우 근접할 때의 전진을 더 억제했습니다. direction 4·6에 따라 `_ESC_SURE_GAIN` (0.10 m), `_ESC_C`, `_CLR_GO` 등 나머지 임계값과 로직은 바꾸지 않았습니다.\n\n```python\n_SIDE_STOP_PEN = 0.05    # 진단 지시(시도 29) 1: 측면 위협 시 '정지' 에 주는 페널티 [m] (0.15 -> 0.05), 정지가 이동 후보와 더 치열하게 경쟁\n\n\n_ESC_GAIN = 0.05         # 진단 지시(시도 29) 2: 회피 속도 채택에 필요한 예상 거리 이득 (0.01 -> 0.05 m), 정지보다 확실히 나을 때만 이동\n\n\n_CLOSE_FWD_GAIN = 0.15   # 진단 지시(시도 29) 3: 매우 근접 시 전진 후보 채택에 필요한 이득 [m] (0.10 -> 0.15), 무분별한 전진 억제\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 39407,
+  "completion_tokens": 1131
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 11086,
+  "total_cost_usd": 0.337868,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1131,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 39405,
+    "webSearchRequests": 0,
+    "costUSD": 0.337868,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 449,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 39405,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "8c5f1c3e-cca2-41c6-afba-71371aa21cf9"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 `chosen`(첫 번째 후보)과 `direction` 지시에 따라 안전 구조는 그대로 두고 세 상수만 조정했습니다. `_FRONT_UNTRACKED_R` 를 1.0 → 0.6 m 로 낮춰, 추적되지 않은 점이 1 m 안팎에 머물 때 생기던 불필요한 정면 정지를 줄였습니다(s1624331939 의 t=79~83.5 s 정지-재출발 반복 대응). `_WAIT_RELAX_S` 는 1.0 → 0.5 s 로 줄여 정체 시 더 빨리 주행을 재개하게 했고, `_RELAX_V` 는 0.8 → 1.0 m/s 로 높여 저속 전진 구간을 더 빨리 통과하게 했습니다. 저속 전진에도 `_clearance >= _CLR_GO` 검사, `front_near` 검사, 속도 상한 cap, `_static_guard` 하드 스톱은 그대로 적용됩니다.\n\n```python\n_FRONT_UNTRACKED_R = 0.6  # 진단 지시(시도 14): 추적 안 된 점을 정면 위험으로 보는 최대 거리(로봇 중심 기준) (1.0 -> 0.6 m)\n\n\n_WAIT_RELAX_S = 0.5      # 진단 지시(시도 14): 대기가 이보다 길면 저속 전진 시도 (1.0 -> 0.5 s)\n\n\n_RELAX_V = 1.0           # 진단 지시(시도 14): 오래 기다린 뒤 저속 전진 속도 (0.8 -> 1.0 m/s, 실제 값은 cap 으로 제한)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 33213,
+  "completion_tokens": 948
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 9173,
+  "total_cost_usd": 0.28465599999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 948,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 33211,
+    "webSearchRequests": 0,
+    "costUSD": 0.28465599999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 332,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 33211,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "9e7ed429-e1dc-4729-9606-9381171d78bb"
+ }
+}

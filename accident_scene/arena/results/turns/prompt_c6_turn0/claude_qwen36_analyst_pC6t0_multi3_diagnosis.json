@@ -1,0 +1,114 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1·2·3 모두 충돌로 실패하며, 코드 내에 센서 호출이 전혀 없어 경유점만 무조건 추종함.",
+   "라이다 기록에서 움직이는 물체는 충돌 전 2~5초(거리 2~3m 이상)에 이미 감지되었음(예: run1 t=0.05s 시 1.88m, run3 t=9.55s 시 2.1m).",
+   "로봇은 감지에도 불구하고 정속(0.97~1.52 m/s)으로 직진하다가 물체와 부딪힘."
+  ],
+  "assumptions": [
+   {
+    "assumption": "정해진 경유점만 따르면 움직이는 물체를 피할 수 있다",
+    "holds": false,
+    "why": "물체가 통로를 무작위로 가로지르며, 실행 3건 모두 경로 상에서 충돌 발생"
+   },
+   {
+    "assumption": "2D 라이다는 움직이는 물체를 충분히 일찍 감지할 수 있다",
+    "holds": true,
+    "why": "실행 요약의 first_not_on_map 기록이 충돌 전 2~5초 이상 일찍 물체 위치와 거리를 명확히 제공함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "무조건 경유점 추종(센서 미사용)",
+    "turns": "1",
+    "result": "0/3"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "2D 라이다 기반 반응형 회피 모듈 추가",
+    "new_family": true,
+    "for": "라이다가 이미 물체를 일찍 감지하고 있으며, 정적 장애물 좌표가 주어져 있으므로 지도에 없는 점을 필터링해 감속/정지 로직을 넣기 용이함",
+    "risk": "정적 장애물 필터링이 부정확하면 오감속될 수 있으나, 거리 임계값 조정으로 완화 가능"
+   }
+  ],
+  "chosen": "2D 라이다 기반 반응형 회피를 선택함. 이미 센서 데이터가 충분하고 구현이 간단해 다음 배치에서도 일반화될 수 있기 때문임.",
+  "target": "controller 함수 내 주행 명령부(v, w 계산)",
+  "direction": "controller 내에서 매 스텝마다 lidar2d_points('front')를 호출해 로봇 기준 점군을 가져온다. 주어진 정적 지도(WALLS, FIXED_OBSTACLES, MISSION boxes)를 활용해 로봇 좌표계에서 정적 장애물로 판정되는 점을 제거한다. 제거 후 남아있는 점 중 앞쪽 2.0m 이내에 있으면 전진 속도 v를 0으로 강제한다. 안전 거리 이상으로 물체가 벗어나면 원래 경유점 추종 속도로 복구한다. 회전 속도 w는 기존 로직을 유지하되 정지 중에는 0으로 고정한다. 이렇게 하면 무작위 배치에서도 센서로 실시간 감지해 충돌을 피할 수 있다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"실행 1·2·3 모두 충돌로 실패하며, 코드 내에 센서 호출이 전혀 없어 경유점만 무조건 추종함.\",\n    \"라이다 기록에서 움직이는 물체는 충돌 전 2~5초(거리 2~3m 이상)에 이미 감지되었음(예: run1 t=0.05s 시 1.88m, run3 t=9.55s 시 2.1m).\",\n    \"로봇은 감지에도 불구하고 정속(0.97~1.52 m/s)으로 직진하다가 물체와 부딪힘.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"정해진 경유점만 따르면 움직이는 물체를 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"물체가 통로를 무작위로 가로지르며, 실행 3건 모두 경로 상에서 충돌 발생\"\n    },\n    {\n      \"assumption\": \"2D 라이다는 움직이는 물체를 충분히 일찍 감지할 수 있다\",\n      \"holds\": true,\n      \"why\": \"실행 요약의 first_not_on_map 기록이 충돌 전 2~5초 이상 일찍 물체 위치와 거리를 명확히 제공함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"무조건 경유점 추종(센서 미사용)\",\n      \"turns\": \"1\",\n      \"result\": \"0/3\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"2D 라이다 기반 반응형 회피 모듈 추가\",\n      \"new_family\": true,\n      \"for\": \"라이다가 이미 물체를 일찍 감지하고 있으며, 정적 장애물 좌표가 주어져 있으므로 지도에 없는 점을 필터링해 감속/정지 로직을 넣기 용이함\",\n      \"risk\": \"정적 장애물 필터링이 부정확하면 오감속될 수 있으나, 거리 임계값 조정으로 완화 가능\"\n    }\n  ],\n  \"chosen\": \"2D 라이다 기반 반응형 회피를 선택함. 이미 센서 데이터가 충분하고 구현이 간단해 다음 배치에서도 일반화될 수 있기 때문임.\",\n  \"target\": \"controller 함수 내 주행 명령부(v, w 계산)\",\n  \"direction\": \"controller 내에서 매 스텝마다 lidar2d_points('front')를 호출해 로봇 기준 점군을 가져온다. 주어진 정적 지도(WALLS, FIXED_OBSTACLES, MISSION boxes)를 활용해 로봇 좌표계에서 정적 장애물로 판정되는 점을 제거한다. 제거 후 남아있는 점 중 앞쪽 2.0m 이내에 있으면 전진 속도 v를 0으로 강제한다. 안전 거리 이상으로 물체가 벗어나면 원래 경유점 추종 속도로 복구한다. 회전 속도 w는 기존 로직을 유지하되 정지 중에는 0으로 고정한다. 이렇게 하면 무작위 배치에서도 센서로 실시간 감지해 충돌을 피할 수 있다.\",\n  \"confidence\": \"high\"\n}",
+ "table": [
+  {
+   "run": "c6t0_s156506178",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 9.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.44,
+    0.27
+   ],
+   "closing_m_s": -0.21,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 0.05,
+   "goal_dist_m": 30.4189,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t0_s1354323266",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 590.3,
+   "sim_time_s": 9.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.97m/s 회전 +1.0",
+   "partner_rel_xy": [
+    0.39,
+    0.45
+   ],
+   "closing_m_s": 0.34,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 1.65,
+   "goal_dist_m": 31.0595,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t0_s991572569",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 580.6,
+   "sim_time_s": 20.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.533,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.17m/s",
+   "partner_rel_xy": [
+    0.43,
+    -0.51
+   ],
+   "closing_m_s": 0.48,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 13.45,
+   "goal_dist_m": 22.5717,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

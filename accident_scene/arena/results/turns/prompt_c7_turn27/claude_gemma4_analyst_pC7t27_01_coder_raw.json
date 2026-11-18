@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단은 로봇이 정지하거나 0.2 m/s 미만으로 움직이다가 물체 경로 안에서 충돌한다고 보았고, 이에 따라 \"결단력 있는 회피\" 를 반영했습니다. 지시 1·2·3에 따라 `_SIDE_STOP_PEN` 을 0.15에서 0.35로 올리고, `_ESC_SURE_GAIN` 을 0.15에서 0.05로 낮췄으며, `_ESC_V` 에서 ±0.3 후보를 빼고 `_ESC_MIN_V` 를 0.5로 올려 확실히 움직이게 했습니다. 지시 4·5에 따라 `_safe_speed` 에서 c0 < 0.5 m 이고 물체가 다가오면(측면 위협이거나 접근 속도 > 0.05 m/s) 정지에 `_CLOSE_STOP_PEN` 을 더 주고, `_CLOSE_FWD_GAIN` 을 0.15에서 0.03으로 낮춰 전진·후진 중 유리한 쪽으로 움직이게 했습니다. 다만 매우 근접한 상황에서 정지보다 예상 거리가 눈에 띄게 나빠지는 후보(`_CLOSE_FLOOR_TOL`)는 버리며, 지시 6에 따라 정적 검사(critical=True)는 그대로 둡니다.\n\n```python\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 _CAP_MIN) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO 이상이면 전진.\n      대기가 _WAIT_RELAX_S 를 넘으면 몸통 폭 통로가 빌 때 _RELAX_V 또는 그 절반으로 저속 전진.\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C):\n      정적 검사를 critical=True (probe 0.05 m) 로 완화해, 전진·후진 후보 중\n      가장 멀어지는 쪽으로 이동합니다 (_ESC_GAIN 이득 이상일 때 채택).\n      진단 지시(시도 27) 1: 측면 위협이면 정지의 기준값을 c0 - _SIDE_STOP_PEN (0.35 m) 으로 낮춰 이동을 강하게 선호합니다.\n      진단 지시(시도 27) 4: c0 < _SIDE_CLOSE_C 로 매우 가깝고 물체가 다가오면(측면 위협 또는 접근 속도 > _FRONT_CLOSE)\n      정지에 _CLOSE_STOP_PEN 을 추가로 줍니다. 이때 정지보다 예상 거리가 _CLOSE_FLOOR_TOL 넘게 나빠지는 후보는 버립니다.\n      진단 지시(시도 27) 5: 매우 근접 시 전진 후보에 필요한 이득 _CLOSE_FWD_GAIN 을 0.03 m 로 낮춰 유리한 방향 이동을 촉진합니다.\n      진단 지시(시도 27) 2·3: 회피 후보는 |v| >= 0.5 m/s 만 쓰고, 저속 회피 허용 이득 _ESC_SURE_GAIN 은 0.05 m 입니다.\n      진단 지시(시도 22) 3: 측면 위협이고 측정 속도 S['v_meas'] >= _MOMENTUM_V 이며\n      c0 >= _MOMENTUM_C0 일 때만, 현재 속도의 80% 이상인 후보의 예상 거리에 _SIDE_MOMENTUM_BONUS 를 더합니다.\n      진단 지시(시도 27) 6: 회피 후보의 정적 검사는 critical=True 를 유지합니다.\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            if S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vr = min(v_law, _RELAX_V)\n                for vf in (vr, 0.5 * vr):\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    # 긴급 회피이므로 정적 검사는 critical=True (probe 0.05 m)\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    close = c0 < _SIDE_CLOSE_C\n    ap = S[\"approach\"]\n    approaching = dz[\"side\"] or (ap is not None and ap[1] > _FRONT_CLOSE)\n    # 진단 지시(시도 27) 1·4: 정지 페널티 강화 (측면 위협 + 매우 근접하고 다가오는 물체면 추가 페널티)\n    pen = _SIDE_STOP_PEN if dz[\"side\"] else 0.0\n    if close and approaching:\n        pen += _CLOSE_STOP_PEN\n    best_v = 0.0\n    best_c = c0 - pen\n    v_now = S[\"v_meas\"]\n    momentum = dz[\"side\"] and v_now >= _MOMENTUM_V and c0 >= _MOMENTUM_C0\n    for vc in cands:\n        if not _static_free(pose, vc, critical=True):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        if momentum and vc >= v_now * 0.8:\n            cv += _SIDE_MOMENTUM_BONUS\n        # 매우 근접한 상태에서는 정지보다 눈에 띄게 나빠지는 이동은 하지 않음\n        if close and cv < c0 - _CLOSE_FLOOR_TOL:\n            continue\n        need = _CLOSE_FWD_GAIN if (close and vc > 0.0) else _ESC_GAIN\n        if cv > best_c + need:\n            best_v, best_c = vc, cv\n    # 아주 느린 회피이면서 이득도 크지 않으면 정지 (후보는 모두 |v| >= _ESC_MIN_V 이므로 실제로는 거의 쓰이지 않음)\n    if best_v != 0.0 and abs(best_v) < _ESC_MIN_V and best_c < c0 + _ESC_SURE_GAIN:\n        best_v = 0.0\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n\n\n_SIDE_STOP_PEN = 0.35    # 진단 지시(시도 27) 1: 측면 위협 시 '정지' 에 주는 페널티 [m] (0.15 -> 0.35), 정지보다 이동을 강하게 선호\n\n\n_ESC_SURE_GAIN = 0.05    # 진단 지시(시도 27) 2: 저속 회피를 허용하는 데 필요한 예상 거리 이득 [m] (0.15 -> 0.05)\n\n\n_ESC_V = (-0.8, -0.5, 0.5, 1.0, 1.5)   # 진단 지시(시도 27) 3: 너무 느린 ±0.3 m/s 후보 제거, 확실히 경로를 벗어나는 속도만 사용\n\n\n_ESC_MIN_V = 0.50        # 진단 지시(시도 27) 3: 능동 회피로 채택할 최소 속도 [m/s] (0.30 -> 0.50)\n\n\n_CLOSE_FWD_GAIN = 0.03   # 진단 지시(시도 27) 5: 매우 근접 시 전진 후보 채택에 필요한 이득 [m] (0.15 -> 0.03), 유리한 방향 이동 촉진\n\n\n_CLOSE_STOP_PEN = 0.20   # 진단 지시(시도 27) 4: c0 < _SIDE_CLOSE_C 이고 물체가 다가올 때 정지에 추가로 주는 페널티 [m]\n\n\n_CLOSE_FLOOR_TOL = 0.05  # 진단 지시(시도 27) 4: 매우 근접 시 정지보다 예상 거리가 이만큼 넘게 나빠지는 이동 후보는 버림 [m]\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 38340,
+  "completion_tokens": 6637
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 54101,
+  "total_cost_usd": 0.43945199999999995,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6637,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 38338,
+    "webSearchRequests": 0,
+    "costUSD": 0.43945199999999995,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3022,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 38338,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "42fccba7-fd0b-4895-b3d7-ca260f0feb78"
+ }
+}

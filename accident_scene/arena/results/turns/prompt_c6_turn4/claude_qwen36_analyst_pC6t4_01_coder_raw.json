@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 정적 필터 마진 0.2 m 때문에 정적 구조물 옆을 지나는 물체 점이 지워져 d_f 가 inf 가 되었고, 그래서 `_STATIC_MARGIN` 을 0.0 으로 바꿔 정적 사각형 내부 점만 거르도록 했습니다. 정지/재개 분기는 진단대로 단순화했습니다. d_f < 1.2 m 이면 정지하고 `blocked_t` 를 기록하며, d_f > 1.5 m 가 되면 바로 재개합니다(접근 속도 계산, 재개 타이머, 측면 비켜나기·뒤쪽 전진 분기는 제거). 정지 중 가장 가까운 물체가 0.8 m 안이면 v=-0.2 로 후진하고, 물체가 뒤쪽이면 앞이 빌 때 같은 속도로 전진합니다. 정지가 2.0 s 를 넘으면 v=0.1 크리프로 무한 정지(progress_abort)를 막되, 앞 범퍼 여유(d_f > 0.7 m)와 회전 반경 여유(0.9 m)가 있을 때만 움직이도록 안전 조건을 덧붙였습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 단순 정지/크리프 회피 (C-2 시도 4, 진단 반영).\n    - 정적 지도 사각형 '내부' 점만 거르고(_STATIC_MARGIN=0.0) 남은 점을 움직이는 물체로 본다.\n    - 앞 통로(x > -0.2, |y| < 0.8) 최단 거리 d_f < 1.2 m 이면 정지(blocked), 그 시각을 blocked_t 로 기록.\n    - d_f > 1.5 m 이면 바로 정지 해제(접근 속도 계산·재개 타이머 없음).\n    - 정지 중(blocked 또는 명령 v=0) 가장 가까운 움직이는 점이 0.8 m 안이면 후진 v=-0.2\n      (물체가 몸 뒤쪽이면 앞이 비었을 때 전진 0.2, 둘 다 막히면 정지).\n    - 정지가 2.0 s 넘게 이어지면 v=0.1 크리프 전진(앞 범퍼 여유 d_f > 0.7 m 일 때만).\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    fx, rx = _BODY[1], _BODY[0]\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ay, d = dyn_r[ok, 0], np.abs(dyn_r[ok, 1]), d_all[ok]\n\n    # 앞 통로 최단 거리, 전 방향 최단 거리와 그 점의 앞뒤 위치\n    d_f = _min_or_inf(d[(ax > _FRONT_X) & (ay < _HW)])\n    near = _min_or_inf(d)\n    ox = float(ax[int(np.argmin(d))]) if d.size else 0.0\n\n    # 뒤/앞 빈 공간 확인(전체 점 기준 + 뒤쪽 움직이는 점)\n    gap_r = _min_or_inf(rx - ax[(ax < rx + 0.05) & (ay < _HW)])\n    bx, by = raw[:, 0], np.abs(raw[:, 1])\n    rear_free = np.count_nonzero((bx < rx) & (bx > rx - 0.9) & (by < 0.45)) < 3 and gap_r > 0.5\n    front_free = np.count_nonzero((bx > fx) & (bx < fx + 0.9) & (by < 0.45)) < 3\n\n    # 정지 / 재개: 임계값 하나씩 (정지 1.2 m, 재개 1.5 m)\n    if not _NAV[\"blocked\"] and d_f < _STOP_GAP:\n        _NAV[\"blocked\"] = True\n        _NAV[\"blocked_t\"] = t\n    elif _NAV[\"blocked\"] and d_f > _RESUME_GAP:\n        _NAV[\"blocked\"] = False\n        _NAV[\"blocked_t\"] = None\n    hold = _NAV[\"blocked\"]\n\n    # 정지 중 물체가 0.8 m 안: 후진 (물체가 뒤쪽이면 전진), 둘 다 막히면 정지\n    if (hold or v == 0.0) and near < _EVADE_R:\n        if ox >= 0.5 * (fx + rx):\n            if rear_free:\n                return -_EVADE_V, 0.0, False\n        elif front_free and d_f > _CREEP_MIN:\n            return _EVADE_V, 0.0, False\n        return 0.0, 0.0, False\n\n    # 정지 상태: 2.0 s 넘게 이어지면 크리프(정적 혼동·가림으로 인한 무한 정지 방지)\n    if hold:\n        bt = _NAV[\"blocked_t\"] if _NAV[\"blocked_t\"] is not None else t\n        if t - bt > _CREEP_T:\n            cv = _CREEP_V if (v > 0.0 and d_f > _CREEP_MIN) else 0.0\n            cw = _clamp(w, -_EVADE_W, _EVADE_W) if near > _SWEEP_R else 0.0\n            return cv, cw, False\n        return 0.0, 0.0, False\n\n    # 정상 주행: 앞에 움직이는 물체가 보이면 감속\n    if v > 0.0:\n        if d_f < 3.5:\n            v = min(v, 0.5 + 0.5 * (d_f - _STOP_GAP))\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    return v, w, False\n\n\n_STATIC_MARGIN = 0.0    # 정적 지도와의 여유 [m] (진단: 0.2 -> 0.0, 정적 사각형 내부 점만 제거해 인접 물체 감지)\n\n\n_STOP_GAP = 1.2         # 앞 통로 물체가 로봇 중심에서 이 거리 안이면 정지 (진단: 1.2 m)\n\n\n_RESUME_GAP = 1.5       # 앞 통로 최단 거리가 이보다 크면 바로 주행 재개 (진단: 1.5 m)\n\n\n_EVADE_R = 0.8          # 정지 중 가장 가까운 움직이는 점이 이 거리 안이면 후진 [m] (진단: 0.8 m)\n\n\n_EVADE_V = 0.2          # 정지 중 회피 후진(또는 전진) 속도 [m/s] (진단: v=-0.2)\n\n\n_NAV = {\"scan\": {}, \"dyn\": {}, \"got\": False, \"fresh\": False, \"blocked\": False, \"blocked_t\": None,\n        \"clear_since\": None, \"hist\": [], \"esc\": 0, \"nhist\": []}\n\n\n_CREEP_T = 2.0          # 정지가 이 시간보다 길게 이어지면 크리프 전진 [s] (진단: 2.0 s)\n\n\n_CREEP_V = 0.1          # 크리프 전진 속도 [m/s] (진단: v=0.1)\n\n\n_CREEP_MIN = 0.7        # 크리프·전진 허용 최소 앞 통로 거리 [m] (앞 범퍼 여유 약 0.45 m)\n\n\n_SWEEP_R = 0.9          # 정지 중 제자리 회전을 허용할 최소 물체 거리 [m] (몸체 회전 반경 약 0.78 m + 여유)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 21640,
+  "completion_tokens": 16736
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 160555,
+  "total_cost_usd": 0.5078320000000001,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 16736,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 21638,
+    "webSearchRequests": 0,
+    "costUSD": 0.5078320000000001,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 13881,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 21638,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "a891b34c-54c4-472c-aa24-06087d0f296c"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1·2·4에 따라 정지 구역을 ±20°에서 ±40°로 넓혔습니다. 거리 2.0 m와 해제 히스테리시스 2.2 m는 그대로 두었고, ±60°·3.0 m 감속 구역의 creep 속도는 0.7 m/s에서 0.3 m/s로 낮췄습니다. 측면(47°, -65°)에서 다가오는 물체에 더 일찍 멈추거나 아주 느리게 지나가도록 하기 위한 것입니다. direction 3에 따라 주행 시간을 줄이려고 E_TURN을 0.5에서 0.7로, w 이득을 8.5에서 10.0으로 올렸고, direction 5에 따라 정적 지도 필터링(`_static_mask`, `_front_dynamic_min_dist`)과 경유점은 바꾸지 않았습니다. 다만 -93°처럼 거의 옆에서 오는 물체는 ±60° 감속 구역 밖이므로, 이번 수정으로는 그런 경우를 막지 못할 수 있습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow the pre-computed way-points (v_max 2.5, k_d 3.5, k_w 10.0, rotate in place when |e| > 0.7);\n    stop (v=0) when a non-static object is within 2.0 m at bearing within ±40° (release at 2.2 m),\n    and creep (v <= 0.3 m/s) when one is within 3.0 m at bearing within ±60°.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.done_align = False\n        controller.blocked = False\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3) Control law (diagnosis: E_TURN 0.5 -> 0.7, k_w 8.5 -> 10.0; v_max 2.5, k_d 3.5 unchanged)\n    E_TURN = 0.7\n    w = _clamp(10.0 * e, -2.0, 2.0)\n    if abs(e) > E_TURN:\n        v = 0.0\n    else:\n        v = min(2.5, 3.5 * dist + 0.5)\n\n    # 4) Reactive response to moving objects (front 2D lidar, static map filtered out)\n    #    caution cone: bearing within ±60° and closer than 3.0 m -> creep at <= 0.3 m/s\n    d_wide, b_wide = _front_dynamic_min_dist(pose, 60.0)\n    if d_wide < 3.0 and abs(b_wide) <= math.radians(60.0):\n        v = min(v, 0.3)\n    #    stop cone: bearing within ±40° and closer than 2.0 m -> v = 0 (hysteresis: release at 2.2 m)\n    d_stop, b_stop = _front_dynamic_min_dist(pose, 40.0)\n    stop_r = 2.2 if controller.blocked else 2.0\n    controller.blocked = (d_stop < stop_r) and (abs(b_stop) <= math.radians(40.0))\n    if controller.blocked:\n        v = 0.0                                   # stop; keep w so the heading stays on the waypoint\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 16749,
+  "completion_tokens": 2270
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 19250,
+  "total_cost_usd": 0.17938400000000002,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2270,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 16747,
+    "webSearchRequests": 0,
+    "costUSD": 0.17938400000000002,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 737,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 16747,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "457bf04f-a3a6-444a-bacd-58a72abd784b"
+ }
+}

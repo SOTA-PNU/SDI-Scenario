@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 지시에 따라 `controller` 의 회피 분기를 바꿨습니다. 시도 25에서 3건 모두 측면 물체를 피하려고 회전하며 전진(v=0.2)하다 충돌했기 때문에, 이제 d_min < 1.0 m 이면 정면·측면을 가리지 않고 전진 명령을 없앱니다. 뒤 통로(`_rear_gap`)가 1.0 m 이상 비었으면 v=-0.2 로 직선 후진하고, 막혔으면 물체 반대쪽(b_min 부호 반대)으로 w=±0.8 제자리 회전하며, |w| 는 1.5 rad/s 이하로 제한합니다. 1.0 m 와 1.2 m 사이에서 추종과 회피가 번갈아 바뀌지 않도록 `controller.evading` 플래그를 두어, 감시 영역 최단 거리가 1.2 m(`_BR_EXIT`) 이상이 되거나 점이 사라지면 곧바로 경유점 추종(v_nom, w_nom)으로 돌아갑니다.\n\n```python\n_BR_EXIT = 1.2          # 회피 해제 거리: 감시 영역 최단 거리가 이 이상이면 즉시 경유점 추종으로 복귀 [m] (진단: d_min >= 1.2 m)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 전진 없는 거리·bearing 회피 (C-2 시도 26, 진단 반영).\n    - d_min < _BR_D(1.0 m) 이면 회피 상태로 들어갑니다(controller.evading = True).\n    - 회피 상태에서는 정면·측면 구분 없이 전진 명령이 없습니다:\n        뒤 통로(_rear_gap) >= _REAR_MIN(1.0 m) 이면 v = -0.2 직선 후진,\n        아니면 v = 0, w = -0.8 * sign(b_min) (물체 반대쪽) 제자리 회전.\n    - d_min >= _BR_EXIT(1.2 m) 이거나 감시 영역에 움직이는 점이 없으면 회피를 풀고 경유점 추종으로 즉시 복귀합니다.\n    - 모든 회피 명령의 |w| 는 _BR_W_MAX(1.5 rad/s) 이하입니다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    if not hasattr(controller, \"evading\"):\n        controller.evading = False\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        controller.evading = False\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_min, b_min, x_min = _watch_min(dyn_r)\n\n    # ---- 회피 상태 진입/해제 (히스테리시스 1.0 m / 1.2 m) ----\n    if not math.isfinite(d_min) or d_min >= _BR_EXIT:\n        controller.evading = False\n    elif d_min < _BR_D:\n        controller.evading = True\n\n    if not controller.evading:\n        return v_nom, w_nom, False      # 가까운 움직이는 물체 없음: 경유점 추종 그대로\n\n    # ---- 회피: 전진 금지, 후진 또는 제자리 회전만 ----\n    if _rear_gap(raw) >= _REAR_MIN:\n        return -_BR_BACK_V, 0.0, False  # 뒤 통로가 비었으면 직선 후진\n    side = 1.0 if b_min >= 0.0 else -1.0   # 물체가 왼쪽(+)이면 오른쪽(-)으로 돈다\n    w_cmd = _clamp(-_BR_TURN_W * side, -_BR_W_MAX, _BR_W_MAX)\n    return 0.0, w_cmd, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 34953,
+  "completion_tokens": 1999
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 18503,
+  "total_cost_usd": 0.31959600000000005,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1999,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 34951,
+    "webSearchRequests": 0,
+    "costUSD": 0.31959600000000005,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 550,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 34951,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "ef9bbc3d-5c5b-4af1-ae24-e555fb5c70c2"
+ }
+}

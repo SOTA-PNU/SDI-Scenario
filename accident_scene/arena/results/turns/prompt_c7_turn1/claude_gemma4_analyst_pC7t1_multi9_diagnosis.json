@@ -1,0 +1,222 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t1_s1342789676: t=5.7s에 로봇이 '정지' 상태임에도 mover_00과 충돌 (상대 위치 [0.16, 0.55], 접근 속도 0.71m/s)",
+   "c7t1_s1342789676: t=5.2s부터 정지했으나, 물체가 측면(bearing 89~95deg)에서 접근하여 충돌함",
+   "c7t1_s967940791: t=46.8s 이후 제자리 회전과 정지가 반복되며 GOAL에 도달하지 못하고 time_limit 종료"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체 감지 시 정지하면 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "c7t1_s1342789676에서 정지 상태로 측면 충돌 발생"
+   },
+   {
+    "assumption": "회전 중에는 물체 추적을 하지 않아도 무방하다",
+    "holds": false,
+    "why": "회전 직후 물체의 속도/궤적 정보가 없어 _clearance 기반 후진 회피가 작동하지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 정지 및 단순 후진 회피",
+    "turns": "1",
+    "result": "7/9 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 접근 감지 및 능동적 회피 기동",
+    "new_family": true,
+    "for": "정지 상태에서도 측면에서 다가오는 물체에 의한 충돌을 막기 위해, 접근 방향의 반대로 이동해야 함",
+    "risk": "회피 기동 중 정적 장애물과 충돌할 가능성이 있음"
+   },
+   {
+    "idea": "추적 로직 완화 및 예측 정밀도 향상",
+    "new_family": false,
+    "for": "회전 중에도 추적을 유지하여 정지 직후 즉시 정확한 clearance를 계산하기 위함",
+    "risk": "회전 중 센서 노이즈로 인해 잘못된 속도가 추정될 수 있음"
+   }
+  ],
+  "chosen": "후보 1. 정지 상태에서도 충돌하는 사례가 확인되었으므로, 단순 정지가 아닌 물체의 접근 방향을 고려한 능동적 회피가 필수적임",
+  "target": "_front_blocked, _safe_speed, _update_tracks",
+  "direction": "1. _front_blocked를 _is_danger로 확장하여, 정면뿐 아니라 측면(y축 ±0.6m)에서 접근하는 물체를 감지함. 2. _update_tracks의 회전 제한(yaw_rate < 0.8)을 완화하여 회전 중에도 물체 궤적을 갱신함. 3. _safe_speed에서 정지 중 측면 충돌이 예상되면, 물체와 멀어지는 방향으로 즉시 후진하거나 회전하여 회피함. 4. 단순 정지 대기 시간을 제한하고, 일정 시간 후에는 저속으로 전진을 시도하여 타임아웃을 방지함. 5. _clearance 계산 시 추적 데이터가 부족하면 최근 2~3프레임의 거리 변화로 단순 접근 속도를 추정해 반영함. 6. 후진 시 _rear_clear의 범위를 좁혀 더 기민하게 반응하도록 수정함.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c7t1_s1342789676: t=5.7s에 로봇이 '정지' 상태임에도 mover_00과 충돌 (상대 위치 [0.16, 0.55], 접근 속도 0.71m/s)\",\n  \"c7t1_s1342789676: t=5.2s부터 정지했으나, 물체가 측면(bearing 89~95deg)에서 접근하여 충돌함\",\n  \"c7t1_s967940791: t=46.8s 이후 제자리 회전과 정지가 반복되며 GOAL에 도달하지 못하고 time_limit 종료\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"물체 감지 시 정지하면 충돌을 피할 수 있다\",\n   \"holds\": false,\n   \"why\": \"c7t1_s1342789676에서 정지 상태로 측면 충돌 발생\"\n  },\n  {\n   \"assumption\": \"회전 중에는 물체 추적을 하지 않아도 무방하다\",\n   \"holds\": false,\n   \"why\": \"회전 직후 물체의 속도/궤적 정보가 없어 _clearance 기반 후진 회피가 작동하지 않음\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"센서 기반 정지 및 단순 후진 회피\",\n   \"turns\": \"1\",\n   \"result\": \"7/9 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"측면 접근 감지 및 능동적 회피 기동\",\n   \"new_family\": true,\n   \"for\": \"정지 상태에서도 측면에서 다가오는 물체에 의한 충돌을 막기 위해, 접근 방향의 반대로 이동해야 함\",\n   \"risk\": \"회피 기동 중 정적 장애물과 충돌할 가능성이 있음\"\n  },\n  {\n   \"idea\": \"추적 로직 완화 및 예측 정밀도 향상\",\n   \"new_family\": false,\n   \"for\": \"회전 중에도 추적을 유지하여 정지 직후 즉시 정확한 clearance를 계산하기 위함\",\n   \"risk\": \"회전 중 센서 노이즈로 인해 잘못된 속도가 추정될 수 있음\"\n  }\n ],\n \"chosen\": \"후보 1. 정지 상태에서도 충돌하는 사례가 확인되었으므로, 단순 정지가 아닌 물체의 접근 방향을 고려한 능동적 회피가 필수적임\",\n \"target\": \"_front_blocked, _safe_speed, _update_tracks\",\n \"direction\": \"1. _front_blocked를 _is_danger로 확장하여, 정면뿐 아니라 측면(y축 ±0.6m)에서 접근하는 물체를 감지함. 2. _update_tracks의 회전 제한(yaw_rate < 0.8)을 완화하여 회전 중에도 물체 궤적을 갱신함. 3. _safe_speed에서 정지 중 측면 충돌이 예상되면, 물체와 멀어지는 방향으로 즉시 후진하거나 회전하여 회피함. 4. 단순 정지 대기 시간을 제한하고, 일정 시간 후에는 저속으로 전진을 시도하여 타임아웃을 방지함. 5. _clearance 계산 시 추적 데이터가 부족하면 최근 2~3프레임의 거리 변화로 단순 접근 속도를 추정해 반영함. 6. 후진 시 _rear_clear의 범위를 좁혀 더 기민하게 반응하도록 수정함.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t1_s1457731809",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 72.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 66.42,
+   "goal_dist_m": 0.2006,
+   "time_to_goal_s": 68.417
+  },
+  {
+   "run": "c7t1_s1988075594",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 527.6,
+   "sim_time_s": 65.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 59.75,
+   "goal_dist_m": 0.1987,
+   "time_to_goal_s": 61.75
+  },
+  {
+   "run": "c7t1_s1342789676",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 461.9,
+   "sim_time_s": 11.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.7,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.16,
+    0.55
+   ],
+   "closing_m_s": 0.71,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 0.75,
+   "goal_dist_m": 30.0998,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t1_s163570175",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 450.2,
+   "sim_time_s": 82.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 76.82,
+   "goal_dist_m": 0.2053,
+   "time_to_goal_s": 78.833
+  },
+  {
+   "run": "c7t1_s1784671015",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 367.4,
+   "sim_time_s": 78.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 72.75,
+   "goal_dist_m": 0.1998,
+   "time_to_goal_s": 74.767
+  },
+  {
+   "run": "c7t1_s1160653931",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 288.7,
+   "sim_time_s": 82.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 76.42,
+   "goal_dist_m": 0.1953,
+   "time_to_goal_s": 78.417
+  },
+  {
+   "run": "c7t1_s732749780",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 206.3,
+   "sim_time_s": 87.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 81.55,
+   "goal_dist_m": 0.1993,
+   "time_to_goal_s": 83.567
+  },
+  {
+   "run": "c7t1_s1688363743",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 118.8,
+   "sim_time_s": 69.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 63.95,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 65.967
+  },
+  {
+   "run": "c7t1_s967940791",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 48.8,
+   "sim_time_s": 49.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 13.1152,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,125 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t9_s35598770: t=2.883, bearing 81°, d=0.58m, v=0.68m/s로 주행 중 충돌",
+   "c71t9_s994490502: t=11.45, bearing -71°, d=0.63m, v=0.74m/s로 주행 중 충돌",
+   "c71t9_s541647569: t=3.033, bearing 51°, d=0.64m, v=0.09m/s로 주행 중 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "±30° 정지 원뿔 밖의 물체는 감속과 회피 조향만으로 충돌을 피할 수 있다",
+    "holds": false,
+    "why": "모든 충돌 사례가 ±51°~81° 사이의 물체와 발생했으며, 충돌 직전까지 로봇이 전진(v > 0)하고 있었음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지",
+    "turns": "2",
+    "result": "0/5"
+   },
+   {
+    "family": "저속 주행(creep)",
+    "turns": "2",
+    "result": "4/10"
+   },
+   {
+    "family": "조향 및 가변 감속",
+    "turns": "3",
+    "result": "1/7"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 원뿔(stop cone) 각도를 ±90°까지 확장",
+    "new_family": false,
+    "for": "측면 접근 물체에 대해 확실한 정지 보장",
+    "risk": "통로의 좁은 구간에서 스쳐 지나가는 물체로 인한 stall 위험"
+   },
+   {
+    "idea": "전방 180° 내 절대 거리 기반 정지 조건 추가",
+    "new_family": true,
+    "for": "각도와 관계없이 임계 거리(예: 0.7m) 진입 시 즉시 정지하여 측면 충돌 방지",
+    "risk": "너무 보수적일 경우 주행 시간 증가 및 stall 가능성"
+   }
+  ],
+  "chosen": "전방 180° 내 절대 거리 기반 정지 추가. 충돌 사례들이 모두 0.6m 내외의 거리에서 발생했으므로, 각도와 상관없이 전방의 근접 물체는 정지시켜야 함.",
+  "target": "controller 정지 조건",
+  "direction": "1. _STOP_R_WIDE = 0.7 상수를 추가합니다. 2. controller의 정지 조건에 'd_front < _STOP_R_WIDE'를 추가하여, ±90° 범위 내 물체가 0.7m 이내로 들어오면 즉시 v=0이 되게 합니다. 3. 이 정지 조건은 _SIDE_SCALE_MIN에 의한 속도 하한보다 우선하여 적용합니다. 4. 기존의 ±30° 정지 원뿔 및 후진 로직은 그대로 유지합니다. 5. 0.7m~2.0m 구간에서는 기존처럼 감속과 회피 조향을 수행합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t9_s35598770: t=2.883, bearing 81°, d=0.58m, v=0.68m/s로 주행 중 충돌\",\n  \"c71t9_s994490502: t=11.45, bearing -71°, d=0.63m, v=0.74m/s로 주행 중 충돌\",\n  \"c71t9_s541647569: t=3.033, bearing 51°, d=0.64m, v=0.09m/s로 주행 중 충돌\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"±30° 정지 원뿔 밖의 물체는 감속과 회피 조향만으로 충돌을 피할 수 있다\",\n   \"holds\": false,\n   \"why\": \"모든 충돌 사례가 ±51°~81° 사이의 물체와 발생했으며, 충돌 직전까지 로봇이 전진(v > 0)하고 있었음\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 정지\",\n   \"turns\": \"2\",\n   \"result\": \"0/5\"\n  },\n  {\n   \"family\": \"저속 주행(creep)\",\n   \"turns\": \"2\",\n   \"result\": \"4/10\"\n  },\n  {\n   \"family\": \"조향 및 가변 감속\",\n   \"turns\": \"3\",\n   \"result\": \"1/7\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정지 원뿔(stop cone) 각도를 ±90°까지 확장\",\n   \"new_family\": false,\n   \"for\": \"측면 접근 물체에 대해 확실한 정지 보장\",\n   \"risk\": \"통로의 좁은 구간에서 스쳐 지나가는 물체로 인한 stall 위험\"\n  },\n  {\n   \"idea\": \"전방 180° 내 절대 거리 기반 정지 조건 추가\",\n   \"new_family\": true,\n   \"for\": \"각도와 관계없이 임계 거리(예: 0.7m) 진입 시 즉시 정지하여 측면 충돌 방지\",\n   \"risk\": \"너무 보수적일 경우 주행 시간 증가 및 stall 가능성\"\n  }\n ],\n \"chosen\": \"전방 180° 내 절대 거리 기반 정지 추가. 충돌 사례들이 모두 0.6m 내외의 거리에서 발생했으므로, 각도와 상관없이 전방의 근접 물체는 정지시켜야 함.\",\n \"target\": \"controller 정지 조건\",\n \"direction\": \"1. _STOP_R_WIDE = 0.7 상수를 추가합니다. 2. controller의 정지 조건에 'd_front < _STOP_R_WIDE'를 추가하여, ±90° 범위 내 물체가 0.7m 이내로 들어오면 즉시 v=0이 되게 합니다. 3. 이 정지 조건은 _SIDE_SCALE_MIN에 의한 속도 하한보다 우선하여 적용합니다. 4. 기존의 ±30° 정지 원뿔 및 후진 로직은 그대로 유지합니다. 5. 0.7m~2.0m 구간에서는 기존처럼 감속과 회피 조향을 수행합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t9_s35598770",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 8.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.883,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.68m/s 회전 -1.0",
+   "partner_rel_xy": [
+    0.06,
+    0.58
+   ],
+   "closing_m_s": 0.64,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.2243,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t9_s994490502",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 591.1,
+   "sim_time_s": 17.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 11.45,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.74m/s",
+   "partner_rel_xy": [
+    0.2,
+    -0.6
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 7.85,
+   "goal_dist_m": 23.8293,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t9_s541647569",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 573.7,
+   "sim_time_s": 9.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.033,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.09m/s 회전 -0.3",
+   "partner_rel_xy": [
+    0.4,
+    0.51
+   ],
+   "closing_m_s": 0.65,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 29.2282,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

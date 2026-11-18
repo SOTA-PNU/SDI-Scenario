@@ -1,0 +1,120 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t7_s362209453: t=35.05s에 정적 장애물 arena_box_09와 충돌. 직전 t=33.65s에 거리 1.82m, bearing 13°의 동적 물체를 감지하고 회피 조향 중 제자리 회전(-1.9rad/s) 상태에서 충돌함",
+   "c71t7_s891377646, c71t7_s47297192: 물체가 0.8~0.9m 거리(STOP_R=1.0m 이내)에 머물자 v=0으로 정지하여 progress_abort 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "동적 물체를 피하기 위해 반대 방향으로 회전하는 것이 정적 장애물과 충돌하지 않는 안전한 방법이다",
+    "holds": false,
+    "why": "c71t7_s362209453에서 회피 조향 중 로봇의 후미나 측면이 정적 박스(box_09)에 닿아 충돌함"
+   },
+   {
+    "assumption": "전방 ±90° 영역 내 1.0m 이내에 물체가 있으면 무조건 멈춰야 안전하다",
+    "holds": false,
+    "why": "측면에서 지나가는 물체 때문에도 멈춰 서면서 progress_abort가 빈번하게 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지/대기",
+    "turns": "2",
+    "result": "Turn 6에서 0/3 통과"
+   },
+   {
+    "family": "저속 주행(Creep)",
+    "turns": "2",
+    "result": "Turn 4, 5에서 일부 통과했으나 충돌 발생"
+   },
+   {
+    "family": "반발력 기반 회피 조향",
+    "turns": "1",
+    "result": "Turn 7에서 0/3 통과 (정적 장애물 충돌 및 정체)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 구역을 좁은 원뿔(Stop Cone)로 제한하고, 회피 조향 시 회전 반경과 정적 장애물 간격을 더 보수적으로 계산",
+    "new_family": true,
+    "for": "측면 물체로 인한 불필요한 정지를 막아 stall을 해결하고, 회전 시 정적 장애물과의 접촉을 방지할 수 있음",
+    "risk": "정지 구역을 너무 좁히면 정면에서 오는 물체와 충돌할 위험이 있음"
+   },
+   {
+    "idea": "회피 조향 대신 일시적으로 경유점을 옆으로 옮기는 가상 목표점 방식 도입",
+    "new_family": true,
+    "for": "급격한 제자리 회전 대신 부드러운 곡선 주행을 유도하여 정적 장애물 충돌 위험을 낮춤",
+    "risk": "구현 복잡도가 높고, 좁은 통로에서 벽에 부딪힐 가능성이 있음"
+   }
+  ],
+  "chosen": "후보 1. 정지 구역을 좁게 설정하여 주행 효율을 높이고, 회피 조향의 강도와 정적 장애물 체크 범위를 조정하여 안전성을 확보함",
+  "target": "controller 및 _front_dynamic_min_dist",
+  "direction": "1. _STOP_R을 0.6m로 낮추고, v=0이 되는 조건을 '거리 < _STOP_R AND bearing ±30° 이내'로 제한하여 측면 물체에 의한 정지를 방지합니다. 2. _AVOID_R을 2.0m로 조정하고, ±90° 영역에서는 w_avoid와 감속(scale)만 적용합니다. 3. _static_close_on_side의 감지 범위를 넓혀 회전 시 로봇의 측면/후면이 벽이나 박스에 닿지 않도록 조향을 더 엄격히 제한합니다. 4. w_avoid의 최대치를 낮추어 급격한 회전으로 인한 정적 장애물 충돌을 막습니다. 5. E_TURN을 0.6으로 상향하여 불필요한 제자리 회전을 줄입니다. 6. 후진 로직은 정면 Stop Cone 내에 물체가 오래 머물 때만 작동하도록 수정합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t7_s362209453: t=35.05s에 정적 장애물 arena_box_09와 충돌. 직전 t=33.65s에 거리 1.82m, bearing 13°의 동적 물체를 감지하고 회피 조향 중 제자리 회전(-1.9rad/s) 상태에서 충돌함\",\n  \"c71t7_s891377646, c71t7_s47297192: 물체가 0.8~0.9m 거리(STOP_R=1.0m 이내)에 머물자 v=0으로 정지하여 progress_abort 발생\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"동적 물체를 피하기 위해 반대 방향으로 회전하는 것이 정적 장애물과 충돌하지 않는 안전한 방법이다\",\n   \"holds\": false,\n   \"why\": \"c71t7_s362209453에서 회피 조향 중 로봇의 후미나 측면이 정적 박스(box_09)에 닿아 충돌함\"\n  },\n  {\n   \"assumption\": \"전방 ±90° 영역 내 1.0m 이내에 물체가 있으면 무조건 멈춰야 안전하다\",\n   \"holds\": false,\n   \"why\": \"측면에서 지나가는 물체 때문에도 멈춰 서면서 progress_abort가 빈번하게 발생함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 정지/대기\",\n   \"turns\": \"2\",\n   \"result\": \"Turn 6에서 0/3 통과\"\n  },\n  {\n   \"family\": \"저속 주행(Creep)\",\n   \"turns\": \"2\",\n   \"result\": \"Turn 4, 5에서 일부 통과했으나 충돌 발생\"\n  },\n  {\n   \"family\": \"반발력 기반 회피 조향\",\n   \"turns\": \"1\",\n   \"result\": \"Turn 7에서 0/3 통과 (정적 장애물 충돌 및 정체)\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정지 구역을 좁은 원뿔(Stop Cone)로 제한하고, 회피 조향 시 회전 반경과 정적 장애물 간격을 더 보수적으로 계산\",\n   \"new_family\": true,\n   \"for\": \"측면 물체로 인한 불필요한 정지를 막아 stall을 해결하고, 회전 시 정적 장애물과의 접촉을 방지할 수 있음\",\n   \"risk\": \"정지 구역을 너무 좁히면 정면에서 오는 물체와 충돌할 위험이 있음\"\n  },\n  {\n   \"idea\": \"회피 조향 대신 일시적으로 경유점을 옆으로 옮기는 가상 목표점 방식 도입\",\n   \"new_family\": true,\n   \"for\": \"급격한 제자리 회전 대신 부드러운 곡선 주행을 유도하여 정적 장애물 충돌 위험을 낮춤\",\n   \"risk\": \"구현 복잡도가 높고, 좁은 통로에서 벽에 부딪힐 가능성이 있음\"\n  }\n ],\n \"chosen\": \"후보 1. 정지 구역을 좁게 설정하여 주행 효율을 높이고, 회피 조향의 강도와 정적 장애물 체크 범위를 조정하여 안전성을 확보함\",\n \"target\": \"controller 및 _front_dynamic_min_dist\",\n \"direction\": \"1. _STOP_R을 0.6m로 낮추고, v=0이 되는 조건을 '거리 < _STOP_R AND bearing ±30° 이내'로 제한하여 측면 물체에 의한 정지를 방지합니다. 2. _AVOID_R을 2.0m로 조정하고, ±90° 영역에서는 w_avoid와 감속(scale)만 적용합니다. 3. _static_close_on_side의 감지 범위를 넓혀 회전 시 로봇의 측면/후면이 벽이나 박스에 닿지 않도록 조향을 더 엄격히 제한합니다. 4. w_avoid의 최대치를 낮추어 급격한 회전으로 인한 정적 장애물 충돌을 막습니다. 5. E_TURN을 0.6으로 상향하여 불필요한 제자리 회전을 줄입니다. 6. 후진 로직은 정면 Stop Cone 내에 물체가 오래 머물 때만 작동하도록 수정합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t7_s362209453",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 41.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 35.05,
+   "partner": "static:arena_box_09",
+   "robot_at_collision": "제자리 회전 -1.9rad/s",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 33.65,
+   "goal_dist_m": 13.6104,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t7_s891377646",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 559.0,
+   "sim_time_s": 92.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.95,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 86.02,
+   "goal_dist_m": 30.7583,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t7_s47297192",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 467.0,
+   "sim_time_s": 91.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.75,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 85.82,
+   "goal_dist_m": 31.2698,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

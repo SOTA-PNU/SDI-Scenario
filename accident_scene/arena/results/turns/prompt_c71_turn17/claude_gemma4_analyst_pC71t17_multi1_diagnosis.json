@@ -1,0 +1,76 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "sim_time_s: 601.0",
+   "time_to_goal_s: 46.55",
+   "stop_turn_episodes: 201",
+   "final_goal_dist_m: 0.5748"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정렬 중 적용되는 _V_EVADE_MIN(0.8m/s)의 전진 속도가 정밀 정렬을 방해하지 않는다",
+    "holds": false,
+    "why": "목표 지점에 46.55초에 도달했음에도 불구하고 601초까지 종료하지 못하고, 최종 거리 0.57m에서 제자리 회전과 미세 이동을 반복하며 진동함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "상수 튜닝",
+    "turns": "17",
+    "result": "다수 실패"
+   },
+   {
+    "family": "능동 회피 및 속도 하한(Floor) 도입",
+    "turns": "3",
+    "result": "0/3"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정렬 단계에서 evasion floor 속도를 대폭 낮추거나 제거",
+    "new_family": false,
+    "for": "0.8m/s라는 빠른 속도는 정밀 정렬 시 로봇을 목표 구역 밖으로 밀어내어 무한 진동(hunting)을 유발함",
+    "risk": "정렬 중 측면에서 접근하는 물체에 대해 회피 능력이 감소함"
+   },
+   {
+    "idea": "목표 정렬 완료 조건(_GOAL_YAW_DONE)을 허용 오차에 가깝게 완화",
+    "new_family": false,
+    "for": "불필요하게 정밀한 각도를 맞추려다 발생하는 시간 초과를 방지함",
+    "risk": "최종 yaw 오차 허용치(0.26)를 초과할 가능성이 있음"
+   }
+  ],
+  "chosen": "정렬 단계의 전진 속도 하한을 낮추고 정렬 완료 조건을 완화하여 안정적인 종료 유도",
+  "target": "controller (goal alignment section) 및 관련 상수",
+  "direction": "1. _V_EVADE_MIN을 0.8에서 0.3으로 낮춰 일반 주행 및 정렬 시의 급격한 튀어나감을 방지합니다. 2. goal alignment 구간 내에서 floor_ok일 때 적용되는 속도를 별도의 낮은 값(예: 0.1m/s)으로 제한하여 정밀도를 높입니다. 3. _GOAL_YAW_DONE을 0.12에서 0.20으로 높여 정렬 완료 판정을 더 빠르게 내립니다. 4. _K_ALIGN을 약간 낮춰 회전 시의 오버슈트와 진동을 줄입니다. 5. _GOAL_REENTER를 0.6으로 약간 높여 목표 구역 복귀 판정을 더 유연하게 합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"timeout\",\n \"evidence\": [\"sim_time_s: 601.0\", \"time_to_goal_s: 46.55\", \"stop_turn_episodes: 201\", \"final_goal_dist_m: 0.5748\"],\n \"assumptions\": [\n  {\n   \"assumption\": \"정렬 중 적용되는 _V_EVADE_MIN(0.8m/s)의 전진 속도가 정밀 정렬을 방해하지 않는다\",\n   \"holds\": false,\n   \"why\": \"목표 지점에 46.55초에 도달했음에도 불구하고 601초까지 종료하지 못하고, 최종 거리 0.57m에서 제자리 회전과 미세 이동을 반복하며 진동함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"상수 튜닝\",\n   \"turns\": \"17\",\n   \"result\": \"다수 실패\"\n  },\n  {\n   \"family\": \"능동 회피 및 속도 하한(Floor) 도입\",\n   \"turns\": \"3\",\n   \"result\": \"0/3\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"정렬 단계에서 evasion floor 속도를 대폭 낮추거나 제거\",\n   \"new_family\": false,\n   \"for\": \"0.8m/s라는 빠른 속도는 정밀 정렬 시 로봇을 목표 구역 밖으로 밀어내어 무한 진동(hunting)을 유발함\",\n   \"risk\": \"정렬 중 측면에서 접근하는 물체에 대해 회피 능력이 감소함\"\n  },\n  {\n   \"idea\": \"목표 정렬 완료 조건(_GOAL_YAW_DONE)을 허용 오차에 가깝게 완화\",\n   \"new_family\": false,\n   \"for\": \"불필요하게 정밀한 각도를 맞추려다 발생하는 시간 초과를 방지함\",\n   \"risk\": \"최종 yaw 오차 허용치(0.26)를 초과할 가능성이 있음\"\n  }\n ],\n \"chosen\": \"정렬 단계의 전진 속도 하한을 낮추고 정렬 완료 조건을 완화하여 안정적인 종료 유도\",\n \"target\": \"controller (goal alignment section) 및 관련 상수\",\n \"direction\": \"1. _V_EVADE_MIN을 0.8에서 0.3으로 낮춰 일반 주행 및 정렬 시의 급격한 튀어나감을 방지합니다. 2. goal alignment 구간 내에서 floor_ok일 때 적용되는 속도를 별도의 낮은 값(예: 0.1m/s)으로 제한하여 정밀도를 높입니다. 3. _GOAL_YAW_DONE을 0.12에서 0.20으로 높여 정렬 완료 판정을 더 빠르게 내립니다. 4. _K_ALIGN을 약간 낮춰 회전 시의 오버슈트와 진동을 줄입니다. 5. _GOAL_REENTER를 0.6으로 약간 높여 목표 구역 복귀 판정을 더 유연하게 합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t17_s1395264359",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 600.0,
+   "sim_time_s": 601.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 201,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.5748,
+   "time_to_goal_s": 46.55
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

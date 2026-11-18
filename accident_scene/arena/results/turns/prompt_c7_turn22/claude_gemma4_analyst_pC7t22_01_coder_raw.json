@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 측면에서 물체가 다가올 때 로봇이 어중간하게 감속하다가 물체 경로 위에 멈춰 충돌했습니다(c7t21_s1075826484). 그래서 진단 지시 1·2대로 `_CLR_GO` 를 0.3에서 0.4 m 로, `_ESC_C` 를 0.4에서 0.5 m 로 높여 더 일찍 멈추고 능동 회피도 더 일찍 시작하게 했습니다. 지시 3대로 `_safe_speed` 의 momentum 보너스 속도 조건을 `v_now >= 0.5` 에서 새 상수 `_MOMENTUM_V = 0.3` 으로 낮췄고, 지시 4대로 `_SIDE_STOP_PEN` 을 0.15에서 0.2 m 로 높여 측면 위협 때 정지보다 이동을 더 선호하게 했습니다. 지시 5·6에 따라 `_RELAX_V`(1.2), 정적 장애물 검사, controller 추종 로직은 그대로 두었습니다.\n\n```python\n_CLR_GO = 0.40           # 진단 지시(시도 22) 1: 일반 주행에서 전진을 허용하는 예상 최소거리 (0.3 -> 0.4 m), 어중간한 근접 대신 더 일찍 멈춰 물체를 보냄\n\n\n_ESC_C = 0.50            # 진단 지시(시도 22) 2: 멈춰 있어도 예상 최소거리가 이보다 작으면 능동 회피 (0.4 -> 0.5 m), 회피 진입 시점을 앞당김\n\n\n_SIDE_STOP_PEN = 0.20    # 진단 지시(시도 22) 4: 측면 위협 시 '정지' 에 주는 페널티 [m] (0.15 -> 0.2), 정지보다 이동을 더 강하게 선호\n\n\n_MOMENTUM_V = 0.30       # 진단 지시(시도 22) 3: 측면 momentum 보너스를 주는 최소 측정 속도 [m/s] (0.5 -> 0.3)\n\n\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 _CAP_MIN) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO (0.4 m) 이상이면 전진.\n      대기가 _WAIT_RELAX_S 를 넘으면 몸통 폭 통로가 빌 때 _RELAX_V 또는 그 절반으로 저속 전진.\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C (0.5 m)):\n      정적 검사를 critical=True (probe 0.05 m) 로 완화해, 전진·후진 후보(|v| >= 0.3) 중\n      가장 멀어지는 쪽으로 이동합니다 (_ESC_GAIN 이득 이상일 때 채택).\n      측면 위협(dz['side'])이면 정지의 기준값을 c0 - _SIDE_STOP_PEN (0.2 m) 으로 낮춰 이동을 선호합니다.\n      진단 지시(시도 22) 3: 측면 위협이고 측정 속도 S['v_meas'] >= _MOMENTUM_V (0.3 m/s) 이며\n      현재 예상 최소거리 c0 >= _MOMENTUM_C0 (0.6 m) 일 때만,\n      현재 속도의 80% 이상인 후보(vc >= 0.8 * v_meas)의 예상 거리에 _SIDE_MOMENTUM_BONUS 를 더합니다.\n      정적 장애물 검사(critical=True)와 _ESC_MIN_V / _ESC_SURE_GAIN 되돌림 로직은 그대로 유지합니다.\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            if S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vr = min(v_law, _RELAX_V)\n                for vf in (vr, 0.5 * vr):\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    # 긴급 회피이므로 정적 검사는 critical=True (probe 0.05 m)\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    # 측면 위협이면 정지에 페널티를 주어 이동을 선호\n    best_v = 0.0\n    best_c = c0 - _SIDE_STOP_PEN if dz[\"side\"] else c0\n    # 진단 지시(시도 22) 3: 측면 위협 + 측정 속도 >= _MOMENTUM_V (0.3 m/s) + c0 여유가 있을 때 momentum 보너스\n    v_now = S[\"v_meas\"]\n    momentum = dz[\"side\"] and v_now >= _MOMENTUM_V and c0 >= _MOMENTUM_C0\n    for vc in cands:\n        if not _static_free(pose, vc, critical=True):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        # 현재 속도의 80% 이상을 유지하는 후보에 보너스 (c0 >= _MOMENTUM_C0 일 때만)\n        if momentum and vc >= v_now * 0.8:\n            cv += _SIDE_MOMENTUM_BONUS\n        if cv > best_c + _ESC_GAIN:\n            best_v, best_c = vc, cv\n    # 아주 느린 회피이면서 이득도 크지 않으면 정지 (현재 후보는 모두 |v| >= _ESC_MIN_V)\n    if best_v != 0.0 and abs(best_v) < _ESC_MIN_V and best_c < c0 + _ESC_SURE_GAIN:\n        best_v = 0.0\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 36540,
+  "completion_tokens": 3258
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 23737,
+  "total_cost_usd": 0.357472,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3258,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 36538,
+    "webSearchRequests": 0,
+    "costUSD": 0.357472,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 397,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 36538,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "e64013b1-5792-41f0-b5d9-f3149e916c54"
+ }
+}

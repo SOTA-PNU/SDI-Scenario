@@ -1,0 +1,190 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1(c6t6_s79953326) t=48.2s: 물체 거리 2.08m, 로봇 속도 1.01m/s. t=49.4s: 거리 0.88m, 속도 0.99m/s로 감속이 지체되어 t=50.4s 충돌.",
+   "실행 2, 6: 충돌 전 로봇이 제자리 회전/크리프 탈출 동작 중이며, 물체가 전방-측면(y≈-0.54) 접근 시 d_front < 0.8m 정지 조건이 너무 늦고 재개 로직이 물체 경로와 겹쳐 충돌.",
+   "3개 실패 모두 closing_m_s ≈ 0.5~0.63m/s로 상대 속도 ~1.5m/s인데, 비례 감속과 0.8m 정지 거리로는 제동거리 부족."
+  ],
+  "assumptions": [
+   {
+    "assumption": "비례 감속(d_front < 1.5)과 0.8m 강제 정지로 움직이는 물체를 피할 수 있다",
+    "holds": false,
+    "why": "상대 속도 1.5m/s 기준 제동거리가 0.8m를 초과하며, 실행 기록에서 2m 거리에서도 고속 주행 후 감속해 충돌."
+   },
+   {
+    "assumption": "정지 1.5초 후 크리프/회전 탈출이 데드락을 깨고 안전하다",
+    "holds": false,
+    "why": "회전/크리프가 물체 접근 경로로 로봇을 밀어넣거나, 재개 조건(d_front > 1.2, 0.5s)이 너무 짧아 물체가 아직 근처일 때 주행을 재개해 충돌."
+   },
+   {
+    "assumption": "정적 필터(_STATIC_MARGIN=0.15)가 움직이는 물체를 정확히 구분한다",
+    "holds": true,
+    "why": "실행 요약에서 first_seen_within_2m_t가 충돌 2~5초 전으로, 센서 감지 자체는 정상."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 비례 감속 + 상태기반 정지/재개",
+    "turns": "#1~#6",
+    "result": "최대 4/7 pass, 최근 3/6 pass. 감속 시작점과 정지 거리 조절만 반복."
+   },
+   {
+    "family": "측면 감시 확대 + 후진/회피 로직",
+    "turns": "#2~#4",
+    "result": "0/3~2/5 pass. 측면 조건 추가는 오탐 증가와 진동 유발."
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "보수적 조기 정지 + 엄격한 재개 조건",
+    "new_family": true,
+    "for": "상대 속도를 고려해 정지 거리를 1.5m로 확대하고, 재개를 d_front > 2.0m가 0.8s 지속될 때만 허용해 안전 마진을 확보.",
+    "risk": "통로가 좁아 물체가 잠시 막으면 진행이 느려질 수 있으나, 충돌 방지 우선."
+   },
+   {
+    "idea": "TTC(충돌 예상 시간) 기반 동적 감속",
+    "new_family": true,
+    "for": "거리 변화율로 접근 속도를 실시간 추정해 TTC < 2.0s 시 즉시 정지.",
+    "risk": "라이다 샘플링 노이즈로 TTC 계산이 불안정할 수 있어 구현 복잡도 증가."
+   },
+   {
+    "idea": "감지 시 즉시 정지, 정지 중 제자리 회전/크리프 제거",
+    "new_family": false,
+    "for": "복잡한 탈출 로직을 제거하고 단순 정지/대기만으로 충돌 원인인 회전 충돌을 차단.",
+    "risk": "정적 장애물 오감지 시 무한 정지 가능성 있으나, 정적 필터가 이미 안정화됨."
+   }
+  ],
+  "chosen": "보수적 조기 정지 + 엄격한 재개 조건을 채택한다. 비례 감속의 제동거리 부족과 탈출 로직의 부수적 충돌을 근본적으로 해결하며, 구현이 단순해 안정적이다.",
+  "target": "controller 내 감속/정지 분기 및 _NAV 상태 기계, 상수(_SLOW_GAP, _HARD_STOP, _RESUME_D, _RESUME_HOLD 등)",
+  "direction": "1. 기존 비례 감속(v *= d/1.5)과 0.8m 정지 조건을 제거한다. 2. 전방 180° 최단 거리 d_front < 2.0m이면 v를 선형으로 0으로 감속시키고, d_front < 1.5m이면 무조건 v=0으로 정지한다. 3. 정지 시 blocked 플래그를 켜고, 재개 조건을 d_front > 2.0m가 0.8s 이상 지속될 때로 엄격히 한다. 4. 정지 중 크리프/회전 탈출 로직을 제거하고, 정지 3초가 넘어도 물체가 안 비면 v=0을 유지한다. 5. 측면 정지 조건은 유지하지 않고 전방 180° 거리 기준으로 통합해 로직을 단순화한다. 6. 상수(_SLOW_GAP=2.0, _HARD_STOP=1.5, _RESUME_D=2.0, _RESUME_HOLD=0.8)를 새 값으로 업데이트한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 1(c6t6_s79953326) t=48.2s: 물체 거리 2.08m, 로봇 속도 1.01m/s. t=49.4s: 거리 0.88m, 속도 0.99m/s로 감속이 지체되어 t=50.4s 충돌.\", \"실행 2, 6: 충돌 전 로봇이 제자리 회전/크리프 탈출 동작 중이며, 물체가 전방-측면(y≈-0.54) 접근 시 d_front < 0.8m 정지 조건이 너무 늦고 재개 로직이 물체 경로와 겹쳐 충돌.\", \"3개 실패 모두 closing_m_s ≈ 0.5~0.63m/s로 상대 속도 ~1.5m/s인데, 비례 감속과 0.8m 정지 거리로는 제동거리 부족.\"], \"assumptions\": [{\"assumption\": \"비례 감속(d_front < 1.5)과 0.8m 강제 정지로 움직이는 물체를 피할 수 있다\", \"holds\": false, \"why\": \"상대 속도 1.5m/s 기준 제동거리가 0.8m를 초과하며, 실행 기록에서 2m 거리에서도 고속 주행 후 감속해 충돌.\"}, {\"assumption\": \"정지 1.5초 후 크리프/회전 탈출이 데드락을 깨고 안전하다\", \"holds\": false, \"why\": \"회전/크리프가 물체 접근 경로로 로봇을 밀어넣거나, 재개 조건(d_front > 1.2, 0.5s)이 너무 짧아 물체가 아직 근처일 때 주행을 재개해 충돌.\"}, {\"assumption\": \"정적 필터(_STATIC_MARGIN=0.15)가 움직이는 물체를 정확히 구분한다\", \"holds\": true, \"why\": \"실행 요약에서 first_seen_within_2m_t가 충돌 2~5초 전으로, 센서 감지 자체는 정상.\"}], \"approach_families\": [{\"family\": \"거리 기반 비례 감속 + 상태기반 정지/재개\", \"turns\": \"#1~#6\", \"result\": \"최대 4/7 pass, 최근 3/6 pass. 감속 시작점과 정지 거리 조절만 반복.\"}, {\"family\": \"측면 감시 확대 + 후진/회피 로직\", \"turns\": \"#2~#4\", \"result\": \"0/3~2/5 pass. 측면 조건 추가는 오탐 증가와 진동 유발.\"}], \"candidates\": [{\"idea\": \"보수적 조기 정지 + 엄격한 재개 조건\", \"new_family\": true, \"for\": \"상대 속도를 고려해 정지 거리를 1.5m로 확대하고, 재개를 d_front > 2.0m가 0.8s 지속될 때만 허용해 안전 마진을 확보.\", \"risk\": \"통로가 좁아 물체가 잠시 막으면 진행이 느려질 수 있으나, 충돌 방지 우선.\"}, {\"idea\": \"TTC(충돌 예상 시간) 기반 동적 감속\", \"new_family\": true, \"for\": \"거리 변화율로 접근 속도를 실시간 추정해 TTC < 2.0s 시 즉시 정지.\", \"risk\": \"라이다 샘플링 노이즈로 TTC 계산이 불안정할 수 있어 구현 복잡도 증가.\"}, {\"idea\": \"감지 시 즉시 정지, 정지 중 제자리 회전/크리프 제거\", \"new_family\": false, \"for\": \"복잡한 탈출 로직을 제거하고 단순 정지/대기만으로 충돌 원인인 회전 충돌을 차단.\", \"risk\": \"정적 장애물 오감지 시 무한 정지 가능성 있으나, 정적 필터가 이미 안정화됨.\"}], \"chosen\": \"보수적 조기 정지 + 엄격한 재개 조건을 채택한다. 비례 감속의 제동거리 부족과 탈출 로직의 부수적 충돌을 근본적으로 해결하며, 구현이 단순해 안정적이다.\", \"target\": \"controller 내 감속/정지 분기 및 _NAV 상태 기계, 상수(_SLOW_GAP, _HARD_STOP, _RESUME_D, _RESUME_HOLD 등)\", \"direction\": \"1. 기존 비례 감속(v *= d/1.5)과 0.8m 정지 조건을 제거한다. 2. 전방 180° 최단 거리 d_front < 2.0m이면 v를 선형으로 0으로 감속시키고, d_front < 1.5m이면 무조건 v=0으로 정지한다. 3. 정지 시 blocked 플래그를 켜고, 재개 조건을 d_front > 2.0m가 0.8s 이상 지속될 때로 엄격히 한다. 4. 정지 중 크리프/회전 탈출 로직을 제거하고, 정지 3초가 넘어도 물체가 안 비면 v=0을 유지한다. 5. 측면 정지 조건은 유지하지 않고 전방 180° 거리 기준으로 통합해 로직을 단순화한다. 6. 상수(_SLOW_GAP=2.0, _HARD_STOP=1.5, _RESUME_D=2.0, _RESUME_HOLD=0.8)를 새 값으로 업데이트한다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t6_s79953326",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 56.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 50.417,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.35,
+    -0.54
+   ],
+   "closing_m_s": 0.47,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 48.28,
+   "goal_dist_m": 4.6368,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t6_s525375463",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 543.6,
+   "sim_time_s": 95.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 89.367,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    -0.28,
+    -0.6
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 84.42,
+   "goal_dist_m": 3.1827,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t6_s114633398",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 448.2,
+   "sim_time_s": 72.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 66.25,
+   "goal_dist_m": 0.2048,
+   "time_to_goal_s": 68.233
+  },
+  {
+   "run": "c6t6_s1330802867",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 376.0,
+   "sim_time_s": 78.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 72.25,
+   "goal_dist_m": 0.1981,
+   "time_to_goal_s": 74.233
+  },
+  {
+   "run": "c6t6_s32700845",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 297.7,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 66.82,
+   "goal_dist_m": 0.2262,
+   "time_to_goal_s": 68.783
+  },
+  {
+   "run": "c6t6_s119768577",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 225.0,
+   "sim_time_s": 74.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 68.0,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.19m/s",
+   "partner_rel_xy": [
+    0.2,
+    -0.53
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 63.02,
+   "goal_dist_m": 4.3252,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,405 @@
+{
+ "turn": 2,
+ "started": "2026-11-18 10:49:25",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c71_turn1/claude_gemma4_analyst_pC71t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "9개 실행 합계 588초로 10번째 실행을 위한 예산 부족 (평균 65초, 목표 60초 이하)",
+   "모든 실행에서 16~22회의 stop_turn_episodes 발생 (abs(e) > 0.35 조건에 의한 잦은 제자리 회전으로 시간 낭비)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재의 경유점 경로와 전방 2.0m 제동 설계는 충돌 방지에 충분히 안전하다",
+    "holds": true,
+    "why": "9개 배치 모두 충돌 없이 통과함"
+   },
+   {
+    "assumption": "현재의 속도 프로파일과 회전 제어 방식이 시간 내 완주에 적합하다",
+    "holds": false,
+    "why": "평균 주행 시간이 65초로, 10개 배치 완주 기준인 60초를 초과함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "반응형 제동(Reactive Braking)",
+    "turns": "1",
+    "result": "9/9 통과 (시간 부족으로 최종 실패)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "최대 속도 상향 및 회전 시 전진 허용 범위 확대",
+    "new_family": false,
+    "for": "제자리 회전 시간을 줄이고 순항 속도를 높여 평균 주행 시간을 단축해야 함",
+    "risk": "속도 증가 시 제동 거리가 늘어나 충돌 위험이 증가할 수 있음"
+   },
+   {
+    "idea": "경유점 최적화를 통한 이동 거리 단축",
+    "new_family": true,
+    "for": "물리적인 주행 거리를 줄여 시간을 단축함",
+    "risk": "정적 장애물에 더 가깝게 붙어 주행하게 되어 여유 공간이 줄어듦"
+   }
+  ],
+  "chosen": "최대 속도 상향 및 회전 시 전진 허용 범위 확대. 경로 변경보다 제어 파라미터 조정이 더 안전하며, 현재의 잦은 제자리 회전이 주된 지연 원인이기 때문임.",
+  "target": "controller (속도 및 회전 로직)",
+  "direction": "1. v_max를 1.5에서 2.0으로 상향하여 순항 속도를 높입니다. 2. v=0이 되는 각도 오차 임계값 abs(e) > 0.35를 0.2로 낮추어 제자리 회전 횟수와 시간을 줄입니다. 3. v의 거리 비례 계수를 2.5에서 3.0으로 높여 목표점 접근 시 가속력을 높입니다. 4. w의 이득(gain)을 7.5에서 8.5로 높여 정렬 속도를 개선합니다. 5. 기존의 정적 지도 필터링 및 2.0m 기반 제동 로직은 그대로 유지하여 안전성을 확보합니다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 1·3·4번 지시에 따라 `controller` 의 순항 상한을 1.5→2.0 m/s, 거리 비례 계수를 2.5→3.0, 회전 이득을 7.5→8.5 로 올렸고, 5번 지시대로 정적 지도 필터와 전방 ±30° 2.0 m 정지(히스테리시스 2.2 m 포함)는 그대로 두었습니다. 2번 지시는 문구가 서로 맞지 않습니다: 정지 임계값을 0.35→0.2 로 낮추면 제자리 회전이 오히려 늘어나 진단의 목적(\"제자리 회전 횟수와 시간을 줄임\", 후보 \"회전 시 전진 허용 범위 확대\")과 반대가 됩니다. 그래서 그 목적에 맞게 제자리 회전 구간을 |e| > 0.6 으로 좁히고, 그 안쪽에서는 v 를 (1−(|e|/0.6)²) 배로 연속 감속해 코너에서 바깥으로 크게 쓸고 나가지 않게 했습니다. 진단이 지적한 \"속도 증가 시 제동 거리 증가\" 위험에 대해서는 기존 정지 로직을 바꾸지 않고, 전방 콘 안 3.0 m 이내에 움직이는 물체가 보이면 v 를 1.0 m/s 로 제한하는 감속대 하나만 덧붙였습니다.",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. v_max 를 1.5 에서 2.0 으로 올림",
+      "implemented": true,
+      "note": "v = min(2.0, 3.0 * dist + 0.5) * ... 로 상한이 2.0"
+     },
+     {
+      "instruction": "2. v=0 이 되는 각도 임계값 abs(e) > 0.35 를 0.2 로 낮춤",
+      "implemented": false,
+      "note": "E_TURN = 0.6 으로 반대 방향으로 올렸고, 지시에 없는 (1-(|e|/0.6)^2) 연속 감속을 넣음"
+     },
+     {
+      "instruction": "3. v 의 거리 비례 계수를 2.5 에서 3.0 으로 올림",
+      "implemented": true,
+      "note": "3.0 * dist + 0.5"
+     },
+     {
+      "instruction": "4. w 이득을 7.5 에서 8.5 로 올림",
+      "implemented": true,
+      "note": "w = _clamp(8.5 * e, -2.0, 2.0), 제한 ±2.0 은 그대로"
+     },
+     {
+      "instruction": "5. 정적 지도 필터와 2.0 m 제동 로직 유지",
+      "implemented": true,
+      "note": "_static_mask, _front_dynamic_min_dist, 2.0/2.2 m 히스테리시스 정지가 그대로임. 지시에 없는 3.0 m 이내 v≤1.0 감속대가 추가됐지만 정지 로직을 바꾸지 않아 위반은 아님"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "2번 지시는 목적과 반대로 보임: 임계값을 0.35 에서 0.2 로 낮추면 v=0 인 제자리 회전 구간이 넓어져 회전 횟수와 시간이 늘어남. 후보안의 '회전 시 전진 허용 범위 확대'와도 맞지 않으므로 분석 담당이 다시 확인해야 함",
+     "3번은 dist > 0.5 m 이면 v 가 2.0 에서 포화되므로 경유점 바로 앞에서만 효과가 있어 단축 효과가 작음",
+     "2.0 m/s 순항에 2.0 m 정지 거리를 그대로 두면, 다가오는 물체와의 상대속도를 고려할 때 정지 여유가 줄어듦"
+    ],
+    "feedback": "진단 2번 지시를 그대로 구현하십시오. controller 의 3) 제어 법칙에서 E_TURN 을 0.2 로 바꾸고, abs(e) > 0.2 이면 v = 0.0, 아니면 v = min(2.0, 3.0 * dist + 0.5) 로 하십시오. 지시에 없는 (1-(|e|/E_TURN)^2) 감속 계수는 빼십시오. 임계값 0.2 에서 이 계수를 두면 속도가 크게 깎입니다. w = _clamp(8.5 * e, -2.0, 2.0), v_max 2.0, 거리 계수 3.0, 정적 필터와 2.0/2.2 m 정지는 지금대로 두십시오. 3.0 m 감속대는 남겨도 됩니다. 2번 지시가 목적과 반대라는 의견은 검토 쪽에서 diagnosis_concerns 로 분석 담당에게 넘겼습니다. 수정 담당이 임의로 다른 값을 쓰지 마십시오."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 검토 지시와 진단 2번 지시에 따라 `controller` 의 3) 제어 법칙을 바꿨습니다. `E_TURN` 을 0.2 로 두고, `abs(e) > 0.2` 이면 `v = 0.0`, 아니면 `v = min(2.0, 3.0 * dist + 0.5)` 로 했습니다. 지시에 없던 `(1-(|e|/E_TURN)^2)` 감속 계수는 뺐습니다. 진단 1·3·4·5번 항목(v_max 2.0, 거리 계수 3.0, w 이득 8.5, 정적 필터, 2.0/2.2 m 정지)과 허용된 3.0 m 감속대는 그대로 두었습니다.",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "v_max 를 1.5 에서 2.0 으로 올림",
+      "implemented": true,
+      "note": "v = min(2.0, 3.0 * dist + 0.5)"
+     },
+     {
+      "instruction": "v=0 이 되는 각도 오차 임계값을 0.35 에서 0.2 로 낮춤",
+      "implemented": true,
+      "note": "E_TURN = 0.2 로 두고 abs(e) > E_TURN 이면 v = 0.0"
+     },
+     {
+      "instruction": "v 의 거리 비례 계수를 2.5 에서 3.0 으로 올림",
+      "implemented": true,
+      "note": "3.0 * dist + 0.5"
+     },
+     {
+      "instruction": "w 이득을 7.5 에서 8.5 로 올림",
+      "implemented": true,
+      "note": "w = _clamp(8.5 * e, -2.0, 2.0), 두 분기에 공통 적용"
+     },
+     {
+      "instruction": "정적 지도 필터링과 2.0 m 제동 로직 유지",
+      "implemented": true,
+      "note": "_static_mask·_front_dynamic_min_dist 와 2.0/2.2 m 히스테리시스 정지는 그대로임. 3.0 m 안에서 v≤1.0 감속대가 추가됐지만 기존 제동을 바꾸지 않는 보수적 추가임"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "2번 지시는 방향이 거꾸로입니다. 임계값을 0.35 에서 0.2 로 낮추면 제자리 회전 조건 abs(e) > 0.2 가 더 자주 참이 되어 stop_turn 횟수가 오히려 늘어납니다. 근거로 든 제자리 회전 시간 낭비를 줄이려면 임계값을 올려야 합니다.",
+     "4번 지시의 효과가 작습니다. w 는 ±2.0 으로 잘리므로 큰 오차에서는 이득을 올려도 회전 속도가 같습니다. 효과는 |e| < 0.235 범위에서만 납니다.",
+     "v 를 2.0 m/s 로 올리면 2.0 m 정지 거리의 여유가 줄어듭니다. 추가된 3.0 m 감속대가 이 위험을 일부 덜어 줍니다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 검토 지시와 진단 2번 지시에 따라 `controller` 의 3) 제어 법칙을 바꿨습니다. `E_TURN` 을 0.2 로 두고, `abs(e) > 0.2` 이면 `v = 0.0`, 아니면 `v = min(2.0, 3.0 * dist + 0.5)` 로 했습니다. 지시에 없던 `(1-(|e|/E_TURN)^2)` 감속 계수는 뺐습니다. 진단 1·3·4·5번 항목(v_max 2.0, 거리 계수 3.0, w 이득 8.5, 정적 필터, 2.0/2.2 m 정지)과 허용된 3.0 m 감속대는 그대로 두었습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  207202623,
+  1344146878,
+  699155880,
+  2028742210,
+  437589161,
+  162658614,
+  631295930,
+  365322545,
+  1888431607,
+  952631108
+ ],
+ "sim_used_s": 572.5,
+ "verdicts": {
+  "207202623": "fail",
+  "1344146878": "pass",
+  "699155880": "pass",
+  "2028742210": "pass",
+  "437589161": "pass",
+  "162658614": "pass",
+  "631295930": "pass",
+  "365322545": "pass",
+  "1888431607": "pass",
+  "952631108": "pass"
+ },
+ "passes": 9,
+ "prior_chars": 315,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 10개를 실행했고, 0개는 실행하지 못했습니다.\n- 통과 9개, 실패 1개. 시뮬 시간 합계 573초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 62초 (가장 짧은 것 52초, 가장 긴 것 70초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 reject) 2번 지시는 목적과 반대로 보임: 임계값을 0.35 에서 0.2 로 낮추면 v=0 인 제자리 회전 구간이 넓어져 회전 횟수와 시간이 늘어남. 후보안의 '회전 시 전진 허용 범위 확대'와도 맞지 않으므로 분석 담당이 다시 확인해야 함\n- (검토 1회차, 판정 reject) 3번은 dist > 0.5 m 이면 v 가 2.0 에서 포화되므로 경유점 바로 앞에서만 효과가 있어 단축 효과가 작음\n- (검토 1회차, 판정 reject) 2.0 m/s 순항에 2.0 m 정지 거리를 그대로 두면, 다가오는 물체와의 상대속도를 고려할 때 정지 여유가 줄어듦\n- (검토 2회차, 판정 pass) 2번 지시는 방향이 거꾸로입니다. 임계값을 0.35 에서 0.2 로 낮추면 제자리 회전 조건 abs(e) > 0.2 가 더 자주 참이 되어 stop_turn 횟수가 오히려 늘어납니다. 근거로 든 제자리 회전 시간 낭비를 줄이려면 임계값을 올려야 합니다.\n- (검토 2회차, 판정 pass) 4번 지시의 효과가 작습니다. w 는 ±2.0 으로 잘리므로 큰 오차에서는 이득을 올려도 회전 속도가 같습니다. 효과는 |e| < 0.235 범위에서만 납니다.\n- (검토 2회차, 판정 pass) v 를 2.0 m/s 로 올리면 2.0 m 정지 거리의 여유가 줄어듭니다. 추가된 3.0 m 감속대가 이 위험을 일부 덜어 줍니다.\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c71t2_s207202623에서 t=4.867s에 mover_00와 충돌",
+   "충돌 전 t=3.4s~4.6s 구간에서 물체의 bearing이 39°~60°로 유지되어, 현재 코드의 감지 범위인 ±30° 밖에서 접근함",
+   "로봇은 물체가 0.99m(t=4.1s)까지 다가왔음에도 감지하지 못하고 v=1.70m/s로 주행함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±30°의 좁은 원뿔 영역만 감시하면 충분하다",
+    "holds": false,
+    "why": "측면에서 대각선으로 진입하는 물체(bearing 40°~60°)를 감지하지 못해 충돌함"
+   },
+   {
+    "assumption": "E_TURN=0.2 설정이 효율적인 주행 시간을 보장한다",
+    "holds": false,
+    "why": "통과한 실행들에서 stop_turns가 25~30회로 매우 많으며, 이로 인해 평균 주행 시간이 60초를 상회하여 전체 예산(600s)에 근접함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "반응형 제동 (좁은 원뿔 감지)",
+    "turns": "2",
+    "result": "9/10 통과 (측면 충돌 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감지 원뿔 각도를 ±60°로 확대하고 E_TURN 임계값을 상향",
+    "new_family": false,
+    "for": "측면 접근 물체를 조기에 감지하여 제동하고, 제자리 회전 횟수를 줄여 주행 시간을 단축할 수 있음",
+    "risk": "감지 범위가 넓어져 경로상에 위협이 되지 않는 물체에도 불필요하게 정지할 가능성이 있음"
+   },
+   {
+    "idea": "원뿔 대신 전방 반평면(x > -0.2) 내의 모든 동적 물체에 대해 거리 기반 안전 버블 적용",
+    "new_family": true,
+    "for": "각도와 상관없이 로봇 전방의 모든 위협을 감지하므로 가장 안전함",
+    "risk": "통로 옆을 지나가는 물체에 너무 민감하게 반응하여 stall(정체)이 발생할 수 있음"
+   }
+  ],
+  "chosen": "감지 원뿔 각도를 ±60°로 확대하고 E_TURN을 0.3으로 높이는 방안을 선택. 실패 사례의 bearing(41°~60°)을 확실히 커버하면서도 과도한 정지를 방지하기 위함",
+  "target": "_front_dynamic_min_dist, controller",
+  "direction": "1. _front_dynamic_min_dist 함수 내의 cone 판단 기준을 math.radians(30.0)에서 math.radians(60.0)로 변경합니다. 2. controller 함수 내의 E_TURN 상수를 0.2에서 0.3으로 높여 제자리 회전 진입 조건을 완화합니다. 3. v_max=2.0, 거리 계수 3.0, w 이득 8.5 및 2.0m/3.0m 제동 로직은 그대로 유지합니다. 4. 이를 통해 측면 충돌을 방지하고 stop_turn 횟수를 줄여 전체 주행 시간을 단축합니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c71t2_s207202623",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.867,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.19m/s",
+   "partner_rel_xy": [
+    0.45,
+    0.5
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.8852,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t2_s1344146878",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 589.1,
+   "sim_time_s": 62.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 56.02,
+   "goal_dist_m": 0.5502,
+   "time_to_goal_s": 58.017
+  },
+  {
+   "run": "c71t2_s699155880",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 527.2,
+   "sim_time_s": 52.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 46.12,
+   "goal_dist_m": 0.5354,
+   "time_to_goal_s": 48.133
+  },
+  {
+   "run": "c71t2_s2028742210",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 475.1,
+   "sim_time_s": 66.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 60.82,
+   "goal_dist_m": 0.5694,
+   "time_to_goal_s": 62.85
+  },
+  {
+   "run": "c71t2_s437589161",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 408.3,
+   "sim_time_s": 57.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 51.85,
+   "goal_dist_m": 0.5471,
+   "time_to_goal_s": 53.867
+  },
+  {
+   "run": "c71t2_s162658614",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 350.4,
+   "sim_time_s": 63.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 57.65,
+   "goal_dist_m": 0.5514,
+   "time_to_goal_s": 59.633
+  },
+  {
+   "run": "c71t2_s631295930",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 286.9,
+   "sim_time_s": 70.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 64.75,
+   "goal_dist_m": 0.5704,
+   "time_to_goal_s": 66.517
+  },
+  {
+   "run": "c71t2_s365322545",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 216.4,
+   "sim_time_s": 62.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": 56.82,
+   "goal_dist_m": 0.5685,
+   "time_to_goal_s": 58.817
+  },
+  {
+   "run": "c71t2_s1888431607",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 153.6,
+   "sim_time_s": 66.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 60.15,
+   "goal_dist_m": 0.542,
+   "time_to_goal_s": 61.983
+  },
+  {
+   "run": "c71t2_s952631108",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 87.7,
+   "sim_time_s": 60.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 27,
+   "first_seen_within_2m_t": 54.25,
+   "goal_dist_m": 0.5535,
+   "time_to_goal_s": 56.25
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 158 s / 한도 600 s)\n#1 이번 코드(진단 \"lidar2d_points('front')를 호출하여 전방 점들을 가져옵니다. 로봇 기준 x > 0 및 |y/x| < tan(30°) 범위(전방 약 ±30°) 내의 점들 중 최소 거리를 구합니다. 이 최소 거리가 2.0m 미만이면 전진 속도 v를 0.0으로 강제 설정하여 정지합니다. 장애물이 감지되지 않을 때만 기존의 경유점 추종 속도 v를 사용합니다. 정지 중에도 회전 속도 w는 그대로 적용하여 목표 방향을 유지하게 합니다. 기존의 _WAYPOINTS와 제어 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 588 s / 한도 600 s)\n#2 이번 코드(진단 \"1. v_max를 1.5에서 2.0으로 상향하여 순항 속도를 높입니다. 2. v=0이 되는 각도 오차 임계값 abs(e) > 0.35를 0.2로 낮추어 제자리 회전 횟수와 시간을 줄입니다. 3. v의 거리 비례 계수를 2.5에서 3.0으로 높여 목표점 접근 시 가속력을 높입니다. 4. w의 이득(gain)을 7.5에서 8.5로 높여 정렬 속도를 개선합니다. 5. 기존의 정적 지도 필터링 및 2.0m 기반 제동 로직은 그대로 유지하여 안전성을 확보합니다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 573 s / 한도 600 s)",
+ "ended": "2026-11-18 11:06:46"
+}

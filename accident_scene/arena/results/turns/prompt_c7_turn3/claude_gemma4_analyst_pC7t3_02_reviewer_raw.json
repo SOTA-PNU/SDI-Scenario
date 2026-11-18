@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _is_danger 정면 원뿔을 ±30°에서 ±45°로 넓힘\", \"implemented\": true, \"note\": \"_is_danger 의 cone 이 math.radians(_FRONT_CONE_DEG), _FRONT_CONE_DEG=45.0\"},\n  {\"instruction\": \"1. 몸통 폭 검사 범위를 ±0.6 m에서 ±0.8 m로 넓힘\", \"implemented\": true, \"note\": \"_is_danger 의 corr 가 np.abs(py) <= _FRONT_CORR, _FRONT_CORR=0.8. 쓰이지 않는 _front_blocked 는 그대로지만 호출처가 없어 영향 없음\"},\n  {\"instruction\": \"2. 가장 가까운 물체 거리 d_min 에 따른 속도 상한 함수 도입(>3 m 1.5, 1.5~3 m 0.7, <1.5 m 0.4)\", \"implemented\": true, \"note\": \"_nearest_mover_dist 와 _speed_cap 추가, 값과 경계가 지시와 같음. 상한을 올릴 때만 0.2 m 히스테리시스를 더함\"},\n  {\"instruction\": \"3. _safe_speed 의 최종 v 를 상한으로 clamp\", \"implemented\": true, \"note\": \"v_law=min(v_law,cap), 전진 반환 두 곳과 회피 반환이 모두 _clamp(…,-cap,cap). 나머지 반환은 0.0\"},\n  {\"instruction\": \"4. _WAIT_RELAX_S 를 3.0 s에서 2.0 s로 줄임\", \"implemented\": true, \"note\": \"_WAIT_RELAX_S = 2.0\"},\n  {\"instruction\": \"5. _clearance 안전 마진을 속도에 비례하게 함\", \"implemented\": true, \"note\": \"반환값이 best - _CLR_K*abs(v_cand), _CLR_K=0.15. 위협이 없을 때는 9.0 을 그대로 반환\"},\n  {\"instruction\": \"6. 능동 회피 속도 _ESC_V 도 속도 상한의 영향을 받게 함\", \"implemented\": true, \"note\": \"후보를 _clamp(vc,-cap,cap) 로 자르고 중복을 제거한 cands 사용. cap 최소값이 0.4 라 후보가 0 이 되는 경우 없음\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거 사례의 물체는 bearing -81° 에 있었으므로 정면 원뿔을 ±45° 로 넓혀도 감지되지 않음. 지시 1은 그 충돌의 원인을 다루지 못함\",\n  \"d_min < 1.5 m 일 때 회피 속도까지 0.4 m/s 로 묶여, 빠르게 다가오는 물체에서 가장 빨리 벗어나야 할 순간에 회피가 약해질 수 있음\",\n  \"속도 상한이 물체의 방향과 진행 방향을 따지지 않고 거리만 보며 MAP 여유 밖 오검출점에도 반응함. s729284234 같은 정체와 time_limit 실패가 오히려 늘 수 있고, 평균 60 s 예산에도 부담\",\n  \"_clearance 의 속도 비례 여유가 후진 회피 후보에도 적용돼 회피 선택을 보수적으로 만듦\",\n  \"_nearest_mover_dist 가 매 스텝 최대 60회 전체 점 거리 계산을 해 연산 부담이 있을 수 있음(오류는 아님)\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 37234,
+  "completion_tokens": 2786
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 27685,
+  "total_cost_usd": 0.353584,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2786,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 37232,
+    "webSearchRequests": 0,
+    "costUSD": 0.353584,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1480,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 37232,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "f939ebca-4479-49c6-913b-64311ec1c205"
+ }
+}

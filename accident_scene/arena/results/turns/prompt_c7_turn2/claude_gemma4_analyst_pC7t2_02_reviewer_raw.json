@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _front_blocked 를 _is_danger 로 확장해 측면(±0.6m) 접근 물체 감지\", \"implemented\": true, \"note\": \"_is_danger 가 front, front_near, side 를 반환. side 는 옆면 gap≤_SIDE_GAP(0.6)에서 closing≥0.10, 또는 gap≤1.2 에서 2초 안에 닿는 속도면 참. _safe_speed 는 이 함수를 쓰고, 기존 _front_blocked 는 남아 있지만 호출되지 않음\"},\n  {\"instruction\": \"2. _update_tracks 의 회전 제한(yaw_rate<0.8) 완화\", \"implemented\": true, \"note\": \"_sense 에서 yaw_rate 조건을 없앰. 회전 중에는 연결 범위를 1.1 로 넓히고 이득을 ×0.4 로 낮춤. _static_mask 여유도 회전 속도에 비례해 넓힘\"},\n  {\"instruction\": \"3. 정지 중 측면 충돌 예상 시 멀어지는 방향으로 즉시 후진 또는 회전 회피\", \"implemented\": true, \"note\": \"dz['side'] 또는 c0<0.45 이면 _ESC_V 의 전진·후진 속도 가운데 _static_free 를 통과하고 clearance 가 가장 큰 값을 골라 직진 회피. 회전 회피는 넣지 않고 전진 회피를 추가함\"},\n  {\"instruction\": \"4. 정지 대기 시간 제한, 일정 시간 후 저속 전진 시도\", \"implemented\": true, \"note\": \"_WAIT_RELAX_S=3초를 넘고 front_near 가 비어 있으며 clearance≥0.35 이면 0.4m/s 로 전진. 이 완화는 front 막힘일 때만 적용됨. front 가 아닌데 clearance<0.40 이라 멈춘 경우는 계속 대기\"},\n  {\"instruction\": \"5. 추적 데이터 부족 시 최근 2~3 프레임 거리 변화로 접근 속도 추정해 _clearance 반영\", \"implemented\": true, \"note\": \"_approach_update 가 near_hist 3개로 접근 속도를 구하고 자기 전진 성분 v_meas·cos(b) 를 뺌. 추적되지 않은 물체는 _threats 가 로봇을 향하는 속도의 위협으로 추가하고, _clearance 가 이를 사용\"},\n  {\"instruction\": \"6. 후진 시 _rear_clear 범위를 좁혀 기민하게 반응\", \"implemented\": true, \"note\": \"폭 ±0.5→±0.40m, 길이 0.6→0.2+0.4|v| m(속도 비례)\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 3의 '회전 회피'는 측면 접근 물체에 효과가 적고, 제자리 회전 시 뒤쪽 몸체(x=-0.70)가 휘둘려 오히려 접촉 위험이 있음\",\n  \"지시 6처럼 후진 검사 범위를 줄이면 정적 장애물과 후방 접촉할 위험이 커짐\",\n  \"지시 4의 시간 경과 후 전진은 정면에 물체가 남아 있을 때 충돌 위험을 키울 수 있음. 새 코드는 clearance 조건으로 이를 제한함\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 36855,
+  "completion_tokens": 4194
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 42038,
+  "total_cost_usd": 0.37871199999999994,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4194,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 36853,
+    "webSearchRequests": 0,
+    "costUSD": 0.37871199999999994,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2944,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 36853,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "8a8675d8-3b56-47f0-9011-209f5af93e16"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1~3에 따라 `_safe_speed` 의 능동 회피 구간에서 `best_c` 의 초기값을 바꿨습니다. 측면 위험(`dz[\"side\"]`)일 때는 정지(v=0)의 기준값을 `c0` 대신 `c0 - _SIDE_STOP_PEN`(0.10 m)으로 낮춥니다. 그래서 정지보다 아주 조금만 나은 이동 후보가 있어도 전진이나 후진을 골라 교차 시점을 바꾸고, 옆에서 다가오는 물체에 서서 맞는 경우를 줄입니다. 진단 지시 4에 따라 이동 후보는 기존대로 `_ESC_V` 의 미세 속도(±0.1 m/s)와 `_static_free(critical=True)` 정적 검사를 통과한 것만 씁니다. 다른 경로(일반 주행, 측면 위험이 아닌 회피)는 바꾸지 않았습니다.\n\n```python\n_SIDE_STOP_PEN = 0.10    # 진단 지시 2: 측면 위험 시 '정지' 기준값에서 빼는 페널티 [m] (정지를 기본 안전값으로 보지 않음)\n\n\ndef _safe_speed(t, pose, v_law, w_law=0.0):\n    \"\"\"경유점 추종이 낸 (v, w) 를 센서 결과로 덮어씁니다.\n    속도 상한 cap (최저 _CAP_MIN = 0.8 m/s) 을 추종 속도와 회피 속도 후보에 적용합니다.\n    일반 주행 구간의 출력은 _static_guard 로 정적 장애물 하드 스톱·회전 쓸림 검사를 거칩니다.\n    - 위험 없음: 정면이 비고 예상 거리(물체 반폭 반영)가 _CLR_GO 이상이면 전진.\n      대기가 _WAIT_RELAX_S 를 넘으면 몸통 폭 통로가 빌 때 _RELAX_V 또는 그 절반으로 저속 전진.\n    - 위험(옆면 접근 또는 멈춰 있어도 예상 거리 < _ESC_C):\n      정적 검사를 critical=True (probe 0.05 m) 로 완화해, 전진·후진 후보 중\n      가장 멀어지는 쪽으로 이동합니다 (_ESC_GAIN 0.005 m 이득만 있어도 채택).\n      진단 지시 1~3: 옆면 위험(dz['side'])이면 정지의 기준값을 c0 - _SIDE_STOP_PEN 으로 낮춰,\n      정지를 '안전한 기본값' 이 아닌 '피해야 할 값' 으로 취급합니다. 그러면 정적 검사를 통과한 이동 후보가\n      정지보다 아주 조금만 나빠도 이동을 택해 교차 시점을 바꿉니다.\"\"\"\n    S = _SAFE\n    dt = 0.0 if S[\"t_cmd\"] is None else min(max(t - S[\"t_cmd\"], 0.0), 0.1)\n    S[\"t_cmd\"] = t\n    if not S[\"have_scan\"] and t < 3.0:\n        return 0.0, 0.0\n    cap = _speed_cap(t, pose)\n    v_law = min(v_law, cap)\n    want = v_law > 0.05\n    dz = _is_danger(t, pose, max(v_law, S[\"v_meas\"]))\n    S[\"blocked\"] = dz[\"front\"]\n    front_ok = not dz[\"front\"]\n    c0 = _clearance(t, pose, 0.0)\n\n    if not (dz[\"side\"] or c0 < _ESC_C):\n        S[\"esc_v\"] = None\n        if want:\n            if not dz[\"front\"]:\n                for f in (1.0, 0.6, 0.3):\n                    vf = v_law * f\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        S[\"wait\"] = 0.0\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            if S[\"wait\"] >= _WAIT_RELAX_S and not dz[\"front_near\"]:\n                vr = min(v_law, _RELAX_V)\n                for vf in (vr, 0.5 * vr):\n                    if _clearance(t, pose, vf) >= _CLR_GO:\n                        return _static_guard(pose, _clamp(vf, -cap, cap), w_law, front_ok)\n            S[\"wait\"] += dt\n        return _static_guard(pose, 0.0, w_law, front_ok)\n\n    # 능동 회피: 접근 방향의 반대(전진 또는 후진)로 이동, 후보 속도는 상한 cap 으로 제한\n    # 긴급 회피이므로 정적 검사는 critical=True (probe 0.05 m)\n    cands = []\n    for vc in _ESC_V:\n        vc = _clamp(vc, -cap, cap)\n        if vc not in cands:\n            cands.append(vc)\n    # 진단 지시 2: 옆면 위험이면 정지 기준값을 낮춰 정지보다 이동을 우선\n    best_v = 0.0\n    best_c = c0 - _SIDE_STOP_PEN if dz[\"side\"] else c0\n    for vc in cands:\n        if not _static_free(pose, vc, critical=True):\n            continue\n        cv = _clearance(t, pose, vc) + (0.05 if vc == S[\"esc_v\"] else 0.0)\n        if cv > best_c + _ESC_GAIN:\n            best_v, best_c = vc, cv\n    if best_v == 0.0:\n        S[\"esc_v\"] = None\n        return 0.0, w_law\n    S[\"esc_v\"] = best_v\n    return _clamp(best_v, -cap, cap), 0.0            # 직진 회피(예측과 같은 궤적, 뒤쪽 몸체 휘두름 방지)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 30341,
+  "completion_tokens": 2835
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 24334,
+  "total_cost_usd": 0.29942,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2835,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 30339,
+    "webSearchRequests": 0,
+    "costUSD": 0.29942,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 774,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 30339,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "fe667d30-5dd8-4b07-974e-2682ed2b47aa"
+ }
+}

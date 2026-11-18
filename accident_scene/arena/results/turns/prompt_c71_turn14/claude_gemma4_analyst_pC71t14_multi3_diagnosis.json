@@ -1,0 +1,117 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t14_s484836190: t=1.6, 물체가 0.36m 앞(46°)에 있음에도 v=1.06m/s로 주행하여 충돌. speed_scale(0.7m 기준 정지)이 전혀 작동하지 않음.",
+   "c71t14_s1170977666: t=12.0, 물체가 0.34m 거리(-99°)에 있음에도 v=0.72m/s로 주행하여 충돌.",
+   "c71t14_s306067349: t=7.583, 정적 장애물(arena_box_00)과 충돌. 로봇 위치 [-6.33, -7.58]은 박스 00의 경계에 매우 근접함."
+  ],
+  "assumptions": [
+   {
+    "assumption": "to_world 함수가 입력 배열을 수정하지 않거나, 수정해도 이후 계산에 영향이 없다.",
+    "holds": false,
+    "why": "to_world는 입력 배열을 인플레이스로 수정하여 월드 좌표로 바꿈. _get_dynamic_min에서 이를 호출한 뒤 dyn 배열을 사용하여 거리(hypot)와 각도(arctan2)를 계산하므로, 로봇 기준 거리가 아닌 월드 원점(0,0) 기준 거리로 계산됨."
+   },
+   {
+    "assumption": "현재의 _WAYPOINTS가 정적 장애물로부터 충분한 안전거리를 확보하고 있다.",
+    "holds": false,
+    "why": "c71t14_s306067349에서 박스 00의 모서리를 쳤으며, 출발지에서 WP0로 가는 경로가 박스 00와 너무 가까움."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 반응형 회피 (속도 스케일링 + 조향 오프셋)",
+    "turns": "10",
+    "result": "대부분 실패 (최근 턴에서 충돌 급증)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "to_world 호출 시 .copy()를 사용하여 로봇 기준 좌표계를 보존하고, WP0 위치를 수정하여 정적 장애물 회피 경로를 최적화함",
+    "new_family": false,
+    "for": "물체 감지 거리 계산이 월드 원점 기준이 아닌 로봇 기준으로 정상 작동하게 되어 speed_scale과 w_avoid가 의도대로 작동함",
+    "risk": "단순 버그 수정이므로 경로 최적화가 부족하면 여전히 정적 장애물에 부딪힐 수 있음"
+   },
+   {
+    "idea": "동적 물체 감지 범위를 360도 전체로 넓히고, 물체와의 상대 속도를 계산하여 제동 거리를 가변적으로 적용하는 로직 도입",
+    "new_family": true,
+    "for": "측후방에서 빠르게 접근하는 물체에 대해 더 안전한 대응 가능",
+    "risk": "구현 복잡도가 높고, 현재의 버그를 먼저 잡지 않으면 효과가 없음"
+   }
+  ],
+  "chosen": "후보 1. 모든 실패의 근본 원인인 좌표계 오염 버그를 수정하고 경로를 보정하는 것이 가장 시급함",
+  "target": "_get_dynamic_min, _static_close_on_side, _static_ahead, _WAYPOINTS",
+  "direction": "1. _get_dynamic_min, _static_close_on_side, _static_ahead 함수 내에서 to_world(pts, pose) 호출 부분을 모두 to_world(pts.copy(), pose)로 수정하여 원본 pts(로봇 기준 좌표)가 오염되는 것을 방지합니다. 2. 이를 통해 dyn 배열이 로봇 기준 좌표를 유지하게 하여 거리와 bearing 계산이 정상화되도록 합니다. 3. _WAYPOINTS의 첫 번째 점을 (-6.0, -9.5) 정도로 수정하여 출발지에서 박스 00의 남쪽으로 더 명확하게 우회하도록 경로를 조정합니다. 4. 나머지 speed_scale 및 w_avoid 로직은 유지하여 정상적인 거리 기반 제어가 작동하게 합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n     \"c71t14_s484836190: t=1.6, 물체가 0.36m 앞(46°)에 있음에도 v=1.06m/s로 주행하여 충돌. speed_scale(0.7m 기준 정지)이 전혀 작동하지 않음.\",\n     \"c71t14_s1170977666: t=12.0, 물체가 0.34m 거리(-99°)에 있음에도 v=0.72m/s로 주행하여 충돌.\",\n     \"c71t14_s306067349: t=7.583, 정적 장애물(arena_box_00)과 충돌. 로봇 위치 [-6.33, -7.58]은 박스 00의 경계에 매우 근접함.\"\n ],\n \"assumptions\": [\n     {\n         \"assumption\": \"to_world 함수가 입력 배열을 수정하지 않거나, 수정해도 이후 계산에 영향이 없다.\",\n         \"holds\": false,\n         \"why\": \"to_world는 입력 배열을 인플레이스로 수정하여 월드 좌표로 바꿈. _get_dynamic_min에서 이를 호출한 뒤 dyn 배열을 사용하여 거리(hypot)와 각도(arctan2)를 계산하므로, 로봇 기준 거리가 아닌 월드 원점(0,0) 기준 거리로 계산됨.\"\n     },\n     {\n         \"assumption\": \"현재의 _WAYPOINTS가 정적 장애물로부터 충분한 안전거리를 확보하고 있다.\",\n         \"holds\": false,\n         \"why\": \"c71t14_s306067349에서 박스 00의 모서리를 쳤으며, 출발지에서 WP0로 가는 경로가 박스 00와 너무 가까움.\"\n     }\n ],\n \"approach_families\": [\n     {\n         \"family\": \"센서 기반 반응형 회피 (속도 스케일링 + 조향 오프셋)\",\n         \"turns\": \"10\",\n         \"result\": \"대부분 실패 (최근 턴에서 충돌 급증)\"\n     }\n ],\n \"candidates\": [\n     {\n         \"idea\": \"to_world 호출 시 .copy()를 사용하여 로봇 기준 좌표계를 보존하고, WP0 위치를 수정하여 정적 장애물 회피 경로를 최적화함\",\n         \"new_family\": false,\n         \"for\": \"물체 감지 거리 계산이 월드 원점 기준이 아닌 로봇 기준으로 정상 작동하게 되어 speed_scale과 w_avoid가 의도대로 작동함\",\n         \"risk\": \"단순 버그 수정이므로 경로 최적화가 부족하면 여전히 정적 장애물에 부딪힐 수 있음\"\n     },\n     {\n         \"idea\": \"동적 물체 감지 범위를 360도 전체로 넓히고, 물체와의 상대 속도를 계산하여 제동 거리를 가변적으로 적용하는 로직 도입\",\n         \"new_family\": true,\n         \"for\": \"측후방에서 빠르게 접근하는 물체에 대해 더 안전한 대응 가능\",\n         \"risk\": \"구현 복잡도가 높고, 현재의 버그를 먼저 잡지 않으면 효과가 없음\"\n     }\n ],\n \"chosen\": \"후보 1. 모든 실패의 근본 원인인 좌표계 오염 버그를 수정하고 경로를 보정하는 것이 가장 시급함\",\n \"target\": \"_get_dynamic_min, _static_close_on_side, _static_ahead, _WAYPOINTS\",\n \"direction\": \"1. _get_dynamic_min, _static_close_on_side, _static_ahead 함수 내에서 to_world(pts, pose) 호출 부분을 모두 to_world(pts.copy(), pose)로 수정하여 원본 pts(로봇 기준 좌표)가 오염되는 것을 방지합니다. 2. 이를 통해 dyn 배열이 로봇 기준 좌표를 유지하게 하여 거리와 bearing 계산이 정상화되도록 합니다. 3. _WAYPOINTS의 첫 번째 점을 (-6.0, -9.5) 정도로 수정하여 출발지에서 박스 00의 남쪽으로 더 명확하게 우회하도록 경로를 조정합니다. 4. 나머지 speed_scale 및 w_avoid 로직은 유지하여 정상적인 거리 기반 제어가 작동하게 합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t14_s306067349",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 13.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 7.583,
+   "partner": "static:arena_box_00",
+   "robot_at_collision": "주행 0.76m/s",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 2.65,
+   "goal_dist_m": 22.9413,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t14_s1170977666",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 586.4,
+   "sim_time_s": 18.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 12.233,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.72m/s",
+   "partner_rel_xy": [
+    -0.16,
+    -0.55
+   ],
+   "closing_m_s": 0.41,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 7.25,
+   "goal_dist_m": 21.9728,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t14_s484836190",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 568.2,
+   "sim_time_s": 7.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 1.65,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.06m/s",
+   "partner_rel_xy": [
+    0.27,
+    0.53
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 0.72,
+   "goal_dist_m": 31.4333,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

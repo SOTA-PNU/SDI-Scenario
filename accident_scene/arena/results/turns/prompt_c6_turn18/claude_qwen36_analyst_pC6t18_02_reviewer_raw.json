@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"controller에 정지 시각 상태 stop_t 추가\", \"implemented\": true, \"note\": \"hasattr 초기화로 controller.stop_t=None, escaping, esc_side 추가\"},\n  {\"instruction\": \"v_cmd가 0으로 강제될 때 stop_t 기록\", \"implemented\": true, \"note\": \"래치 정지 분기와 Governor scale<=0 분기에서 stop_t가 None일 때만 t를 기록함. 경유점 모서리 회전처럼 원래 v=0인 경우는 기록하지 않음\"},\n  {\"instruction\": \"t - stop_t > 0.5초이고 d_min < 1.0m이면 탈출 모드 전환\", \"implemented\": true, \"note\": \"(t - stop_t) > _STOP_ESC_T(0.5) and d_min < _STOP_ESC_D(1.0)이면 escaping=True\"},\n  {\"instruction\": \"뒤쪽 1.0m 이상 비었으면 v=-0.2 직선 후진\", \"implemented\": true, \"note\": \"_evade_cmd에서 _rear_gap(raw) >= _REAR_MIN(1.0)이면 (-0.2, 0.0) 반환\"},\n  {\"instruction\": \"뒤가 막혔으면 물체 반대 방향으로 w=±0.6 제자리 회전\", \"implemented\": true, \"note\": \"w=-_ESCAPE_W*side라서 물체가 왼쪽이면 오른쪽으로 회전함. 방향은 탈출 시작 때 값으로 고정했고, 이는 진단을 해석해 덧붙인 세부임\"},\n  {\"instruction\": \"d_min >= 1.2m이면 stop_t 초기화 후 Governor 정상 주행 복귀\", \"implemented\": true, \"note\": \"_STOP_ESC_CLEAR(1.2) 이상이면 stop_t=None, escaping=False로 두고, 이후 기존 래치·Governor로 진행\"},\n  {\"instruction\": \"0.2초 래치는 유지하되 탈출 발동 시 래치 해제\", \"implemented\": true, \"note\": \"기존 래치 코드는 그대로 두고, escaping 중에는 caution_t=None으로 설정한 뒤 회피 명령을 반환\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"후진 속도 0.2m/s가 실측 접근 속도 0.38~0.49m/s보다 느림. 정면에서 다가오는 물체에는 충돌을 늦추기만 할 수 있음\",\n  \"d_min<1.0m에서 제자리 회전하면 몸체 회전 반경(약 0.78m) 때문에 모서리가 물체에 닿을 수 있음\",\n  \"탈출 해제 조건이 d_min>=1.2m 하나뿐임. 1.0~1.2m에 물체나 오탐 점이 머물면 후진이나 회전이 끝없이 이어질 수 있음\",\n  \"stop_t가 주행 재개 때 초기화되지 않음. 짧게 정지한 뒤 d_min 1.0~1.2m에서 다시 달리다 1.0m 안으로 들어오면 즉시 탈출로 바뀜(진단 문구대로 구현한 결과임)\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 37546,
+  "completion_tokens": 3015
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30001,
+  "total_cost_usd": 0.36066,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3015,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 37544,
+    "webSearchRequests": 0,
+    "costUSD": 0.36066,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1833,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 37544,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "908021e6-a9ec-4bbb-ab07-ec2e7f8bb009"
+ }
+}

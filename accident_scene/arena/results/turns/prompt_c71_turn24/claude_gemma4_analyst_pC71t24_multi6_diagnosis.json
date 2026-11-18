@@ -1,0 +1,178 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c71t24_s1450862234: t=38.6에 로봇이 정지했고, 물체가 0.39m 거리(상대 좌표 [0.38, -0.41])에 있었음에도 움직이지 못해 t=38.833에 충돌함 (sitting duck 상황).",
+   "실행 c71t24_s852681808: t=90.03에 stall_abort 발생, 60초 동안 0.29m만 이동함.",
+   "실행 c71t24_s1720513260: t=78.85에 stall_abort 발생, 60초 동안 0.29m만 이동함."
+  ],
+  "assumptions": [
+   {
+    "assumption": "척력 기반의 _safety_filter가 근접 물체로부터 로봇을 항상 밀어낼 수 있다.",
+    "holds": false,
+    "why": "실행 c71t24_s1450862234에서 물체가 0.4m 앞까지 다가왔음에도 로봇이 정지 상태를 유지하여 충돌함."
+   },
+   {
+    "assumption": "_E_TURN 임계값에 의한 제자리 회전이 경로 추종에 효율적이다.",
+    "holds": false,
+    "why": "두 번의 실행에서 60초간 거의 움직이지 못하고 stall_abort가 발생함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지/제동 (Stop/Brake)",
+    "turns": "1, 4, 5, 8, 10, 12, 14, 23",
+    "result": "실패 많음 (정지 중 충돌 유발)"
+   },
+   {
+    "family": "척력/회피 (Repulsion/Escape)",
+    "turns": "7, 11, 13, 16, 17, 19, 20, 22, 24",
+    "result": "상대적 성공적이나 여전히 v=0 선택 문제 존재"
+   },
+   {
+    "family": "동적 속도 캡 (TTC/Speed Cap)",
+    "turns": "21, 22, 24",
+    "result": "안전성 높으나 과도한 감속 시 stall 가능성"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "360도 Raw 감지 및 임계 상태 v=0 금지",
+    "new_family": false,
+    "for": "측/후방 접근 물체에 대해서도 즉각 척력 모드를 켜고, 매우 가까운 물체가 있을 때 정지 후보를 배제하여 '앉은 오리' 충돌 방지",
+    "risk": "벽에 완전히 막힌 상황에서 강제 이동 시 정적 충돌 위험"
+   },
+   {
+    "idea": "_E_TURN 완화 및 회전 중 최소 전진 속도(creep) 도입",
+    "new_family": true,
+    "for": "제자리 회전으로 인한 stall_abort를 방지하고, 회전 중에도 물체로부터 조금씩 멀어지게 함",
+    "risk": "정밀한 정렬 시간이 길어질 수 있음"
+   }
+  ],
+  "chosen": "360도 Raw 감지로 척력 트리거를 강화하고, 임계 위험 상황에서 v=0 후보에 강한 페널티를 주어 강제 회피를 유도하며, _E_TURN을 높여 stall을 방지함",
+  "target": "_raw_mover_detected, _safety_filter, _E_TURN",
+  "direction": "1. _raw_mover_detected에서 _EBRAKE_HALF_DEG(±90도) 제한을 제거하여 360도 모든 방향의 비정적 점을 감지하게 합니다. 2. _safety_filter의 repulse 모드에서 g_near < _CRIT_GAP인 경우, v=0인 후보의 score에 큰 페널티를 부여하여 정지 대신 최선의 탈출 방향을 선택하게 합니다. 3. 단, 모든 v!=0 후보가 _static_hits(정적 충돌)인 경우에만 v=0을 허용합니다. 4. _E_TURN을 0.75에서 0.9로 높여 불필요한 제자리 회전 정지 구간을 줄여 stall_abort를 방지합니다. 5. _nominal_cmd의 v=0 조건에서도 critical 상태라면 최소 v_min을 유지하도록 보완합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"실행 c71t24_s1450862234: t=38.6에 로봇이 정지했고, 물체가 0.39m 거리(상대 좌표 [0.38, -0.41])에 있었음에도 움직이지 못해 t=38.833에 충돌함 (sitting duck 상황).\",\n  \"실행 c71t24_s852681808: t=90.03에 stall_abort 발생, 60초 동안 0.29m만 이동함.\",\n  \"실행 c71t24_s1720513260: t=78.85에 stall_abort 발생, 60초 동안 0.29m만 이동함.\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"척력 기반의 _safety_filter가 근접 물체로부터 로봇을 항상 밀어낼 수 있다.\",\n   \"holds\": false,\n   \"why\": \"실행 c71t24_s1450862234에서 물체가 0.4m 앞까지 다가왔음에도 로봇이 정지 상태를 유지하여 충돌함.\"\n  },\n  {\n   \"assumption\": \"_E_TURN 임계값에 의한 제자리 회전이 경로 추종에 효율적이다.\",\n   \"holds\": false,\n   \"why\": \"두 번의 실행에서 60초간 거의 움직이지 못하고 stall_abort가 발생함.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"정지/제동 (Stop/Brake)\",\n   \"turns\": \"1, 4, 5, 8, 10, 12, 14, 23\",\n   \"result\": \"실패 많음 (정지 중 충돌 유발)\"\n  },\n  {\n   \"family\": \"척력/회피 (Repulsion/Escape)\",\n   \"turns\": \"7, 11, 13, 16, 17, 19, 20, 22, 24\",\n   \"result\": \"상대적 성공적이나 여전히 v=0 선택 문제 존재\"\n  },\n  {\n   \"family\": \"동적 속도 캡 (TTC/Speed Cap)\",\n   \"turns\": \"21, 22, 24\",\n   \"result\": \"안전성 높으나 과도한 감속 시 stall 가능성\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"360도 Raw 감지 및 임계 상태 v=0 금지\",\n   \"new_family\": false,\n   \"for\": \"측/후방 접근 물체에 대해서도 즉각 척력 모드를 켜고, 매우 가까운 물체가 있을 때 정지 후보를 배제하여 '앉은 오리' 충돌 방지\",\n   \"risk\": \"벽에 완전히 막힌 상황에서 강제 이동 시 정적 충돌 위험\"\n  },\n  {\n   \"idea\": \"_E_TURN 완화 및 회전 중 최소 전진 속도(creep) 도입\",\n   \"new_family\": true,\n   \"for\": \"제자리 회전으로 인한 stall_abort를 방지하고, 회전 중에도 물체로부터 조금씩 멀어지게 함\",\n   \"risk\": \"정밀한 정렬 시간이 길어질 수 있음\"\n  }\n ],\n \"chosen\": \"360도 Raw 감지로 척력 트리거를 강화하고, 임계 위험 상황에서 v=0 후보에 강한 페널티를 주어 강제 회피를 유도하며, _E_TURN을 높여 stall을 방지함\",\n \"target\": \"_raw_mover_detected, _safety_filter, _E_TURN\",\n \"direction\": \"1. _raw_mover_detected에서 _EBRAKE_HALF_DEG(±90도) 제한을 제거하여 360도 모든 방향의 비정적 점을 감지하게 합니다. 2. _safety_filter의 repulse 모드에서 g_near < _CRIT_GAP인 경우, v=0인 후보의 score에 큰 페널티를 부여하여 정지 대신 최선의 탈출 방향을 선택하게 합니다. 3. 단, 모든 v!=0 후보가 _static_hits(정적 충돌)인 경우에만 v=0을 허용합니다. 4. _E_TURN을 0.75에서 0.9로 높여 불필요한 제자리 회전 정지 구간을 줄여 stall_abort를 방지합니다. 5. _nominal_cmd의 v=0 조건에서도 critical 상태라면 최소 v_min을 유지하도록 보완합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t24_s852681808",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": 90.03,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 25.4019,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t24_s284704764",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 508.9,
+   "sim_time_s": 66.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 60.72,
+   "goal_dist_m": 0.174,
+   "time_to_goal_s": 65.233
+  },
+  {
+   "run": "c71t24_s338990153",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 442.3,
+   "sim_time_s": 61.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 55.35,
+   "goal_dist_m": 0.2577,
+   "time_to_goal_s": 57.783
+  },
+  {
+   "run": "c71t24_s1608872391",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 381.0,
+   "sim_time_s": 46.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 40.02,
+   "goal_dist_m": 0.5609,
+   "time_to_goal_s": 41.467
+  },
+  {
+   "run": "c71t24_s1450862234",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 335.0,
+   "sim_time_s": 44.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 38.833,
+   "partner": "mover_02",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.38,
+    -0.41
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 33.92,
+   "goal_dist_m": 12.3659,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t24_s1720513260",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 290.2,
+   "sim_time_s": 79.9,
+   "stall_abort_t": 78.85,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 17.9554,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

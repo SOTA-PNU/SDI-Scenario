@@ -1,0 +1,337 @@
+{
+ "turn": 18,
+ "started": "2026-11-18 06:03:33",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c7_turn17/claude_gemma4_analyst_pC7t17_block.py",
+ "diagnosis_in": {
+  "failure_mode": "time_limit",
+  "evidence": [
+   "실행 c7t17_s192420437 이 74.4s 에 time_limit 으로 종료됨 (한도 73.4s), 종료 시 goal_dist_m 이 3.04m 로 목표 근처였음",
+   "통과한 실행들의 time_to_goal_s 평균이 약 84.8s (74.3~93.4s) 이며, 이는 10개 배치 통과 기준인 평균 60s (총 600s) 를 크게 초과함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재의 '정지 후 회전(stop-turn-go)' 방식과 낮은 최소 속도 상한(_CAP_MIN=0.8)이 평균 주행 시간을 늘리는 주원인이다",
+    "holds": true,
+    "why": "경로 거리(약 44m) 대비 주행 시간이 길며, stop_turns 기록에서 잦은 정지 구간이 확인됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "속도 최적화 (Speed Optimization)",
+    "turns": "1",
+    "result": "0/1 (이번 턴에서 시간 초과 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회전 시 정지 대신 저속 전진을 허용하고 최소 속도 상한을 높여 평균 속도 개선",
+    "new_family": true,
+    "for": "정지-회전-출발 반복 시간을 줄이고, 물체 근접 시에도 최소 속도를 높여 전체 시간을 단축할 수 있음",
+    "risk": "회전 중 전진 시 정적 장애물에 더 가까워질 수 있으나 _static_guard 가 이를 방어함"
+   }
+  ],
+  "chosen": "회전 시 저속 전진 허용 및 _CAP_MIN 상향을 통해 평균 주행 시간을 60s 이내로 단축",
+  "target": "controller 및 _CAP_MIN",
+  "direction": "1. controller 내에서 abs(e) > 0.35 일 때 v=0.0 로 설정하던 로직을 수정하여, 0.35 < abs(e) < 0.7 구간에서는 v=0.3 으로 저속 전진하며 회전하도록 변경합니다. 2. abs(e) >= 0.7 인 경우에만 v=0.0 으로 정지합니다. 3. _CAP_MIN 을 0.8 에서 1.0 으로 높여 물체 근접 시의 기본 속도를 상향합니다. 4. 그 외의 _safe_speed 및 _static_guard 로직은 그대로 유지하여 안전성을 확보합니다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 지시 1·2에 따라 `controller`의 제어 법칙을 바꿨습니다. 헤딩 오차가 0.35 < |e| < 0.7 rad이면 멈추지 않고 v = 0.3 m/s로 전진하면서 회전하고, |e| ≥ 0.7 rad일 때만 제자리에서 회전합니다(마지막 경유점에서는 목표 근처에서 지나치지 않도록 기존 접근 속도식과 0.3 중 작은 값을 씁니다). 진단 지시 3에 따라 `_CAP_MIN`을 0.8에서 1.0 m/s로 올려 물체가 가까이 있을 때의 속도 상한을 높였습니다. 진단 지시 4에 따라 `_safe_speed`, `_static_guard` 등 나머지 안전 계층은 그대로 두었고, 바뀐 v도 기존처럼 `_safe_speed`를 거쳐 감속·정지·회피·하드 스톱 처리를 받습니다.",
+   "changed": [
+    "_CAP_MIN",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "0.35 < |e| < 0.7 구간에서는 v=0.3 으로 저속 전진하며 회전",
+      "implemented": true,
+      "note": "elif abs(e) > 0.35 에서 v=0.3 이고 w 는 기존 식과 같음. 마지막 경유점만 min(0.3, 1.2*dist+0.25) 를 쓰지만 dist>=0.042 m 이면 0.3 이라 실질적 차이는 없음"
+     },
+     {
+      "instruction": "|e| >= 0.7 인 경우에만 v=0.0 으로 정지",
+      "implemented": true,
+      "note": "if abs(e) >= 0.7: v = 0.0 로 구현됨"
+     },
+     {
+      "instruction": "_CAP_MIN 을 0.8 에서 1.0 으로 상향",
+      "implemented": true,
+      "note": "_CAP_MIN = 1.0 으로 바뀜. _safe_speed·_speed_cap docstring 은 아직 0.8 로 적혀 있으나 동작에는 영향 없음"
+     },
+     {
+      "instruction": "_safe_speed 및 _static_guard 등 나머지 로직은 그대로 유지",
+      "implemented": true,
+      "note": "diff 에서 controller 의 제어 법칙과 _CAP_MIN 외에는 바뀐 곳이 없음. 새 v 도 _safe_speed 를 거침"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "경유점 모서리가 대부분 약 90°(e≈1.57)라 여전히 정지 회전함. w 가 2.0 으로 포화돼 0.35~0.7 rad 구간은 모서리당 약 0.18 s 에 그침. 평균 84.8 s 를 60 s 로 줄이기에는 효과가 매우 작을 것으로 보임",
+     "_static_guard 의 회전 쓸림 검사(_swing_hit)는 v==0 일 때만 동작함. v=0.3 으로 회전하며 전진할 때는 앞쪽 하드 스톱만 걸리므로, 진단이 말한 '_static_guard 가 방어한다'는 근거는 일부만 맞음",
+     "_CAP_MIN 을 1.0 으로 올리면 물체가 3 m 안에 있을 때의 상한도 올라가 충돌 위험이 커질 수 있음. 시간 손실의 주원인이 대기·회피인지 정지 회전인지에 대한 근거가 부족함"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단 지시 1·2에 따라 `controller`의 제어 법칙을 바꿨습니다. 헤딩 오차가 0.35 < |e| < 0.7 rad이면 멈추지 않고 v = 0.3 m/s로 전진하면서 회전하고, |e| ≥ 0.7 rad일 때만 제자리에서 회전합니다(마지막 경유점에서는 목표 근처에서 지나치지 않도록 기존 접근 속도식과 0.3 중 작은 값을 씁니다). 진단 지시 3에 따라 `_CAP_MIN`을 0.8에서 1.0 m/s로 올려 물체가 가까이 있을 때의 속도 상한을 높였습니다. 진단 지시 4에 따라 `_safe_speed`, `_static_guard` 등 나머지 안전 계층은 그대로 두었고, 바뀐 v도 기존처럼 `_safe_speed`를 거쳐 감속·정지·회피·하드 스톱 처리를 받습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1722583234,
+  2046920001,
+  1797439038,
+  593787413,
+  1474788323,
+  1098012887,
+  829904175,
+  542505379,
+  1269194071
+ ],
+ "sim_used_s": 601.0,
+ "verdicts": {
+  "1722583234": "pass",
+  "2046920001": "fail",
+  "1797439038": "pass",
+  "593787413": "pass",
+  "1474788323": "pass",
+  "1098012887": "pass",
+  "829904175": "pass",
+  "542505379": "pass",
+  "1269194071": "fail"
+ },
+ "passes": 7,
+ "prior_chars": 11304,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t18_s2046920001: t=23.317에 mover_01과 충돌. 충돌 직전 로봇은 v=0.30m/s로 주행 중이었으며, 물체는 상대 위치 [-0.03, -0.55], 접근 속도 0.75m/s로 우측에서 정면으로 빠르게 진입함",
+   "c7t18_s2046920001: t=23.1에 물체 거리 0.41m로 _ESC_C(0.40)에 매우 근접했으나, 로봇이 멈추지 않고 0.30m/s를 유지하며 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재의 안전 임계값(_CLR_GO=0.3, _ESC_C=0.4)이 고속으로 접근하는 물체를 피하기에 충분하다",
+    "holds": false,
+    "why": "접근 속도가 0.75m/s인 경우, 0.4m 거리에서 판단을 시작하면 반응 시간이 부족해 충돌함"
+   },
+   {
+    "assumption": "_SIDE_STOP_PEN(0.15)이 정지보다 이동을 적절히 유도한다",
+    "holds": false,
+    "why": "측면 위협이 매우 근접한 상황에서도 정지에 페널티를 주어, 결과적으로 충돌 경로로 계속 진입하는 v=0.3m/s 후보를 선택하게 함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Waypoint Following",
+    "turns": "19",
+    "result": "기본 구조"
+   },
+   {
+    "family": "Sensing-Stop",
+    "turns": "18",
+    "result": "Turn 1에서 도입, 정면 방어 가능"
+   },
+   {
+    "family": "Active Avoidance",
+    "turns": "17",
+    "result": "Turn 2에서 도입, 측면/예측 회피 수행"
+   },
+   {
+    "family": "Momentum-based",
+    "turns": "5",
+    "result": "Turn 12~17 시도, 과도한 낙관주의로 충돌 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 임계값(_CLR_GO, _ESC_C)을 상향하여 더 일찍 정지 및 회피를 시작",
+    "new_family": false,
+    "for": "물체의 접근 속도가 빠를 때 충분한 제동/회피 거리를 확보하기 위함",
+    "risk": "너무 보수적으로 변해 타임아웃(stall) 발생 가능성 증가"
+   },
+   {
+    "idea": "_SIDE_STOP_PEN을 낮춰 근접 위협 시 정지 우선순위 상향",
+    "new_family": false,
+    "for": "측면 위협이 매우 가까울 때 억지로 움직이다 충돌하는 것을 방지",
+    "risk": "측면 물체가 있을 때 너무 자주 멈춰 주행 효율 저하"
+   }
+  ],
+  "chosen": "임계값 상향과 정지 페널티 하향을 동시에 적용하여 고속 접근 물체에 대한 방어력을 높임",
+  "target": "_CLR_GO, _ESC_C, _SIDE_STOP_PEN",
+  "direction": "_CLR_GO를 0.3에서 0.5로, _ESC_C를 0.4에서 0.6으로 높여 일반 주행 정지 및 능동 회피 진입 시점을 앞당깁니다. _SIDE_STOP_PEN을 0.15에서 0.05로 낮춰, 측면 위협이 근접했을 때 무리하게 이동 후보를 선택하기보다 정지하는 것을 더 선호하게 합니다. 이를 통해 접근 속도가 빠른 물체에 대해 더 보수적인 안전 마진을 확보합니다. 나머지 _WAIT_RELAX_S 및 _RELAX_V 설정은 유지하여 타임아웃 위험을 상쇄합니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c7t18_s1722583234",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 81.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 75.32,
+   "goal_dist_m": 0.3319,
+   "time_to_goal_s": 78.2
+  },
+  {
+   "run": "c7t18_s2046920001",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 518.8,
+   "sim_time_s": 29.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 23.317,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.30m/s",
+   "partner_rel_xy": [
+    -0.03,
+    -0.55
+   ],
+   "closing_m_s": 0.75,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 19.95,
+   "goal_dist_m": 23.9415,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t18_s1797439038",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 489.4,
+   "sim_time_s": 61.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 55.82,
+   "goal_dist_m": 0.1873,
+   "time_to_goal_s": 58.8
+  },
+  {
+   "run": "c7t18_s593787413",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 427.7,
+   "sim_time_s": 67.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 61.55,
+   "goal_dist_m": 0.1748,
+   "time_to_goal_s": 64.567
+  },
+  {
+   "run": "c7t18_s1474788323",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 360.1,
+   "sim_time_s": 70.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 64.65,
+   "goal_dist_m": 0.1859,
+   "time_to_goal_s": 67.6
+  },
+  {
+   "run": "c7t18_s1098012887",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 289.6,
+   "sim_time_s": 71.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 65.22,
+   "goal_dist_m": 0.3181,
+   "time_to_goal_s": 68.05
+  },
+  {
+   "run": "c7t18_s829904175",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 218.4,
+   "sim_time_s": 72.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 66.55,
+   "goal_dist_m": 0.1583,
+   "time_to_goal_s": 69.6
+  },
+  {
+   "run": "c7t18_s542505379",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 145.9,
+   "sim_time_s": 81.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 75.52,
+   "goal_dist_m": 0.1738,
+   "time_to_goal_s": 78.533
+  },
+  {
+   "run": "c7t18_s1269194071",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 64.4,
+   "sim_time_s": 65.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 59.42,
+   "goal_dist_m": 1.6035,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 115 s / 한도 600 s)\n#1 이번 코드(진단 \"1. `lidar2d_points('front')`를 사용하여 전방 점들을 가져온다. 2. 각 점이 `WALLS`, `FIXED_OBSTACLES`, `MISSION['boxes']` 범위 내에 있는지 확인하여 정적 장애물을 필터링한다. 3. 필터링 후 남은 '지도에 없는' 점들 중 로봇 정면(예: ±30도)에 있고 거리 2.0m 이내인 점이 있는지 확인한다. 4. 물체가 감지되면 전진 속도 `v`를 0으로 설정하여 정지한다. 5. 물체가 사라지거나 안전 거리 밖으로 나가면 다시 경유점 추종을 재개한다. 6. 기존의 waypoint 추종 로직은 그대로 유지하되 최종 `v` 값만 센서 결과로 덮어쓴다.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _front_blocked를 _is_danger로 확장하여, 정면뿐 아니라 측면(y축 ±0.6m)에서 접근하는 물체를 감지함. 2. _update_tracks의 회전 제한(yaw_rate < 0.8)을 완화하여 회전 중에도 물체 궤적을 갱신함. 3. _safe_speed에서 정지 중 측면 충돌이 예상되면, 물체와 멀어지는 방향으로 즉시 후진하거나 회전하여 회피함. 4. 단순 정지 대기 시간을 제한하고, 일정 시간 후에는 저속으로 전진을 시도하여 타임아웃을 방지함. 5. _clearance 계산 시 추적 데이터가 부족하면 최근 2~3프레임의 거리 변화로 단순 접근 속도를 추정해 반영함. 6. 후진 시 _rear_clear의 범위를 좁혀 더 기민하게 반응하도록 수정함.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#3 이번 코드(진단 \"1. _is_danger의 정면 감지 원뿔을 ±30°에서 ±45°로 넓히고, 몸통 폭 검사 범위를 ±0.6m에서 ±0.8m로 확장합니다. 2. 모든 물체 중 가장 가까운 거리(d_min)에 따른 속도 상한 함수를 도입합니다 (예: d_min > 3m: 1.5m/s, 3m > d_min > 1.5m: 0.7m/s, d_min < 1.5m: 0.4m/s). 3. _safe_speed에서 결정된 최종 v를 이 상한값으로 clamp 합니다. 4. _WAIT_RELAX_S를 3.0s에서 2.0s로 줄여 정체 시간을 단축합니다. 5. _clearance의 안전 마진을 속도에 비례하게 하여 고속일 때 더 보수적으로 판단하게 합니다. 6. 능동 회피 시 선택하는 속도 _ESC_V 도 위 속도 상한의 영향을 받게 합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 182 s / 한도 600 s)\n#4 이번 코드(진단 \"1. _safe_speed에서 능동 회피 속도 선택 시 `cv > best_c + 0.05`를 `cv > best_c + 0.01`로 낮춰 조금이라도 이득이면 움직이게 합니다. 2. _static_free의 probe 거리(L)를 약간 줄여 좁은 통로에서도 회피 기동이 가능하게 합니다. 3. _speed_cap의 최저 상한을 0.4에서 0.7로 올려 회피 시 최소 속도를 확보합니다. 4. _safe_speed의 일반 주행 구간에서도 정적 장애물이 너무 가까우면(예: 0.4m 미만) 강제로 v=0으로 만드는 하드 스톱 로직을 추가합니다. 5. _ESC_V 후보군에 더 낮은 속도(예: 0.2)를 추가하여 미세하게라도 거리를 벌릴 수 있게 합니다. 6. _is_danger의 side 판단 시 closing 속도 임계값을 낮춰 더 빠르게 반응하게 합니다.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 572 s / 한도 600 s)\n#5 이번 코드(진단 \"1. _clearance 함수에서 최종 계산된 최소 거리에서 물체 반폭인 0.3m를 빼서 실제 외곽 간 거리로 계산하도록 수정합니다. 2. _ESC_C(능동 회피 진입 임계값)를 0.45에서 0.7m로 높여 더 빨리 회피 기동을 시작하게 합니다. 3. _SIDE_GAP을 0.8m, _SIDE_WARN을 2.0m로 넓혀 경로를 가로지르는 물체를 더 빨리 감지합니다. 4. _safe_speed의 일반 주행 허용 조건인 _clearance >= 0.40을 0.7m로 높여 더 보수적으로 전진합니다. 5. _ESC_GAIN은 유지하여 아주 작은 거리 이득이라도 있다면 회피 속도를 채택하게 합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 414 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _FRONT_CONE_DEG를 30도로, _FRONT_CORR를 0.6m로 줄여 정면 감지 범위를 최적화합니다. 2. _is_danger['front'] 판단 시, 단순히 범위 내에 있는 것이 아니라 _approach의 rate(접근 속도)가 양수이거나 추적 데이터가 없는 경우에만 위험으로 간주합니다. 3. _CLR_GO와 _ESC_C를 0.5m로 낮춰 로봇이 더 기민하게 주행을 재개하게 합니다. 4. _safe_speed의 저속 전진 시도 속도를 0.4m/s에서 0.6m/s로 높입니다. 5. _WAIT_RELAX_S를 1.5s로 줄여 정체 시간을 단축합니다. 6. _MOVER_HALF는 유지하되, 전체적인 임계값을 낮춰 '정지 후 대기'보다 '저속 주행 및 회피'가 우선되도록 합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 502 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _CLR_GO와 _ESC_C를 0.5m에서 0.3m로 낮춰 더 근접할 때까지 주행을 허용합니다. 2. _WAIT_RELAX_S를 1.0s로 줄이고 _RELAX_V를 0.8m/s로 높여 정체 시 더 빠르게 돌파를 시도합니다. 3. _CLR_K를 0.10으로 낮춰 속도에 따른 거리 페널티를 줄입니다. 4. _SIDE_GAP을 0.6m로 줄여 좁은 통로에서 측면 물체에 과민하게 반응하지 않도록 합니다. 5. _CAP_MIN을 0.8m/s로 올려 회피 및 저속 주행 시 최소 속도를 확보합니다. 6. _ESC_GAIN을 0.01로 유지하여 미세한 이득만으로도 회피 기동을 수행하게 합니다.\" 반영, 검토 통과): 새 배치 8개 중 5개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#8 이번 코드(진단 \"1. _static_free 함수에 critical 인자를 추가하고, critical=True일 때 probe 거리 L을 0.05m로 대폭 줄입니다. 2. _safe_speed에서 능동 회피(dz['side'] 또는 c0 < _ESC_C) 진입 시 _static_free를 critical=True로 호출합니다. 3. _is_danger['front']의 마지막 'untracked points' 판정 시, 해당 점들이 1.0m 이내에 있을 때만 True를 반환하도록 거리를 제한합니다. 4. _ESC_V에 ±0.1m/s 같은 더 미세한 속도를 추가하여 좁은 공간에서도 회피 가능성을 높입니다. 5. _ESC_GAIN을 0.005로 더 낮춰 아주 작은 이득이라도 있으면 움직이게 합니다.\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 572 s / 한도 600 s)\n#9 이번 코드(진단 \"1. _safe_speed의 능동 회피 구간에서 best_c 초기화 로직을 수정합니다. 2. dz['side']가 True인 경우, best_c를 c0가 아니라 c0 - 0.1(또는 더 낮은 값)로 설정하여, 아주 작은 거리 이득만 있어도 v=0 대신 이동 속도를 선택하게 합니다. 3. 이를 통해 측면 접근 물체가 있을 때 로봇이 가만히 서서 맞지 않고, _static_free가 허용하는 한 전진 또는 후진하여 교차 시점을 변경하도록 유도합니다. 4. _ESC_V의 미세 속도(±0.1)와 critical=True 정적 검사가 이미 있으므로 좁은 곳에서도 안전하게 작동할 것입니다.\" 반영, 검토 통과): 새 배치 8개 중 5개 pass, 3개 fail (시뮬 시간 합계 559 s / 한도 600 s)\n#10 이번 코드(진단 \"1. `_ESC_V`에서 ±0.1, ±0.2m/s와 같은 저속 후보를 제거하여 선택지를 단순화합니다. 2. `_safe_speed`의 능동 회피 로직에서 `best_v`가 결정된 후, `abs(best_v) < 0.3`이고 `best_c`가 `c0`보다 매우 크지 않다면 `best_v`를 `0.0`으로 강제 설정합니다. 3. `_SIDE_STOP_PEN`을 제거하여, 확실한 회피 이득이 없는 경우 '정지'가 기본 안전값이 되도록 복구합니다. 4. 이를 통해 '확실하게 피하거나, 아니면 완전히 멈춰서 기다리는' 이분법적 전략을 취합니다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 595 s / 한도 600 s)\n#11 이번 코드(진단 \"1. _SIDE_STOP_PEN = 0.15를 재도입하고, _safe_speed의 능동 회피 구간에서 dz['side']가 True이면 best_c를 c0 - _SIDE_STOP_PEN으로 초기화하여 정지보다 이동을 선호하게 합니다. 2. _ESC_V에 ±0.3m/s 후보를 추가하여 ±0.5m/s보다 덜 급격하지만 효과적인 회피 선택지를 제공합니다. 3. _ESC_C를 0.3에서 0.4로 높여 능동 회피 진입 시점을 앞당깁니다. 4. _ESC_MIN_V와 _ESC_SURE_GAIN 로직은 유지하여 아주 미세한 떨림은 방지하되, 정지 페널티가 이 임계값을 넘도록 설정합니다. 5. 정적 장애물 검사(critical=True)는 유지하여 벽 충돌을 방지합니다.\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 572 s / 한도 600 s)\n#12 이번 코드(진단 \"1. _safe_speed의 능동 회피 루프(`for vc in cands:`) 내에서, `dz['side']`가 True이고 현재 측정 속도 `S['v_meas']`가 0.5m/s 이상인 경우를 확인합니다. 2. 후보 속도 `vc`가 현재 속도의 80% 이상(`vc >= S['v_meas'] * 0.8`)인 경우, 해당 속도의 `cv` (clearance) 값에 0.2m 정도의 보너스 가중치를 더합니다. 3. 이를 통해 로봇이 측면 위협을 감지했을 때, 어중간한 저속(0.3m/s 등)으로 감속하여 물체 경로에 갇히는 대신, 기존의 빠른 속도를 유지해 빠르게 통과하는 선택을 하도록 유도합니다. 4. 가중치 값은 `_SIDE_MOMENTUM_BONUS = 0.2`로 정의하여 관리합니다. 5. 그 외의 정적 장애물 검사 및 기본 회피 로직은 그대로 유지합니다.\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#13 이번 코드(진단 \"_safe_speed 함수 내에서 momentum 변수를 계산하는 로직을 수정합니다. 기존 조건인 'dz[\\\"side\\\"] and v_now >= 0.5'에 'c0 >= 0.6' 조건을 추가하여, 현재 예상 최소 거리(c0)가 0.6m 이상으로 충분할 때만 속도 유지 보너스를 부여합니다. 이를 통해 물체가 이미 매우 근접한 경우에는 보너스가 제거되어, 로봇이 고속 주행 대신 감속이나 정지를 선택해 충돌을 피하도록 유도합니다.\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#14 이번 코드(진단 \"_FRONT_UNTRACKED_R을 1.0에서 0.6으로 낮춰 추적되지 않은 점에 의한 불필요한 정지를 줄입니다. _WAIT_RELAX_S를 1.0에서 0.5로 줄여 정체 시 더 빠르게 주행을 재개합니다. _RELAX_V를 0.8에서 1.0으로 높여 저속 전진 시의 통과 속도를 개선합니다.\" 반영, 검토 통과): 새 배치 7개 중 7개 pass, 0개 fail (시뮬 시간 합계 592 s / 한도 600 s)\n#15 이번 코드(진단 \"현재 코드가 모든 테스트 케이스를 성공적으로 통과하였으므로 추가 수정 없이 유지합니다. 특히 _FRONT_UNTRACKED_R 하향과 _WAIT_RELAX_S 단축이 불필요한 정지를 줄이고 통과 시간을 최적화하는 데 결정적인 역할을 했습니다.\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 595 s / 한도 600 s)\n#16 이번 코드(진단 \"1. _SIDE_MOMENTUM_BONUS를 0.2에서 0.5로 높여, 속도를 유지하는 후보가 훨씬 유리하게 만듭니다. 2. _MOMENTUM_C0를 0.6에서 0.4로 낮춰, 물체가 더 가까이 다가와도 보너스가 유지되도록 합니다. 3. 이를 통해 로봇이 측면 교차 물체를 만났을 때 0.1~0.3m/s로 속도를 줄여 충돌하는 대신, 기존의 빠른 속도(0.8m/s 이상)를 유지해 빠르게 통과하도록 유도합니다. 4. 다른 안전 임계값은 유지하여 정면 충돌 위험은 계속 방어합니다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#17 이번 코드(진단 \"_SIDE_MOMENTUM_BONUS를 0.5에서 0.2로 낮추고, _MOMENTUM_C0를 0.4에서 0.6으로 높입니다. 이를 통해 물체가 근접했을 때 과도한 낙관주의로 속도를 유지하는 대신, 더 보수적으로 감속하거나 정지하도록 유도합니다. Turn 14에서 확인된 안정적인 임계값으로 복구하여 측면 충돌을 방지합니다.\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#18 이번 코드(진단 \"1. controller 내에서 abs(e) > 0.35 일 때 v=0.0 로 설정하던 로직을 수정하여, 0.35 < abs(e) < 0.7 구간에서는 v=0.3 으로 저속 전진하며 회전하도록 변경합니다. 2. abs(e) >= 0.7 인 경우에만 v=0.0 으로 정지합니다. 3. _CAP_MIN 을 0.8 에서 1.0 으로 높여 물체 근접 시의 기본 속도를 상향합니다. 4. 그 외의 _safe_speed 및 _static_guard 로직은 그대로 유지하여 안전성을 확보합니다.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)",
+ "ended": "2026-11-18 06:22:18"
+}

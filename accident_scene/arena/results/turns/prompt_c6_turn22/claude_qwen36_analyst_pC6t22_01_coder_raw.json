@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 실행 2~4의 충돌은 모두 정지 래치 안의 측면 천이 분기에서 났습니다. 이 분기는 v=0.1 로 전진하면서 w=0.3·sign(b_min) 으로 물체 쪽으로 돌았습니다. 진단 지시대로 이 분기(_LAT_V, _LAT_W)를 controller 에서 제거했습니다. 대신 정지 래치가 0.5초 이어지면 `_evade_cmd` 로 넘어가, 뒤쪽 통로가 1.0 m 이상 비었으면 v=-0.15, w=0 으로 직선 후진하고, 막혔으면 v=0, w=-0.5·sign(b_min) 으로 물체 반대쪽으로 제자리 회전하게 했습니다. 회피 중 전진 속도는 0 으로 고정했고, 재개 조건(d_min > 1.5 m 가 0.5초 지속)과 1.0~1.5 m 감속·반발 구간은 그대로 두었습니다.\n\n```python\n_EVADE_HOLD = 0.5       # 정지 래치가 이 시간 이상 이어지면 후진 우선 능동 회피 [s] (진단: 정지 누적 0.5 s)\n\n\n_EVADE_TURN_W = 0.5     # 뒤가 막혔을 때 물체 반대쪽 제자리 회전 속도 크기 [rad/s] (진단: w = -0.5 * sign(b_min))\n\n\ndef _evade_cmd(raw, side):\n    \"\"\"후진 우선 능동 회피 (진단): 뒤쪽 통로가 _REAR_MIN(1.0 m) 이상 비었으면 v = -_EVADE_V(-0.15), w = 0 직선 후진.\n    막혔으면 v = 0, w = -_EVADE_TURN_W * side 로 물체 반대쪽 제자리 회전 (side: 물체가 왼쪽이면 +1).\n    전진 속도는 어떤 경우에도 0 이하입니다.\"\"\"\n    if _rear_gap(raw) >= _REAR_MIN:\n        return -_EVADE_V, 0.0, False\n    return 0.0, -_EVADE_TURN_W * side, False\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 정지 래치 + 후진 우선 능동 회피 (C-2 시도 22, 진단 반영).\n    - 상태 변수: controller.idx (경유점), controller.stopped (정지 래치), controller.stop_t (정지 시작 시각),\n      controller.free_t (d_min > 1.5 m 가 시작된 시각).\n    - 매 스텝 감시 영역(|bearing| < 120°)의 움직이는 점 최단 거리 d_min 과 bearing b_min 을 계산합니다.\n    - d_min < _CONT_STOP_D(1.0 m): 정지 래치 진입, v = 0, w = 0.\n    - 정지 중 d_min > 1.5 m 가 _CONT_RESUME_T(0.5 s) 지속되면 래치 해제, 정상 주행 복귀 (기존 유지).\n    - 정지 시작 후 _EVADE_HOLD(0.5 s) 가 지나면 _evade_cmd: 뒤가 1.0 m 이상 비었으면 v = -0.15 직선 후진,\n      막혔으면 v = 0, w = -0.5 * sign(b_min) 물체 반대쪽 제자리 회전. 측면 천이(전진 크리프)는 제거했습니다.\n    - 1.0 m <= d_min < 1.5 m (래치 아님): v = v_nom * (d_min - 1.0) / 0.5, w = w_nom + w_rep.\n    - d_min >= 1.5 m: 경유점 추종 그대로.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    if not hasattr(controller, \"stopped\"):\n        controller.stopped = False\n    if not hasattr(controller, \"stop_t\"):\n        controller.stop_t = None\n    if not hasattr(controller, \"free_t\"):\n        controller.free_t = None\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    # ---- 감시 영역 최단 거리 d_min 과 bearing b_min ----\n    d_min, b_min = float(\"inf\"), 0.0\n    if dyn_r.shape[0]:\n        d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n        ok = d_all >= _NOISE_R                                # 0.2 m 미만 잡음 제외\n        ax, ay, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n        b = np.arctan2(ay, ax)                                # 부호 있는 bearing (+ 왼쪽)\n        watch = np.abs(b) < _SIDE_B                           # 감시 영역 ±120°\n        if np.any(watch):\n            dw, bw = d[watch], b[watch]\n            i = int(np.argmin(dw))\n            d_min, b_min = float(dw[i]), float(bw[i])\n    side = 1.0 if b_min >= 0.0 else -1.0                      # sign(b_min): 물체가 왼쪽이면 +1\n\n    # ---- d_min > 1.5 m 지속 시간 기록 ----\n    if d_min > _CONT_FREE_D:\n        if controller.free_t is None:\n            controller.free_t = t\n    else:\n        controller.free_t = None\n\n    # ---- 정지 래치 진입 (d_min < 1.0 m) ----\n    if d_min < _CONT_STOP_D and not controller.stopped:\n        controller.stopped = True\n        controller.stop_t = t\n\n    # ---- 정지 래치 처리 ----\n    if controller.stopped:\n        resumed = controller.free_t is not None and (t - controller.free_t) >= _CONT_RESUME_T\n        if resumed:\n            controller.stopped = False                        # 정상 주행 복귀\n            controller.stop_t = None\n        else:\n            if controller.stop_t is None:\n                controller.stop_t = t\n            if (t - controller.stop_t) >= _EVADE_HOLD:\n                return _evade_cmd(raw, side)                  # 후진 우선, 막히면 물체 반대쪽 제자리 회전 (전진 없음)\n            return 0.0, 0.0, False                            # 정지 직후 0.5 s 는 완전 정지\n\n    # ---- 1.5 m 이상: 경유점 추종 그대로 ----\n    if d_min >= _CONT_FREE_D:\n        return v, w, False\n\n    # ---- 1.0 m <= d_min < 1.5 m: 거리 비례 감속 + 반발 조향 ----\n    scale = _clamp((d_min - _CONT_STOP_D) / _CONT_SPAN, 0.0, 1.0)\n    v_cmd = v * scale\n    w_rep = -_REP_K * side * (1.0 / max(d_min, 0.05) - 1.0 / _CONT_FREE_D)\n    w_cmd = _clamp(w + w_rep, -_REP_W_MAX, _REP_W_MAX)\n    return v_cmd, w_cmd, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 32015,
+  "completion_tokens": 3973
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 33137,
+  "total_cost_usd": 0.335572,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3973,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 32013,
+    "webSearchRequests": 0,
+    "costUSD": 0.335572,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1328,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 32013,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "9b18dad9-5f2b-4610-b48d-032939b478fd"
+ }
+}

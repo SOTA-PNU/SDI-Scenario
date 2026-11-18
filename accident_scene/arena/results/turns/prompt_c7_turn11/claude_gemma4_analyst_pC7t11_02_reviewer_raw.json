@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_SIDE_STOP_PEN = 0.15 재도입\", \"implemented\": true, \"note\": \"_SIDE_STOP_PEN = 0.15 로 0.0 에서 바뀜\"},\n  {\"instruction\": \"능동 회피 구간에서 dz['side'] 가 True 이면 best_c 를 c0 - _SIDE_STOP_PEN 으로 초기화\", \"implemented\": true, \"note\": \"best_c = c0 - _SIDE_STOP_PEN if dz[\\\"side\\\"] else c0\"},\n  {\"instruction\": \"_ESC_V 에 ±0.3 m/s 후보 추가\", \"implemented\": true, \"note\": \"_ESC_V = (-0.8, -0.5, -0.3, 0.3, 0.5, 1.0, 1.5)\"},\n  {\"instruction\": \"_ESC_C 를 0.3 에서 0.4 로 상향\", \"implemented\": true, \"note\": \"_ESC_C = 0.40\"},\n  {\"instruction\": \"_ESC_MIN_V 와 _ESC_SURE_GAIN 로직 유지\", \"implemented\": true, \"note\": \"되돌림 조건문과 두 상수(0.30, 0.15)가 그대로임\"},\n  {\"instruction\": \"정지 페널티가 되돌림 임계값을 넘도록 설정\", \"implemented\": true, \"note\": \"후보가 모두 |v|>=0.3 이고 cap 최저값이 0.8 이라 |v|<0.30 조건이 성립하지 않음. 되돌림이 측면 페널티로 고른 이동을 무효화하지 않음\"},\n  {\"instruction\": \"정적 장애물 검사(critical=True) 유지\", \"implemented\": true, \"note\": \"_static_free(pose, vc, critical=True) 호출이 그대로임\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 4 의 '페널티가 임계값을 넘도록' 은 뜻이 모호함. 페널티 0.15 는 _ESC_SURE_GAIN 0.15 와 같고 넘지 않음. 다만 후보가 모두 0.3 이상이라 되돌림 로직은 사실상 동작하지 않음\",\n  \"측면 위협 시 정지보다 예상 거리가 최대 0.15 m 짧은 이동도 채택될 수 있음. c0 가 이미 작은 상황에서는 물체 쪽으로 다가가는 선택이 될 위험이 있음\",\n  \"_ESC_C 를 0.4 로 올리면 능동 회피 진입이 잦아짐. 정적 probe 가 0.05 m 뿐이라 벽·고정물 근처에서 접촉할 위험이 있음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 45813,
+  "completion_tokens": 2076
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 18369,
+  "total_cost_usd": 0.408016,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2076,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 45811,
+    "webSearchRequests": 0,
+    "costUSD": 0.408016,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1083,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 45811,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "3c856dff-1057-47bf-ac7b-33af4513811a"
+ }
+}

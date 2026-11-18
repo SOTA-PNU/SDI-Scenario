@@ -1,0 +1,247 @@
+{
+ "turn": 3,
+ "started": "2026-11-18 01:21:18",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c7_turn2/claude_gemma4_analyst_pC7t2_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t2_s572411428: t=23.0s에 물체가 0.78m 거리(bearing -81deg)에 있음에도 로봇이 1.52m/s까지 가속하여 t=23.967s에 충돌",
+   "c7t2_s729284234: t=50.0~52.7s 구간에서 물체가 2.1~2.2m 거리에 있음에도 제자리 회전과 정지를 반복하며 전진하지 못하고 time_limit 종료"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_is_danger의 정면 감지 범위(±30°, 폭 ±0.6m)가 고속 주행 시 충분하다",
+    "holds": false,
+    "why": "s572411428에서 bearing -81deg, 거리 0.78m인 물체가 정면 위험으로 분류되지 않아 가속함"
+   },
+   {
+    "assumption": "_clearance 예측이 추적 데이터 부족 시에도 충돌을 확실히 막아준다",
+    "holds": false,
+    "why": "물체가 매우 가까운 거리(0.78m)에 있음에도 1.52m/s 가속을 허용함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지 기반 회피",
+    "turns": "1",
+    "result": "7/9 통과"
+   },
+   {
+    "family": "궤적 추적 및 능동 회피",
+    "turns": "1",
+    "result": "7/9 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "거리 기반 전역 속도 제한(Speed Capping) 도입 및 감지 범위 확장",
+    "new_family": true,
+    "for": "추적이 불안정한 근거리 물체에 대해 무조건 속도를 낮춰 충돌 에너지를 줄이고 반응 시간을 확보함",
+    "risk": "속도가 너무 낮아지면 time_limit 실패 가능성이 높아짐"
+   },
+   {
+    "idea": "능동 회피(_ESC_V)의 우선순위 및 회전 로직 강화",
+    "new_family": false,
+    "for": "정체 구간에서 더 빠르게 탈출하여 time_limit을 방지함",
+    "risk": "회전 중 몸체 끝단이 물체에 닿는 충돌 위험이 있음"
+   }
+  ],
+  "chosen": "후보 1. 근거리 물체 존재 시 물리적인 속도 상한을 강제하는 것이 s572411428 같은 치명적 가속 충돌을 막는 가장 확실한 방법임",
+  "target": "_is_danger, _safe_speed",
+  "direction": "1. _is_danger의 정면 감지 원뿔을 ±30°에서 ±45°로 넓히고, 몸통 폭 검사 범위를 ±0.6m에서 ±0.8m로 확장합니다. 2. 모든 물체 중 가장 가까운 거리(d_min)에 따른 속도 상한 함수를 도입합니다 (예: d_min > 3m: 1.5m/s, 3m > d_min > 1.5m: 0.7m/s, d_min < 1.5m: 0.4m/s). 3. _safe_speed에서 결정된 최종 v를 이 상한값으로 clamp 합니다. 4. _WAIT_RELAX_S를 3.0s에서 2.0s로 줄여 정체 시간을 단축합니다. 5. _clearance의 안전 마진을 속도에 비례하게 하여 고속일 때 더 보수적으로 판단하게 합니다. 6. 능동 회피 시 선택하는 속도 _ESC_V 도 위 속도 상한의 영향을 받게 합니다.",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 지시 1에 따라 `_is_danger` 의 정면 감지 원뿔을 ±45°로, 통로 폭을 ±0.8 m 로 넓혔습니다. 지시 2·3·6에 따라 지도에 없는 가장 가까운 물체까지의 거리(d_min)로 속도 상한을 정합니다(3 m 초과 1.5, 1.5~3 m 0.7, 1.5 m 미만 0.4 m/s, 올릴 때만 0.2 m 히스테리시스). 이 상한은 `_safe_speed` 의 추종 속도, 최종 v, 능동 회피 후보 `_ESC_V` 에 모두 적용되므로, 0.78 m 옆 물체를 두고 1.52 m/s 까지 가속하던 s572411428 같은 경우를 막습니다. 지시 4로 `_WAIT_RELAX_S` 를 2.0 s 로 줄였고, 지시 5로 `_clearance` 가 결과에서 속도에 비례하는 여유(0.15·|v|)를 빼 고속일수록 보수적으로 판단하게 했습니다.",
+   "changed": [
+    "_CAP_HYST",
+    "_CLR_K",
+    "_FRONT_CONE_DEG",
+    "_FRONT_CORR",
+    "_WAIT_RELAX_S",
+    "_clearance",
+    "_is_danger",
+    "_nearest_mover_dist",
+    "_safe_speed",
+    "_speed_cap"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _is_danger 정면 원뿔을 ±30°에서 ±45°로 넓힘",
+      "implemented": true,
+      "note": "_is_danger 의 cone 이 math.radians(_FRONT_CONE_DEG), _FRONT_CONE_DEG=45.0"
+     },
+     {
+      "instruction": "1. 몸통 폭 검사 범위를 ±0.6 m에서 ±0.8 m로 넓힘",
+      "implemented": true,
+      "note": "_is_danger 의 corr 가 np.abs(py) <= _FRONT_CORR, _FRONT_CORR=0.8. 쓰이지 않는 _front_blocked 는 그대로지만 호출처가 없어 영향 없음"
+     },
+     {
+      "instruction": "2. 가장 가까운 물체 거리 d_min 에 따른 속도 상한 함수 도입(>3 m 1.5, 1.5~3 m 0.7, <1.5 m 0.4)",
+      "implemented": true,
+      "note": "_nearest_mover_dist 와 _speed_cap 추가, 값과 경계가 지시와 같음. 상한을 올릴 때만 0.2 m 히스테리시스를 더함"
+     },
+     {
+      "instruction": "3. _safe_speed 의 최종 v 를 상한으로 clamp",
+      "implemented": true,
+      "note": "v_law=min(v_law,cap), 전진 반환 두 곳과 회피 반환이 모두 _clamp(…,-cap,cap). 나머지 반환은 0.0"
+     },
+     {
+      "instruction": "4. _WAIT_RELAX_S 를 3.0 s에서 2.0 s로 줄임",
+      "implemented": true,
+      "note": "_WAIT_RELAX_S = 2.0"
+     },
+     {
+      "instruction": "5. _clearance 안전 마진을 속도에 비례하게 함",
+      "implemented": true,
+      "note": "반환값이 best - _CLR_K*abs(v_cand), _CLR_K=0.15. 위협이 없을 때는 9.0 을 그대로 반환"
+     },
+     {
+      "instruction": "6. 능동 회피 속도 _ESC_V 도 속도 상한의 영향을 받게 함",
+      "implemented": true,
+      "note": "후보를 _clamp(vc,-cap,cap) 로 자르고 중복을 제거한 cands 사용. cap 최소값이 0.4 라 후보가 0 이 되는 경우 없음"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "근거 사례의 물체는 bearing -81° 에 있었으므로 정면 원뿔을 ±45° 로 넓혀도 감지되지 않음. 지시 1은 그 충돌의 원인을 다루지 못함",
+     "d_min < 1.5 m 일 때 회피 속도까지 0.4 m/s 로 묶여, 빠르게 다가오는 물체에서 가장 빨리 벗어나야 할 순간에 회피가 약해질 수 있음",
+     "속도 상한이 물체의 방향과 진행 방향을 따지지 않고 거리만 보며 MAP 여유 밖 오검출점에도 반응함. s729284234 같은 정체와 time_limit 실패가 오히려 늘 수 있고, 평균 60 s 예산에도 부담",
+     "_clearance 의 속도 비례 여유가 후진 회피 후보에도 적용돼 회피 선택을 보수적으로 만듦",
+     "_nearest_mover_dist 가 매 스텝 최대 60회 전체 점 거리 계산을 해 연산 부담이 있을 수 있음(오류는 아님)"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단 지시 1에 따라 `_is_danger` 의 정면 감지 원뿔을 ±45°로, 통로 폭을 ±0.8 m 로 넓혔습니다. 지시 2·3·6에 따라 지도에 없는 가장 가까운 물체까지의 거리(d_min)로 속도 상한을 정합니다(3 m 초과 1.5, 1.5~3 m 0.7, 1.5 m 미만 0.4 m/s, 올릴 때만 0.2 m 히스테리시스). 이 상한은 `_safe_speed` 의 추종 속도, 최종 v, 능동 회피 후보 `_ESC_V` 에 모두 적용되므로, 0.78 m 옆 물체를 두고 1.52 m/s 까지 가속하던 s572411428 같은 경우를 막습니다. 지시 4로 `_WAIT_RELAX_S` 를 2.0 s 로 줄였고, 지시 5로 `_clearance` 가 결과에서 속도에 비례하는 여유(0.15·|v|)를 빼 고속일수록 보수적으로 판단하게 했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1292793480,
+  782215108,
+  1543193279
+ ],
+ "sim_used_s": 182.4,
+ "verdicts": {
+  "1292793480": "fail",
+  "782215108": "fail",
+  "1543193279": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 820,
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t3_s1292793480: 로봇이 정지한 상태(t=122.0~123.7)에서 mover_03이 측면(rel_y=-0.56)에서 접근하여 충돌",
+   "c7t3_s782215108: 로봇이 정지한 상태(t=21.3~22.8)에서 mover_00이 측면(rel_y=0.55)에서 접근하여 충돌",
+   "c7t3_s1543193279: 로봇이 정지한 상태(t=16.3~17.8)에서 정적 장애물 arena_box_12와 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 및 능동 회피 로직이 움직이는 물체와의 충돌을 방지할 수 있다",
+    "holds": false,
+    "why": "물체를 감지해 정지했으나, 물체가 계속 다가오는 상황에서 회피 기동을 하지 못하고 '앉은 오리' 상태로 충돌함"
+   },
+   {
+    "assumption": "정적 지도 기반의 _static_free 검사가 정적 장애물 충돌을 막아준다",
+    "holds": false,
+    "why": "정지 상태에서 static:arena_box_12와 충돌한 것으로 보아, 정지 위치 자체가 장애물과 너무 가깝거나 정지 로직이 정적 장애물과의 최소 거리를 보장하지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 정지 및 능동 회피",
+    "turns": "3",
+    "result": "초기엔 7/9 통과했으나, 최근 시도(#3)에서 0/3으로 급락"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "능동 회피의 진입 장벽을 낮추고 정적 장애물과의 '최소 정지 거리' 강제",
+    "new_family": false,
+    "for": "정지 상태에서 측면 충돌이 발생하는 것은 회피 속도 선택 기준(best_c + 0.05)이 너무 엄격하거나 _static_free가 너무 보수적이기 때문임",
+    "risk": "회피 기동 중 정적 장애물에 더 자주 부딪힐 수 있음"
+   },
+   {
+    "idea": "속도 상한(speed_cap) 로직 제거 및 거리 기반 감속으로 단순화",
+    "new_family": true,
+    "for": "최근 턴에서 도입한 d_min 기반 속도 상한이 회피에 필요한 최소 속도마저 제한하여 탈출 능력을 떨어뜨렸을 가능성이 큼",
+    "risk": "고속 주행 중 갑작스러운 물체 출현 시 반응 시간이 부족할 수 있음"
+   }
+  ],
+  "chosen": "능동 회피의 결정 임계값을 낮추고, 정적 장애물에 대한 하드 스톱 거리를 도입하며, 지나치게 엄격한 속도 상한을 완화함",
+  "target": "_safe_speed, _static_free, _speed_cap",
+  "direction": "1. _safe_speed에서 능동 회피 속도 선택 시 `cv > best_c + 0.05`를 `cv > best_c + 0.01`로 낮춰 조금이라도 이득이면 움직이게 합니다. 2. _static_free의 probe 거리(L)를 약간 줄여 좁은 통로에서도 회피 기동이 가능하게 합니다. 3. _speed_cap의 최저 상한을 0.4에서 0.7로 올려 회피 시 최소 속도를 확보합니다. 4. _safe_speed의 일반 주행 구간에서도 정적 장애물이 너무 가까우면(예: 0.4m 미만) 강제로 v=0으로 만드는 하드 스톱 로직을 추가합니다. 5. _ESC_V 후보군에 더 낮은 속도(예: 0.2)를 추가하여 미세하게라도 거리를 벌릴 수 있게 합니다. 6. _is_danger의 side 판단 시 closing 속도 임계값을 낮춰 더 빠르게 반응하게 합니다.",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c7t3_s1292793480",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 129.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 123.717,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.01,
+    -0.56
+   ],
+   "closing_m_s": 0.37,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 118.75,
+   "goal_dist_m": 4.3375,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t3_s782215108",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 470.3,
+   "sim_time_s": 28.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 22.833,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.02,
+    0.55
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 17.92,
+   "goal_dist_m": 31.4373,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t3_s1543193279",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 441.4,
+   "sim_time_s": 23.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.8,
+   "partner": "static:arena_box_12",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 12.85,
+   "goal_dist_m": 25.6887,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 115 s / 한도 600 s)\n#1 이번 코드(진단 \"1. `lidar2d_points('front')`를 사용하여 전방 점들을 가져온다. 2. 각 점이 `WALLS`, `FIXED_OBSTACLES`, `MISSION['boxes']` 범위 내에 있는지 확인하여 정적 장애물을 필터링한다. 3. 필터링 후 남은 '지도에 없는' 점들 중 로봇 정면(예: ±30도)에 있고 거리 2.0m 이내인 점이 있는지 확인한다. 4. 물체가 감지되면 전진 속도 `v`를 0으로 설정하여 정지한다. 5. 물체가 사라지거나 안전 거리 밖으로 나가면 다시 경유점 추종을 재개한다. 6. 기존의 waypoint 추종 로직은 그대로 유지하되 최종 `v` 값만 센서 결과로 덮어쓴다.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#2 이번 코드(진단 \"1. _front_blocked를 _is_danger로 확장하여, 정면뿐 아니라 측면(y축 ±0.6m)에서 접근하는 물체를 감지함. 2. _update_tracks의 회전 제한(yaw_rate < 0.8)을 완화하여 회전 중에도 물체 궤적을 갱신함. 3. _safe_speed에서 정지 중 측면 충돌이 예상되면, 물체와 멀어지는 방향으로 즉시 후진하거나 회전하여 회피함. 4. 단순 정지 대기 시간을 제한하고, 일정 시간 후에는 저속으로 전진을 시도하여 타임아웃을 방지함. 5. _clearance 계산 시 추적 데이터가 부족하면 최근 2~3프레임의 거리 변화로 단순 접근 속도를 추정해 반영함. 6. 후진 시 _rear_clear의 범위를 좁혀 더 기민하게 반응하도록 수정함.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#3 이번 코드(진단 \"1. _is_danger의 정면 감지 원뿔을 ±30°에서 ±45°로 넓히고, 몸통 폭 검사 범위를 ±0.6m에서 ±0.8m로 확장합니다. 2. 모든 물체 중 가장 가까운 거리(d_min)에 따른 속도 상한 함수를 도입합니다 (예: d_min > 3m: 1.5m/s, 3m > d_min > 1.5m: 0.7m/s, d_min < 1.5m: 0.4m/s). 3. _safe_speed에서 결정된 최종 v를 이 상한값으로 clamp 합니다. 4. _WAIT_RELAX_S를 3.0s에서 2.0s로 줄여 정체 시간을 단축합니다. 5. _clearance의 안전 마진을 속도에 비례하게 하여 고속일 때 더 보수적으로 판단하게 합니다. 6. 능동 회피 시 선택하는 속도 _ESC_V 도 위 속도 상한의 영향을 받게 합니다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 182 s / 한도 600 s)",
+ "ended": "2026-11-18 01:31:20"
+}

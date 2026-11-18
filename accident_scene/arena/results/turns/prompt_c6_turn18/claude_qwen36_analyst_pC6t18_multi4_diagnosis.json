@@ -1,0 +1,153 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1,2,4 모두 충돌 시 로봇 속도가 0.20m/s(탈출 후진 속도)이며, 물체가 정면-오른쪽(bearing -50°~-90°)에서 교차 접근 중임",
+   "실행 1의 기록에서 d_min이 0.42m(16.7s)에서 0.39m(16.9s)로 줄어드는 중에도 v=0.20m/s 유지하며 충돌 발생",
+   "탈출 해제 조건(d_min >= 1.2m)이 물체가 측면으로 스윙할 때 일시적으로 충족되어 조기에 정상 주행으로 복귀, 교차하는 물체와 다시 충돌함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지-탈출 상태 머신은 물체의 교차 경로를 안정적으로 피할 수 있다",
+    "holds": false,
+    "why": "3/4 실행에서 후진 탈출 중 또는 탈출 직후 재개 시 교차 물체와 충돌해 상태 전환이 오히려 진동과 조기 재개를 유발함"
+   },
+   {
+    "assumption": "d_min >= 1.2m 이면 경로가 안전하여 주행을 재개해도 된다",
+    "holds": false,
+    "why": "물체가 로봇 옆으로 지나갈 때 d_min이 일시적으로 1.2m를 넘어 탈출이 해제되지만, 물체는 여전히 충돌 궤도에 있음"
+   },
+   {
+    "assumption": "연속적인 거리 비례 감속과 반발 조향은 이진 상태 전환 없이도 충돌을 피할 수 있다",
+    "holds": true,
+    "why": "이전 턴 15에서 연속 제어 방식이 5/8 통과로 가장 높은 성능을 보였으며, 상태 변수 제거가 진동을 줄임"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지/재개 래치",
+    "turns": "2,3,4,7,9,10",
+    "result": "대부분 stall_abort 또는 collision_driving"
+   },
+   {
+    "family": "정지 누적 기반 강제 탈출(후진/회전)",
+    "turns": "12,16,18",
+    "result": "12턴 0/3, 16턴 5/8, 18턴 1/4. 최근 탈출 로직이 오히려 충돌률 증가"
+   },
+   {
+    "family": "연속 반발 조향 + 거리 비례 감속",
+    "turns": "14,15",
+    "result": "14턴 1/4, 15턴 5/8. 현재까지 가장 안정적"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC 기반 동적 정지/회피",
+    "new_family": true,
+    "for": "물체의 상대 속도를 고려해 충돌 시간(TTC)을 예측하면 교차 물체에 대한 조기 대응이 가능",
+    "risk": "라이다 잡음으로 속도 추정이 불안정해 오탐 정지 발생 가능"
+   },
+   {
+    "idea": "연속 포텐셜장 방식 복원 및 강화",
+    "new_family": false,
+    "for": "이진 상태 변수와 탈출 로직 제거로 진동과 조기 재개 차단, 이전 턴 15의 높은 통과율 검증",
+    "risk": "매우 빠른 물체에는 감속 거리가 부족할 수 있으나 안전 마진 확보로 상쇄 가능"
+   }
+  ],
+  "chosen": "연속 포텐셜장 방식 복원 및 강화. 상태 머신과 탈출 로직이 오히려 진동과 조기 재개를 유발했으며, 연속 제어는 이전 턴에서 가장 높은 통과율을 보임.",
+  "target": "controller, _evade_cmd, 상태 변수(caution_t, stop_t, escaping 등)",
+  "direction": "controller 내 모든 이진 상태 변수(caution_t, stop_t, escaping, esc_side)와 _evade_cmd 함수를 제거한다. 대신 매 스텝마다 감시 영역 내 d_min과 b_min을 계산해 연속적으로 v와 w를 산출한다. d_min < 0.7m 시 v를 0.0으로 강제 정지한다. 0.7m <= d_min < 1.5m 구간에서는 v를 (d_min - 0.7)/0.8로 선형 감속하고, w에 반발 조향 w_rep = -K * sign(b_min) * (1/d_min - 1/1.5)를 더해 물체 반대쪽으로 조향한다. d_min >= 1.5m 시 v를 경유점 추종 속도로 복귀한다. 정지 해제 조건을 d_min > 1.5m가 0.5초 지속될 때로 단순화해 진동을 차단한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 1,2,4 모두 충돌 시 로봇 속도가 0.20m/s(탈출 후진 속도)이며, 물체가 정면-오른쪽(bearing -50°~-90°)에서 교차 접근 중임\", \"실행 1의 기록에서 d_min이 0.42m(16.7s)에서 0.39m(16.9s)로 줄어드는 중에도 v=0.20m/s 유지하며 충돌 발생\", \"탈출 해제 조건(d_min >= 1.2m)이 물체가 측면으로 스윙할 때 일시적으로 충족되어 조기에 정상 주행으로 복귀, 교차하는 물체와 다시 충돌함\"], \"assumptions\": [{\"assumption\": \"정지-탈출 상태 머신은 물체의 교차 경로를 안정적으로 피할 수 있다\", \"holds\": false, \"why\": \"3/4 실행에서 후진 탈출 중 또는 탈출 직후 재개 시 교차 물체와 충돌해 상태 전환이 오히려 진동과 조기 재개를 유발함\"}, {\"assumption\": \"d_min >= 1.2m 이면 경로가 안전하여 주행을 재개해도 된다\", \"holds\": false, \"why\": \"물체가 로봇 옆으로 지나갈 때 d_min이 일시적으로 1.2m를 넘어 탈출이 해제되지만, 물체는 여전히 충돌 궤도에 있음\"}, {\"assumption\": \"연속적인 거리 비례 감속과 반발 조향은 이진 상태 전환 없이도 충돌을 피할 수 있다\", \"holds\": true, \"why\": \"이전 턴 15에서 연속 제어 방식이 5/8 통과로 가장 높은 성능을 보였으며, 상태 변수 제거가 진동을 줄임\"}], \"approach_families\": [{\"family\": \"이진 정지/재개 래치\", \"turns\": \"2,3,4,7,9,10\", \"result\": \"대부분 stall_abort 또는 collision_driving\"}, {\"family\": \"정지 누적 기반 강제 탈출(후진/회전)\", \"turns\": \"12,16,18\", \"result\": \"12턴 0/3, 16턴 5/8, 18턴 1/4. 최근 탈출 로직이 오히려 충돌률 증가\"}, {\"family\": \"연속 반발 조향 + 거리 비례 감속\", \"turns\": \"14,15\", \"result\": \"14턴 1/4, 15턴 5/8. 현재까지 가장 안정적\"}], \"candidates\": [{\"idea\": \"TTC 기반 동적 정지/회피\", \"new_family\": true, \"for\": \"물체의 상대 속도를 고려해 충돌 시간(TTC)을 예측하면 교차 물체에 대한 조기 대응이 가능\", \"risk\": \"라이다 잡음으로 속도 추정이 불안정해 오탐 정지 발생 가능\"}, {\"idea\": \"연속 포텐셜장 방식 복원 및 강화\", \"new_family\": false, \"for\": \"이진 상태 변수와 탈출 로직 제거로 진동과 조기 재개 차단, 이전 턴 15의 높은 통과율 검증\", \"risk\": \"매우 빠른 물체에는 감속 거리가 부족할 수 있으나 안전 마진 확보로 상쇄 가능\"}], \"chosen\": \"연속 포텐셜장 방식 복원 및 강화. 상태 머신과 탈출 로직이 오히려 진동과 조기 재개를 유발했으며, 연속 제어는 이전 턴에서 가장 높은 통과율을 보임.\", \"target\": \"controller, _evade_cmd, 상태 변수(caution_t, stop_t, escaping 등)\", \"direction\": \"controller 내 모든 이진 상태 변수(caution_t, stop_t, escaping, esc_side)와 _evade_cmd 함수를 제거한다. 대신 매 스텝마다 감시 영역 내 d_min과 b_min을 계산해 연속적으로 v와 w를 산출한다. d_min < 0.7m 시 v를 0.0으로 강제 정지한다. 0.7m <= d_min < 1.5m 구간에서는 v를 (d_min - 0.7)/0.8로 선형 감속하고, w에 반발 조향 w_rep = -K * sign(b_min) * (1/d_min - 1/1.5)를 더해 물체 반대쪽으로 조향한다. d_min >= 1.5m 시 v를 경유점 추종 속도로 복귀한다. 정지 해제 조건을 d_min > 1.5m가 0.5초 지속될 때로 단순화해 진동을 차단한다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t18_s1951633749",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 23.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 16.983,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.2,
+    -0.57
+   ],
+   "closing_m_s": 0.72,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 14.35,
+   "goal_dist_m": 23.2743,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t18_s302311844",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 577.0,
+   "sim_time_s": 29.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 23.617,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.32,
+    -0.57
+   ],
+   "closing_m_s": 0.48,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 18.65,
+   "goal_dist_m": 22.0905,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t18_s481870691",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 547.4,
+   "sim_time_s": 65.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 59.45,
+   "goal_dist_m": 0.2256,
+   "time_to_goal_s": 61.4
+  },
+  {
+   "run": "c6t18_s200674450",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 482.0,
+   "sim_time_s": 24.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 18.617,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.20m/s",
+   "partner_rel_xy": [
+    0.39,
+    -0.56
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 13.62,
+   "goal_dist_m": 22.0226,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

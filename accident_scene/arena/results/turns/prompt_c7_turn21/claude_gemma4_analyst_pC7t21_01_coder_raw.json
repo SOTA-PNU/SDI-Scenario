@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1에 따라 `_ESC_C` 는 0.6→0.4 m, `_CLR_GO` 는 0.5→0.3 m 로 낮춥니다. 물체가 0.4~1.1 m 거리에 있을 때 잦은 정지와 저속 주행으로 progress_abort 가 났기 때문입니다. 진단 지시 2에 따라 `controller` 의 0.35 < |e| < 0.7 구간 전진 속도를 0.3→0.6 m/s 로, 진단 지시 3에 따라 `_RELAX_V` 를 1.0→1.2 m/s 로 높여 정체 뒤 복귀와 돌파 속도를 확보합니다(실제 값은 기존대로 `_speed_cap` 의 cap 으로 제한됩니다). 진단 지시 4에 따라 `_SIDE_STOP_PEN`, `_SIDE_MOMENTUM_BONUS`, `_MOMENTUM_C0` 등 측면 회피 로직과 정적 장애물 검사는 그대로 둡니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Follow the pre-computed way-points; v (and w while dodging) is overridden by the sensor safety layer.\n    진단 지시(시도 21): 0.35 < |e| < 0.7 rad 이면 0.6 m/s 로 전진하며 회전하고(0.3 -> 0.6), |e| >= 0.7 일 때만 제자리 회전합니다.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.done_align = False\n    if not _SAFE:\n        _safety_reset()\n    _sense(t, pose)\n\n    x, y, yaw = pose\n    # 1. Goal-alignment phase: finish as soon as we are inside tolerance (with margin) and aligned\n    if controller.idx >= len(_WAYPOINTS):\n        dg = math.hypot(GOAL[0] - x, GOAL[1] - y)\n        if dg > 0.6:\n            controller.idx = len(_WAYPOINTS) - 1      # pushed off the goal while dodging: drive back\n        else:\n            e = _wrap_angle(GOAL[2] - yaw)\n            if abs(e) < 0.10 and abs(_SAFE[\"v_meas\"]) < 0.3:\n                return 0.0, 0.0, True\n            w = _clamp(2.0 * e, -1.2, 1.2)\n            v, w = _safe_speed(t, pose, 0.0, w)\n            return v, w, False\n\n    # 2. Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    # 3. Control law (진단 지시(시도 21) 2: 중간 오차에서는 0.6 m/s 로 전진하며 회전, 큰 오차에서만 정지 회전)\n    last = controller.idx == len(_WAYPOINTS) - 1\n    w = _clamp(7.5 * e, -2.0, 2.0)\n    if abs(e) >= 0.7:\n        v = 0.0\n    elif abs(e) > 0.35:\n        v = min(0.6, 1.2 * dist + 0.25) if last else 0.6\n    else:\n        v = min(1.5, 1.2 * dist + 0.25) if last else min(1.5, 2.5 * dist + 0.5)\n\n    # 4. Sensor override (stop / creep / active dodge forward or backward)\n    v, w = _safe_speed(t, pose, v, w)\n\n    if last and dist < 0.3:\n        controller.idx += 1\n\n    return v, w, False\n\n\n_ESC_C = 0.40            # 진단 지시(시도 21) 1: 멈춰 있어도 예상 최소거리가 이보다 작으면 능동 회피 (0.6 -> 0.4 m), 불필요한 회피·정지 감소\n\n\n_CLR_GO = 0.30           # 진단 지시(시도 21) 1: 일반 주행에서 전진을 허용하는 예상 최소거리 (0.5 -> 0.3 m), 물체 근처에서도 진행 유지\n\n\n_RELAX_V = 1.2           # 진단 지시(시도 21) 3: 오래 기다린 뒤 저속 전진 속도 (1.0 -> 1.2 m/s, 실제 값은 cap 으로 제한)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 35620,
+  "completion_tokens": 2144
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 17582,
+  "total_cost_usd": 0.32783199999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2144,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 35618,
+    "webSearchRequests": 0,
+    "costUSD": 0.32783199999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 437,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 35618,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "164c6428-d790-4876-9ef4-452ade56b289"
+ }
+}

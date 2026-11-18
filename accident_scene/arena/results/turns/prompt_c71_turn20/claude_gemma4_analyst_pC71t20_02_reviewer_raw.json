@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _V_EVADE_MIN 을 0.5~0.6 m/s 로 상향\", \"implemented\": true, \"note\": \"_V_EVADE_MIN = 0.6 이고, _V_EVADE_STATIC 도 0.3→0.4 로 올렸음\"},\n  {\"instruction\": \"2. 임계 상태에서 물체 쪽으로 도는 w 를 0 또는 반대로 강제\", \"implemented\": true, \"note\": \"_nominal_cmd 에서 critical and _turn_toward 이면 v>0.05 일 때 w=0, 아니면 -0.5*w. 목표 정렬 구간은 w=0. _safety_filter 도 critical 일 때 toward 후보를 뺌. 부호 판정(앞쪽 w*oy>0, 뒷부분 쓸림)은 맞음\"},\n  {\"instruction\": \"3. _DPSI_MAX 를 1.5 rad 로 상향\", \"implemented\": true, \"note\": \"_DPSI_MAX = 1.5\"},\n  {\"instruction\": \"4. g_side<0.5m 이면 경유점보다 멀어지는 조향 우선\", \"implemented\": true, \"note\": \"_safety_filter 에서 _REPULSE_GAP=0.5 미만이면 경유점 진행 대신 간격 증가 점수(esc)로 고르고 |v|>=0.6 을 강제. 다만 판정 기준은 g_side 가 아니라 추적 물체 간격(_nearest_moving)임\"},\n  {\"instruction\": \"5. _static_side_pts 감지 범위를 x축으로 확장\", \"implemented\": true, \"note\": \"앞쪽 x -0.3..1.6 → -0.5..2.2, 횡 1.2→1.3, 뒤쪽 -1.05→-1.4, 횡 0.85→1.0. 롤아웃 기반 정적 외곽선 검사(_static_hits)도 추가\"},\n  {\"instruction\": \"6. crit_ok 의 x_body 검사 완화\", \"implemented\": true, \"note\": \"crit_ok 가 _CRIT_STOP_X=0.5(기존 _CORR_STOP_X 0.7)를 쓰고, _CRIT_HALF_W 를 0.42→0.38 로 줄임\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 5로 _static_side_pts 범위를 넓히면 좁은 통로에서 정적 점이 거의 항상 잡힘. 그러면 dpsi=0 으로 취소되는 경우가 늘어 지시 3(_DPSI_MAX 1.5)의 회피 조향이 실제로는 덜 쓰일 수 있음\",\n  \"지시 6의 x_body 완화로 _CRIT_HALF_W 0.38 이 차체 반폭 0.34 와 거의 같음. 정면 가까이 있는 물체 옆으로 0.6 m/s 강제 전진이 일어날 수 있음\",\n  \"증거 1은 기존 코드에도 crit_ok 전진이 있었는데 제자리 회전이 났다는 내용임. 원인이 front_static 이나 d_cone 조건으로 crit_ok 가 꺼진 것일 수 있는데, 진단이 이를 확인하지 않았음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 49103,
+  "completion_tokens": 4547
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 45622,
+  "total_cost_usd": 0.48375599999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4547,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 49101,
+    "webSearchRequests": 0,
+    "costUSD": 0.48375599999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3351,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 49101,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "6e46a003-d1f2-4ed1-b2a7-56affe5b8ef0"
+ }
+}

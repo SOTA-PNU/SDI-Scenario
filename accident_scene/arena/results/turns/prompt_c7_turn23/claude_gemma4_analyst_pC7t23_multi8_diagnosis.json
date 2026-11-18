@@ -1,0 +1,204 @@
+{
+ "diagnosis": {
+  "failure_mode": "time_limit",
+  "evidence": [
+   "c7t23_s1013588925: sim_time_s 68.9, time_limit_s 67.9, goal_dist_m 0.7157 (목표 직전에서 시간 초과)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재의 안전 마진(_CLR_GO, _ESC_C)이 너무 보수적이어서 불필요한 정지와 감속이 잦음",
+    "holds": true,
+    "why": "충돌은 전혀 없으나 평균 주행 시간이 70~90초 사이로, 10회 실행 합계 600초(평균 60초) 제한을 맞추기에는 너무 느림"
+   },
+   {
+    "assumption": "경유점 정렬 및 정체 후 재출발 과정에서 소모되는 시간이 상당함",
+    "holds": true,
+    "why": "실행 요약의 stop_turns가 실행당 6~15회로 빈번하며, 특히 목표 근처에서도 속도가 충분히 나지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "안전 상수 튜닝",
+    "turns": "15",
+    "result": "통과율은 높으나(7/8) 시간 초과 발생"
+   },
+   {
+    "family": "제어 로직 수정 (회전 중 전진)",
+    "turns": "3",
+    "result": "주행 시간 단축에 기여했으나 추가 최적화 필요"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 마진을 낮추고 정체 후 재출발 및 회전 중 전진 속도를 높여 평균 속도 향상",
+    "new_family": false,
+    "for": "충돌 없이 목표에 거의 도달했으므로, 약간의 공격적인 설정으로 시간 단축 가능",
+    "risk": "안전 마진 감소로 인해 특정 배치에서 충돌 가능성 증가"
+   },
+   {
+    "idea": "경유점 수를 줄이거나 경로를 더 직선화하여 총 주행 거리 단축",
+    "new_family": true,
+    "for": "물리적인 이동 거리 자체를 줄여 절대적인 시간 단축",
+    "risk": "정적 장애물과의 충돌 위험 증가 및 경로 계획의 복잡성"
+   }
+  ],
+  "chosen": "안전 마진을 낮추고 주행 효율을 높이는 방향을 선택. 현재 충돌률이 매우 낮으므로 시간 단축을 위한 공격적인 튜닝이 더 효율적임.",
+  "target": "_CLR_GO, _ESC_C, _WAIT_RELAX_S, _RELAX_V, controller",
+  "direction": "_CLR_GO를 0.35m, _ESC_C를 0.45m로 낮춰 불필요한 정지 시점을 늦춥니다. _WAIT_RELAX_S를 0.3s로 줄여 정체 후 더 빨리 움직이게 하고, _RELAX_V를 1.2m/s로 높여 돌파력을 강화합니다. controller 내 0.35 < |e| < 0.7 구간의 전진 속도를 0.6에서 0.8m/s로 높여 회전 중 전진 효율을 개선합니다. _CAP_MIN은 1.0m/s를 유지하여 기본 속도를 확보합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"time_limit\",\n \"evidence\": [\"c7t23_s1013588925: sim_time_s 68.9, time_limit_s 67.9, goal_dist_m 0.7157 (목표 직전에서 시간 초과)\"],\n \"assumptions\": [\n  {\n   \"assumption\": \"현재의 안전 마진(_CLR_GO, _ESC_C)이 너무 보수적이어서 불필요한 정지와 감속이 잦음\",\n   \"holds\": true,\n   \"why\": \"충돌은 전혀 없으나 평균 주행 시간이 70~90초 사이로, 10회 실행 합계 600초(평균 60초) 제한을 맞추기에는 너무 느림\"\n  },\n  {\n   \"assumption\": \"경유점 정렬 및 정체 후 재출발 과정에서 소모되는 시간이 상당함\",\n   \"holds\": true,\n   \"why\": \"실행 요약의 stop_turns가 실행당 6~15회로 빈번하며, 특히 목표 근처에서도 속도가 충분히 나지 않음\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"안전 상수 튜닝\",\n   \"turns\": \"15\",\n   \"result\": \"통과율은 높으나(7/8) 시간 초과 발생\"\n  },\n  {\n   \"family\": \"제어 로직 수정 (회전 중 전진)\",\n   \"turns\": \"3\",\n   \"result\": \"주행 시간 단축에 기여했으나 추가 최적화 필요\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"안전 마진을 낮추고 정체 후 재출발 및 회전 중 전진 속도를 높여 평균 속도 향상\",\n   \"new_family\": false,\n   \"for\": \"충돌 없이 목표에 거의 도달했으므로, 약간의 공격적인 설정으로 시간 단축 가능\",\n   \"risk\": \"안전 마진 감소로 인해 특정 배치에서 충돌 가능성 증가\"\n  },\n  {\n   \"idea\": \"경유점 수를 줄이거나 경로를 더 직선화하여 총 주행 거리 단축\",\n   \"new_family\": true,\n   \"for\": \"물리적인 이동 거리 자체를 줄여 절대적인 시간 단축\",\n   \"risk\": \"정적 장애물과의 충돌 위험 증가 및 경로 계획의 복잡성\"\n  }\n ],\n \"chosen\": \"안전 마진을 낮추고 주행 효율을 높이는 방향을 선택. 현재 충돌률이 매우 낮으므로 시간 단축을 위한 공격적인 튜닝이 더 효율적임.\",\n \"target\": \"_CLR_GO, _ESC_C, _WAIT_RELAX_S, _RELAX_V, controller\",\n \"direction\": \"_CLR_GO를 0.35m, _ESC_C를 0.45m로 낮춰 불필요한 정지 시점을 늦춥니다. _WAIT_RELAX_S를 0.3s로 줄여 정체 후 더 빨리 움직이게 하고, _RELAX_V를 1.2m/s로 높여 돌파력을 강화합니다. controller 내 0.35 < |e| < 0.7 구간의 전진 속도를 0.6에서 0.8m/s로 높여 회전 중 전진 효율을 개선합니다. _CAP_MIN은 1.0m/s를 유지하여 기본 속도를 확보합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t23_s1912852714",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 73.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 67.65,
+   "goal_dist_m": 0.1651,
+   "time_to_goal_s": 70.717
+  },
+  {
+   "run": "c7t23_s1404216951",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 526.4,
+   "sim_time_s": 73.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 67.85,
+   "goal_dist_m": 0.1756,
+   "time_to_goal_s": 70.8
+  },
+  {
+   "run": "c7t23_s1164622161",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 452.6,
+   "sim_time_s": 75.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 69.45,
+   "goal_dist_m": 0.1785,
+   "time_to_goal_s": 72.383
+  },
+  {
+   "run": "c7t23_s1177403460",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 377.2,
+   "sim_time_s": 90.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 84.42,
+   "goal_dist_m": 0.2542,
+   "time_to_goal_s": 87.417
+  },
+  {
+   "run": "c7t23_s1770352684",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 286.8,
+   "sim_time_s": 70.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 64.32,
+   "goal_dist_m": 0.1884,
+   "time_to_goal_s": 67.3
+  },
+  {
+   "run": "c7t23_s1126659509",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 216.5,
+   "sim_time_s": 75.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 69.82,
+   "goal_dist_m": 0.2343,
+   "time_to_goal_s": 72.483
+  },
+  {
+   "run": "c7t23_s1901801253",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 140.7,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 66.75,
+   "goal_dist_m": 0.1855,
+   "time_to_goal_s": 69.767
+  },
+  {
+   "run": "c7t23_s1013588925",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 67.9,
+   "sim_time_s": 68.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 62.95,
+   "goal_dist_m": 0.7157,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

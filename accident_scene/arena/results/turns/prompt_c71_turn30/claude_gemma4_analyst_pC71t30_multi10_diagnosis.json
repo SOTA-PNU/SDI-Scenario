@@ -1,0 +1,245 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t30_s1711863194: t=26.167s에 mover_00와 충돌. 로봇 기준 상대 위치 [0.47, -0.27], 로봇 상태 v=0.17m/s, w=-0.9. 물체가 우측에 있음에도 우측으로 회전하며 접근함.",
+   "c71t30_s2047168730: t=99.1s에 stall_abort. 로봇 기준 약 1.86m 거리(bearing -95deg)에 물체가 있음에도 정지 상태 유지.",
+   "c71t30_s430844120: t=31.7s에 time_limit. 1.4m~1.6m 거리의 물체로 인해 매우 저속 주행하거나 빈번히 정지함."
+  ],
+  "assumptions": [
+   {
+    "assumption": "안전 마진(_G_SAFE, _G_GROW)을 높이면 충돌이 줄어들 것이다.",
+    "holds": false,
+    "why": "마진을 높였음에도 s1711863194에서 충돌이 발생했고, s2047168730에서는 불필요한 정지(stall)를 유발함."
+   },
+   {
+    "assumption": "척력 모드에서 진행도 가중치(_K_PROG_REP)를 낮추면 거리 확보가 우선되어 안전할 것이다.",
+    "holds": false,
+    "why": "위험 구역 내에서 충분한 속도로 탈출하지 못하고 머물다가 충돌하거나 정체되는 결과를 초래함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 단순 제동",
+    "turns": "1-15",
+    "result": "낮은 통과율, 빈번한 stall 및 충돌"
+   },
+   {
+    "family": "예측 롤아웃 및 척력 기반 필터",
+    "turns": "16-30",
+    "result": "7/10 통과, 안전성과 효율성의 트레이드오프 구간"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 마진을 약간 낮추어 safe 풀 진입을 쉽게 하고, 척력 및 unsafe 풀의 진행도 가중치를 높여 위험 구역을 빠르게 탈출하도록 유도함.",
+    "new_family": false,
+    "for": "stall_abort와 timeout을 줄이고, '망설임'으로 인한 저속 충돌을 방지할 수 있음.",
+    "risk": "마진 감소로 인해 매우 근접한 상황에서 충돌 위험이 소폭 증가할 수 있음."
+   },
+   {
+    "idea": "critical 상태의 정의를 더 좁히고, 해당 상태에서만 매우 공격적인 탈출 속도와 조향을 강제하는 별도의 로직을 추가함.",
+    "new_family": true,
+    "for": "이미 매우 가까워진 상황에서 확실한 회피 기동을 보장함.",
+    "risk": "급격한 기동으로 인해 주변 정적 장애물과 충돌할 가능성이 있음."
+   }
+  ],
+  "chosen": "후보 1. 현재 구조에서 가중치와 마진의 불균형(너무 보수적인 설정)이 stall과 저속 충돌의 주원인이므로 이를 조정하는 것이 가장 합리적임.",
+  "target": "상수 값 및 _safety_filter 가중치",
+  "direction": "1. _G_SAFE를 0.5에서 0.35로, _G_GROW를 0.2에서 0.15로 낮추어 safe 풀의 가용성을 높입니다. 2. _K_PROG_REP를 0.05에서 0.15로 높여 척력 모드에서 거리 확보와 전진의 균형을 맞춥니다. 3. _K_PROG_UNSAFE를 0.2에서 0.4로 높여 safe 풀이 비었을 때 정지 대신 전진 후보를 더 선호하게 하여 stall을 방지합니다. 4. _CRIT_GAP을 1.0에서 0.8로 낮추어 _REPULSE_GAP(1.0)과의 단계 구분을 명확히 합니다. 5. _speed_caps의 nx > 0.5 제한 로직은 유지하여 측면 탈출 효율을 보존합니다. 6. _E_TURN=1.0을 유지하여 불필요한 제자리 회전을 억제합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t30_s1711863194: t=26.167s에 mover_00와 충돌. 로봇 기준 상대 위치 [0.47, -0.27], 로봇 상태 v=0.17m/s, w=-0.9. 물체가 우측에 있음에도 우측으로 회전하며 접근함.\",\n  \"c71t30_s2047168730: t=99.1s에 stall_abort. 로봇 기준 약 1.86m 거리(bearing -95deg)에 물체가 있음에도 정지 상태 유지.\",\n  \"c71t30_s430844120: t=31.7s에 time_limit. 1.4m~1.6m 거리의 물체로 인해 매우 저속 주행하거나 빈번히 정지함.\"\n ],\n \"assumptions\": [\n  {\"assumption\": \"안전 마진(_G_SAFE, _G_GROW)을 높이면 충돌이 줄어들 것이다.\", \"holds\": false, \"why\": \"마진을 높였음에도 s1711863194에서 충돌이 발생했고, s2047168730에서는 불필요한 정지(stall)를 유발함.\"},\n  {\"assumption\": \"척력 모드에서 진행도 가중치(_K_PROG_REP)를 낮추면 거리 확보가 우선되어 안전할 것이다.\", \"holds\": false, \"why\": \"위험 구역 내에서 충분한 속도로 탈출하지 못하고 머물다가 충돌하거나 정체되는 결과를 초래함.\"}\n ],\n \"approach_families\": [\n  {\"family\": \"거리 기반 단순 제동\", \"turns\": \"1-15\", \"result\": \"낮은 통과율, 빈번한 stall 및 충돌\"},\n  {\"family\": \"예측 롤아웃 및 척력 기반 필터\", \"turns\": \"16-30\", \"result\": \"7/10 통과, 안전성과 효율성의 트레이드오프 구간\"}\n ],\n \"candidates\": [\n  {\n   \"idea\": \"안전 마진을 약간 낮추어 safe 풀 진입을 쉽게 하고, 척력 및 unsafe 풀의 진행도 가중치를 높여 위험 구역을 빠르게 탈출하도록 유도함.\",\n   \"new_family\": false,\n   \"for\": \"stall_abort와 timeout을 줄이고, '망설임'으로 인한 저속 충돌을 방지할 수 있음.\",\n   \"risk\": \"마진 감소로 인해 매우 근접한 상황에서 충돌 위험이 소폭 증가할 수 있음.\"\n  },\n  {\n   \"idea\": \"critical 상태의 정의를 더 좁히고, 해당 상태에서만 매우 공격적인 탈출 속도와 조향을 강제하는 별도의 로직을 추가함.\",\n   \"new_family\": true,\n   \"for\": \"이미 매우 가까워진 상황에서 확실한 회피 기동을 보장함.\",\n   \"risk\": \"급격한 기동으로 인해 주변 정적 장애물과 충돌할 가능성이 있음.\"\n  }\n ],\n \"chosen\": \"후보 1. 현재 구조에서 가중치와 마진의 불균형(너무 보수적인 설정)이 stall과 저속 충돌의 주원인이므로 이를 조정하는 것이 가장 합리적임.\",\n \"target\": \"상수 값 및 _safety_filter 가중치\",\n \"direction\": \"1. _G_SAFE를 0.5에서 0.35로, _G_GROW를 0.2에서 0.15로 낮추어 safe 풀의 가용성을 높입니다. 2. _K_PROG_REP를 0.05에서 0.15로 높여 척력 모드에서 거리 확보와 전진의 균형을 맞춥니다. 3. _K_PROG_UNSAFE를 0.2에서 0.4로 높여 safe 풀이 비었을 때 정지 대신 전진 후보를 더 선호하게 하여 stall을 방지합니다. 4. _CRIT_GAP을 1.0에서 0.8로 낮추어 _REPULSE_GAP(1.0)과의 단계 구분을 명확히 합니다. 5. _speed_caps의 nx > 0.5 제한 로직은 유지하여 측면 탈출 효율을 보존합니다. 6. _E_TURN=1.0을 유지하여 불필요한 제자리 회전을 억제합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t30_s2047168730",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 100.1,
+   "stall_abort_t": 99.1,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 96.72,
+   "goal_dist_m": 11.9129,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t30_s1682893607",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 499.9,
+   "sim_time_s": 55.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 49.63,
+   "goal_dist_m": 0.2836,
+   "time_to_goal_s": 51.567
+  },
+  {
+   "run": "c71t30_s1396859401",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 444.2,
+   "sim_time_s": 73.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 67.62,
+   "goal_dist_m": 0.1346,
+   "time_to_goal_s": 69.667
+  },
+  {
+   "run": "c71t30_s349804513",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 370.7,
+   "sim_time_s": 79.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 73.95,
+   "goal_dist_m": 0.0394,
+   "time_to_goal_s": 78.0
+  },
+  {
+   "run": "c71t30_s1465110131",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 290.8,
+   "sim_time_s": 52.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 46.65,
+   "goal_dist_m": 0.1356,
+   "time_to_goal_s": 48.867
+  },
+  {
+   "run": "c71t30_s1711863194",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 238.2,
+   "sim_time_s": 32.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.167,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.17m/s 회전 -0.9",
+   "partner_rel_xy": [
+    0.47,
+    -0.27
+   ],
+   "closing_m_s": -0.0,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 21.45,
+   "goal_dist_m": 27.8866,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t30_s1184564324",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 206.0,
+   "sim_time_s": 51.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 45.72,
+   "goal_dist_m": 0.064,
+   "time_to_goal_s": 48.417
+  },
+  {
+   "run": "c71t30_s688609292",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 154.4,
+   "sim_time_s": 66.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 60.72,
+   "goal_dist_m": 0.1029,
+   "time_to_goal_s": 62.4
+  },
+  {
+   "run": "c71t30_s1500297904",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 87.7,
+   "sim_time_s": 57.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 51.02,
+   "goal_dist_m": 0.1033,
+   "time_to_goal_s": 54.117
+  },
+  {
+   "run": "c71t30_s430844120",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 30.7,
+   "sim_time_s": 31.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 26.72,
+   "goal_dist_m": 14.7101,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

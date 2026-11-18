@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 `chosen`·`direction` 지시에 따라 `d_min < 0.7 m`일 때 `v=0, w=0`으로 멈춰 기다리던 정지 대기(halt) 로직을 없앴습니다. 대신 능동 회피 모드(`controller.evading`)를 넣었습니다. 물체가 앞쪽 반면에 있고 뒤 통로(`_rear_gap`)가 1.0 m 이상 비었으면 `v=-0.15`로 직선 후진하고, 그렇지 않으면 `b_min` 부호 반대쪽으로 `w=±0.8` 제자리 회전합니다. 기존 해제 조건(`d_min > 1.5 m`가 0.5 s 지속)은 그대로 두고, 회피 중 `d_min > 1.0 m`(`_EVADE_EXIT`)가 되면 즉시 회피를 풀어 기존 연속 감속·반발 조향과 경유점 추종으로 돌아갑니다. 진단의 후진 속도에 맞춰 `_EVADE_V`를 0.2에서 0.15로 바꿨고, `_EVADE_W`(0.8)는 그대로 다시 씁니다.\n\n```python\n_EVADE_V = 0.15         # 능동 회피 후진 속도 [m/s] (진단 시도 20: d_min < 0.7 m 시 v=-0.15)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 연속 포텐셜장 + 근접 능동 회피 (C-2 시도 20, 진단 반영).\n    - 상태 변수: controller.idx (경유점), controller.evading (능동 회피 중 여부),\n      controller.free_t (d_min > 1.5 m 가 시작된 시각). v=0, w=0 정지 대기(halt) 로직은 제거했습니다.\n    - 매 스텝 감시 영역(|bearing| < 120°)의 움직이는 점 최단 거리 d_min 과 bearing b_min 을 계산합니다.\n    - d_min < 0.7 m: 능동 회피 진입. 물체가 앞쪽 반면(|b_min| < 90°)이고 뒤 통로가 _REAR_MIN(1.0 m) 이상 비었으면\n      v = -_EVADE_V(-0.15) 직선 후진, 아니면 b_min 부호 반대 방향으로 w = ±_EVADE_W(0.8) 제자리 회전.\n    - 회피 해제: 회피 중 d_min > _EVADE_EXIT(1.0 m) 이면 즉시, 또는 d_min > 1.5 m 가 0.5 s 지속되면 해제하고\n      아래 연속 감속/추종 로직으로 복귀합니다.\n    - 0.7 m <= d_min < 1.5 m: v = v_nom * (d_min - 0.7) / 0.8, w = w_nom + w_rep,\n      w_rep = -K * sign(b_min) * (1/d_min - 1/1.5) (물체 반대쪽으로 조향).\n    - d_min >= 1.5 m: 경유점 추종 그대로.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    if not hasattr(controller, \"evading\"):\n        controller.evading = False\n    if not hasattr(controller, \"free_t\"):\n        controller.free_t = None\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    # ---- 감시 영역 최단 거리 d_min 과 bearing b_min ----\n    d_min, b_min = float(\"inf\"), 0.0\n    if dyn_r.shape[0]:\n        d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n        ok = d_all >= _NOISE_R                                # 0.2 m 미만 잡음 제외\n        ax, ay, d = dyn_r[ok, 0], dyn_r[ok, 1], d_all[ok]\n        b = np.arctan2(ay, ax)                                # 부호 있는 bearing (+ 왼쪽)\n        watch = np.abs(b) < _SIDE_B                           # 감시 영역 ±120°\n        if np.any(watch):\n            dw, bw = d[watch], b[watch]\n            i = int(np.argmin(dw))\n            d_min, b_min = float(dw[i]), float(bw[i])\n    side = 1.0 if b_min >= 0.0 else -1.0                      # 물체가 왼쪽이면 +1\n\n    # ---- d_min > 1.5 m 지속 시간 기록 ----\n    if d_min > _CONT_FREE_D:\n        if controller.free_t is None:\n            controller.free_t = t\n    else:\n        controller.free_t = None\n\n    # ---- 근접 능동 회피 (정지 대기 대신 후진 또는 회전) ----\n    if d_min < _CONT_STOP_D:\n        controller.evading = True\n    if controller.evading:\n        resumed = controller.free_t is not None and (t - controller.free_t) >= _CONT_RESUME_T\n        if d_min > _EVADE_EXIT or resumed:\n            controller.evading = False                        # 즉시 회피 해제, 연속 감속/추종으로 복귀\n        else:\n            if abs(b_min) < 0.5 * math.pi and _rear_gap(raw) >= _REAR_MIN:\n                return -_EVADE_V, 0.0, False                  # 물체가 앞쪽 반면, 뒤가 비었음: 직선 후진\n            return 0.0, -_EVADE_W * side, False               # 그 외: 물체 반대쪽으로 제자리 회전\n\n    # ---- 1.5 m 이상: 경유점 추종 그대로 ----\n    if d_min >= _CONT_FREE_D:\n        return v, w, False\n\n    # ---- 0.7 m <= d_min < 1.5 m: 거리 비례 감속 + 반발 조향 ----\n    scale = _clamp((d_min - _CONT_STOP_D) / _CONT_SPAN, 0.0, 1.0)\n    v_cmd = v * scale\n    w_rep = -_REP_K * side * (1.0 / max(d_min, 0.05) - 1.0 / _CONT_FREE_D)\n    w_cmd = _clamp(w + w_rep, -_REP_W_MAX, _REP_W_MAX)\n    return v_cmd, w_cmd, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 30574,
+  "completion_tokens": 6242
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 58297,
+  "total_cost_usd": 0.369424,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6242,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 30572,
+    "webSearchRequests": 0,
+    "costUSD": 0.369424,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3892,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 30572,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "1ef7bff3-71f9-4f19-92c7-3cac50a9da63"
+ }
+}

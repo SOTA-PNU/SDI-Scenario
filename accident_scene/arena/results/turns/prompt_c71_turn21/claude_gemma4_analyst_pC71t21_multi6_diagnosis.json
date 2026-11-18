@@ -1,0 +1,176 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t21_s205444429: t=44.283s, mover_03과 충돌. 로봇 v=0.19, w=-0.7, 물체 상대 위치 [-0.02, 0.58], 접근 속도 0.68m/s (측면 충돌)",
+   "c71t21_s557770096: t=31.0s, mover_02와 충돌. 로봇 v=0.16, w=-0.6, 물체 상대 위치 [0.18, -0.63], 접근 속도 0.51m/s (측면 충돌)",
+   "c71t21_s302384626: t=93.43s, stall_abort 발생. 로봇이 장시간 정지 상태 유지"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_speed_caps가 모든 충돌 위험을 제어할 수 있다",
+    "holds": false,
+    "why": "측면 충돌 사례에서 법선 성분 nx가 매우 작아 v_cap이 거의 작동하지 않았음"
+   },
+   {
+    "assumption": "_safety_filter가 최적의 회피 속도를 선택한다",
+    "holds": false,
+    "why": "충돌 시 v=0.16~0.19m/s의 매우 느린 속도를 선택하여 물체의 경로에 머무는 '앉은 오리' 상태가 됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 라이다 정지/저속 주행",
+    "turns": "1~15",
+    "result": "잦은 stall 및 측면 충돌로 낮은 통과율"
+   },
+   {
+    "family": "예측 기반 안전 필터 및 추적",
+    "turns": "20~21",
+    "result": "가장 높은 통과율(3/6)을 보이나 측면 접근 물체에 취약"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "안전 마진(_G_SAFE, _G_GROW)의 대폭 상향",
+    "new_family": false,
+    "for": "현재 0.22m의 마진은 0.6m 크기의 물체에 대해 너무 타이트하여 실제 충돌 가능성이 높음",
+    "risk": "너무 보수적인 주행으로 인해 stall 또는 시간 초과 가능성 증가"
+   },
+   {
+    "idea": "측면 접근 시 저속 주행 페널티 부여 및 탈출 가속 유도",
+    "new_family": true,
+    "for": "측면에서 물체가 다가올 때 v=0.2m/s 수준의 저속은 오히려 충돌 확률을 높이므로, 빠르게 통과하거나 완전히 멈추는 이분법적 선택 유도",
+    "risk": "급가속 중 정적 장애물과 충돌할 위험"
+   }
+  ],
+  "chosen": "안전 마진 상향과 측면 접근 시 저속 주행 페널티를 결합하여 '앉은 오리' 상황을 방지하고 물리적 여유 공간을 확보함",
+  "target": "_safety_filter, _G_SAFE, _G_GROW, _REPULSE_GAP",
+  "direction": "1. _G_SAFE를 0.22에서 0.4m로, _G_GROW를 0.06에서 0.15m로 높여 예측 시 더 넓은 여유 공간을 요구합니다. 2. _REPULSE_GAP을 0.5에서 0.8m로 상향하여 척력 모드를 더 일찍 활성화합니다. 3. _safety_filter의 repulse 모드에서 물체가 측면(|nx| < 0.3)에 있고 접근 중일 때, v < 0.5m/s인 후보의 score에 강한 페널티를 부여합니다. 4. repulse score 계산 시 prog(진행도)의 가중치를 높여 위험 구역을 빠르게 벗어나도록 유도합니다. 5. _speed_caps의 _NX_MIN을 0.2로 높여 순수 측면 물체가 전진 속도를 과도하게 제한하지 않도록 합니다. 6. stall 방지를 위해 _E_TURN 임계값을 약간 조정하여 제자리 회전 진입을 최적화합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t21_s205444429: t=44.283s, mover_03과 충돌. 로봇 v=0.19, w=-0.7, 물체 상대 위치 [-0.02, 0.58], 접근 속도 0.68m/s (측면 충돌)\",\n  \"c71t21_s557770096: t=31.0s, mover_02와 충돌. 로봇 v=0.16, w=-0.6, 물체 상대 위치 [0.18, -0.63], 접근 속도 0.51m/s (측면 충돌)\",\n  \"c71t21_s302384626: t=93.43s, stall_abort 발생. 로봇이 장시간 정지 상태 유지\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"_speed_caps가 모든 충돌 위험을 제어할 수 있다\",\n   \"holds\": false,\n   \"why\": \"측면 충돌 사례에서 법선 성분 nx가 매우 작아 v_cap이 거의 작동하지 않았음\"\n  },\n  {\n   \"assumption\": \"_safety_filter가 최적의 회피 속도를 선택한다\",\n   \"holds\": false,\n   \"why\": \"충돌 시 v=0.16~0.19m/s의 매우 느린 속도를 선택하여 물체의 경로에 머무는 '앉은 오리' 상태가 됨\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 라이다 정지/저속 주행\",\n   \"turns\": \"1~15\",\n   \"result\": \"잦은 stall 및 측면 충돌로 낮은 통과율\"\n  },\n  {\n   \"family\": \"예측 기반 안전 필터 및 추적\",\n   \"turns\": \"20~21\",\n   \"result\": \"가장 높은 통과율(3/6)을 보이나 측면 접근 물체에 취약\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"안전 마진(_G_SAFE, _G_GROW)의 대폭 상향\",\n   \"new_family\": false,\n   \"for\": \"현재 0.22m의 마진은 0.6m 크기의 물체에 대해 너무 타이트하여 실제 충돌 가능성이 높음\",\n   \"risk\": \"너무 보수적인 주행으로 인해 stall 또는 시간 초과 가능성 증가\"\n  },\n  {\n   \"idea\": \"측면 접근 시 저속 주행 페널티 부여 및 탈출 가속 유도\",\n   \"new_family\": true,\n   \"for\": \"측면에서 물체가 다가올 때 v=0.2m/s 수준의 저속은 오히려 충돌 확률을 높이므로, 빠르게 통과하거나 완전히 멈추는 이분법적 선택 유도\",\n   \"risk\": \"급가속 중 정적 장애물과 충돌할 위험\"\n  }\n ],\n \"chosen\": \"안전 마진 상향과 측면 접근 시 저속 주행 페널티를 결합하여 '앉은 오리' 상황을 방지하고 물리적 여유 공간을 확보함\",\n \"target\": \"_safety_filter, _G_SAFE, _G_GROW, _REPULSE_GAP\",\n \"direction\": \"1. _G_SAFE를 0.22에서 0.4m로, _G_GROW를 0.06에서 0.15m로 높여 예측 시 더 넓은 여유 공간을 요구합니다. 2. _REPULSE_GAP을 0.5에서 0.8m로 상향하여 척력 모드를 더 일찍 활성화합니다. 3. _safety_filter의 repulse 모드에서 물체가 측면(|nx| < 0.3)에 있고 접근 중일 때, v < 0.5m/s인 후보의 score에 강한 페널티를 부여합니다. 4. repulse score 계산 시 prog(진행도)의 가중치를 높여 위험 구역을 빠르게 벗어나도록 유도합니다. 5. _speed_caps의 _NX_MIN을 0.2로 높여 순수 측면 물체가 전진 속도를 과도하게 제한하지 않도록 합니다. 6. stall 방지를 위해 _E_TURN 임계값을 약간 조정하여 제자리 회전 진입을 최적화합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t21_s395056208",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 58.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 52.02,
+   "goal_dist_m": 0.298,
+   "time_to_goal_s": 54.467
+  },
+  {
+   "run": "c71t21_s506645837",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 542.0,
+   "sim_time_s": 62.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2796,
+   "time_to_goal_s": 53.9
+  },
+  {
+   "run": "c71t21_s302384626",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 479.9,
+   "sim_time_s": 94.5,
+   "stall_abort_t": 93.43,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 25.2269,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t21_s704832582",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 385.4,
+   "sim_time_s": 42.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 36.12,
+   "goal_dist_m": 0.2188,
+   "time_to_goal_s": 40.1
+  },
+  {
+   "run": "c71t21_s205444429",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 343.3,
+   "sim_time_s": 50.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 44.283,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.19m/s 회전 -0.7",
+   "partner_rel_xy": [
+    -0.02,
+    0.58
+   ],
+   "closing_m_s": 0.68,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 41.72,
+   "goal_dist_m": 4.4137,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t21_s557770096",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 293.0,
+   "sim_time_s": 37.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 31.0,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.16m/s 회전 -0.6",
+   "partner_rel_xy": [
+    0.18,
+    -0.63
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 28.82,
+   "goal_dist_m": 13.5059,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

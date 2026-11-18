@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시 1·2에 따라 `controller` 의 판단 순서를 바꿨습니다. 앞 통로 최단 거리 `d_f` 가 `_STOP_GAP`(1.5 m) 미만이면, 옆 비켜나기·뒤 회피·재개 판단·`done` 보다 먼저 `(0.0, 0.0, False)` 를 돌려줍니다. 진단대로 retreat 후진 분기(1)는 삭제했고, 그래서 `_RETREAT_GAP` 와 `_NAV[\"retreat\"]` 는 남아 있지만 쓰지 않습니다. 옆 비켜나기(0)와 뒤 물체를 피해 앞으로 나가는 동작(2)은 진단 밖의 확장으로 유지했으며, 진단 재검토 대상입니다. 근거는 \"멈춰 있어도 물체가 닿으면 충돌\"이라는 규칙상 몸 옆이나 뒤로 오는 상자는 정지만으로 피할 수 없다는 점이고, 두 동작 모두 `d_f ≥ 1.5 m` 일 때만 동작해 지시 1과 충돌하지 않습니다. 후진을 없앴기 때문에 정면 1.5 m 안에서 로봇 쪽으로 오는 상자에는 이제 정지로만 대응하며, 이 남은 위험도 진단 재검토 때 함께 보아야 합니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 반응형 정지(앞 통로 1.5 m 안이면 어느 경우든 v=0, w=0) + 옆 비켜나기.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n\n    fx, rx = _BODY[1], _BODY[0]\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                                # 0.2 m 미만 잡음 제외\n    ax, ay, d = dyn_r[ok, 0], np.abs(dyn_r[ok, 1]), d_all[ok]\n\n    # 앞 통로(앞 측면 포함): 로봇 중심 기준 최단 거리 (점 1개로도 계산)\n    in_f = (ax > _FRONT_X) & (ay < _HW)\n    d_f = _min_or_inf(d[in_f])\n    # 뒤 통로: 뒤 범퍼에서 물체까지 거리\n    in_r = (ax < rx + 0.05) & (ay < _HW)\n    gap_r = _min_or_inf(rx - ax[in_r])\n    near = _min_or_inf(d)\n\n    bx, by = raw[:, 0], np.abs(raw[:, 1])\n    rear_free = np.count_nonzero((bx < rx) & (bx > rx - 0.9) & (by < 0.45)) < 3 and gap_r > 0.5\n    front_free = np.count_nonzero((bx > fx) & (bx < fx + 0.9) & (by < 0.45)) < 3\n\n    # 옆 물체 관측과 접근 속도 기록(정지 중에도 이력이 끊기지 않도록 항상 갱신)\n    side = (ax > rx - 0.2) & (ax < fx + 0.7) & (ay > _BODY[3] - 0.05) & (ay < _BODY[3] + _FLANK_W)\n    if np.any(side):\n        sy, sx = ay[side], ax[side]\n        clr = max(0.0, float(np.min(sy)) - _BODY[3])\n        grp = sy < float(np.min(sy)) + 0.6\n        xs_min, xs_max = float(np.min(sx[grp])), float(np.max(sx[grp]))\n    else:\n        clr, xs_min, xs_max = float(\"inf\"), 0.0, 0.0\n    h = _NAV[\"hist\"]\n    if _NAV[\"fresh\"]:\n        if math.isinf(clr):\n            h.clear()\n        else:\n            h.append((t, clr))\n            while h and t - h[0][0] > 0.5:\n                h.pop(0)\n\n    # 재개 판단용: 앞 통로가 2.5 m 밖으로 비어 있기 시작한 시각\n    if d_f < _RESUME_GAP:\n        _NAV[\"clear_since\"] = None\n    elif _NAV[\"clear_since\"] is None:\n        _NAV[\"clear_since\"] = t\n\n    # A) 최우선: 앞 통로 최단 거리 < 1.5 m 이면 어느 경우든 정지 (v=0, w=0). 후진 분기는 진단대로 삭제\n    if d_f < _STOP_GAP:\n        _NAV[\"blocked\"] = True\n        _NAV[\"esc\"] = 0\n        return 0.0, 0.0, False\n\n    if done:\n        return 0.0, 0.0, True\n\n    # 0) 몸 옆으로 다가오는 물체(진단 외 확장, d_f >= 1.5 m 일 때만): 앞/뒤 중 비어 있는 쪽으로 비켜남\n    rate = 0.0\n    if len(h) >= 2 and h[-1][0] - h[0][0] >= 0.15:\n        rate = (h[0][1] - h[-1][1]) / (h[-1][0] - h[0][0])          # 옆면 여유가 줄어드는 속도 [m/s]\n    threat = clr < _FLANK_HARD or (rate > 0.15 and clr / rate < _FLANK_TTC)\n    if threat:\n        if _NAV[\"esc\"] == 0:\n            back = fx - (xs_min - 0.3) + 0.15                          # 뒤로 비켜야 할 거리\n            fwd = (xs_max + 0.3) - rx + 0.15                           # 앞으로 비켜야 할 거리\n            _NAV[\"esc\"] = -1 if back <= fwd else 1\n        if _NAV[\"esc\"] < 0 and not rear_free and front_free:\n            _NAV[\"esc\"] = 1\n        elif _NAV[\"esc\"] > 0 and not front_free and rear_free:\n            _NAV[\"esc\"] = -1\n        _NAV[\"blocked\"], _NAV[\"clear_since\"] = True, None\n        if _NAV[\"esc\"] < 0 and rear_free:\n            return -_ESC_V, 0.0, False\n        if _NAV[\"esc\"] > 0 and front_free:\n            return _ESC_V, 0.0, False\n        return 0.0, 0.0, False\n    _NAV[\"esc\"] = 0\n\n    # 2) 뒤에서 물체가 다가오고 앞 통로가 2.5 m 이상 비어 있을 때만 앞으로 비켜남(진단 외 확장)\n    if gap_r < 0.8 and d_f >= _RESUME_GAP and front_free:\n        return 0.6, 0.0, False\n\n    # 3) 정지 상태 해제: 앞 통로 2.5 m 이상이 0.5 s 이어지면 재개\n    if _NAV[\"blocked\"] and _NAV[\"clear_since\"] is not None and t - _NAV[\"clear_since\"] >= _RESUME_HOLD:\n        _NAV[\"blocked\"] = False\n    if _NAV[\"blocked\"]:\n        return 0.0, 0.0, False\n\n    # 4) 정상 주행: 앞에 움직이는 물체가 보이면 감속, 제자리 회전 중 물체가 몸 가까이 있으면 회전 보류\n    if v > 0.0:\n        if d_f < 3.5:\n            v = min(v, 0.5 + 0.5 * (d_f - _STOP_GAP))\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    if v == 0.0 and near < 0.95:\n        w = 0.0\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 23180,
+  "completion_tokens": 5466
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 48027,
+  "total_cost_usd": 0.294752,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 5466,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 23178,
+    "webSearchRequests": 0,
+    "costUSD": 0.294752,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2639,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 23178,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "1685c9c2-bf86-4250-bdb2-a33fc998d304"
+ }
+}

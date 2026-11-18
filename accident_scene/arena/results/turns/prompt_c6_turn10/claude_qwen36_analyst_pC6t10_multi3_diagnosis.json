@@ -1,0 +1,132 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "Run1: t=70.35s 감지(1.26m, 53°) 후 정지, 거리 0.88~2.01m 변동하나 _RESUME_D(2.2m) 미만 유지 → t=75.32s stall_abort",
+   "Run2: t=68.08s 감지(1.3m, 58°) 후 정지, 거리 0.68~0.99m 범위 유지 → t=73.0s stall_abort",
+   "Run3: t=73.95s 감지(1.19m, 45°) 후 정지, 거리 0.84~1.97m 변동 → t=78.93s stall_abort"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 감지 후 2.2m 이상으로 빠르게 물러날 것이다.",
+    "holds": false,
+    "why": "세 실행 모두 거리 0.8~2.0m 사이를 장기간 유지하며 재개 임계값에 도달하지 않음"
+   },
+   {
+    "assumption": "이진 정지/재개 상태기는 물체 이동 패턴에 강건하다.",
+    "holds": false,
+    "why": "거리 임계값만으로는 정지/재개 사이클이 깨져 데드락 발생"
+   },
+   {
+    "assumption": "정지 중 탈출 로직 제거는 충돌을 줄일 것이다.",
+    "holds": true,
+    "why": "이번 실행에서 충돌은 0회이나 stall로 이어짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 임계값 기반 이진 정지/재개",
+    "turns": "1~4, 6~10",
+    "result": "반복적 stall 또는 collision_driving"
+   },
+   {
+    "family": "비례 감속/연속 제어",
+    "turns": "5, 7",
+    "result": "stall_abort 또는 progress_abort"
+   },
+   {
+    "family": "시간 기반 강제 탈출(크리프/회전)",
+    "turns": "3, 4, 6, 8",
+    "result": "collision_driving 또는 progress_abort"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "접근 속도(닫힘 속도) 기반 연속 속도 조절",
+    "new_family": true,
+    "for": "거리가 가까워도 물체가 정지 중이거나 멀어지면 서행 허용해 데드락 방지",
+    "risk": "라이다 점의 상대 속도 추정 노이즈로 인한 진동 또는 오탐"
+   },
+   {
+    "idea": "섹터별 최소 거리 기반 방향성 속도 벡터 합성",
+    "new_family": true,
+    "for": "전방을 좌/중/우로 나누어 가장 비는 쪽으로 회전하며 진행, 글로벌 정지 상태 제거",
+    "risk": "통로가 좁을 때 섹터 간 진동 또는 벽 접근"
+   },
+   {
+    "idea": "이동 물체 궤적 예측(보간) 기반 TTC 정지",
+    "new_family": true,
+    "for": "과거 0.5초 점군으로 속도 벡터 추정해 충돌 예측 시간(TTC)이 2초 미만일 때만 정지",
+    "risk": "급정거/급회전 물체 예측 실패"
+   }
+  ],
+  "chosen": "접근 속도 기반 연속 속도 조절을 선택함. 거리 임계값 대신 상대 접근 속도를 기준으로 정지/서행/주행을 나누어 물체가 근처에 머무는 경우에도 서행으로 진행을 유지할 수 있음.",
+  "target": "controller 함수 내 정지/재개 상태기 및 거리 기반 게이트 로직",
+  "direction": "_NAV에 최근 0.1초 간격으로 저장된 움직이는 점의 평균 위치를 추가해 상대 속도(닫힘 속도)를 계산한다. 이진 blocked 플래그를 제거하고, 대신 접근 속도와 거리를 조합한 연속 가중치(k)를 계산한다. 접근 속도가 0.2m/s 이상이고 거리가 1.5m 미만이면 k=0(정지), 접근 속도가 음수(멀어짐)이거나 0.1m/s 미만이면 k=0.3(서행), 그 외에는 기존 감속 로직을 적용한다. 서행 중에도 접근 속도가 양수로 급증하면 즉시 k=0으로 떨어뜨린다. _RESUME_D와 _RESUME_HOLD 관련 코드를 제거하고, 상태 변수를 속도 기록용으로 단순화한다. 이를 통해 물체가 근처에서 왕복하더라도 서행으로 경유점을 향해 진행하며, 실제 충돌 위험이 있을 때만 멈춘다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"Run1: t=70.35s 감지(1.26m, 53°) 후 정지, 거리 0.88~2.01m 변동하나 _RESUME_D(2.2m) 미만 유지 → t=75.32s stall_abort\",\n    \"Run2: t=68.08s 감지(1.3m, 58°) 후 정지, 거리 0.68~0.99m 범위 유지 → t=73.0s stall_abort\",\n    \"Run3: t=73.95s 감지(1.19m, 45°) 후 정지, 거리 0.84~1.97m 변동 → t=78.93s stall_abort\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 감지 후 2.2m 이상으로 빠르게 물러날 것이다.\",\n      \"holds\": false,\n      \"why\": \"세 실행 모두 거리 0.8~2.0m 사이를 장기간 유지하며 재개 임계값에 도달하지 않음\"\n    },\n    {\n      \"assumption\": \"이진 정지/재개 상태기는 물체 이동 패턴에 강건하다.\",\n      \"holds\": false,\n      \"why\": \"거리 임계값만으로는 정지/재개 사이클이 깨져 데드락 발생\"\n    },\n    {\n      \"assumption\": \"정지 중 탈출 로직 제거는 충돌을 줄일 것이다.\",\n      \"holds\": true,\n      \"why\": \"이번 실행에서 충돌은 0회이나 stall로 이어짐\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"거리 임계값 기반 이진 정지/재개\",\n      \"turns\": \"1~4, 6~10\",\n      \"result\": \"반복적 stall 또는 collision_driving\"\n    },\n    {\n      \"family\": \"비례 감속/연속 제어\",\n      \"turns\": \"5, 7\",\n      \"result\": \"stall_abort 또는 progress_abort\"\n    },\n    {\n      \"family\": \"시간 기반 강제 탈출(크리프/회전)\",\n      \"turns\": \"3, 4, 6, 8\",\n      \"result\": \"collision_driving 또는 progress_abort\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"접근 속도(닫힘 속도) 기반 연속 속도 조절\",\n      \"new_family\": true,\n      \"for\": \"거리가 가까워도 물체가 정지 중이거나 멀어지면 서행 허용해 데드락 방지\",\n      \"risk\": \"라이다 점의 상대 속도 추정 노이즈로 인한 진동 또는 오탐\"\n    },\n    {\n      \"idea\": \"섹터별 최소 거리 기반 방향성 속도 벡터 합성\",\n      \"new_family\": true,\n      \"for\": \"전방을 좌/중/우로 나누어 가장 비는 쪽으로 회전하며 진행, 글로벌 정지 상태 제거\",\n      \"risk\": \"통로가 좁을 때 섹터 간 진동 또는 벽 접근\"\n    },\n    {\n      \"idea\": \"이동 물체 궤적 예측(보간) 기반 TTC 정지\",\n      \"new_family\": true,\n      \"for\": \"과거 0.5초 점군으로 속도 벡터 추정해 충돌 예측 시간(TTC)이 2초 미만일 때만 정지\",\n      \"risk\": \"급정거/급회전 물체 예측 실패\"\n    }\n  ],\n  \"chosen\": \"접근 속도 기반 연속 속도 조절을 선택함. 거리 임계값 대신 상대 접근 속도를 기준으로 정지/서행/주행을 나누어 물체가 근처에 머무는 경우에도 서행으로 진행을 유지할 수 있음.\",\n  \"target\": \"controller 함수 내 정지/재개 상태기 및 거리 기반 게이트 로직\",\n  \"direction\": \"_NAV에 최근 0.1초 간격으로 저장된 움직이는 점의 평균 위치를 추가해 상대 속도(닫힘 속도)를 계산한다. 이진 blocked 플래그를 제거하고, 대신 접근 속도와 거리를 조합한 연속 가중치(k)를 계산한다. 접근 속도가 0.2m/s 이상이고 거리가 1.5m 미만이면 k=0(정지), 접근 속도가 음수(멀어짐)이거나 0.1m/s 미만이면 k=0.3(서행), 그 외에는 기존 감속 로직을 적용한다. 서행 중에도 접근 속도가 양수로 급증하면 즉시 k=0으로 떨어뜨린다. _RESUME_D와 _RESUME_HOLD 관련 코드를 제거하고, 상태 변수를 속도 기록용으로 단순화한다. 이를 통해 물체가 근처에서 왕복하더라도 서행으로 경유점을 향해 진행하며, 실제 충돌 위험이 있을 때만 멈춘다.\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c6t10_s756357619",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 76.3,
+   "stall_abort_t": 75.32,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 70.35,
+   "goal_dist_m": 31.6593,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t10_s231418375",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 523.7,
+   "sim_time_s": 74.0,
+   "stall_abort_t": 73.0,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 68.08,
+   "goal_dist_m": 31.627,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t10_s1133074640",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 449.6,
+   "sim_time_s": 80.0,
+   "stall_abort_t": 78.93,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 73.95,
+   "goal_dist_m": 31.6962,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

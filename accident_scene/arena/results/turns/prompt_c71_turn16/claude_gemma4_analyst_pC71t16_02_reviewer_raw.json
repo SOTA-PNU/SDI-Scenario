@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. speed_scale 감속은 정면 stop cone(±30°) 안 물체에만 적용\", \"implemented\": true, \"note\": \"speed_scale을 d_front 대신 d_cone으로 계산하고, d_cone이 inf이면 1.0으로 둠\"},\n  {\"instruction\": \"2. stop cone 밖 측면 물체가 있을 때 v=0이 되지 않게 최소 속도(예 0.5 m/s) 강제\", \"implemented\": true, \"note\": \"g_side<1.2 m이면 evading이 0.5 s 유지되고, floor_ok일 때 v=max(v, 0.6 또는 0.3)으로 둠. stop cone 정지, 앞 통로의 동적 점(x<0.7), 앞 정적 장애물이 있으면 floor를 끄도록 안전 조건을 붙임. 후방(>90°) 물체에도 적용해 지시보다 범위가 넓음\"},\n  {\"instruction\": \"3. 측면 물체 감지 시 _DPSI_MAX를 높여 더 빠르게 회피\", \"implemented\": true, \"note\": \"_DPSI_MAX를 0.5에서 0.8로 올리고 |b_side|<=90° 측면 물체에 적용함. cos(b) 감쇠를 없앴고 w 한계는 _W_EVADE_MAX 1.5. stop cone 물체는 _DPSI_CONE 0.5 유지\"},\n  {\"instruction\": \"4. 측면 물체 시 v_min을 speed_scale보다 우선 적용\", \"implemented\": true, \"note\": \"5) 단계에서 speed_scale과 제자리 회전(v=0)을 계산한 뒤 max(v, floor)로 덮어씀\"},\n  {\"instruction\": \"5. _static_close_on_side 체크 유지로 벽 충돌 방지\", \"implemented\": true, \"note\": \"같은 판정을 이미 읽은 정적 점으로 하는 _static_side_pts로 회피 조향을 취소함. 회전 쪽에 정적 장애물이 있으면 floor를 0.3 m/s로 낮춤\"},\n  {\"instruction\": \"6. stop cone 안 물체에만 기존 v=0 정지·후진 유지\", \"implemented\": true, \"note\": \"6) 단계에서 d_cone<_STOP_R이면 v=0, 가깝거나 오래 막히고 뒤가 비면 후진하는 로직을 마지막에 적용해 floor보다 우선함\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거 충돌들은 상대 위치가 거의 정측면(약 0.6 m)이라, 0.5~0.6 m/s 전진만으로 0.6 m 상자의 횡단 경로를 벗어나기 전에 닿을 수 있음\",\n  \"30~90° 앞쪽 대각선에서 다가오는 물체에 최소 속도로 전진하면 오히려 물체 진행 경로로 들어갈 위험이 있으나, 진단에 이 경우의 구분이 없음\",\n  \"근거 3건으로 confidence high는 과함\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 37132,
+  "completion_tokens": 3882
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 39921,
+  "total_cost_usd": 0.374688,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3882,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 37130,
+    "webSearchRequests": 0,
+    "costUSD": 0.374688,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2746,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 37130,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "695379fb-f9fb-425b-b1fc-ee5aea6f62a7"
+ }
+}

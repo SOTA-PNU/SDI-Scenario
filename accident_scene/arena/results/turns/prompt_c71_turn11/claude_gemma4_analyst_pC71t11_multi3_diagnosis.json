@@ -1,0 +1,125 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t11_s136294911: t=5.167에 v=0.75m/s로 주행 중 물체([-0.25, 0.61])와 충돌. 측면 물체임에도 전진 하한선으로 인해 정지하지 못함.",
+   "c71t11_s1911694946: t=3.6에 v=0.74m/s로 주행 중 물체([-0.07, 0.56])와 충돌. 역시 전진 하한선이 작동하여 정지 기회를 상실함.",
+   "c71t11_s983026774: t=27.15에 v=0.39m/s로 주행 중 물체([0.55, -0.18])와 충돌. 물체가 정지 원뿔(±30°) 내에 있었음에도 v=0이 되지 않음."
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 접근 물체에 대해 전진 하한 속도(_V_EVADE_MIN=0.6)를 강제하면 물체의 경로를 빠르게 벗어날 수 있다.",
+    "holds": false,
+    "why": "실행 2, 3에서 보듯, 물체가 로봇의 측면/후측면으로 다가올 때 전진 하한선은 오히려 로봇을 물체 쪽으로 밀어 넣어 충돌을 유발함."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 정지 (Stop-and-Wait)",
+    "turns": "1",
+    "result": "9/9 통과"
+   },
+   {
+    "family": "저속 주행 (Creep)",
+    "turns": "2",
+    "result": "혼합 (실패 발생)"
+   },
+   {
+    "family": "능동 회피 (Forced Motion)",
+    "turns": "1",
+    "result": "0/3 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "보수적 전방위 정지: 전/측면 180도 범위 내 물체가 1.0m 이내면 무조건 v=0.",
+    "new_family": false,
+    "for": "가장 안전하며, 과거 단순 정지 방식의 성공 사례가 있음.",
+    "risk": "물체가 계속 근처에 있을 경우 stall_abort 가능성 높음."
+   },
+   {
+    "idea": "하한선 없는 거리 기반 속도 스케일링: 모든 전진 하한선(_V_EVADE_MIN 등)을 제거하고, 가장 가까운 물체의 거리(d_all)에 따라 v를 0.0~1.0으로 선형 스케일링. 0.8m 미만이면 무조건 v=0.",
+    "new_family": true,
+    "for": "강제 전진으로 인한 충돌을 원천 차단하면서, 거리가 멀면 속도를 회복해 효율성을 높임.",
+    "risk": "스케일링 계수가 너무 보수적이면 주행 시간이 늘어남."
+   }
+  ],
+  "chosen": "후보 2. 위험한 전진 하한선을 제거하고 거리 기반의 부드러운 감속과 절대 정지 거리를 도입하는 것이 안전과 효율의 균형을 맞추는 길임.",
+  "target": "controller 및 속도 제어 로직",
+  "direction": "1. _V_EVADE_MIN, _V_EVADE_STATIC 및 floor_ok 관련 모든 로직을 삭제합니다. 2. 전/측면(±120도)의 가장 가까운 물체 거리 d_all을 기준으로 속도 스케일 factor를 계산합니다. 3. d_all < 0.8m 이면 scale = 0.0, 0.8m <= d_all < 2.0m 이면 0.0에서 1.0으로 선형 증가시킵니다. 4. 이 scale을 최종 v에 곱하여, 물체가 가까우면 반드시 정지하거나 매우 느리게 움직이게 합니다. 5. 기존의 회피 조향(w_avoid)은 유지하되, 이것이 v의 하한선을 만들지 않도록 합니다. 6. _E_TURN에 의한 제자리 회전 시 v=0 조건이 최우선으로 적용되게 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t11_s136294911: t=5.167에 v=0.75m/s로 주행 중 물체([-0.25, 0.61])와 충돌. 측면 물체임에도 전진 하한선으로 인해 정지하지 못함.\",\n  \"c71t11_s1911694946: t=3.6에 v=0.74m/s로 주행 중 물체([-0.07, 0.56])와 충돌. 역시 전진 하한선이 작동하여 정지 기회를 상실함.\",\n  \"c71t11_s983026774: t=27.15에 v=0.39m/s로 주행 중 물체([0.55, -0.18])와 충돌. 물체가 정지 원뿔(±30°) 내에 있었음에도 v=0이 되지 않음.\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"측면 접근 물체에 대해 전진 하한 속도(_V_EVADE_MIN=0.6)를 강제하면 물체의 경로를 빠르게 벗어날 수 있다.\",\n   \"holds\": false,\n   \"why\": \"실행 2, 3에서 보듯, 물체가 로봇의 측면/후측면으로 다가올 때 전진 하한선은 오히려 로봇을 물체 쪽으로 밀어 넣어 충돌을 유발함.\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 정지 (Stop-and-Wait)\",\n   \"turns\": \"1\",\n   \"result\": \"9/9 통과\"\n  },\n  {\n   \"family\": \"저속 주행 (Creep)\",\n   \"turns\": \"2\",\n   \"result\": \"혼합 (실패 발생)\"\n  },\n  {\n   \"family\": \"능동 회피 (Forced Motion)\",\n   \"turns\": \"1\",\n   \"result\": \"0/3 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"보수적 전방위 정지: 전/측면 180도 범위 내 물체가 1.0m 이내면 무조건 v=0.\",\n   \"new_family\": false,\n   \"for\": \"가장 안전하며, 과거 단순 정지 방식의 성공 사례가 있음.\",\n   \"risk\": \"물체가 계속 근처에 있을 경우 stall_abort 가능성 높음.\"\n  },\n  {\n   \"idea\": \"하한선 없는 거리 기반 속도 스케일링: 모든 전진 하한선(_V_EVADE_MIN 등)을 제거하고, 가장 가까운 물체의 거리(d_all)에 따라 v를 0.0~1.0으로 선형 스케일링. 0.8m 미만이면 무조건 v=0.\",\n   \"new_family\": true,\n   \"for\": \"강제 전진으로 인한 충돌을 원천 차단하면서, 거리가 멀면 속도를 회복해 효율성을 높임.\",\n   \"risk\": \"스케일링 계수가 너무 보수적이면 주행 시간이 늘어남.\"\n  }\n ],\n \"chosen\": \"후보 2. 위험한 전진 하한선을 제거하고 거리 기반의 부드러운 감속과 절대 정지 거리를 도입하는 것이 안전과 효율의 균형을 맞추는 길임.\",\n \"target\": \"controller 및 속도 제어 로직\",\n \"direction\": \"1. _V_EVADE_MIN, _V_EVADE_STATIC 및 floor_ok 관련 모든 로직을 삭제합니다. 2. 전/측면(±120도)의 가장 가까운 물체 거리 d_all을 기준으로 속도 스케일 factor를 계산합니다. 3. d_all < 0.8m 이면 scale = 0.0, 0.8m <= d_all < 2.0m 이면 0.0에서 1.0으로 선형 증가시킵니다. 4. 이 scale을 최종 v에 곱하여, 물체가 가까우면 반드시 정지하거나 매우 느리게 움직이게 합니다. 5. 기존의 회피 조향(w_avoid)은 유지하되, 이것이 v의 하한선을 만들지 않도록 합니다. 6. _E_TURN에 의한 제자리 회전 시 v=0 조건이 최우선으로 적용되게 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t11_s983026774",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 33.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 27.15,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 0.39m/s 회전 +0.7",
+   "partner_rel_xy": [
+    0.55,
+    -0.18
+   ],
+   "closing_m_s": 0.49,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 26.15,
+   "goal_dist_m": 10.2465,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t11_s136294911",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 566.9,
+   "sim_time_s": 11.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.167,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.75m/s 회전 +1.5",
+   "partner_rel_xy": [
+    -0.25,
+    0.61
+   ],
+   "closing_m_s": 0.46,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 0.25,
+   "goal_dist_m": 27.4734,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t11_s1911694946",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 555.7,
+   "sim_time_s": 9.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.6,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.74m/s",
+   "partner_rel_xy": [
+    -0.07,
+    0.56
+   ],
+   "closing_m_s": 0.79,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 29.986,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

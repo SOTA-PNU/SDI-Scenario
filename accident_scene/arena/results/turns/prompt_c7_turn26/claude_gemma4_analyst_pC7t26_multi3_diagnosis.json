@@ -1,0 +1,120 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t26_s1208082003: t=64.5에 정지했으나, mover_03이 접근 속도 0.53m/s로 다가와 t=64.967에 충돌 (상대 위치 [0.44, 0.51])",
+   "c7t26_s28911075: t=61.233에 0.08m/s로 저속 주행 중 mover_03과 충돌 (상대 위치 [-0.18, -0.54], 접근 속도 0.62m/s)",
+   "c7t26_s1461085189: t=19.867에 0.14m/s로 저속 주행 중 mover_01과 충돌 (상대 위치 [0.31, -0.54], 접근 속도 0.68m/s)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체가 접근할 때 정지하거나 매우 느리게 이동하는 것이 안전하다",
+    "holds": false,
+    "why": "세 실행 모두 로봇이 정지 또는 0.2m/s 미만의 저속 상태에서 물체의 경로에 놓여 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 및 대기 (Stop-and-Wait)",
+    "turns": "다수",
+    "result": "최근 배치에서 '앉은 오리(sitting duck)'가 되어 충돌하는 사례 빈번"
+   },
+   {
+    "family": "능동 회피 (Active Avoidance)",
+    "turns": "8, 11, 25",
+    "result": "작동은 하나, 회피 속도가 너무 낮거나 정지 페널티가 작아 충분히 경로를 벗어나지 못함"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "결단력 있는 회피 (Decisive Avoidance): 정지 페널티를 대폭 높이고 회피 속도 후보의 하한을 조정하여, 정지보다는 확실한 이동을 강제함",
+    "new_family": true,
+    "for": "현재 로봇이 너무 수동적으로 대응하여 물체의 궤적 내에 머무르는 것이 주원인이기 때문",
+    "risk": "정적 장애물에 더 가깝게 접근할 위험이 있음"
+   },
+   {
+    "idea": "접근 속도 기반 임계값 동적 조정: closing speed가 높을수록 _ESC_C와 _CLR_GO를 높여 더 빨리, 더 멀리 피하게 함",
+    "new_family": false,
+    "for": "빠르게 다가오는 물체에 대해 현재의 고정 임계값이 너무 늦게 반응함",
+    "risk": "파라미터 복잡도가 증가하고 진동이 발생할 수 있음"
+   }
+  ],
+  "chosen": "결단력 있는 회피. 로봇이 정지 상태에서 충돌하는 사례가 지배적이므로, 정지라는 선택지의 매력도를 낮추고 이동을 강제하는 것이 가장 직접적인 해결책임",
+  "target": "_safe_speed, _SIDE_STOP_PEN, _ESC_SURE_GAIN",
+  "direction": "1. _SIDE_STOP_PEN을 0.15에서 0.30 이상으로 높여 측면 위협 시 정지보다 이동 후보가 훨씬 쉽게 선택되게 합니다. 2. _ESC_SURE_GAIN을 낮춰 작은 거리 이득만으로도 저속 회피가 채택되게 합니다. 3. _ESC_V 후보군에서 너무 낮은 속도를 제거하거나, 회피 시 최소 속도 _ESC_MIN_V를 상향하여 확실히 경로를 벗어나게 합니다. 4. _safe_speed 내에서 c0가 매우 낮고 물체가 다가오는 경우, 정지 페널티를 추가로 부여하여 반드시 움직이게 합니다. 5. _CLOSE_FWD_GAIN을 조정하여 매우 근접한 상황에서도 전진/후진 중 더 유리한 방향으로의 이동을 촉진합니다. 6. 정적 검사(critical=True)는 유지하여 벽 충돌을 방지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c7t26_s1208082003: t=64.5에 정지했으나, mover_03이 접근 속도 0.53m/s로 다가와 t=64.967에 충돌 (상대 위치 [0.44, 0.51])\",\n  \"c7t26_s28911075: t=61.233에 0.08m/s로 저속 주행 중 mover_03과 충돌 (상대 위치 [-0.18, -0.54], 접근 속도 0.62m/s)\",\n  \"c7t26_s1461085189: t=19.867에 0.14m/s로 저속 주행 중 mover_01과 충돌 (상대 위치 [0.31, -0.54], 접근 속도 0.68m/s)\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"물체가 접근할 때 정지하거나 매우 느리게 이동하는 것이 안전하다\",\n   \"holds\": false,\n   \"why\": \"세 실행 모두 로봇이 정지 또는 0.2m/s 미만의 저속 상태에서 물체의 경로에 놓여 충돌함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"정지 및 대기 (Stop-and-Wait)\",\n   \"turns\": \"다수\",\n   \"result\": \"최근 배치에서 '앉은 오리(sitting duck)'가 되어 충돌하는 사례 빈번\"\n  },\n  {\n   \"family\": \"능동 회피 (Active Avoidance)\",\n   \"turns\": \"8, 11, 25\",\n   \"result\": \"작동은 하나, 회피 속도가 너무 낮거나 정지 페널티가 작아 충분히 경로를 벗어나지 못함\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"결단력 있는 회피 (Decisive Avoidance): 정지 페널티를 대폭 높이고 회피 속도 후보의 하한을 조정하여, 정지보다는 확실한 이동을 강제함\",\n   \"new_family\": true,\n   \"for\": \"현재 로봇이 너무 수동적으로 대응하여 물체의 궤적 내에 머무르는 것이 주원인이기 때문\",\n   \"risk\": \"정적 장애물에 더 가깝게 접근할 위험이 있음\"\n  },\n  {\n   \"idea\": \"접근 속도 기반 임계값 동적 조정: closing speed가 높을수록 _ESC_C와 _CLR_GO를 높여 더 빨리, 더 멀리 피하게 함\",\n   \"new_family\": false,\n   \"for\": \"빠르게 다가오는 물체에 대해 현재의 고정 임계값이 너무 늦게 반응함\",\n   \"risk\": \"파라미터 복잡도가 증가하고 진동이 발생할 수 있음\"\n  }\n ],\n \"chosen\": \"결단력 있는 회피. 로봇이 정지 상태에서 충돌하는 사례가 지배적이므로, 정지라는 선택지의 매력도를 낮추고 이동을 강제하는 것이 가장 직접적인 해결책임\",\n \"target\": \"_safe_speed, _SIDE_STOP_PEN, _ESC_SURE_GAIN\",\n \"direction\": \"1. _SIDE_STOP_PEN을 0.15에서 0.30 이상으로 높여 측면 위협 시 정지보다 이동 후보가 훨씬 쉽게 선택되게 합니다. 2. _ESC_SURE_GAIN을 낮춰 작은 거리 이득만으로도 저속 회피가 채택되게 합니다. 3. _ESC_V 후보군에서 너무 낮은 속도를 제거하거나, 회피 시 최소 속도 _ESC_MIN_V를 상향하여 확실히 경로를 벗어나게 합니다. 4. _safe_speed 내에서 c0가 매우 낮고 물체가 다가오는 경우, 정지 페널티를 추가로 부여하여 반드시 움직이게 합니다. 5. _CLOSE_FWD_GAIN을 조정하여 매우 근접한 상황에서도 전진/후진 중 더 유리한 방향으로의 이동을 촉진합니다. 6. 정적 검사(critical=True)는 유지하여 벽 충돌을 방지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t26_s1208082003",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 71.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 64.967,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.44,
+    0.51
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 60.05,
+   "goal_dist_m": 4.7302,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t26_s28911075",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 529.0,
+   "sim_time_s": 67.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 61.233,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.08m/s",
+   "partner_rel_xy": [
+    -0.18,
+    -0.54
+   ],
+   "closing_m_s": 0.62,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 56.25,
+   "goal_dist_m": 3.311,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t26_s1461085189",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 461.8,
+   "sim_time_s": 25.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 19.867,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.14m/s",
+   "partner_rel_xy": [
+    0.31,
+    -0.54
+   ],
+   "closing_m_s": 0.68,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 17.32,
+   "goal_dist_m": 23.0389,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

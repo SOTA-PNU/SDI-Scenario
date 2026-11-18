@@ -1,0 +1,109 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "s228140287: t=2.383, 로봇 정지 상태에서 mover_00이 상대 위치 [-0.02, -0.61] (거리 약 0.61m)에서 충돌",
+   "s454881878: t=2.583, 로봇 정지 상태에서 mover_00이 상대 위치 [-0.35, 0.59] (거리 약 0.67m)에서 충돌",
+   "s1503479928: t=4.233, 로봇 저속 주행(0.12m/s) 중 mover_00이 상대 위치 [0.05, 0.59] (거리 약 0.6m)에서 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체가 가까우면 속도를 줄이거나 정지하는 것이 안전하다",
+    "holds": false,
+    "why": "s228140287, s454881878 실행 결과, 로봇이 정지했음에도 불구하고 측면에서 접근하는 물체에 의해 충돌이 발생함 (앉은 오리 현상)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 감속 및 정지",
+    "turns": "다수 (Turn 1, 6, 10, 12, 14, 15)",
+    "result": "정면 정지는 유효하나, 측면 접근 물체에 대해 정지/저속 주행 시 충돌 빈도가 높음"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 접근 시 최소 속도 보장 및 공격적 회피",
+    "new_family": true,
+    "for": "정지 상태에서 측면 충돌이 발생하는 문제를 해결하기 위해, 물체가 정면(±30°)이 아닌 측면에 있을 때는 정지하지 않고 최소 속도를 유지하며 빠르게 구역을 벗어나야 함",
+    "risk": "속도를 유지하며 회피 조향을 할 때 정적 장애물(벽, 박스)과 충돌할 위험이 있음"
+   }
+  ],
+  "chosen": "측면 접근 시 최소 속도 보장 및 공격적 회피 후보 선택. 정지하는 것보다 빠르게 교차 지점을 통과하는 것이 측면 충돌 방지에 더 효과적임",
+  "target": "controller 내 v, w 결정 로직",
+  "direction": "1. speed_scale(감속) 로직을 정면 stop cone(±30°) 내의 물체에 대해서만 적용하도록 제한합니다. 2. 물체가 ±90° 범위 내에 있지만 stop cone 밖(측면)에 있을 때는 v=0이 되지 않도록 최소 속도(예: 0.5m/s)를 강제합니다. 3. 측면 물체 감지 시 w_avoid의 강도(_DPSI_MAX)를 높여 더 빠르게 측면으로 회피하게 합니다. 4. v 결정 시 '측면 물체 존재 시 v_min 적용' 로직을 speed_scale보다 우선하거나 결합하여 적용합니다. 5. _static_close_on_side 체크를 유지하여 회피 조향이 벽 충돌로 이어지지 않게 합니다. 6. 정면 stop cone 내 물체에 대해서만 기존의 v=0 정지 및 후진 로직을 유지합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"s228140287: t=2.383, 로봇 정지 상태에서 mover_00이 상대 위치 [-0.02, -0.61] (거리 약 0.61m)에서 충돌\",\n  \"s454881878: t=2.583, 로봇 정지 상태에서 mover_00이 상대 위치 [-0.35, 0.59] (거리 약 0.67m)에서 충돌\",\n  \"s1503479928: t=4.233, 로봇 저속 주행(0.12m/s) 중 mover_00이 상대 위치 [0.05, 0.59] (거리 약 0.6m)에서 충돌\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"물체가 가까우면 속도를 줄이거나 정지하는 것이 안전하다\",\n   \"holds\": false,\n   \"why\": \"s228140287, s454881878 실행 결과, 로봇이 정지했음에도 불구하고 측면에서 접근하는 물체에 의해 충돌이 발생함 (앉은 오리 현상)\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"거리 기반 감속 및 정지\",\n   \"turns\": \"다수 (Turn 1, 6, 10, 12, 14, 15)\",\n   \"result\": \"정면 정지는 유효하나, 측면 접근 물체에 대해 정지/저속 주행 시 충돌 빈도가 높음\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"측면 접근 시 최소 속도 보장 및 공격적 회피\",\n   \"new_family\": true,\n   \"for\": \"정지 상태에서 측면 충돌이 발생하는 문제를 해결하기 위해, 물체가 정면(±30°)이 아닌 측면에 있을 때는 정지하지 않고 최소 속도를 유지하며 빠르게 구역을 벗어나야 함\",\n   \"risk\": \"속도를 유지하며 회피 조향을 할 때 정적 장애물(벽, 박스)과 충돌할 위험이 있음\"\n  }\n ],\n \"chosen\": \"측면 접근 시 최소 속도 보장 및 공격적 회피 후보 선택. 정지하는 것보다 빠르게 교차 지점을 통과하는 것이 측면 충돌 방지에 더 효과적임\",\n \"target\": \"controller 내 v, w 결정 로직\",\n \"direction\": \"1. speed_scale(감속) 로직을 정면 stop cone(±30°) 내의 물체에 대해서만 적용하도록 제한합니다. 2. 물체가 ±90° 범위 내에 있지만 stop cone 밖(측면)에 있을 때는 v=0이 되지 않도록 최소 속도(예: 0.5m/s)를 강제합니다. 3. 측면 물체 감지 시 w_avoid의 강도(_DPSI_MAX)를 높여 더 빠르게 측면으로 회피하게 합니다. 4. v 결정 시 '측면 물체 존재 시 v_min 적용' 로직을 speed_scale보다 우선하거나 결합하여 적용합니다. 5. _static_close_on_side 체크를 유지하여 회피 조향이 벽 충돌로 이어지지 않게 합니다. 6. 정면 stop cone 내 물체에 대해서만 기존의 v=0 정지 및 후진 로직을 유지합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t15_s1503479928",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 10.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.233,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.12m/s 회전 +0.5",
+   "partner_rel_xy": [
+    0.05,
+    0.59
+   ],
+   "closing_m_s": 0.67,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.9834,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t15_s228140287",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 589.8,
+   "sim_time_s": 8.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.383,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.02,
+    -0.61
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 28.9329,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t15_s454881878",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 581.4,
+   "sim_time_s": 8.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 2.583,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.35,
+    0.59
+   ],
+   "closing_m_s": 0.29,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 0.92,
+   "goal_dist_m": 28.3298,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

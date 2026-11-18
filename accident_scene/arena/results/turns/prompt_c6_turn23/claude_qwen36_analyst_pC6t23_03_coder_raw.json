@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시와 진단 2에 따라 정지 래치에서 회피를 부르는 조건 `and d_min < _CONT_STOP_D`를 뺐습니다. 이제 래치 후 0.4 s가 지나면 재개 조건(d_min > 1.8 m가 0.5 s 지속)이 될 때까지 매 스텝 `_evade_cmd`를 부릅니다. d_min이 inf일 때의 동작을 확인해 보니 의도한 동작이 아니었습니다. `_watch_min`의 기본값 x_min=0, b_min=0은 실제로 관측한 값이 아닌데, 이 값 때문에 \"앞 물체\"로 처리되어 근거 없이 후진하거나 w=-0.6으로 돌 수 있었습니다. 그래서 `_evade_cmd`가 d_min을 받아, 감시 영역에 점이 없으면(inf) v=0, w=0으로 멈추게 했습니다. 이 경우에도 inf는 1.8 m보다 크므로 free 타이머가 돌아 0.5 s 뒤에 재개됩니다. `_evade_cmd`의 뒤쪽 처리와 `_watch_min`의 뒤쪽 보강은 그대로 두었고, `_CONT_RESUME_T` 주석의 1.5 m는 1.8 m로 고쳤습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 이진 정지-회피 (C-2 시도 23, 진단 반영).\n    - 서행/감속 분기 없음: 감시 영역 최단 거리 d_min < _CONT_STOP_D(1.2 m) 이면 정지 래치, v = 0, w = 0.\n    - 래치 진입 후 t - stop_t > _EVADE_HOLD(0.4 s) 이면 재개될 때까지 계속 _evade_cmd (후진 또는 제자리 회전, 전진 없음).\n      감시 영역에 점이 없으면(d_min = inf) _evade_cmd 는 v = 0, w = 0 을 돌려줍니다.\n    - 재개: d_min > _CONT_FREE_D(1.8 m) 가 _CONT_RESUME_T(0.5 s) 지속되면 즉시 정상 추종 속도로 복귀.\n    - 감시 영역: 전방 x > _FRONT_X(-0.3) + 몸체 사각형에서 _REAR_WATCH(0.5 m) 안의 뒤쪽·옆 뒤 점.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    if not hasattr(controller, \"stopped\"):\n        controller.stopped = False\n    if not hasattr(controller, \"stop_t\"):\n        controller.stop_t = None\n    if not hasattr(controller, \"free_t\"):\n        controller.free_t = None\n\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    d_min, b_min, x_min = _watch_min(dyn_r)\n\n    # ---- d_min > 1.8 m 지속 시간 기록 ----\n    if d_min > _CONT_FREE_D:\n        if controller.free_t is None:\n            controller.free_t = t\n    else:\n        controller.free_t = None\n\n    # ---- 정지 래치 진입 (d_min < 1.2 m) ----\n    if d_min < _CONT_STOP_D and not controller.stopped:\n        controller.stopped = True\n        controller.stop_t = t\n\n    # ---- 정지 래치 처리 ----\n    if controller.stopped:\n        if controller.free_t is not None and (t - controller.free_t) >= _CONT_RESUME_T:\n            controller.stopped = False                        # 즉시 정상 추종 속도로 복귀\n            controller.stop_t = None\n            return v, w, False\n        if controller.stop_t is None:\n            controller.stop_t = t\n        if (t - controller.stop_t) > _EVADE_HOLD:\n            return _evade_cmd(raw, dyn_r, d_min, x_min, b_min)  # 재개 조건이 될 때까지 계속 회피\n        return 0.0, 0.0, False                                # 래치 직후 0.4 s 는 완전 정지\n\n    # ---- 래치 아님: 경유점 추종 그대로 (서행 구간 없음) ----\n    return v, w, False\n\n\ndef _evade_cmd(raw, dyn_r, d_min, x_min, b_min):\n    \"\"\"이진 정지-회피의 회피 동작 (전진 속도는 항상 0 이하).\n    - 감시 영역에 움직이는 점이 없으면(d_min 이 inf) x_min, b_min 은 관측값이 아니므로 v = 0, w = 0\n      (재개 타이머가 돌고 있으므로 _CONT_RESUME_T 뒤 재개됨).\n    - 가장 가까운 물체가 앞쪽(x > _FRONT_X)이고, 뒤 통로(_rear_gap)가 _REAR_MIN(1.0 m) 이상 비었으며,\n      뒤쪽(x < _FRONT_X) _REAR_BACK_R 안에 움직이는 점이 없으면 v = -_EVADE_V(-0.15) 직선 후진.\n    - 아니면 v = 0, |w| = _EVADE_TURN_W(0.6) 제자리 회전. 방향은 물체에 가까운 몸 부분이 물체에서 멀어지는 쪽:\n      물체가 앞쪽이면 코를 반대로(w = -0.6 * sign(b)), 뒤쪽이면 꼬리를 반대로(w = +0.6 * sign(b)).\"\"\"\n    if not math.isfinite(d_min):\n        return 0.0, 0.0, False\n    side = 1.0 if b_min >= 0.0 else -1.0\n    front_obj = x_min > _FRONT_X\n    rear_dyn = False\n    if dyn_r.shape[0]:\n        m = (dyn_r[:, 0] < _FRONT_X) & (np.hypot(dyn_r[:, 0], dyn_r[:, 1]) < _REAR_BACK_R)\n        rear_dyn = bool(np.any(m))\n    if front_obj and not rear_dyn and _rear_gap(raw) >= _REAR_MIN:\n        return -_EVADE_V, 0.0, False\n    if front_obj:\n        return 0.0, -_EVADE_TURN_W * side, False\n    return 0.0, _EVADE_TURN_W * side, False\n\n\n_CONT_RESUME_T = 0.5    # 정지 해제 조건: d_min > 1.8 m 가 이 시간 이상 지속 [s] (진단: 0.5 s)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 36374,
+  "completion_tokens": 3832
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 33115,
+  "total_cost_usd": 0.367624,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3832,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 36372,
+    "webSearchRequests": 0,
+    "costUSD": 0.367624,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1384,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 36372,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b582aa0b-f927-4bce-a674-85d07895077c"
+ }
+}

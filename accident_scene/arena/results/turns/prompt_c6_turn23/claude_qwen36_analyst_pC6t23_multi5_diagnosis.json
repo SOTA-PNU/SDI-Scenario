@@ -1,0 +1,169 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1(c6t23_s648281686): 정지 래치 후 0.15m/s 주행 중 충돌. 물체가 측면에서 빠르게 교차하며 d_min이 1.2m 근처에서 진동해 정지-재개 반복 후 충돌.",
+   "실행 4(c6t23_s1190588414): 제자리 회전(-0.4rad/s) 중 충돌. 회전 방향이 물체 진행 경로와 겹치거나 정적 장애물과 가까워 회피 실패.",
+   "실행 5(c6t23_s662182866): 정지 상태에서 정적 박스(arena_box_07)와 충돌. 회피 동작 시 정적 장애물 간섭을 검사하지 않아 좁은 통로에서 밀려난 형태."
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 정지 후 0.4초 지연된 회피(후진/제자리 회전)로 충분히 피할 수 있다",
+    "holds": false,
+    "why": "물체가 교차하거나 속도가 빠를 때 정지 대기만으로는 충돌을 피하지 못하며, 제자리 회전은 정적 장애물과 가까울 때 오히려 충돌을 유발한다."
+   },
+   {
+    "assumption": "이진 정지/재개 임계값(1.2m/1.8m)과 타이머가 센서 노이즈를 충분히 걸러준다",
+    "holds": false,
+    "why": "d_min이 임계값 근처에서 들쭉날쭉하면 정지-주행 상태가 빠르게 전환되며, 이는 서행 충돌과 회전 충돌의 직접적 원인이 된다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지-회피 상태머신",
+    "turns": "13~23번",
+    "result": "최대 3/6, 최근 2/5. 정지 중 또는 회피 중 충돌 빈발"
+   },
+   {
+    "family": "연속 감속-반발 조향",
+    "turns": "14~15, 19번",
+    "result": "최대 5/8. 역사상 가장 높은 안정성. 임계값 진동과 회피 강도 조절이 핵심"
+   },
+   {
+    "family": "닫힘 속도 추정 기반",
+    "turns": "11~12번",
+    "result": "0/3. 라이다 점 노이즈로 속도 추정 불안정해 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "이진 임계값과 지연 시간만 조정",
+    "new_family": false,
+    "for": "구현이 간단",
+    "risk": "교차 물체와 좁은 통로에서 구조적 한계가 동일해 실패 재현 가능성 높음"
+   },
+   {
+    "idea": "연속 속도 가버너 + 반발 조향 복원 및 개선",
+    "new_family": true,
+    "for": "과거 5/8 통과 기록으로 유효성 입증. 매 스텝 부드러운 조향으로 진동과 회전 충돌을 근본 차단",
+    "risk": "반발 이득이 너무 크면 과도한 회전으로 경로 이탈 가능. 적절한 스케일링과 안전 브레이크 필요"
+   },
+   {
+    "idea": "정적 안전 확인 강화 회피 로직 추가",
+    "new_family": false,
+    "for": "정적 충돌 방지",
+    "risk": "코드 복잡도 증가로 디버깅 어려움. 연속 조향만으로도 정적 장애물과의 거리를 자연스럽게 유지 가능"
+   }
+  ],
+  "chosen": "후보 2 선택. 이진 정지-회피는 교차 물체와 정적 장애물 근처에서 구조적 위험이 명확하며, 연속 조향 계열이 과거 가장 높은 통과율을 보임. 부드러운 스케일링과 명확한 안전 브레이크로 진동 문제를 해결한다.",
+  "target": "controller 함수 내 주행 명령 산출 로직 및 관련 상수",
+  "direction": "controller.stopped, stop_t, free_t 등 이진 상태 변수와 _evade_cmd 호출 분기를 모두 제거한다. 매 스텝 _watch_min으로 구한 d_min과 b_min을 이용해 전진 속도를 v_cmd = v_nom * max(0.0, min(1.0, (d_min - 0.5) / 1.0))로 연속 감속한다. 회전 속도는 기존 경유점 조향에 w_rep = _REP_K * sign(b_min) / max(d_min, 0.5) 항을 더해 물체 반대쪽으로 조향한다. d_min < 0.5m 시에만 v_cmd=0, w_cmd=0으로 무조건 정지한다. _REP_K를 1.5로 설정해 중거리에서 부드러운 회피가 되도록 한다. 재개 조건이나 정지 래치 타이머는 제거해 센서 떨림에 의한 상태 전환 문제를 근본적으로 차단한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n```json\n{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"실행 1(c6t23_s648281686): 정지 래치 후 0.15m/s 주행 중 충돌. 물체가 측면에서 빠르게 교차하며 d_min이 1.2m 근처에서 진동해 정지-재개 반복 후 충돌.\",\n    \"실행 4(c6t23_s1190588414): 제자리 회전(-0.4rad/s) 중 충돌. 회전 방향이 물체 진행 경로와 겹치거나 정적 장애물과 가까워 회피 실패.\",\n    \"실행 5(c6t23_s662182866): 정지 상태에서 정적 박스(arena_box_07)와 충돌. 회피 동작 시 정적 장애물 간섭을 검사하지 않아 좁은 통로에서 밀려난 형태.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 정지 후 0.4초 지연된 회피(후진/제자리 회전)로 충분히 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"물체가 교차하거나 속도가 빠를 때 정지 대기만으로는 충돌을 피하지 못하며, 제자리 회전은 정적 장애물과 가까울 때 오히려 충돌을 유발한다.\"\n    },\n    {\n      \"assumption\": \"이진 정지/재개 임계값(1.2m/1.8m)과 타이머가 센서 노이즈를 충분히 걸러준다\",\n      \"holds\": false,\n      \"why\": \"d_min이 임계값 근처에서 들쭉날쭉하면 정지-주행 상태가 빠르게 전환되며, 이는 서행 충돌과 회전 충돌의 직접적 원인이 된다.\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"이진 정지-회피 상태머신\",\n      \"turns\": \"13~23번\",\n      \"result\": \"최대 3/6, 최근 2/5. 정지 중 또는 회피 중 충돌 빈발\"\n    },\n    {\n      \"family\": \"연속 감속-반발 조향\",\n      \"turns\": \"14~15, 19번\",\n      \"result\": \"최대 5/8. 역사상 가장 높은 안정성. 임계값 진동과 회피 강도 조절이 핵심\"\n    },\n    {\n      \"family\": \"닫힘 속도 추정 기반\",\n      \"turns\": \"11~12번\",\n      \"result\": \"0/3. 라이다 점 노이즈로 속도 추정 불안정해 실패\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"이진 임계값과 지연 시간만 조정\",\n      \"new_family\": false,\n      \"for\": \"구현이 간단\",\n      \"risk\": \"교차 물체와 좁은 통로에서 구조적 한계가 동일해 실패 재현 가능성 높음\"\n    },\n    {\n      \"idea\": \"연속 속도 가버너 + 반발 조향 복원 및 개선\",\n      \"new_family\": true,\n      \"for\": \"과거 5/8 통과 기록으로 유효성 입증. 매 스텝 부드러운 조향으로 진동과 회전 충돌을 근본 차단\",\n      \"risk\": \"반발 이득이 너무 크면 과도한 회전으로 경로 이탈 가능. 적절한 스케일링과 안전 브레이크 필요\"\n    },\n    {\n      \"idea\": \"정적 안전 확인 강화 회피 로직 추가\",\n      \"new_family\": false,\n      \"for\": \"정적 충돌 방지\",\n      \"risk\": \"코드 복잡도 증가로 디버깅 어려움. 연속 조향만으로도 정적 장애물과의 거리를 자연스럽게 유지 가능\"\n    }\n  ],\n  \"chosen\": \"후보 2 선택. 이진 정지-회피는 교차 물체와 정적 장애물 근처에서 구조적 위험이 명확하며, 연속 조향 계열이 과거 가장 높은 통과율을 보임. 부드러운 스케일링과 명확한 안전 브레이크로 진동 문제를 해결한다.\",\n  \"target\": \"controller 함수 내 주행 명령 산출 로직 및 관련 상수\",\n  \"direction\": \"controller.stopped, stop_t, free_t 등 이진 상태 변수와 _evade_cmd 호출 분기를 모두 제거한다. 매 스텝 _watch_min으로 구한 d_min과 b_min을 이용해 전진 속도를 v_cmd = v_nom * max(0.0, min(1.0, (d_min - 0.5) / 1.0))로 연속 감속한다. 회전 속도는 기존 경유점 조향에 w_rep = _REP_K * sign(b_min) / max(d_min, 0.5) 항을 더해 물체 반대쪽으로 조향한다. d_min < 0.5m 시에만 v_cmd=0, w_cmd=0으로 무조건 정지한다. _REP_K를 1.5로 설정해 중거리에서 부드러운 회피가 되도록 한다. 재개 조건이나 정지 래치 타이머는 제거해 센서 떨림에 의한 상태 전환 문제를 근본적으로 차단한다.\",\n  \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c6t23_s648281686",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 32.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 26.117,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.15m/s",
+   "partner_rel_xy": [
+    0.41,
+    0.54
+   ],
+   "closing_m_s": 0.55,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 24.55,
+   "goal_dist_m": 22.2615,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t23_s75716265",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 567.9,
+   "sim_time_s": 66.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 60.12,
+   "goal_dist_m": 0.1956,
+   "time_to_goal_s": 62.133
+  },
+  {
+   "run": "c6t23_s474334452",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 501.8,
+   "sim_time_s": 57.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 51.55,
+   "goal_dist_m": 0.1992,
+   "time_to_goal_s": 53.533
+  },
+  {
+   "run": "c6t23_s1190588414",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 444.2,
+   "sim_time_s": 15.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.167,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 -0.4rad/s",
+   "partner_rel_xy": [
+    -0.57,
+    0.47
+   ],
+   "closing_m_s": 0.53,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 4.22,
+   "goal_dist_m": 31.4838,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t23_s662182866",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 429.1,
+   "sim_time_s": 51.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 45.233,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 43.72,
+   "goal_dist_m": 10.2635,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

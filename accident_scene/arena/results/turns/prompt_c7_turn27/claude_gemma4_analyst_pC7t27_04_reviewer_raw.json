@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _SIDE_STOP_PEN 을 0.15 에서 0.30 이상으로 높임\", \"implemented\": true, \"note\": \"_SIDE_STOP_PEN = 0.35. 근접 측면 위협 때 페널티를 0 으로 두던 예외도 없앰: pen = _SIDE_STOP_PEN if dz['side']\"},\n  {\"instruction\": \"2. _ESC_SURE_GAIN 을 낮춰 작은 이득으로도 저속 회피 채택\", \"implemented\": true, \"note\": \"0.15 -> 0.05. 다만 후보가 모두 |v| >= 0.5 이고 _ESC_MIN_V = 0.5 라서 이 조건은 실제로 걸리지 않음\"},\n  {\"instruction\": \"3. _ESC_V 의 저속 후보 제거 또는 _ESC_MIN_V 상향\", \"implemented\": true, \"note\": \"_ESC_V 에서 ±0.3 제거 -> (-0.8, -0.5, 0.5, 1.0, 1.5). _ESC_MIN_V 0.30 -> 0.50 으로 둘 다 적용\"},\n  {\"instruction\": \"4. _safe_speed 에서 c0 가 매우 낮고 물체가 다가오면 정지에 추가 페널티\", \"implemented\": true, \"note\": \"close and approaching 이면 pen += _CLOSE_STOP_PEN(0.20). approaching = 측면 위협 또는 approach rate > _FRONT_CLOSE. best_c = c0 - pen 이고, 이동을 막던 하한 필터는 제거됨\"},\n  {\"instruction\": \"5. _CLOSE_FWD_GAIN 을 조정해 근접 시 유리한 방향 이동 촉진\", \"implemented\": true, \"note\": \"0.15 -> 0.03\"},\n  {\"instruction\": \"6. 정적 검사 critical=True 유지\", \"implemented\": true, \"note\": \"후보 루프에서 _static_free(pose, vc, critical=True) 를 그대로 씀\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 2 와 3 이 서로 부딪힘: 저속 후보를 없애면 _ESC_SURE_GAIN 을 낮춰도 쓰일 곳이 없음\",\n  \"근접 측면 위협에서 pen 이 최대 0.55 m 라서, 정지보다 예상 거리가 크게 나쁜 후보도 채택될 수 있음. 물체 쪽으로 움직일 위험이 있음\",\n  \"critical probe 0.05 m 와 강제 이동이 겹치면 정적 장애물에 닿을 위험이 커짐\",\n  \"_CLOSE_FLOOR_TOL 은 정의만 남고 쓰이지 않음. 동작에는 영향 없음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 50831,
+  "completion_tokens": 2298
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 21183,
+  "total_cost_usd": 0.4526,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2298,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 50829,
+    "webSearchRequests": 0,
+    "costUSD": 0.4526,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1255,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 50829,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "431d5aba-d28f-4a87-bf73-13ebdbe76cd1"
+ }
+}

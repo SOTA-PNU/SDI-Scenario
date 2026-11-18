@@ -1,0 +1,139 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 1,2,4 모두 충돌 시 상대 위치가 로봇 기준 [x≈0.2~0.35, y≈-0.55]로 정면 우측 모서리 부근",
+   "현재 코드 정면 감시 반폭 _HW=0.54m 로 이 위치(|y|≈0.55)가 감시 영역 밖이거나 경계에 있어 d_f 계산 생략",
+   "실행 4 기록에서 first_not_on_map 이 0.85m 에서 포착되었을 때 로봇은 이미 정지 중이었으나, 정지 상태(v=0, w=0)에서 접근하는 물체에 대한 후진·회피 로직 부재로 충돌",
+   "정지 해제 조건(d_f≥2.5m 유지 0.5s)이 충족된 직후 물체가 측면에서 교차하며 재개 주행 중 충돌 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정면 ±0.54m 영역만 감시하면 정면 접근 물체는 모두 잡을 수 있다",
+    "holds": false,
+    "why": "실제 충돌은 ±0.55m 부근에서 발생해 감시 영역 밖으로 분류됨"
+   },
+   {
+    "assumption": "정지하면 물체가 지나가므로 충돌이 피된다",
+    "holds": false,
+    "why": "물체는 정지하지 않고 계속 이동하며, 정지한 로봇 몸체에 직접 부딪힘"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정면 거리 기반 정지/재개",
+    "turns": "1~2",
+    "result": "누적 5/14 pass, 정면-측면 경계 및 정지 중 접근 실패 반복"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감시 반폭 확대(0.8m)와 정지 중 자동 후진·회피 로직 추가",
+    "new_family": true,
+    "for": "충돌이 모두 정면-측면 경계와 정지 상태 유입에서 발생해 영역 확대와 정지 중 반응이 필수",
+    "risk": "반폭 확대 시 정적 장애물과 혼동해 불필요한 정지 증가 가능"
+   },
+   {
+    "idea": "접근 속도(closing speed) 기반 동적 감속 및 재개 지연",
+    "new_family": true,
+    "for": "물체가 느리게 접근할 때 거리만으로는 TTC 판단이 늦어짐",
+    "risk": "라이다 노이즈로 접근 속도 계산이 불안정할 수 있음"
+   }
+  ],
+  "chosen": "감시 반폭 확대와 정지 중 자동 후진·회피 로직 추가를 선택하며, 정적 혼동 방지를 위해 정적 여유(_STATIC_MARGIN)를 0.2m로 축소한다.",
+  "target": "controller 내 in_f 조건, _HW 상수, 정지 상태 분기, 재개 로직",
+  "direction": "_HW를 0.8m로 확대해 정면-측면 경계 접근을 감지 영역에 포함한다. 정지 상태(v=0)에서도 near<1.0m이면 무조건 후진(v=-0.3) 또는 측면 회피 회전(w=±0.8)을 수행하며, 물체가 1.5m 이상 벗어나야 정지 해제를 허용한다. 재개 시에는 정면 3.0m 이상이어야 하고, 물체의 접근 속도가 양수이면 재개를 지연한다. 정적 필터링은 기존 _dynamic_world를 유지하되, 감시 영역 확대에 맞춰 _STATIC_MARGIN을 0.2m로 줄여 불필요한 정지를 방지한다.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 1,2,4 모두 충돌 시 상대 위치가 로봇 기준 [x≈0.2~0.35, y≈-0.55]로 정면 우측 모서리 부근\", \"현재 코드 정면 감시 반폭 _HW=0.54m 로 이 위치(|y|≈0.55)가 감시 영역 밖이거나 경계에 있어 d_f 계산 생략\", \"실행 4 기록에서 first_not_on_map 이 0.85m 에서 포착되었을 때 로봇은 이미 정지 중이었으나, 정지 상태(v=0, w=0)에서 접근하는 물체에 대한 후진·회피 로직 부재로 충돌\", \"정지 해제 조건(d_f≥2.5m 유지 0.5s)이 충족된 직후 물체가 측면에서 교차하며 재개 주행 중 충돌 발생\"], \"assumptions\": [{\"assumption\": \"정면 ±0.54m 영역만 감시하면 정면 접근 물체는 모두 잡을 수 있다\", \"holds\": false, \"why\": \"실제 충돌은 ±0.55m 부근에서 발생해 감시 영역 밖으로 분류됨\"}, {\"assumption\": \"정지하면 물체가 지나가므로 충돌이 피된다\", \"holds\": false, \"why\": \"물체는 정지하지 않고 계속 이동하며, 정지한 로봇 몸체에 직접 부딪힘\"}], \"approach_families\": [{\"family\": \"정면 거리 기반 정지/재개\", \"turns\": \"1~2\", \"result\": \"누적 5/14 pass, 정면-측면 경계 및 정지 중 접근 실패 반복\"}], \"candidates\": [{\"idea\": \"감시 반폭 확대(0.8m)와 정지 중 자동 후진·회피 로직 추가\", \"new_family\": true, \"for\": \"충돌이 모두 정면-측면 경계와 정지 상태 유입에서 발생해 영역 확대와 정지 중 반응이 필수\", \"risk\": \"반폭 확대 시 정적 장애물과 혼동해 불필요한 정지 증가 가능\"}, {\"idea\": \"접근 속도(closing speed) 기반 동적 감속 및 재개 지연\", \"new_family\": true, \"for\": \"물체가 느리게 접근할 때 거리만으로는 TTC 판단이 늦어짐\", \"risk\": \"라이다 노이즈로 접근 속도 계산이 불안정할 수 있음\"}], \"chosen\": \"감시 반폭 확대와 정지 중 자동 후진·회피 로직 추가를 선택하며, 정적 혼동 방지를 위해 정적 여유(_STATIC_MARGIN)를 0.2m로 축소한다.\", \"target\": \"controller 내 in_f 조건, _HW 상수, 정지 상태 분기, 재개 로직\", \"direction\": \"_HW를 0.8m로 확대해 정면-측면 경계 접근을 감지 영역에 포함한다. 정지 상태(v=0)에서도 near<1.0m이면 무조건 후진(v=-0.3) 또는 측면 회피 회전(w=±0.8)을 수행하며, 물체가 1.5m 이상 벗어나야 정지 해제를 허용한다. 재개 시에는 정면 3.0m 이상이어야 하고, 물체의 접근 속도가 양수이면 재개를 지연한다. 정적 필터링은 기존 _dynamic_world를 유지하되, 감시 영역 확대에 맞춰 _STATIC_MARGIN을 0.2m로 줄여 불필요한 정지를 방지한다.\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c6t2_s1588667310",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 70.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 64.383,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.44m/s",
+   "partner_rel_xy": [
+    0.35,
+    -0.54
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 62.05,
+   "goal_dist_m": 4.6049,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t2_s1407681510",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 529.6,
+   "sim_time_s": 70.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 64.467,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.17,
+    -0.55
+   ],
+   "closing_m_s": 0.49,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 61.72,
+   "goal_dist_m": 4.478,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t2_s1216203589",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 459.1,
+   "sim_time_s": 63.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 57.35,
+   "goal_dist_m": 0.2282,
+   "time_to_goal_s": 59.35
+  },
+  {
+   "run": "c6t2_s274835204",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 395.9,
+   "sim_time_s": 39.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 33.083,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.22,
+    -0.56
+   ],
+   "closing_m_s": 0.49,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 28.15,
+   "goal_dist_m": 23.8935,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1a. _STOP_R 을 0.6 m 로 낮춘다\", \"implemented\": true, \"note\": \"_STOP_R = 0.6 이고 span 과 s_all, s_cone 에 같이 반영됨\"},\n  {\"instruction\": \"1b. v=0 조건을 '거리 < _STOP_R 이고 bearing ±30° 이내' 로 제한한다\", \"implemented\": true, \"note\": \"_front_dynamic_min_dist 가 |bearing|<=_STOP_CONE_DEG(30) 점의 최소거리 d_cone 을 돌려주고, controller 5) 는 d_cone < _STOP_R 일 때만 v=0 으로 둠\"},\n  {\"instruction\": \"2a. _AVOID_R 를 2.0 m 로 조정한다\", \"implemented\": true, \"note\": \"_AVOID_R = 2.0\"},\n  {\"instruction\": \"2b. ±90° 영역에서는 w_avoid 와 감속(scale)만 적용한다\", \"implemented\": true, \"note\": \"원뿔 밖 물체는 s_all 하한이 _SIDE_SCALE_MIN=0.25 라 정지하지 않음. 지시에 없는 _V_AVOID_MAX=1.5 속도 상한이 추가됐지만 감속의 일종이라 지시와 충돌하지 않음\"},\n  {\"instruction\": \"3. _static_close_on_side 감지 범위를 넓혀 회전 시 측면·후면 접촉을 막는다\", \"implemented\": true, \"note\": \"앞 영역을 x<1.6, lat<1.2 로 넓힘. 뒤 라이다를 합쳐 반대쪽 후미 스윙 영역(x -1.05..-0.3, lat -0.85..0)을 추가함. 회전 방향과 후미 방향의 부호도 맞음\"},\n  {\"instruction\": \"4. w_avoid 최대치를 낮춘다\", \"implemented\": true, \"note\": \"_DPSI_MAX 를 0.6→0.35 로 낮춰 w_avoid 최대가 6.0→3.5. _W_AVOID_MAX 도 1.5→1.0\"},\n  {\"instruction\": \"5. E_TURN 을 0.6 으로 올린다\", \"implemented\": true, \"note\": \"지역 E_TURN 을 지우고 _E_TURN = 0.6 을 사용함\"},\n  {\"instruction\": \"6. 후진은 정면 원뿔 안 물체가 오래 머물 때만 한다\", \"implemented\": true, \"note\": \"d_cone<_STOP_R 블록 안에서 stop_steps>90 이고 _rear_clear() 일 때만 후진하며 w=0. _BACK_R 조건은 제거됨. 다만 _BACK_R=0.45 와 _PATH_HALF_W=0.45 가 새 코드에 여전히 정의돼 있어 '넣지 않았다'는 변경 이유와 다름. 둘 다 참조되지 않는 죽은 코드라 동작 영향은 없음\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거 1의 회전 속도 -1.9 rad/s 는 이전 코드의 회피 중 상한 1.5 를 넘음. 따라서 충돌 당시 회피 모드가 아니라 경유점 추종 중 제자리 회전이었을 가능성이 큼. 지시 3·4 는 dpsi 만 막으므로 이 원인은 해결하지 못할 수 있음\",\n  \"±30°, 0.6 m 원뿔의 0.6 m 지점 횡폭은 약 ±0.3 m 로 몸체 반폭 0.34 m 보다 좁음. 또 라이다가 x≈0.03 에 있어 0.6 m 는 앞 범퍼 기준 약 0.35 m 여유뿐임. 대각선 앞에서 다가오는 물체에 감속 하한 0.25 로 계속 전진하면 접촉할 수 있음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 26473,
+  "completion_tokens": 4796
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 46527,
+  "total_cost_usd": 0.307696,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4796,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 26471,
+    "webSearchRequests": 0,
+    "costUSD": 0.307696,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3355,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 26471,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "3a7fd472-22c0-4a47-a45b-67ca0ebae4b2"
+ }
+}

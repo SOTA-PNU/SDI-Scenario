@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 지시 1~5에 맞춰 폭 0.8 m의 좁은 통로(`_HW`) 대신 전방 180°(로봇 기준 x > -0.3, `_FRONT_X` 를 -0.3 으로 변경)의 움직이는 점 중 최단 거리 `d_front` 를 씁니다. 이렇게 하면 bearing ±80~100° 의 측면-정면 경계 접근도 감지됩니다. `d_front` < 1.5 m 이면 `v *= d_front/1.5` 로 비례 감속하고, `d_front` < 0.8 m 이거나 측면(|ay| > 0.5) 물체가 1.0 m 안에 있으면 즉시 v=0 으로 둡니다. 기존 `d_f` < 1.2/1.5 정지·재개 분기(blocked 상태)와 2 s 크리프 로직은 지시 4대로 제거했고, 물체가 멀어지면 같은 거리 비례식으로 바로 다시 가속합니다. 정지 중 물체가 0.8 m 안으로 오면 비켜나는 기존 동작은 진단이 제거를 지시하지 않아 그대로 두었고, 앞쪽 빈 공간 판정만 새 `d_front` 로 바꿨습니다.\n\n```python\n_FRONT_X = -0.3         # 전방 감시 영역의 뒤쪽 경계(로봇 기준 x): 이보다 앞의 점은 모두 감시 (진단: 전방 180°, x > -0.3)\n\n\n_SLOW_GAP = 1.5         # 전방 최단 거리가 이보다 작으면 v = v * (d_front / 1.5) 로 비례 감속 [m] (진단)\n\n\n_HARD_STOP = 0.8        # 전방 최단 거리가 이보다 작으면 v = 0 강제 정지 [m] (진단)\n\n\n_SIDE_Y = 0.5           # |ay| 가 이보다 크면 측면 물체로 본다 [m] (진단)\n\n\n_SIDE_STOP = 1.0        # 측면 물체가 이 거리 안이면 즉시 v = 0 [m] (진단)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 전방 180° 거리 비례 감속/정지 (C-2 시도 5, 진단 반영).\n    - 정적 지도 사각형 내부 점을 거르고 남은 점을 움직이는 물체로 본다(_STATIC_MARGIN=0.0 유지).\n    - 전방 180°(ax > -0.3) 점의 최단 거리 d_front: < 1.5 m 이면 v *= d_front/1.5, < 0.8 m 이면 v=0.\n    - 측면 물체(|ay| > 0.5)가 1.0 m 안이면 즉시 v=0.\n    - 정지/재개 상태(blocked)와 크리프 로직은 없음: 매 스텝 거리로 연속 감속·재가속.\n    - 정지 중 가장 가까운 움직이는 점이 0.8 m 안이면 비켜남(앞쪽 물체면 후진, 뒤쪽 물체면 전진).\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n    dyn_w, dyn_r, raw = _update_sensors(pose)\n    if not _NAV[\"got\"]:\n        return 0.0, 0.0, False          # 라이다 데이터가 오기 전에는 움직이지 않음\n\n    v, w, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True           # 목표 도착·정렬 완료: 미션 종료\n\n    fx, rx = _BODY[1], _BODY[0]\n    d_all = np.hypot(dyn_r[:, 0], dyn_r[:, 1])\n    ok = d_all >= _NOISE_R                                    # 0.2 m 미만 잡음 제외\n    ax, ay, d = dyn_r[ok, 0], np.abs(dyn_r[ok, 1]), d_all[ok]\n\n    # 전방 180° 최단 거리, 측면 최단 거리, 전 방향 최단 거리와 그 점의 앞뒤 위치\n    d_front = _min_or_inf(d[ax > _FRONT_X])\n    d_side = _min_or_inf(d[ay > _SIDE_Y])\n    near = _min_or_inf(d)\n    ox = float(ax[int(np.argmin(d))]) if d.size else 0.0\n\n    # 뒤/앞 빈 공간 확인(전체 점 기준 + 뒤쪽 움직이는 점)\n    gap_r = _min_or_inf(rx - ax[(ax < rx + 0.05) & (ay < _HW)])\n    bx, by = raw[:, 0], np.abs(raw[:, 1])\n    rear_free = np.count_nonzero((bx < rx) & (bx > rx - 0.9) & (by < 0.45)) < 3 and gap_r > 0.5\n    front_free = np.count_nonzero((bx > fx) & (bx < fx + 0.9) & (by < 0.45)) < 3\n\n    # 강제 정지 조건: 전방 0.8 m 안, 또는 측면 물체 1.0 m 안\n    stop = (d_front < _HARD_STOP) or (d_side < _SIDE_STOP)\n\n    # 정지 중 물체가 0.8 m 안: 앞쪽 물체면 후진, 뒤쪽 물체면 전진, 둘 다 막히면 정지\n    if (stop or v == 0.0) and near < _EVADE_R:\n        if ox >= 0.5 * (fx + rx):\n            if rear_free:\n                return -_EVADE_V, 0.0, False\n        elif front_free and d_front > _HARD_STOP:\n            return _EVADE_V, 0.0, False\n        return 0.0, 0.0, False\n\n    # 강제 정지: 전진 0, 물체가 회전 반경 밖일 때만 제자리 회전 허용\n    if stop:\n        cw = _clamp(w, -_EVADE_W, _EVADE_W) if near > _SWEEP_R else 0.0\n        return 0.0, cw, False\n\n    # 주행: 전방 180° 최단 거리에 비례해 연속 감속/재가속\n    if v > 0.0:\n        if d_front < _SLOW_GAP:\n            v = v * (d_front / _SLOW_GAP)\n        if np.any((ax > 0.0) & (ax < 3.5) & (ay < 2.0)):\n            v = min(v, 1.0)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 20217,
+  "completion_tokens": 7799
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 74280,
+  "total_cost_usd": 0.317708,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 7799,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 20215,
+    "webSearchRequests": 0,
+    "costUSD": 0.317708,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 5503,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 20215,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "43b6feec-f402-41f6-aa16-f84bd4acdc39"
+ }
+}

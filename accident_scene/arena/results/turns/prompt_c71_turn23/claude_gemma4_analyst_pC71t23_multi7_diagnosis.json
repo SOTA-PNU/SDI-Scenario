@@ -1,0 +1,203 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c71t23_s1013075099: t=4.967, 로봇 '정지' 상태에서 mover_00과 충돌 (상대 위치 [0.08, 0.55])",
+   "c71t23_s461160732: t=4.167, 로봇 '정지' 상태에서 mover_00과 충돌 (상대 위치 [0.51, 0.0])",
+   "c71t23_s2052964736: t=40.433, 로봇 '정지' 상태에서 mover_00과 충돌 (상대 위치 [0.37, 0.58])"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체가 매우 가까울 때 로봇을 정지시키는 것이 가장 안전하다",
+    "holds": false,
+    "why": "모든 충돌 사례에서 로봇이 정지한 후 물체에 의해 밀려 충돌함 (Sitting Duck 현상)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 경로 추종 및 거리 기반 정지",
+    "turns": "0-15",
+    "result": "낮은 통과율, 정체(stall) 또는 충돌 빈번"
+   },
+   {
+    "family": "트래킹 기반 능동 회피 및 척력 필터",
+    "turns": "16-22",
+    "result": "가장 높은 성과 (턴 22에서 9/10 통과)"
+   },
+   {
+    "family": "Raw 센서 기반 강제 정지(가상 범퍼)",
+    "turns": "23",
+    "result": "4/7 통과, 정지 상태에서의 충돌 유발"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_emergency_brake를 완전히 제거하고 턴 22의 척력/회피 로직으로 복귀",
+    "new_family": false,
+    "for": "강제 정지가 오히려 충돌을 유발함이 증명됨",
+    "risk": "트래커가 물체를 놓치는 상황에서 다시 충돌할 가능성 있음"
+   },
+   {
+    "idea": "_emergency_brake의 v=0 강제를 '후진 또는 회피 속도 강제'로 변경",
+    "new_family": true,
+    "for": "정지하지 않고 물체로부터 멀어지는 동작을 최우선함",
+    "risk": "회피 중 정적 장애물(벽, 박스)과 충돌할 위험이 있음"
+   },
+   {
+    "idea": "Raw 센서 감지를 _safety_filter 내부의 repulse 트리거로 통합",
+    "new_family": true,
+    "for": "트래커 실패 시에도 척력 모드를 활성화하되, 정지 대신 최적의 회피 후보를 선택함",
+    "risk": "구현 복잡도가 증가하고 튜닝이 어려움"
+   }
+  ],
+  "chosen": "가장 성과가 좋았던 턴 22의 로직으로 복귀하되, Raw 센서 감지를 척력 모드의 보조 트리거로 활용하여 트래커 누락을 보완함",
+  "target": "controller, _emergency_brake",
+  "direction": "1. controller에서 v=0을 강제하는 _emergency_brake 호출을 삭제합니다. 2. _emergency_brake 함수를 _raw_mover_detected로 변경하여 단순 감지 여부만 반환하게 합니다. 3. _safety_filter 내에서 repulse 모드 진입 조건에 '트래킹된 근접 물체' 또는 '_raw_mover_detected'가 True인 경우를 모두 포함시킵니다. 4. 이를 통해 트래커가 놓친 물체에 대해서도 정지가 아닌 '척력 기반 회피/후진' 후보를 선택하게 합니다. 5. v=0 강제보다는 _nominal_cmd의 후진 로직과 _safety_filter의 척력 후보가 작동하도록 우선순위를 조정합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c71t23_s1013075099: t=4.967, 로봇 '정지' 상태에서 mover_00과 충돌 (상대 위치 [0.08, 0.55])\",\n  \"c71t23_s461160732: t=4.167, 로봇 '정지' 상태에서 mover_00과 충돌 (상대 위치 [0.51, 0.0])\",\n  \"c71t23_s2052964736: t=40.433, 로봇 '정지' 상태에서 mover_00과 충돌 (상대 위치 [0.37, 0.58])\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"물체가 매우 가까울 때 로봇을 정지시키는 것이 가장 안전하다\",\n   \"holds\": false,\n   \"why\": \"모든 충돌 사례에서 로봇이 정지한 후 물체에 의해 밀려 충돌함 (Sitting Duck 현상)\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 경로 추종 및 거리 기반 정지\",\n   \"turns\": \"0-15\",\n   \"result\": \"낮은 통과율, 정체(stall) 또는 충돌 빈번\"\n  },\n  {\n   \"family\": \"트래킹 기반 능동 회피 및 척력 필터\",\n   \"turns\": \"16-22\",\n   \"result\": \"가장 높은 성과 (턴 22에서 9/10 통과)\"\n  },\n  {\n   \"family\": \"Raw 센서 기반 강제 정지(가상 범퍼)\",\n   \"turns\": \"23\",\n   \"result\": \"4/7 통과, 정지 상태에서의 충돌 유발\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"_emergency_brake를 완전히 제거하고 턴 22의 척력/회피 로직으로 복귀\",\n   \"new_family\": false,\n   \"for\": \"강제 정지가 오히려 충돌을 유발함이 증명됨\",\n   \"risk\": \"트래커가 물체를 놓치는 상황에서 다시 충돌할 가능성 있음\"\n  },\n  {\n   \"idea\": \"_emergency_brake의 v=0 강제를 '후진 또는 회피 속도 강제'로 변경\",\n   \"new_family\": true,\n   \"for\": \"정지하지 않고 물체로부터 멀어지는 동작을 최우선함\",\n   \"risk\": \"회피 중 정적 장애물(벽, 박스)과 충돌할 위험이 있음\"\n  },\n  {\n   \"idea\": \"Raw 센서 감지를 _safety_filter 내부의 repulse 트리거로 통합\",\n   \"new_family\": true,\n   \"for\": \"트래커 실패 시에도 척력 모드를 활성화하되, 정지 대신 최적의 회피 후보를 선택함\",\n   \"risk\": \"구현 복잡도가 증가하고 튜닝이 어려움\"\n  }\n ],\n \"chosen\": \"가장 성과가 좋았던 턴 22의 로직으로 복귀하되, Raw 센서 감지를 척력 모드의 보조 트리거로 활용하여 트래커 누락을 보완함\",\n \"target\": \"controller, _emergency_brake\",\n \"direction\": \"1. controller에서 v=0을 강제하는 _emergency_brake 호출을 삭제합니다. 2. _emergency_brake 함수를 _raw_mover_detected로 변경하여 단순 감지 여부만 반환하게 합니다. 3. _safety_filter 내에서 repulse 모드 진입 조건에 '트래킹된 근접 물체' 또는 '_raw_mover_detected'가 True인 경우를 모두 포함시킵니다. 4. 이를 통해 트래커가 놓친 물체에 대해서도 정지가 아닌 '척력 기반 회피/후진' 후보를 선택하게 합니다. 5. v=0 강제보다는 _nominal_cmd의 후진 로직과 _safety_filter의 척력 후보가 작동하도록 우선순위를 조정합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c71t23_s1013075099",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 11.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.967,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.08,
+    0.55
+   ],
+   "closing_m_s": 0.51,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 0.02,
+   "goal_dist_m": 32.1761,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t23_s1750760296",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 589.0,
+   "sim_time_s": 50.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1719,
+   "time_to_goal_s": 45.633
+  },
+  {
+   "run": "c71t23_s559236853",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 538.5,
+   "sim_time_s": 49.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 43.33,
+   "goal_dist_m": 0.1736,
+   "time_to_goal_s": 46.933
+  },
+  {
+   "run": "c71t23_s23111763",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 489.2,
+   "sim_time_s": 72.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 66.15,
+   "goal_dist_m": 0.0837,
+   "time_to_goal_s": 70.133
+  },
+  {
+   "run": "c71t23_s461160732",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 417.1,
+   "sim_time_s": 10.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.167,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.51,
+    0.0
+   ],
+   "closing_m_s": 0.25,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 29.1353,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c71t23_s1632599009",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 407.0,
+   "sim_time_s": 57.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1271,
+   "time_to_goal_s": 48.267
+  },
+  {
+   "run": "c71t23_s2052964736",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 349.3,
+   "sim_time_s": 46.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 40.433,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.37,
+    0.58
+   ],
+   "closing_m_s": 0.27,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 35.45,
+   "goal_dist_m": 31.2694,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

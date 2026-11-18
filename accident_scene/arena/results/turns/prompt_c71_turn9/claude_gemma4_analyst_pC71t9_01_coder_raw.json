@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 근거는 세 충돌이 모두 ±90° 감지 범위 밖(bearing ±120°~133°, 거리 0.4 m 안팎)에서 일어났다는 것입니다. 지시 1에 따라 `_get_dynamic_min` 을 새로 만들었습니다. 이 함수는 앞·뒤 2D 라이다 점을 합치고 정적 지도 점을 걸러, 360° 전체의 최근접 동적 물체, ±90° 안의 최근접 물체, 정지 원뿔 안의 최근접 거리를 함께 돌려줍니다. controller 는 지시 2·3·4에 맞췄습니다: 방향과 관계없이 2.0 m 안의 물체에는 감속을 적용하고(측후방 물체는 기존 `_SIDE_SCALE_MIN` 하한으로 멈추지 않게 함), 회피 조향은 ±90° 안의 물체에만 하며, 정지 원뿔(±30°, 0.6 m) 정지와 후진 로직은 그대로 둡니다.\n\n```python\ndef _get_dynamic_min(pose):\n    \"\"\"Closest non-static points from BOTH 2D lidars (front + back, full 360 deg), robot frame.\n    Returns (d_all, b_all, d_front, b_front, d_cone):\n      d_all, b_all     closest moving-object point in any direction (inf, 0.0 if none)\n      d_front, b_front closest moving-object point with |bearing| <= 90 deg (inf, 0.0 if none)\n      d_cone           closest moving-object point with |bearing| <= _STOP_CONE_DEG (inf if none)\"\"\"\n    inf = float(\"inf\")\n    parts = []\n    for which in (\"front\", \"back\"):\n        p = lidar2d_points(which)\n        if p is not None and len(p) > 0:\n            parts.append(p)\n    if not parts:\n        return inf, 0.0, inf, 0.0, inf\n    pts = np.concatenate(parts)\n    dyn = pts[~_static_mask(to_world(pts, pose))]\n    if len(dyn) == 0:\n        return inf, 0.0, inf, 0.0, inf\n    r = np.hypot(dyn[:, 0], dyn[:, 1])\n    bearing = np.arctan2(dyn[:, 1], dyn[:, 0])\n    i = int(np.argmin(r))\n    d_all, b_all = float(r[i]), float(bearing[i])\n    half = np.abs(bearing) <= math.pi / 2.0\n    if np.any(half):\n        rh = r[half]\n        bh = bearing[half]\n        j = int(np.argmin(rh))\n        d_front, b_front = float(rh[j]), float(bh[j])\n    else:\n        d_front, b_front = inf, 0.0\n    stop = np.abs(bearing) <= math.radians(_STOP_CONE_DEG)\n    d_cone = float(np.min(r[stop])) if np.any(stop) else inf\n    return d_all, b_all, d_front, b_front, d_cone\n\n\ndef controller(t, pose, env):\n    \"\"\"Follow the way-points (v_max 3.0, k_d 3.5, k_w 10.0, rotate in place when |e_cmd| > _E_TURN = 0.6).\n    Moving objects (front + back 2D lidar, 360 deg, static map filtered out):\n      - slow-down: any moving object within _AVOID_R (2.0 m) in ANY direction scales v down and caps v at\n        _V_AVOID_MAX; objects outside the stop cone (side / rear) never scale v below _SIDE_SCALE_MIN.\n      - steering: avoidance yaw rate only for the closest object with |bearing| <= 90 deg (|dpsi| <= 0.35 rad,\n        |w| <= 1.0); dropped when a static obstacle is near the turning front side or the swinging rear.\n      - v = 0 only when an object inside the stop cone (|bearing| <= 30 deg) is closer than _STOP_R (0.6 m).\n      - back up (straight, w = 0) only when a stop-cone object stays > 1.5 s and the rear is clear.\"\"\"\n    if not hasattr(controller, \"idx\"):\n        controller.idx = 0\n        controller.side = 0.0\n        controller.stop_steps = 0\n\n    x, y, yaw = pose\n\n    # 1) Goal-alignment phase (rotate in place, v = 0)\n    if controller.idx >= len(_WAYPOINTS):\n        e = _wrap_angle(GOAL[2] - yaw)\n        w = _clamp(1.5 * e, -0.6, 0.6)\n        if abs(e) < 0.05:\n            return 0.0, 0.0, True\n        return 0.0, w, False\n\n    # 2) Normal waypoint-following\n    tx, ty = _WAYPOINTS[controller.idx]\n    dx = tx - x\n    dy = ty - y\n    dist = math.hypot(dx, dy)\n    e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    if controller.idx < len(_WAYPOINTS) - 1 and dist < 0.35:\n        controller.idx += 1\n        tx, ty = _WAYPOINTS[controller.idx]\n        dx = tx - x\n        dy = ty - y\n        dist = math.hypot(dx, dy)\n        e = _wrap_angle(math.atan2(dy, dx) - yaw)\n\n    K_W = 10.0\n    span = _AVOID_R - _STOP_R\n\n    # 3) Moving objects: 360 deg closest (slow down), front-half closest (steer), stop cone (stop)\n    d_all, b_all, d_front, b_front, d_cone = _get_dynamic_min(pose)\n    slowing = d_all < _AVOID_R\n    steering = d_front < _AVOID_R\n\n    # 3a) avoidance steering: only for objects within +-90 deg\n    w_avoid = 0.0\n    if steering:\n        if abs(b_front) >= _B_TIE:\n            controller.side = 1.0 if b_front > 0.0 else -1.0     # object on the left (+1) / right (-1)\n        elif controller.side == 0.0:\n            controller.side = 1.0 if e <= 0.0 else -1.0          # dead ahead: pass on the waypoint side\n        side = controller.side\n        k = _clamp((_AVOID_R - d_front) / span, 0.0, 1.0)\n        dpsi = -side * _DPSI_MAX * k * max(0.3, math.cos(b_front))  # turn away from the object (limited)\n        if _static_close_on_side(pose, -side):\n            dpsi = 0.0                                            # do not steer / swing into walls, boxes, racks\n        w_avoid = K_W * dpsi\n    else:\n        controller.side = 0.0\n\n    # 3b) speed scaling: for moving objects in any direction (360 deg)\n    scale = 1.0\n    if slowing:\n        s_all = _clamp((d_all - _STOP_R) / span, 0.0, 1.0)\n        in_path = abs(b_all) <= math.radians(_STOP_CONE_DEG)\n        if not in_path:\n            s_all = max(s_all, _SIDE_SCALE_MIN)                   # side / rear object: slow down, never stall\n        s_cone = _clamp((d_cone - _STOP_R) / span, 0.0, 1.0) if d_cone < float(\"inf\") else 1.0\n        scale = min(s_all, s_cone)\n\n    # 4) Control law: waypoint heading + limited avoidance yaw rate\n    w_lim = _W_AVOID_MAX if steering else 2.0\n    w = _clamp(K_W * e + w_avoid, -w_lim, w_lim)\n    e_cmd = _wrap_angle(e + w_avoid / K_W)\n    if abs(e_cmd) > _E_TURN:\n        v = 0.0\n    else:\n        v = min(3.0, 3.5 * dist + 0.5) * scale\n        if slowing:\n            v = min(v, _V_AVOID_MAX)\n\n    # 5) Full stop only for the frontal stop cone (unchanged); back up only if it lasts and the rear is clear\n    if d_cone < _STOP_R:\n        controller.stop_steps += 1\n        v = 0.0\n        if controller.stop_steps > _BACK_AFTER_STEPS and _rear_clear():\n            v = -_V_BACK\n            w = 0.0\n    else:\n        controller.stop_steps = 0\n\n    if controller.idx == len(_WAYPOINTS) - 1 and dist < 0.25:\n        controller.idx += 1\n\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 19798,
+  "completion_tokens": 4604
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 37781,
+  "total_cost_usd": 0.250456,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4604,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 19796,
+    "webSearchRequests": 0,
+    "costUSD": 0.250456,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1636,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 19796,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "127d5435-8923-4a38-bc95-ed83cf7fa9d0"
+ }
+}

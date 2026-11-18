@@ -1,0 +1,141 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3개 실행 모두 충돌 순간 로봇이 회전(±0.8 rad/s)하며 전진(0.09~0.21 m/s) 중임. 측면/후측면 접근 물체를 피하려 회전 전진(v=0.2, w=±0.8) 명령을 내리다 로봇 모서리가 물체 경로와 교차.",
+   "Run1/2/3 모두 first_seen_within_2m_t 가 충돌 3~5초 전으로 조기 감지되었으나, d_min < 1.0m 조건 진입 후 회전 전진 로직이 물체의 진행 방향이나 접근 속도를 고려하지 않아 충돌.",
+   "측면 회피 시 _front_blocked 로직은 정적 장애물만 체크하며, 움직이는 물체의 접근 속도나 후면 여유를 검증하지 않아 안전 이탈 실패."
+  ],
+  "assumptions": [
+   {
+    "assumption": "측면 물체 감지 시 회전하며 전진(v=0.2)하면 물체를 피할 수 있다",
+    "holds": false,
+    "why": "실행 요약에서 3건 모두 회전 전진 중 충돌. 물체가 횡단하거나 평행 이동 시 로봇 전방 모서리가 충돌 경로에 진입"
+   },
+   {
+    "assumption": "순수 반응형(상태 변수 없음) 분기가 타이머 진동 문제를 해결한다",
+    "holds": true,
+    "why": "코드가 매 스텝 d_min/b_min 으로 결정하며 래치 상태 오류 없음"
+   },
+   {
+    "assumption": "정면 감시 영역(x > -0.3)과 _REAR_GAP(1.0m) 검증이 후진 안전을 보장한다",
+    "holds": true,
+    "why": "후진 시 정적 장애물 충돌 기록 없음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "연속 감속/반발 조향",
+    "turns": "5, 14, 15, 17, 19, 24",
+    "result": "최대 5/8 통과, 근접 충돌 및 서행 충돌 반복"
+   },
+   {
+    "family": "정지 래치+타이머 탈출(크리프/회전)",
+    "turns": "7, 8, 12, 13, 16, 18, 21, 22, 23",
+    "result": "최대 5/8 통과, 정지 중 충돌 또는 진행 중단(stall) 발생. 실패가 가장 많이 쌓인 계열"
+   },
+   {
+    "family": "순수 반응형 거리·bearing 분기",
+    "turns": "25",
+    "result": "0/3 통과, 회전 전진 중 충돌 집중"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 구간 전진 명령 완전 제거(v=0 또는 후진만 허용)",
+    "new_family": true,
+    "for": "3개 실행 모두 회전 전진 중 충돌. 전진 제거 시 로봇이 물체 경로에서 벗어나기 전까지 정지/후진/회전만 수행해 교차 충돌 차단",
+    "risk": "물체가 매우 느리거나 정지해 있으면 재개 지연 가능. d_min 재개 임계값을 1.2m로 상향해 보완 필요"
+   },
+   {
+    "idea": "닫힘 속도(Closing Velocity) 기반 정지 게이트",
+    "new_family": false,
+    "for": "접근 속도 >0 일 때만 정지, 멀어지면 즉시 재개해 진행 효율 높임",
+    "risk": "속도 추정 오차로 진동 발생 가능. 기존 시도(턴 11)에서 실패 기록 있음"
+   },
+   {
+    "idea": "측면 물체 후진/제자리 회전 통합 로직",
+    "new_family": false,
+    "for": "정면과 동일하게 뒤쪽 여유 확인 후 후진 또는 회전. 전진 제거와 중복되나 로직 통합 용이",
+    "risk": "후진 불가 시 제자리 회전만 수행하면 횡단 물체와 시간 충돌 가능"
+   }
+  ],
+  "chosen": "회피 구간 전진 명령 완전 제거 및 거리 기반 재개 로직을 선택. 3개 실행 공통 실패 원인이 회전 전진 중 경로 교차 충돌이므로, 회피 시 v=0(또는 후진)만 허용하고 d_min >= 1.2m 일 때만 정상 추종으로 복귀하면 안전 이탈이 보장됨.",
+  "target": "controller 함수 내 회피 분기 로직 및 _watch_min 기반 명령 생성 부분",
+  "direction": "controller 함수에서 d_min < 1.0m 일 때 측면/정면 구분 없이 전진 속도 v_cmd 를 0.0 으로 강제한다. 대신 _rear_gap(raw) >= 1.0m 이면 v_cmd = -0.2 로 후진하고, 아니면 w_cmd = ±0.8 로 제자리 회전한다. 회전 방향은 물체 반대쪽(b_min 부호 반대)으로 한다. d_min >= 1.2m 가 되면 회피 분기를 빠져나와 기존 경유점 추종(v_nom, w_nom)으로 즉시 복귀한다. _front_blocked 체크는 유지하되 전진 명령이 제거되므로 정적 충돌 위험은 추가로 줄어든다. 모든 회피 명령의 |w| 는 1.5 rad/s 이하로 제한한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\",\n \"evidence\": [\"3개 실행 모두 충돌 순간 로봇이 회전(±0.8 rad/s)하며 전진(0.09~0.21 m/s) 중임. 측면/후측면 접근 물체를 피하려 회전 전진(v=0.2, w=±0.8) 명령을 내리다 로봇 모서리가 물체 경로와 교차.\", \"Run1/2/3 모두 first_seen_within_2m_t 가 충돌 3~5초 전으로 조기 감지되었으나, d_min < 1.0m 조건 진입 후 회전 전진 로직이 물체의 진행 방향이나 접근 속도를 고려하지 않아 충돌.\", \"측면 회피 시 _front_blocked 로직은 정적 장애물만 체크하며, 움직이는 물체의 접근 속도나 후면 여유를 검증하지 않아 안전 이탈 실패.\"],\n \"assumptions\": [{\"assumption\": \"측면 물체 감지 시 회전하며 전진(v=0.2)하면 물체를 피할 수 있다\", \"holds\": false, \"why\": \"실행 요약에서 3건 모두 회전 전진 중 충돌. 물체가 횡단하거나 평행 이동 시 로봇 전방 모서리가 충돌 경로에 진입\"}, {\"assumption\": \"순수 반응형(상태 변수 없음) 분기가 타이머 진동 문제를 해결한다\", \"holds\": true, \"why\": \"코드가 매 스텝 d_min/b_min 으로 결정하며 래치 상태 오류 없음\"}, {\"assumption\": \"정면 감시 영역(x > -0.3)과 _REAR_GAP(1.0m) 검증이 후진 안전을 보장한다\", \"holds\": true, \"why\": \"후진 시 정적 장애물 충돌 기록 없음\"}],\n \"approach_families\": [{\"family\": \"연속 감속/반발 조향\", \"turns\": \"5, 14, 15, 17, 19, 24\", \"result\": \"최대 5/8 통과, 근접 충돌 및 서행 충돌 반복\"}, {\"family\": \"정지 래치+타이머 탈출(크리프/회전)\", \"turns\": \"7, 8, 12, 13, 16, 18, 21, 22, 23\", \"result\": \"최대 5/8 통과, 정지 중 충돌 또는 진행 중단(stall) 발생. 실패가 가장 많이 쌓인 계열\"}, {\"family\": \"순수 반응형 거리·bearing 분기\", \"turns\": \"25\", \"result\": \"0/3 통과, 회전 전진 중 충돌 집중\"}],\n \"candidates\": [{\"idea\": \"회피 구간 전진 명령 완전 제거(v=0 또는 후진만 허용)\", \"new_family\": true, \"for\": \"3개 실행 모두 회전 전진 중 충돌. 전진 제거 시 로봇이 물체 경로에서 벗어나기 전까지 정지/후진/회전만 수행해 교차 충돌 차단\", \"risk\": \"물체가 매우 느리거나 정지해 있으면 재개 지연 가능. d_min 재개 임계값을 1.2m로 상향해 보완 필요\"}, {\"idea\": \"닫힘 속도(Closing Velocity) 기반 정지 게이트\", \"new_family\": false, \"for\": \"접근 속도 >0 일 때만 정지, 멀어지면 즉시 재개해 진행 효율 높임\", \"risk\": \"속도 추정 오차로 진동 발생 가능. 기존 시도(턴 11)에서 실패 기록 있음\"}, {\"idea\": \"측면 물체 후진/제자리 회전 통합 로직\", \"new_family\": false, \"for\": \"정면과 동일하게 뒤쪽 여유 확인 후 후진 또는 회전. 전진 제거와 중복되나 로직 통합 용이\", \"risk\": \"후진 불가 시 제자리 회전만 수행하면 횡단 물체와 시간 충돌 가능\"}],\n \"chosen\": \"회피 구간 전진 명령 완전 제거 및 거리 기반 재개 로직을 선택. 3개 실행 공통 실패 원인이 회전 전진 중 경로 교차 충돌이므로, 회피 시 v=0(또는 후진)만 허용하고 d_min >= 1.2m 일 때만 정상 추종으로 복귀하면 안전 이탈이 보장됨.\",\n \"target\": \"controller 함수 내 회피 분기 로직 및 _watch_min 기반 명령 생성 부분\",\n \"direction\": \"controller 함수에서 d_min < 1.0m 일 때 측면/정면 구분 없이 전진 속도 v_cmd 를 0.0 으로 강제한다. 대신 _rear_gap(raw) >= 1.0m 이면 v_cmd = -0.2 로 후진하고, 아니면 w_cmd = ±0.8 로 제자리 회전한다. 회전 방향은 물체 반대쪽(b_min 부호 반대)으로 한다. d_min >= 1.2m 가 되면 회피 분기를 빠져나와 기존 경유점 추종(v_nom, w_nom)으로 즉시 복귀한다. _front_blocked 체크는 유지하되 전진 명령이 제거되므로 정적 충돌 위험은 추가로 줄어든다. 모든 회피 명령의 |w| 는 1.5 rad/s 이하로 제한한다.\",\n \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t25_s97900653",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 9.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.85,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.09m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.13,
+    -0.68
+   ],
+   "closing_m_s": 0.42,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 0.15,
+   "goal_dist_m": 31.3524,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t25_s474091274",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 590.1,
+   "sim_time_s": 10.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 4.067,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.21m/s 회전 -0.7",
+   "partner_rel_xy": [
+    -0.54,
+    0.55
+   ],
+   "closing_m_s": 0.72,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 31.8977,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t25_s867658383",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 580.1,
+   "sim_time_s": 31.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 25.25,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.13m/s 회전 +0.8",
+   "partner_rel_xy": [
+    0.09,
+    -0.65
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 20.78,
+   "goal_dist_m": 22.9569,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

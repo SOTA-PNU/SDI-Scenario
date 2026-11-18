@@ -1,0 +1,117 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c7t3_s1292793480: 로봇이 정지한 상태(t=122.0~123.7)에서 mover_03이 측면(rel_y=-0.56)에서 접근하여 충돌",
+   "c7t3_s782215108: 로봇이 정지한 상태(t=21.3~22.8)에서 mover_00이 측면(rel_y=0.55)에서 접근하여 충돌",
+   "c7t3_s1543193279: 로봇이 정지한 상태(t=16.3~17.8)에서 정적 장애물 arena_box_12와 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 및 능동 회피 로직이 움직이는 물체와의 충돌을 방지할 수 있다",
+    "holds": false,
+    "why": "물체를 감지해 정지했으나, 물체가 계속 다가오는 상황에서 회피 기동을 하지 못하고 '앉은 오리' 상태로 충돌함"
+   },
+   {
+    "assumption": "정적 지도 기반의 _static_free 검사가 정적 장애물 충돌을 막아준다",
+    "holds": false,
+    "why": "정지 상태에서 static:arena_box_12와 충돌한 것으로 보아, 정지 위치 자체가 장애물과 너무 가깝거나 정지 로직이 정적 장애물과의 최소 거리를 보장하지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 정지 및 능동 회피",
+    "turns": "3",
+    "result": "초기엔 7/9 통과했으나, 최근 시도(#3)에서 0/3으로 급락"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "능동 회피의 진입 장벽을 낮추고 정적 장애물과의 '최소 정지 거리' 강제",
+    "new_family": false,
+    "for": "정지 상태에서 측면 충돌이 발생하는 것은 회피 속도 선택 기준(best_c + 0.05)이 너무 엄격하거나 _static_free가 너무 보수적이기 때문임",
+    "risk": "회피 기동 중 정적 장애물에 더 자주 부딪힐 수 있음"
+   },
+   {
+    "idea": "속도 상한(speed_cap) 로직 제거 및 거리 기반 감속으로 단순화",
+    "new_family": true,
+    "for": "최근 턴에서 도입한 d_min 기반 속도 상한이 회피에 필요한 최소 속도마저 제한하여 탈출 능력을 떨어뜨렸을 가능성이 큼",
+    "risk": "고속 주행 중 갑작스러운 물체 출현 시 반응 시간이 부족할 수 있음"
+   }
+  ],
+  "chosen": "능동 회피의 결정 임계값을 낮추고, 정적 장애물에 대한 하드 스톱 거리를 도입하며, 지나치게 엄격한 속도 상한을 완화함",
+  "target": "_safe_speed, _static_free, _speed_cap",
+  "direction": "1. _safe_speed에서 능동 회피 속도 선택 시 `cv > best_c + 0.05`를 `cv > best_c + 0.01`로 낮춰 조금이라도 이득이면 움직이게 합니다. 2. _static_free의 probe 거리(L)를 약간 줄여 좁은 통로에서도 회피 기동이 가능하게 합니다. 3. _speed_cap의 최저 상한을 0.4에서 0.7로 올려 회피 시 최소 속도를 확보합니다. 4. _safe_speed의 일반 주행 구간에서도 정적 장애물이 너무 가까우면(예: 0.4m 미만) 강제로 v=0으로 만드는 하드 스톱 로직을 추가합니다. 5. _ESC_V 후보군에 더 낮은 속도(예: 0.2)를 추가하여 미세하게라도 거리를 벌릴 수 있게 합니다. 6. _is_danger의 side 판단 시 closing 속도 임계값을 낮춰 더 빠르게 반응하게 합니다.",
+  "confidence": "high"
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c7t3_s1292793480: 로봇이 정지한 상태(t=122.0~123.7)에서 mover_03이 측면(rel_y=-0.56)에서 접근하여 충돌\",\n  \"c7t3_s782215108: 로봇이 정지한 상태(t=21.3~22.8)에서 mover_00이 측면(rel_y=0.55)에서 접근하여 충돌\",\n  \"c7t3_s1543193279: 로봇이 정지한 상태(t=16.3~17.8)에서 정적 장애물 arena_box_12와 충돌\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"정지 및 능동 회피 로직이 움직이는 물체와의 충돌을 방지할 수 있다\",\n   \"holds\": false,\n   \"why\": \"물체를 감지해 정지했으나, 물체가 계속 다가오는 상황에서 회피 기동을 하지 못하고 '앉은 오리' 상태로 충돌함\"\n  },\n  {\n   \"assumption\": \"정적 지도 기반의 _static_free 검사가 정적 장애물 충돌을 막아준다\",\n   \"holds\": false,\n   \"why\": \"정지 상태에서 static:arena_box_12와 충돌한 것으로 보아, 정지 위치 자체가 장애물과 너무 가깝거나 정지 로직이 정적 장애물과의 최소 거리를 보장하지 않음\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"센서 기반 정지 및 능동 회피\",\n   \"turns\": \"3\",\n   \"result\": \"초기엔 7/9 통과했으나, 최근 시도(#3)에서 0/3으로 급락\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"능동 회피의 진입 장벽을 낮추고 정적 장애물과의 '최소 정지 거리' 강제\",\n   \"new_family\": false,\n   \"for\": \"정지 상태에서 측면 충돌이 발생하는 것은 회피 속도 선택 기준(best_c + 0.05)이 너무 엄격하거나 _static_free가 너무 보수적이기 때문임\",\n   \"risk\": \"회피 기동 중 정적 장애물에 더 자주 부딪힐 수 있음\"\n  },\n  {\n   \"idea\": \"속도 상한(speed_cap) 로직 제거 및 거리 기반 감속으로 단순화\",\n   \"new_family\": true,\n   \"for\": \"최근 턴에서 도입한 d_min 기반 속도 상한이 회피에 필요한 최소 속도마저 제한하여 탈출 능력을 떨어뜨렸을 가능성이 큼\",\n   \"risk\": \"고속 주행 중 갑작스러운 물체 출현 시 반응 시간이 부족할 수 있음\"\n  }\n ],\n \"chosen\": \"능동 회피의 결정 임계값을 낮추고, 정적 장애물에 대한 하드 스톱 거리를 도입하며, 지나치게 엄격한 속도 상한을 완화함\",\n \"target\": \"_safe_speed, _static_free, _speed_cap\",\n \"direction\": \"1. _safe_speed에서 능동 회피 속도 선택 시 `cv > best_c + 0.05`를 `cv > best_c + 0.01`로 낮춰 조금이라도 이득이면 움직이게 합니다. 2. _static_free의 probe 거리(L)를 약간 줄여 좁은 통로에서도 회피 기동이 가능하게 합니다. 3. _speed_cap의 최저 상한을 0.4에서 0.7로 올려 회피 시 최소 속도를 확보합니다. 4. _safe_speed의 일반 주행 구간에서도 정적 장애물이 너무 가까우면(예: 0.4m 미만) 강제로 v=0으로 만드는 하드 스톱 로직을 추가합니다. 5. _ESC_V 후보군에 더 낮은 속도(예: 0.2)를 추가하여 미세하게라도 거리를 벌릴 수 있게 합니다. 6. _is_danger의 side 판단 시 closing 속도 임계값을 낮춰 더 빠르게 반응하게 합니다.\",\n \"confidence\": \"high\"\n}\n```",
+ "table": [
+  {
+   "run": "c7t3_s1292793480",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 129.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 123.717,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.01,
+    -0.56
+   ],
+   "closing_m_s": 0.37,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 118.75,
+   "goal_dist_m": 4.3375,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t3_s782215108",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 470.3,
+   "sim_time_s": 28.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 22.833,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.02,
+    0.55
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 17.92,
+   "goal_dist_m": 31.4373,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c7t3_s1543193279",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 441.4,
+   "sim_time_s": 23.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.8,
+   "partner": "static:arena_box_12",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 12.85,
+   "goal_dist_m": 25.6887,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

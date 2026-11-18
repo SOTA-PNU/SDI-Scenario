@@ -1,0 +1,154 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실패 3건(c6t28_s212628558, c6t28_s1080687040, c6t28_s67420824) 모두 충돌 순간 robot_state가 '정지'",
+   "closing_m_s가 0.35~0.6 m/s로 물체가 정지한 로봇 쪽으로 지속적으로 접근 중",
+   "현재 코드에서 d_min < 0.8 m 시 v=0, w=0 무조건 정지해 물체 진행 경로 이탈이 불가능함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇이 충분히 일찍 정지하면 물체도 멈추거나 충돌을 피할 것",
+    "holds": false,
+    "why": "물체는 로봇을 피하지 않으며 정지한 로봇을 그대로 덮쳐 충돌 발생"
+   },
+   {
+    "assumption": "d_min 임계값 기반 상태 전환만으로 제어 안정성을 확보할 수 있음",
+    "holds": false,
+    "why": "정지 상태에 갇히면 d_min이 증가하지 않아 탈출 불가하며 진동 유발"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "이진 정지/재개(래치·타이머)",
+    "turns": "1~13",
+    "result": "진동·데드락·측면 통과 실패로 대다수 실패"
+   },
+   {
+    "family": "연속 감속+반발 조향",
+    "turns": "14~19, 24, 27~28",
+    "result": "최대 5/8 통과 성공이나 d_min 임계값 이하 정지 시 정지 충돌 반복"
+   },
+   {
+    "family": "정지 중 강제 회피(후진·회전)",
+    "turns": "12, 16, 18, 20, 22~23, 25~26",
+    "result": "로직 복잡도 증가로 정적 충돌 또는 상태 관리 오류 발생"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "d_min < 0.8 m 시 무조건 정지 대신 bearing에 따라 후진 또는 측면 회전을 매 스텝 반환하는 상태 없는 능동 회피",
+    "new_family": true,
+    "for": "정지 중 접근 충돌을 근본적으로 차단하며 상태 전환 진동 없음",
+    "risk": "후진 시 정적 장애물 충돌 가능, 회전 시 통로 폭 제한 고려 필요"
+   },
+   {
+    "idea": "하드 정지 제거하고 d_min에 비례해 v를 0까지 연속 감속하되 w에 강한 반발 항을 더해 자연스럽게 경로 이탈",
+    "new_family": false,
+    "for": "연속 제어의 안정성 유지",
+    "risk": "빠른 물체 접근 시 감속거리 부족으로 충돌 재발"
+   },
+   {
+    "idea": "정지 중 d_min < 0.8 m 시 v=0 유지하되 w를 ±0.5로 고정해 제자리 회전하며 물체 진행 경로 이탈",
+    "new_family": false,
+    "for": "정지 상태 유지로 정적 충돌 위험 감소",
+    "risk": "회전 반경 내 정적 장애물 충돌, 회전 방향 오판정 시 물체와 가까워질 수 있음"
+   }
+  ],
+  "chosen": "후보 1(상태 없는 능동 회피)을 선택: 정지 중 접근 충돌을 즉시 후진·회전으로 해결하고 상태 변수 제거로 진동 방지",
+  "target": "controller 내 d_min < 0.8 m 분기 및 _watch_min 기반 제어 로직",
+  "direction": "d_min < 0.8 m 일 때 v=0, w=0 정지 대신 active evasion 로직을 적용한다. |b_min| < 1.0 rad(정면) 이면 _rear_gap(raw) >= 1.0 m 시 v=-0.2 직선 후진을, 막혔을 때 v=0, w=-0.6*sign(b_min) 제자리 회전을 반환한다. |b_min| >= 1.0 rad(측면) 이면 v=0, w=0.6*sign(b_min) 로 물체 반대 방향 회전을 반환한다. d_min >= 0.8 m 이면 기존 연속 감속과 반발 조향 로직으로 즉시 복귀한다. 모든 명령의 |v| <= 0.3, |w| <= 0.8 로 제한해 정적 충돌을 방지한다.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실패 3건(c6t28_s212628558, c6t28_s1080687040, c6t28_s67420824) 모두 충돌 순간 robot_state가 '정지'\", \"closing_m_s가 0.35~0.6 m/s로 물체가 정지한 로봇 쪽으로 지속적으로 접근 중\", \"현재 코드에서 d_min < 0.8 m 시 v=0, w=0 무조건 정지해 물체 진행 경로 이탈이 불가능함\"], \"assumptions\": [{\"assumption\": \"로봇이 충분히 일찍 정지하면 물체도 멈추거나 충돌을 피할 것\", \"holds\": false, \"why\": \"물체는 로봇을 피하지 않으며 정지한 로봇을 그대로 덮쳐 충돌 발생\"}, {\"assumption\": \"d_min 임계값 기반 상태 전환만으로 제어 안정성을 확보할 수 있음\", \"holds\": false, \"why\": \"정지 상태에 갇히면 d_min이 증가하지 않아 탈출 불가하며 진동 유발\"}], \"approach_families\": [{\"family\": \"이진 정지/재개(래치·타이머)\", \"turns\": \"1~13\", \"result\": \"진동·데드락·측면 통과 실패로 대다수 실패\"}, {\"family\": \"연속 감속+반발 조향\", \"turns\": \"14~19, 24, 27~28\", \"result\": \"최대 5/8 통과 성공이나 d_min 임계값 이하 정지 시 정지 충돌 반복\"}, {\"family\": \"정지 중 강제 회피(후진·회전)\", \"turns\": \"12, 16, 18, 20, 22~23, 25~26\", \"result\": \"로직 복잡도 증가로 정적 충돌 또는 상태 관리 오류 발생\"}], \"candidates\": [{\"idea\": \"d_min < 0.8 m 시 무조건 정지 대신 bearing에 따라 후진 또는 측면 회전을 매 스텝 반환하는 상태 없는 능동 회피\", \"new_family\": true, \"for\": \"정지 중 접근 충돌을 근본적으로 차단하며 상태 전환 진동 없음\", \"risk\": \"후진 시 정적 장애물 충돌 가능, 회전 시 통로 폭 제한 고려 필요\"}, {\"idea\": \"하드 정지 제거하고 d_min에 비례해 v를 0까지 연속 감속하되 w에 강한 반발 항을 더해 자연스럽게 경로 이탈\", \"new_family\": false, \"for\": \"연속 제어의 안정성 유지\", \"risk\": \"빠른 물체 접근 시 감속거리 부족으로 충돌 재발\"}, {\"idea\": \"정지 중 d_min < 0.8 m 시 v=0 유지하되 w를 ±0.5로 고정해 제자리 회전하며 물체 진행 경로 이탈\", \"new_family\": false, \"for\": \"정지 상태 유지로 정적 충돌 위험 감소\", \"risk\": \"회전 반경 내 정적 장애물 충돌, 회전 방향 오판정 시 물체와 가까워질 수 있음\"}], \"chosen\": \"후보 1(상태 없는 능동 회피)을 선택: 정지 중 접근 충돌을 즉시 후진·회전으로 해결하고 상태 변수 제거로 진동 방지\", \"target\": \"controller 내 d_min < 0.8 m 분기 및 _watch_min 기반 제어 로직\", \"direction\": \"d_min < 0.8 m 일 때 v=0, w=0 정지 대신 active evasion 로직을 적용한다. |b_min| < 1.0 rad(정면) 이면 _rear_gap(raw) >= 1.0 m 시 v=-0.2 직선 후진을, 막혔을 때 v=0, w=-0.6*sign(b_min) 제자리 회전을 반환한다. |b_min| >= 1.0 rad(측면) 이면 v=0, w=0.6*sign(b_min) 로 물체 반대 방향 회전을 반환한다. d_min >= 0.8 m 이면 기존 연속 감속과 반발 조향 로직으로 즉시 복귀한다. 모든 명령의 |v| <= 0.3, |w| <= 0.8 로 제한해 정적 충돌을 방지한다.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c6t28_s212628558",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 26.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 20.583,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.4,
+    -0.51
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 15.62,
+   "goal_dist_m": 22.8112,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t28_s1926005615",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 573.4,
+   "sim_time_s": 63.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 57.42,
+   "goal_dist_m": 0.2228,
+   "time_to_goal_s": 59.5
+  },
+  {
+   "run": "c6t28_s1080687040",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 510.1,
+   "sim_time_s": 39.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 33.233,
+   "partner": "mover_02",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.73,
+    0.44
+   ],
+   "closing_m_s": 0.35,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 30.25,
+   "goal_dist_m": 10.5407,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c6t28_s67420824",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 470.8,
+   "sim_time_s": 25.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 19.7,
+   "partner": "mover_01",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.02,
+    -0.6
+   ],
+   "closing_m_s": 0.46,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 16.85,
+   "goal_dist_m": 23.6478,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

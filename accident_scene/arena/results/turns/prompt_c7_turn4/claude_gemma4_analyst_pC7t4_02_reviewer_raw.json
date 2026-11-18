@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _safe_speed 능동 회피 채택 기준 best_c + 0.05 를 + 0.01 로 낮춤\", \"implemented\": true, \"note\": \"cv > best_c + _ESC_GAIN, _ESC_GAIN = 0.01\"},\n  {\"instruction\": \"2. _static_free 의 probe 거리 L 을 약간 줄임\", \"implemented\": true, \"note\": \"전진 0.2+0.5v → 0.15+0.4v, 후진 ex 와 _rear_clear 모두 0.2+0.4|v| → 0.15+0.3|v|\"},\n  {\"instruction\": \"3. _speed_cap 최저 상한을 0.4 에서 0.7 로 올림\", \"implemented\": true, \"note\": \"cap = 1.5 if d > need else _CAP_MIN(0.7). 0.4 단계가 없어져 1.5 m 구간도 함께 사라짐\"},\n  {\"instruction\": \"4. 일반 주행에서 정적 장애물이 0.4 m 미만이면 v=0 하드 스톱\", \"implemented\": true, \"note\": \"비위험 분기의 반환 세 곳에 _static_guard 적용. v>0 이고 _static_ahead(0.4+0.3·v_meas) 이면 v=0. 지시에 없던 회전 쓸림 시 ±0.25 m/s 빠져나가기도 추가됨\"},\n  {\"instruction\": \"5. _ESC_V 에 0.2 같은 낮은 속도 추가\", \"implemented\": true, \"note\": \"_ESC_V = (-0.8, -0.5, -0.2, 0.2, 0.5, 1.0, 1.5)\"},\n  {\"instruction\": \"6. _is_danger side 판단의 closing 임계값을 낮춤\", \"implemented\": true, \"note\": \"0.10→0.05, 0.15→0.08. 추가로 _SIDE_WARN 1.2→1.5, 감시 시간 2.0→2.5 s\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거 3은 정지 상태에서 정적 박스와 충돌한 경우임. 정지한 로봇이 정적 박스에 닿으려면 제자리 회전이나 회피 기동 중이어야 함. 전진 하드 스톱만으로는 이 경우를 막지 못하고, 능동 회피 분기에는 가드가 없음\",\n  \"_static_ahead 는 all_w(움직이는 물체 점 포함)를 써서 정적 장애물만이 아니라 모든 근접 점에서 멈춤. 지시보다 넓게 적용됨\",\n  \"_static_guard 의 ±0.25 m/s 빠져나가기는 움직이는 물체에 대한 _clearance 검사를 거치지 않음\",\n  \"측면 closing 임계값을 0.05 m/s 로 낮추면 추적 속도 잡음만으로도 side 위험이 자주 켜질 수 있음\",\n  \"최저 상한을 0.7 m/s 로 올리면 가까운 물체 옆에서도 감속이 약해짐. 진단 근거(정지 중 측면 충돌)와 직접 관련이 약함\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 42519,
+  "completion_tokens": 3163
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30511,
+  "total_cost_usd": 0.403404,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3163,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 42517,
+    "webSearchRequests": 0,
+    "costUSD": 0.403404,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2009,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 42517,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b8858a9c-16a0-4b7b-8292-fa57504943df"
+ }
+}
