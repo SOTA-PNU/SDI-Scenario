@@ -1,0 +1,165 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "collision at t=103.683s with static arena_box_07 while robot moving at 1.01m/s",
+   "stall run shows robot stopped moving after 77.88s with mover at 2.14m and closing approach",
+   "time limit failure due to robot not reaching goal (final dist 30.2m) within 45.8s limit"
+  ],
+  "assumptions": [
+   {
+    "assumption": "TTC < 2.0s is an appropriate trigger for evasion",
+    "holds": false,
+    "why": "collision occurred despite TTC-based evasion; earlier trigger (1.0s) showed better results in previous attempts"
+   },
+   {
+    "assumption": "Evasion duration based solely on TTC and clearance validation is sufficient",
+    "holds": false,
+    "why": "stall run shows robot unable to move despite evasion conditions; prolonged evasion or insufficient clearance check caused stall"
+   },
+   {
+    "assumption": "_ANCHOR_R=0.8m is optimal for mover avoidance",
+    "holds": false,
+    "why": "review questioned tighter radius; attempt #6 with _ANCHOR_R=1.2m had higher pass rate (7/8) vs current 2/5"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC threshold adjustment",
+    "turns": "6",
+    "result": "1.0s: 7/8 pass (turn 6), 2.0s: 0/3 pass (turn 7)"
+   },
+   {
+    "family": "Evasion duration tuning",
+    "turns": "8",
+    "result": "0.5s hold: 2/5 pass (turn 8), longer hold may reduce stalls"
+   },
+   {
+    "family": "Anchor parameter modification",
+    "turns": "7",
+    "result": "1.2m radius: better results than 0.8m in previous turn"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Lower _TTC_TRIG to 1.0s, increase _EVADE_HOLD to 1.0s, revert _ANCHOR_R to 1.2m",
+    "new_family": true,
+    "for": "Earlier evasion trigger prevents late collisions; longer hold allows more maneuver time; larger anchor radius improves velocity estimation"
+   },
+   {
+    "idea": "During evasion, prioritize static clearance over mover clearance when mover within 1.5m",
+    "new_family": true,
+    "for": "Collisions with static obstacles occur during evasion; focusing on static safety avoids box collisions"
+   },
+   {
+    "idea": "Add minimum 2s cooldown after evasion ends before re-triggering",
+    "new_family": false,
+    "for": "Prevents rapid re-triggering due to TTC fluctuations; reduces unnecessary evasion"
+   }
+  ],
+  "chosen": "Lower _TTC_TRIG to 1.0s, increase _EVADE_HOLD to 1.0s, and revert _ANCHOR_R to 1.2m because earlier evasion trigger and longer maneuver window address both collision and stall issues, supported by higher pass rate in previous attempts with similar parameters",
+  "target": "controller function parameters (_TTC_TRIG, _EVADE_HOLD, _ANCHOR_R)",
+  "direction": "1. Set _TTC_TRIG = 1.0s to trigger evasion earlier when TTC drops below 1.0s\n2. Increase _EVADE_HOLD to 1.0s so evasion extends at least 1.0s after TTC recovery\n3. Revert _ANCHOR_R to 1.2m for better velocity estimation around movers\n4. Adjust _EVADE_MAX to 8.0s to prevent premature evasion end in complex scenarios\n5. In _choose, add static clearance bonus for paths maintaining >0.4m from static obstacles during evasion\n6. Ensure evasion ends only when both TTC ≥ 1.0s and static clearance ≥ 0.3m for 0.5s",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"collision at t=103.683s with static arena_box_07 while robot moving at 1.01m/s\", \"stall run shows robot stopped moving after 77.88s with mover at 2.14m and closing approach\", \"time limit failure due to robot not reaching goal (final dist 30.2m) within 45.8s limit\"], \"assumptions\": [{\"assumption\": \"TTC < 2.0s is an appropriate trigger for evasion\", \"holds\": false, \"why\": \"collision occurred despite TTC-based evasion; earlier trigger (1.0s) showed better results in previous attempts\"}, {\"assumption\": \"Evasion duration based solely on TTC and clearance validation is sufficient\", \"holds\": false, \"why\": \"stall run shows robot unable to move despite evasion conditions; prolonged evasion or insufficient clearance check caused stall\"}, {\"assumption\": \"_ANCHOR_R=0.8m is optimal for mover avoidance\", \"holds\": false, \"why\": \"review questioned tighter radius; attempt #6 with _ANCHOR_R=1.2m had higher pass rate (7/8) vs current 2/5\"}], \"approach_families\": [{\"family\": \"TTC threshold adjustment\", \"turns\": \"6\", \"result\": \"1.0s: 7/8 pass (turn 6), 2.0s: 0/3 pass (turn 7)\"}, {\"family\": \"Evasion duration tuning\", \"turns\": \"8\", \"result\": \"0.5s hold: 2/5 pass (turn 8), longer hold may reduce stalls\"}, {\"family\": \"Anchor parameter modification\", \"turns\": \"7\", \"result\": \"1.2m radius: better results than 0.8m in previous turn\"}], \"candidates\": [{\"idea\": \"Lower _TTC_TRIG to 1.0s, increase _EVADE_HOLD to 1.0s, revert _ANCHOR_R to 1.2m\", \"new_family\": true, \"for\": \"Earlier evasion trigger prevents late collisions; longer hold allows more maneuver time; larger anchor radius improves velocity estimation\"}, {\"idea\": \"During evasion, prioritize static clearance over mover clearance when mover within 1.5m\", \"new_family\": true, \"for\": \"Collisions with static obstacles occur during evasion; focusing on static safety avoids box collisions\"}, {\"idea\": \"Add minimum 2s cooldown after evasion ends before re-triggering\", \"new_family\": false, \"for\": \"Prevents rapid re-triggering due to TTC fluctuations; reduces unnecessary evasion\"}], \"chosen\": \"Lower _TTC_TRIG to 1.0s, increase _EVADE_HOLD to 1.0s, and revert _ANCHOR_R to 1.2m because earlier evasion trigger and longer maneuver window address both collision and stall issues, supported by higher pass rate in previous attempts with similar parameters\", \"target\": \"controller function parameters (_TTC_TRIG, _EVADE_HOLD, _ANCHOR_R)\", \"direction\": \"1. Set _TTC_TRIG = 1.0s to trigger evasion earlier when TTC drops below 1.0s\\n2. Increase _EVADE_HOLD to 1.0s so evasion extends at least 1.0s after TTC recovery\\n3. Revert _ANCHOR_R to 1.2m for better velocity estimation around movers\\n4. Adjust _EVADE_MAX to 8.0s to prevent premature evasion end in complex scenarios\\n5. In _choose, add static clearance bonus for paths maintaining >0.4m from static obstacles during evasion\\n6. Ensure evasion ends only when both TTC ≥ 1.0s and static clearance ≥ 0.3m for 0.5s\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t8_s1029518895",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 237.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": 231.58,
+   "goal_dist_m": 0.2237,
+   "time_to_goal_s": 233.65
+  },
+  {
+   "run": "c8t8_s803810350",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 362.4,
+   "sim_time_s": 128.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 122.07,
+   "goal_dist_m": 0.22,
+   "time_to_goal_s": 124.183
+  },
+  {
+   "run": "c8t8_s285553177",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 234.4,
+   "sim_time_s": 78.9,
+   "stall_abort_t": 77.88,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.7191,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t8_s2087105688",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 155.5,
+   "sim_time_s": 109.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 103.683,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "주행 1.01m/s",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 9.1139,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t8_s1156855100",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 45.8,
+   "sim_time_s": 46.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 40.82,
+   "goal_dist_m": 30.2153,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

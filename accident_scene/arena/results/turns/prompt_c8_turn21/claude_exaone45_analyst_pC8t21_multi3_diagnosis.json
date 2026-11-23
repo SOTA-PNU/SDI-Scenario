@@ -1,0 +1,132 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 요약에서 3개 모두 'progress_abort'로 실패, stall_abort 창 90초 동안 진행 없음",
+   "stop_turns 수치 높음 (45, 19, 33)으로 제자리 회전/정지 반복",
+   "last_5s 기록에서 '제자리 회전 +1.7rad/s' 등 회전 위주의 동작, 목표 거리 13-30m로 미도달"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 설계는 TTC < 1.0s 또는 근접 접근 시 즉시 회피 모드로 전환해 안전하다고 가정함",
+    "holds": false,
+    "why": "실행 결과에서 회피 중 제자리 회전으로 정체 발생, TTC 회복 조건 미충족 시 회피 지속"
+   },
+   {
+    "assumption": "회피 종료 조건은 거리 증가 또는 정적 안전도 충족 시 자동 해제된다고 가정함",
+    "holds": false,
+    "why": "실행에서 거리 증가 미미(_EV_INC_TOL 0.01m) 및 정적 안전도 불안정으로 종료 지연"
+   },
+   {
+    "assumption": "회피 중 측면 이동(_NARROW_W 등)이 장애물 회피에 효과적이라고 가정함",
+    "holds": false,
+    "why": "정적 장애물과의 간섭 또는 진동 유발로 실제 진행 방해"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC/접근 기준 민감도 조정",
+    "turns": "13회",
+    "result": "성공 3회, 실패 10회 (주로 collision 또는 stall)"
+   },
+   {
+    "family": "회피 동작 강도 조절 (요율, 정지 거리)",
+    "turns": "10회",
+    "result": "성공 5회, 실패 5회 (stall_abort 집중)"
+   },
+   {
+    "family": "정적 안전도 통합 및 히스테리시스 적용",
+    "turns": "8회",
+    "result": "성공 4회, 실패 4회 (회피 종료 실패로 정체 유발)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 '거리 변화율(d_dot)'을 최대화하는 명령 우선 선택 (움직이는 물체 속도 벡터 반영)",
+    "new_family": true,
+    "for": "정적 안전도나 TTC보다 거리 감소 속도를 직접 제어해 진동 방지",
+    "risk": "예측 오차 시 과도한 회피 동작 유발 가능"
+   },
+   {
+    "idea": "회피-정상 전환을 '거리 증가율 + 정적 안전도 동시 충족' 조건으로 강화",
+    "new_family": false,
+    "for": "과거 시도에서 단일 조건으로 인한 정체 개선",
+    "risk": "조건 충족 지연으로 회피 시간 초과 위험"
+   },
+   {
+    "idea": "회피 중 정적 장애물과의 최소 거리 0.15m 유지 강제 및 측면 이동 제한",
+    "new_family": false,
+    "for": "정적 장애물 간섭으로 인한 정지 방지",
+    "risk": "움직이는 물체 회피 능력 저하"
+   }
+  ],
+  "chosen": "후보 1 선택: 거리 변화율 최대화를 통해 회피 중 전진/측면 이동을 균형 있게 유도해 진동 및 정체 방지",
+  "target": "controller 내 evasion 트리거 및 _choose 함수",
+  "direction": "1. 회피 중 _choose에서 각 후보 경로의 d_dot(거리 변화율) 계산 추가\n2. d_dot이 양수(거리 증가)이고 최대인 후보에 보너스 점수 부여\n3. 정적 안전도(stc) ≥ 0.0 조건 유지하되, d_dot 기준 강화로 진동 억제\n4. 회피 종료 조건을 d_dot > 0.1 m/s 지속 0.5초로 변경\n5. _EV_INC_TOL을 0.05m로 완화해 거리 미세 증가도 종료 조건으로 인정\n6. 측면 이동 후보(w) 선택 시 d_dot 증가 방향과 일치하는지 검증",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 요약에서 3개 모두 'progress_abort'로 실패, stall_abort 창 90초 동안 진행 없음\", \"stop_turns 수치 높음 (45, 19, 33)으로 제자리 회전/정지 반복\", \"last_5s 기록에서 '제자리 회전 +1.7rad/s' 등 회전 위주의 동작, 목표 거리 13-30m로 미도달\"], \"assumptions\": [{\"assumption\": \"현재 설계는 TTC < 1.0s 또는 근접 접근 시 즉시 회피 모드로 전환해 안전하다고 가정함\", \"holds\": false, \"why\": \"실행 결과에서 회피 중 제자리 회전으로 정체 발생, TTC 회복 조건 미충족 시 회피 지속\"}, {\"assumption\": \"회피 종료 조건은 거리 증가 또는 정적 안전도 충족 시 자동 해제된다고 가정함\", \"holds\": false, \"why\": \"실행에서 거리 증가 미미(_EV_INC_TOL 0.01m) 및 정적 안전도 불안정으로 종료 지연\"}, {\"assumption\": \"회피 중 측면 이동(_NARROW_W 등)이 장애물 회피에 효과적이라고 가정함\", \"holds\": false, \"why\": \"정적 장애물과의 간섭 또는 진동 유발로 실제 진행 방해\"}], \"approach_families\": [{\"family\": \"TTC/접근 기준 민감도 조정\", \"turns\": \"13회\", \"result\": \"성공 3회, 실패 10회 (주로 collision 또는 stall)\"}, {\"family\": \"회피 동작 강도 조절 (요율, 정지 거리)\", \"turns\": \"10회\", \"result\": \"성공 5회, 실패 5회 (stall_abort 집중)\"}, {\"family\": \"정적 안전도 통합 및 히스테리시스 적용\", \"turns\": \"8회\", \"result\": \"성공 4회, 실패 4회 (회피 종료 실패로 정체 유발)\"}], \"candidates\": [{\"idea\": \"회피 중 '거리 변화율(d_dot)'을 최대화하는 명령 우선 선택 (움직이는 물체 속도 벡터 반영)\", \"new_family\": true, \"for\": \"정적 안전도나 TTC보다 거리 감소 속도를 직접 제어해 진동 방지\", \"risk\": \"예측 오차 시 과도한 회피 동작 유발 가능\"}, {\"idea\": \"회피-정상 전환을 '거리 증가율 + 정적 안전도 동시 충족' 조건으로 강화\", \"new_family\": false, \"for\": \"과거 시도에서 단일 조건으로 인한 정체 개선\", \"risk\": \"조건 충족 지연으로 회피 시간 초과 위험\"}, {\"idea\": \"회피 중 정적 장애물과의 최소 거리 0.15m 유지 강제 및 측면 이동 제한\", \"new_family\": false, \"for\": \"정적 장애물 간섭으로 인한 정지 방지\", \"risk\": \"움직이는 물체 회피 능력 저하\"}], \"chosen\": \"후보 1 선택: 거리 변화율 최대화를 통해 회피 중 전진/측면 이동을 균형 있게 유도해 진동 및 정체 방지\", \"target\": \"controller 내 evasion 트리거 및 _choose 함수\", \"direction\": \"1. 회피 중 _choose에서 각 후보 경로의 d_dot(거리 변화율) 계산 추가\\n2. d_dot이 양수(거리 증가)이고 최대인 후보에 보너스 점수 부여\\n3. 정적 안전도(stc) ≥ 0.0 조건 유지하되, d_dot 기준 강화로 진동 억제\\n4. 회피 종료 조건을 d_dot > 0.1 m/s 지속 0.5초로 변경\\n5. _EV_INC_TOL을 0.05m로 완화해 거리 미세 증가도 종료 조건으로 인정\\n6. 측면 이동 후보(w) 선택 시 d_dot 증가 방향과 일치하는지 검증\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t21_s974225810",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 283.7,
+   "stall_abort_t": null,
+   "progress_abort_t": 282.67,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 45,
+   "first_seen_within_2m_t": 278.73,
+   "goal_dist_m": 14.0041,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t21_s1640060816",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 316.3,
+   "sim_time_s": 92.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 91.77,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 86.85,
+   "goal_dist_m": 30.8772,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t21_s1975733395",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 223.5,
+   "sim_time_s": 181.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 180.82,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 33,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 29.1566,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

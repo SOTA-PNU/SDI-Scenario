@@ -1,0 +1,129 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 실행(c8t23_s1316743998)에서 로봇이 3.25m 거리에서 정적 박스와 충돌, TTC는 1.0s 기준 미달로 회피 미트리거",
+   "통과 실행은 1.8m 거리에서 회피 성공했으나, 충돌 실행은 4.99m에서 최초 감지로 TTC/근접 조건 미충족",
+   "로봇이 0.74m/s로 주행 중 정적 장애물 충돌로, 회피 종료 조건(d_dot > 0.05m/s 등)이 느리게 멀어지는 물체 감지에 부적합"
+  ],
+  "assumptions": [
+   {
+    "assumption": "TTC < 1.0s 또는 근접 거리(<2m)에서 회피 트리거 발생 가정",
+    "holds": false,
+    "why": "천천히 접근하는 물체는 TTC가 높고 거리도 2m 이상일 수 있어 트리거 미발생"
+   },
+   {
+    "assumption": "회피 중 정적 장애물 안전 거리(stc >= 0.0) 유지 가능 가정",
+    "holds": false,
+    "why": "협소 구간에서 mover 회피 시 정적 장애물과 충돌 위험 존재"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 트리거 파라미터 조정 (TTC/거리 임계값 변경)",
+    "turns": "15",
+    "result": "통과 5/8, 실패 3/8로 개선 있으나 충돌 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC 트리거를 0.5s로 낮추고 절대 거리 기준(d_near < 1.5m) 추가 트리거 도입",
+    "new_family": true,
+    "for": "천천히 접근하는 물체나 초기 감지 단계에서 조기 회피 유도",
+    "risk": "과도한 회피 발생 가능성 있으나, 충돌 감소 기대"
+   },
+   {
+    "idea": "회피 중 정적 안전 거리(stc) 기준을 0.0m에서 0.1m로 강화",
+    "new_family": false,
+    "for": "정적 장애물 충돌 방지 및 안전한 회피 경로 선택",
+    "risk": "협소 구간에서 회피 실패 가능성 증가"
+   }
+  ],
+  "chosen": "절대 거리 기준(d_near < 1.5m)을 추가 트리거로 도입해 천천히 접근하는 물체 감지 개선 및 회피 중 정적 안전 거리(stc >= 0.1m) 강제 적용",
+  "target": "_choose 함수 및 회피 트리거 조건",
+  "direction": "1. evasion 트리거 조건에 d_near < 1.5m 추가 (기존 TTC/근접 조건과 OR 결합). 2. _choose의 evading=True 분기에서 stc >= 0.1m를 필수 조건으로 설정. 3. 회피 중 정적 안전 거리 미달 시 mover 회피보다 정적 장애물 회피 우선 적용. 4. TTC_TRIG를 0.5s로 완화해 느린 접근 물체 감지 강화. 5. evasion 종료 조건에 정적 안전 거리 지속 유지(0.1m 이상 0.5s) 추가. 6. 회피 경로 선택 시 mover clearance와 static clearance 가중치를 1:2로 조정해 정적 안전도 우선 고려.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"충돌 실행(c8t23_s1316743998)에서 로봇이 3.25m 거리에서 정적 박스와 충돌, TTC는 1.0s 기준 미달로 회피 미트리거\", \"통과 실행은 1.8m 거리에서 회피 성공했으나, 충돌 실행은 4.99m에서 최초 감지로 TTC/근접 조건 미충족\", \"로봇이 0.74m/s로 주행 중 정적 장애물 충돌로, 회피 종료 조건(d_dot > 0.05m/s 등)이 느리게 멀어지는 물체 감지에 부적합\"], \"assumptions\": [{\"assumption\": \"TTC < 1.0s 또는 근접 거리(<2m)에서 회피 트리거 발생 가정\", \"holds\": false, \"why\": \"천천히 접근하는 물체는 TTC가 높고 거리도 2m 이상일 수 있어 트리거 미발생\"}, {\"assumption\": \"회피 중 정적 장애물 안전 거리(stc >= 0.0) 유지 가능 가정\", \"holds\": false, \"why\": \"협소 구간에서 mover 회피 시 정적 장애물과 충돌 위험 존재\"}], \"approach_families\": [{\"family\": \"회피 트리거 파라미터 조정 (TTC/거리 임계값 변경)\", \"turns\": \"15\", \"result\": \"통과 5/8, 실패 3/8로 개선 있으나 충돌 지속\"}], \"candidates\": [{\"idea\": \"TTC 트리거를 0.5s로 낮추고 절대 거리 기준(d_near < 1.5m) 추가 트리거 도입\", \"new_family\": true, \"for\": \"천천히 접근하는 물체나 초기 감지 단계에서 조기 회피 유도\", \"risk\": \"과도한 회피 발생 가능성 있으나, 충돌 감소 기대\"}, {\"idea\": \"회피 중 정적 안전 거리(stc) 기준을 0.0m에서 0.1m로 강화\", \"new_family\": false, \"for\": \"정적 장애물 충돌 방지 및 안전한 회피 경로 선택\", \"risk\": \"협소 구간에서 회피 실패 가능성 증가\"}], \"chosen\": \"절대 거리 기준(d_near < 1.5m)을 추가 트리거로 도입해 천천히 접근하는 물체 감지 개선 및 회피 중 정적 안전 거리(stc >= 0.1m) 강제 적용\", \"target\": \"_choose 함수 및 회피 트리거 조건\", \"direction\": \"1. evasion 트리거 조건에 d_near < 1.5m 추가 (기존 TTC/근접 조건과 OR 결합). 2. _choose의 evading=True 분기에서 stc >= 0.1m를 필수 조건으로 설정. 3. 회피 중 정적 안전 거리 미달 시 mover 회피보다 정적 장애물 회피 우선 적용. 4. TTC_TRIG를 0.5s로 완화해 느린 접근 물체 감지 강화. 5. evasion 종료 조건에 정적 안전 거리 지속 유지(0.1m 이상 0.5s) 추가. 6. 회피 경로 선택 시 mover clearance와 static clearance 가중치를 1:2로 조정해 정적 안전도 우선 고려.\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t23_s1316743998",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 135.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 129.7,
+   "partner": "static:arena_box_09",
+   "robot_at_collision": "주행 0.74m/s 회전 -0.3",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 16.8852,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t23_s207292635",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 464.3,
+   "sim_time_s": 164.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": 158.45,
+   "goal_dist_m": 0.226,
+   "time_to_goal_s": 160.45
+  },
+  {
+   "run": "c8t23_s1019177786",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 299.9,
+   "sim_time_s": 165.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": 159.85,
+   "goal_dist_m": 0.2026,
+   "time_to_goal_s": 161.817
+  },
+  {
+   "run": "c8t23_s991681622",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 134.1,
+   "sim_time_s": 135.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 130.0,
+   "goal_dist_m": 29.2874,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

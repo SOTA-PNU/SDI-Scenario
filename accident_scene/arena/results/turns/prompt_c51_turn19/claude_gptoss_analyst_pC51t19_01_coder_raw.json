@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 \"정지 중 정적 장애물과 가까워지면 뒤로 물러나는 reverse 상태 추가\" 지시를 따라 `controller` 에 `reverse` 상태를 넣었습니다. stop 상태에서 `_static_ok(pose,(0,0))` 가 False 이면 reverse 로 전환합니다. 다만 정지해 있을 때는 이 검사가 거의 항상 True 이므로, 지금 정적 지도와의 여유가 0.15 m 보다 작을 때도 전환하도록 조건을 넓혔습니다. reverse 에서는 w=0 인 후진 후보(-0.5 → -0.1 m/s) 가운데 `_is_safe` 와 `_static_ok` 를 모두 통과하는 가장 빠른 속도를 1.0 s 동안 쓰고, 그 뒤 gap 과 정적 검사를 다시 평가해 go 또는 stop 으로 돌아갑니다. 전환할 때 stop/detour 타이머를 초기화하고, 기존 `_safe_evade` 호출은 그대로 두었으며, 쓸 수 있는 후진 후보가 없으면 reverse 로 들어가지 않아 기존 stop → detour 흐름이 막히지 않습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 정지·대기·우회(go / stop / detour) + 다가오는 물체 회피.\n    회피 명령은 _safe_evade 로 안전 검증 후 사용하고, stop 상태에서 검증된 회피 명령이 없으면 바로 우회 회전으로 전환한다.\n    진단(turn 19): stop 중 정적 장애물과 여유가 부족하면 'reverse' 상태로 안전한 후진(w=0)을 _REV_T 동안 한 뒤 재평가한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.rev_t = 0.0\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n\n    # reverse 상태: 안전한 후진을 _REV_T 동안 유지한 뒤 gap·정적 검사로 go / stop 재평가\n    if c.state == \"reverse\":\n        if t - c.rev_t < _REV_T:\n            rv, rw = _reverse_cmd(pose, movers)\n            if rv < 0.0:\n                return rv, rw, False\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _safe_evade(pose, movers, target, True)\n            return v, w, False\n        cmd = (v_nom * f, w_nom)\n        if gap >= _GO_D and _is_safe(pose, cmd, movers, _SAFE_GO) and _static_ok(pose, cmd):\n            c.state = \"go\"\n            return cmd[0], cmd[1], False\n        c.state, c.stop_t, c.detour_t = \"stop\", t, t\n\n    # 경유점 추종은 go 일 때만(물체 예측으로 감속)\n    if c.state == \"go\":\n        if gap < _STOP_D:\n            c.state, c.stop_t = \"stop\", t\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (v_nom * f * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            v, w = _safe_evade(pose, movers, target, False)\n            return v, w, False\n\n    resume = gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)\n\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * f, w_nom, False\n        # 진단: 정지 중 정적 장애물과 여유가 부족하면 reverse 로 전환(타이머 초기화)\n        if _static_tight(pose):\n            rv, rw = _reverse_cmd(pose, movers)\n            if rv < 0.0:\n                c.state, c.rev_t = \"reverse\", t\n                c.stop_t, c.detour_t = t, t\n                return rv, rw, False\n        if t - c.stop_t >= _STOP_WAIT:\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _safe_evade(pose, movers, target, True)\n            if v == 0.0 and w == 0.0:\n                c.state, c.detour_t = \"detour\", t\n                c.detour_w = _detour_side(pose)\n                rot = (0.0, c.detour_w)\n                if _is_safe(pose, rot, movers, _SAFE) and _static_ok(pose, rot):\n                    return rot[0], rot[1], False\n            return v, w, False\n\n    # detour\n    if resume:\n        c.state = \"go\"\n        return v_nom * f, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _safe_evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _safe_evade(pose, movers, target, False)\n    return v, w, False\n\n\n_REV_T = 1.0           # reverse 상태 유지 시간 [s] - 진단 (약 1.0 s)\n\n\n_REV_CLEAR = 0.15      # 정지 중 정적 지도와의 현재 여유가 이보다 작으면 reverse [m]\n\n\n_REV_SPEEDS = (-0.5, -0.35, -0.2, -0.1)   # 후진 후보 속도 (큰 음수부터) [m/s]\n\n\ndef _static_now(pose):\n    \"\"\"현재 자세에서 로봇 몸체와 정적 지도 사이의 여유 [m].\"\"\"\n    ro = _rollout(pose, [(0.0, 0.0)], controller.vm, controller.wm)\n    _, now = _static_clear(ro, pose)\n    return now\n\n\ndef _static_tight(pose):\n    \"\"\"진단: 정지 명령 (0,0) 이 _static_ok 를 통과하지 못하거나 현재 정적 여유가 _REV_CLEAR 미만이면 True.\"\"\"\n    return (not _static_ok(pose, (0.0, 0.0))) or _static_now(pose) < _REV_CLEAR\n\n\ndef _reverse_cmd(pose, movers):\n    \"\"\"진단: w=0 후진 후보 중 _is_safe(_SAFE) 와 _static_ok 를 모두 통과하는 가장 큰 음수 속도. 없으면 (0, 0).\"\"\"\n    for v in _REV_SPEEDS:\n        cmd = (v, 0.0)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return v, 0.0\n    return 0.0, 0.0\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 31494,
+  "completion_tokens": 6129
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 51384,
+  "total_cost_usd": 0.37452399999999997,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 6129,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 31492,
+    "webSearchRequests": 0,
+    "costUSD": 0.37452399999999997,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3055,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 31492,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b6b423cd-f7de-4dcb-8f25-a34f6a9e597a"
+ }
+}

@@ -1,0 +1,257 @@
+{
+ "turn": 29,
+ "started": "2026-11-19 07:15:01",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn28/claude_exaone45_analyst_pC8t28_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 1, 2에서 stop_turn_episodes 72, 56회 발생 및 progress_abort로 종료",
+   "마지막 5초 기록에서 제자리 회전 반복 (예: \"제자리 회전 -0.4rad/s\")과 정지 상태 지속 (d_near 2.86m → 3.07m로 미세 증가)",
+   "첫 감지 거리 3.38m~4.9m지만 로봇은 전진 없이 회전만 반복해 목표까지 거리 10.8m 유지"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 트리거 시 d_dot > 0인 후보 선택으로 거리 증가 유도 가능",
+    "holds": false,
+    "why": "실행 기록에서 d_near 변화가 미미(0.19m)하고 제자리 회전 반복, 거리 증가율 미달"
+   },
+   {
+    "assumption": "정적 여유(stc) 보장 시 회피 종료 조건 충족 가능",
+    "holds": false,
+    "why": "st_n < 0.15m 구간에서도 회피 종료되지 않고 반복 트리거"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 트리거 민감도 조정",
+    "turns": 20,
+    "result": "TTC_TRIG, NEAR_TRIG_D 등 파라미터 변경 시도 다수 실패"
+   },
+   {
+    "family": "회피 중 정적 여유 강제 조건",
+    "turns": 15,
+    "result": "stc ≥ 0.15m 필터 적용 시 정지 빈도 증가, 진행 없음"
+   },
+   {
+    "family": "회피 종료 조건 완화/강화",
+    "turns": 12,
+    "result": "EV_END_ST, RESUME_CLR_F 조정에도 진행 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 제자리 회전 대신 전진 속도 유지하며 d_dot > 0인 방향 선택",
+    "new_family": true,
+    "for": "로봇이 회전 없이 전진하며 거리 증가 가능하도록 유도",
+    "risk": "정적 장애물과의 충돌 위험 증가"
+   },
+   {
+    "idea": "d_dot 기반 종료 조건 강화: 0.1m/s 지속 증가 시 무조건 회피 종료",
+    "new_family": false,
+    "for": "미세 거리 증가에도 회피 유지로 인한 시간 낭비 방지",
+    "risk": "정적 장애물 근접 시 조기 종료 위험"
+   },
+   {
+    "idea": "회피 중 lateral candidate 선택 시 전진 속도(v) 최소 0.2m/s 강제",
+    "new_family": false,
+    "for": "회전 위주 동작 대신 전진+회전 조합으로 거리 증가 및 진행 유도",
+    "risk": "회피 대상 물체와의 상대 속도 계산 오류 시 비효율적 회피"
+   }
+  ],
+  "chosen": "후보 1 선택: 제자리 회전 대신 전진 속도 유지하며 거리 증가율(d_dot)을 최우선 평가하도록 _choose 함수 수정",
+  "target": "_choose 함수와 evasion 종료 조건 (end_rise, end_ddot)",
+  "direction": "1) _choose 내 evading=True 분기에서 d_dot 계산 필수화하고, v > 0.2m/s 후보만 허용\n2) d_dot > 0.05m/s인 후보에 점수 2배 부여, 제자리 회전(v < 0.05m/s) 후보 페널티 적용\n3) end_rise 조건에서 ddot_win > 0.1m/s 대신 d_near 증가율 지속 확인(1.0s 내 0.3m 이상)\n4) 회피 중 v=0 명령 강제 제거, 최소 전진 속도 유지로 진행성 확보\n5) 정적 여유(stc) 검증은 2차 평가로 전환해 거리 증가 우선시"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 방향 1·2·4·5에 따라 `_choose` 의 회피 분기를 고쳤습니다. 이제 d_dot 을 항상 계산하고(앵커가 없으면 가까운 움직이는 점으로 계산), 전진 후보(v > 0.2 m/s)를 먼저 고릅니다. d_dot > 0.05 m/s 인 후보는 d_dot 점수를 2배로 받고, 제자리 명령은 페널티를 받으며, 정적 여유는 접촉 방지(stc ≥ -0.05)와 낮춘 점수 가중치(40 → 10)로만 반영합니다. 앞으로 가는 후보가 모두 물체 여유를 잃을 때만, 충돌을 막기 위한 마지막 수단으로 후진·정지 후보를 허용합니다. 컨트롤러에서는 회피 중 v=0 강제 정지(d_near < 1.0 m 정지, 정지 밴드)를 없애고 전진 우선 `_choose` 로 바꿨습니다. 방향 3에 따라 `end_rise` 는 거리 증가율 문턱 대신 \"1.0 s 안에 d_near 가 0.3 m 이상 꾸준히 늘었는가\"로 판정하며, 정적 여유를 기다리지 않고 바로 회피를 끝냅니다.",
+   "changed": [
+    "_DDOT_GOOD",
+    "_DDOT_GOOD_F",
+    "_EV_MIN_V",
+    "_EV_RISE_D",
+    "_EV_RISE_S",
+    "_EV_ST_FLOOR",
+    "_EV_ST_SC_W",
+    "_SPIN_PEN",
+    "_cand_ddot_pts",
+    "_choose",
+    "_ddot_good_bonus",
+    "_narrow_lateral",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1a) 회피 중 _choose 에서 d_dot 계산 필수화",
+      "implemented": true,
+      "note": "앵커가 없으면 _cand_ddot_pts 로 근처 점에서 d_dot 를 계산함. 다만 넘기는 P 에 정지 트랙 점(U=0)이 섞여 있어 주석의 '움직이는 점'과 다름. Pm, Um 을 넘기는 편이 맞음"
+     },
+     {
+      "instruction": "1b) 회피 중 v > 0.2 m/s 후보만 허용",
+      "implemented": false,
+      "note": "fwd 티어를 먼저 볼 뿐임. 뒤 티어(moving, ok_clr&st_ok, st_ok)와 마지막 stc 폴백에서 후진(-0.4, -0.8)과 정지 (0,0) 후보도 고를 수 있음. 지시는 '만 허용'"
+     },
+     {
+      "instruction": "2a) d_dot > 0.05 m/s 후보 점수 2배",
+      "implemented": true,
+      "note": "_ddot_good_bonus 가 _DDOT_W 항을 한 번 더 더함. _choose 와 _narrow_lateral 모두 적용"
+     },
+     {
+      "instruction": "2b) 제자리(v < 0.05) 후보 페널티",
+      "implemented": true,
+      "note": "회피 중 _SPIN_PEN(6.0)*spin 을 뺌. 회피가 아닐 때도 제자리 회전에 페널티를 줌"
+     },
+     {
+      "instruction": "3) end_rise 의 ddot > 0.1 대신 1.0 s 안 0.3 m 증가 지속 확인",
+      "implemented": false,
+      "note": "end_rise 는 gain >= 0.3 으로 바꿈(창은 최대 약 1.1 s). 그러나 실제 0.1 m/s 기준인 end_dd1(_DDOT_END_V=0.1, 1.0 s)이 그대로 남아 있어 0.1 m 증가만으로도 회피가 끝남"
+     },
+     {
+      "instruction": "4a) 회피 중 v=0 강제 명령 제거",
+      "implemented": true,
+      "note": "d_near < _EV_STOP_HARD 정지 분기와 band 정지 분기를 _choose 호출로 바꿈"
+     },
+     {
+      "instruction": "4b) 회피 중 최소 전진 속도 유지",
+      "implemented": false,
+      "note": "_choose 의 폴백 티어가 (0,0)이나 후진을 돌려줄 수 있어 최소 전진이 보장되지 않음(1b 와 같은 원인). _narrow_lateral 은 전진만 함"
+     },
+     {
+      "instruction": "5) 정적 여유(stc)를 2차 평가로 전환",
+      "implemented": true,
+      "note": "st_ok 를 stc >= -0.05 접촉 가드로 낮추고 _EV_ST_SC_W 를 40에서 10으로 내림. end_rise 에서 st_hold 를 뺌"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 3의 'end_rise 의 ddot_win > 0.1' 은 현재 코드와 맞지 않음. end_rise 의 문턱은 0.05/0.02 이고, 0.1 m/s 는 end_dd1 의 _DDOT_END_V 임",
+     "지시 1·4대로 전진 후보만 허용하면, 모든 전진 후보가 물체 여유를 잃는 순간에도 전진하게 되어 충돌 위험이 있음",
+     "_EV_ST_FLOOR=-0.05 는 _ROBOT_R 0.42 기준으로 원이 장애물을 파고드는 값이라 측면 여유가 매우 작음"
+    ],
+    "feedback": "1) _choose 의 evading 분기에서 tiers 를 전진 후보로만 구성하십시오. 순서는 fwd&ok_clr&st_ok&dd_ok, fwd&ok_clr&st_ok, fwd&st_ok 입니다. 셋 다 비면 fwd 중 clr 이 가장 큰 후보를 고르십시오. moving, ok_clr&st_ok, st_ok 티어와 마지막 stc 폴백에서 후진·정지 후보가 뽑히지 않게 해야 합니다(지시 1, 4). 2) end_dd1(_DDOT_END_V=0.1 m/s, 1.0 s 창) 종료를 지우거나, 새 end_rise 와 같은 '1.0 s 안 d_near 0.3 m 이상 지속 증가' 기준으로 바꾸십시오. 그래야 0.1 m/s 기준이 남지 않습니다(지시 3). 3) 선택: _cand_ddot_pts 에는 P, U 대신 Pm, Um 을 넘기십시오."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 검토 지시 1에 따라 `_choose` 의 회피 분기는 이제 전진 후보(v > 0.2 m/s)만 고릅니다. 티어는 fwd&ok_clr&st_ok&dd_ok → fwd&ok_clr&st_ok → fwd&st_ok 순이고, 셋 다 비면 전진 후보 중 물체 여유(clr)가 가장 큰 것을 고르므로 후진·정지 후보는 어떤 경로로도 뽑히지 않습니다(진단 지시 1, 4). 검토 지시 2에 따라 컨트롤러에서 `end_dd1` 종료(0.1 m/s, 1.0 s 창)와 그 상태 추적·로그를 지웠고, 거리 증가에 따른 회피 종료는 \"1.0 s 안에 d_near 0.3 m 이상 지속 증가\"인 `end_rise` 하나만 남습니다(진단 지시 3, `_DDOT_END_V` 는 더 이상 참조되지 않음). 검토 지시 3에 따라 컨트롤러가 매 스텝 움직이는 점만(`Pm`, `Um`) `_CS` 에 저장하고, `_choose` 와 `_narrow_lateral` 의 `_cand_ddot_pts` 는 이 점들을 씁니다.",
+   "changed": [
+    "_choose",
+    "_narrow_lateral",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1) 회피 분기에서 d_dot 계산 필수화",
+      "implemented": true,
+      "note": "앵커가 없으면 _cand_ddot_pts 로 S[\"pm\"], S[\"um\"] 에서 d_dot 를 계산함. 움직이는 점이 없을 때만 None"
+     },
+     {
+      "instruction": "1) 회피 중 v > 0.2 m/s 후보만 허용",
+      "implemented": true,
+      "note": "_choose 의 모든 티어와 최종 대안에 fwd = V > _EV_MIN_V 가 걸림. _narrow_lateral 도 vk ≥ 0.2 또는 _FWD_V 로 전진만 함"
+     },
+     {
+      "instruction": "2) d_dot > 0.05 m/s 후보에 점수 2배",
+      "implemented": true,
+      "note": "_ddot_good_bonus 가 d_dot 선형 항을 한 번 더 더함(항만 2배, 전체 점수 2배는 아님)"
+     },
+     {
+      "instruction": "2) 제자리 회전(v < 0.05) 후보 페널티",
+      "implemented": true,
+      "note": "score -= _SPIN_PEN * spin. fwd 마스크 때문에 회피 중에는 어차피 선택되지 않음"
+     },
+     {
+      "instruction": "3) end_rise 를 1.0 s 안에 d_near 0.3 m 이상 지속 증가로",
+      "implemented": false,
+      "note": "창 재시작 조건이 el > _EV_RISE_S + _EV_SAMP_DT 임. el = 1.1 s 표본에서도 gain ≥ 0.3 이면 종료되므로 실제 창이 1.1 s 임. far 일 때 0.5 s 종료 경로도 남아 있음"
+     },
+     {
+      "instruction": "4) 회피 중 v=0 강제 제거, 최소 전진 유지",
+      "implemented": true,
+      "note": "d_near < _EV_STOP_HARD 의 정지와 band 정지를 지우고 전진 전용 _choose 로 바꿈. 회피 중 모든 분기가 전진 명령을 냄"
+     },
+     {
+      "instruction": "5) stc 검증을 2차 평가로",
+      "implemented": true,
+      "note": "st_ok 를 stc ≥ -0.05 접촉 가드로 낮추고 _EV_ST_SC_W 를 40 → 10 으로 줄임. 최종 대안은 clr 최대이고 점수로 동점만 가림"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "물체가 1 m 이내로 접근할 때 전진만 허용하면 정지·후진으로 비켜설 여지가 없어 정면 접근 시 오히려 충돌할 수 있음",
+     "정적 여유를 -0.05 m 까지 허용하고, 최종 대안이 stc 를 보지 않아 벽·선반 접촉 위험이 커짐",
+     "'점수 2배' 의 뜻이 모호함(d_dot 항만인지 전체 점수인지)"
+    ],
+    "feedback": "controller 의 end_rise 창 재시작 조건 `t - S[\"inc_since\"] > _EV_RISE_S + _EV_SAMP_DT + 1e-9` 를 `t - S[\"inc_since\"] > _EV_RISE_S + 1e-9` 로 고치십시오. 그래야 진단 지시 3대로 시작 표본부터 1.0 s 안에 0.3 m 이상 오를 때만 end_rise 가 됩니다. 그 밖의 변경은 그대로 두십시오."
+   }
+  },
+  {
+   "attempt": 2,
+   "reason": "변경 이유: 검토 지시에 따라 `controller` 의 `end_rise` 창 재시작 조건을 `t - S[\"inc_since\"] > _EV_RISE_S + 1e-9` 로 고쳤습니다. 이제 창은 시작 표본부터 1.0 s 를 넘지 않습니다. 그래서 `end_rise` 는 진단 지시 3대로 d_near 가 매 표본 줄지 않으면서 시작 표본부터 1.0 s 안에 0.3 m 이상 올랐을 때만 참이 됩니다. 1.0 s 를 넘기고도 0.3 m 에 못 미치면 창이 현재 표본에서 다시 시작합니다. 그 밖의 동작은 바꾸지 않았고, 바뀐 정의는 `controller` 하나입니다.",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1a) _choose 회피 분기에서 d_dot 계산 필수화",
+      "implemented": true,
+      "note": "앵커가 없으면 _cand_ddot_pts 로 S[\"pm\"], S[\"um\"] 에서 대체 계산합니다. 반경 안에 움직이는 점이 없을 때만 None 이고, 이때는 계산할 대상이 없습니다."
+     },
+     {
+      "instruction": "1b) 회피 중 v > 0.2 m/s 후보만 허용",
+      "implemented": true,
+      "note": "fwd = V > _EV_MIN_V 를 모든 tier 와 최종 대체에 걸었습니다. 전진 후보가 없으면 _FWD_V 를 돌려줍니다. _narrow_lateral 은 vk = v0 (v0 >= 0.2 일 때) 또는 0.5 입니다."
+     },
+     {
+      "instruction": "2a) d_dot > 0.05 m/s 후보 점수 2배",
+      "implemented": true,
+      "note": "_ddot_good_bonus 가 dd > _DDOT_GOOD 인 후보의 선형 d_dot 항을 한 번 더 더합니다. _choose 와 _narrow_lateral 모두 적용됩니다."
+     },
+     {
+      "instruction": "2b) 제자리 회전(v < 0.05) 후보 페널티",
+      "implemented": true,
+      "note": "회피 중 score -= _SPIN_PEN*spin 이고, 회피 밖에서는 회전하는 제자리 후보에 같은 페널티를 줍니다."
+     },
+     {
+      "instruction": "3) end_rise 를 1.0 s 안에 d_near 0.3 m 이상 지속 증가로 판정",
+      "implemented": false,
+      "note": "창 재시작 조건이 gain < 0.3 일 때만 동작합니다. el = 1.1 s 표본에서 gain >= 0.3 이면 재시작되지 않고 end_rise 가 참이 됩니다. 1.0 s 를 넘긴 창에서도 종료되므로 변경 이유의 '1.0 s 안에서만 참' 주장과 다릅니다."
+     },
+     {
+      "instruction": "4) 회피 중 v=0 강제 제거, 최소 전진 유지",
+      "implemented": true,
+      "note": "d_near < _EV_STOP_HARD 정지 분기와 stop band 를 제거하고 전진 전용 _choose 로 바꿨습니다. 회피 중 모든 분기가 전진 명령만 냅니다."
+     },
+     {
+      "instruction": "5) 정적 여유는 2차 평가로, 거리 증가 우선",
+      "implemented": true,
+      "note": "st_ok 를 _EV_ST_FLOOR=-0.05 접촉 가드로 낮추고 _EV_ST_SC_W 를 40에서 10으로 낮췄습니다. end_rise 에서 st_hold 를 제거했고, 첫 tier 는 dd_ok 를 우선합니다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 4는 1.0 m 안에서 다가오는 물체가 있어도 정지·후진 없이 전진만 시킵니다. 충돌 위험이 커질 수 있습니다.",
+     "지시 1은 후진 후보를 완전히 배제해 앞이 막힌 상황의 탈출 수단이 줄어듭니다.",
+     "지시 3의 0.3 m/1.0 s(0.3 m/s)는 기존 종료 기준(0.02~0.1 m/s)보다 엄격합니다. 회피 종료가 늦어져 진단이 말한 정체가 오히려 길어질 수 있습니다.",
+     "지시 3의 'ddot_win > 0.1m/s' 는 기존 end_rise 가 아니라 end_dd1 기준이었습니다. 진단이 대상을 혼동했습니다.",
+     "지시 5로 정적 가드를 -0.05 m 까지 낮추면 진단 스스로 적은 대로 벽·선반 접촉 위험이 늘어납니다."
+    ],
+    "feedback": "controller 의 end_rise 창을 고치십시오. 1) rising 분기의 재시작 조건에서 gain 검사를 빼고 `S[\"inc_since\"] >= 0.0 and t - S[\"inc_since\"] > _EV_RISE_S + 1e-9` 이면 무조건 재시작하십시오. 2) `end_rise = inc_on and ((far and el >= _EV_INC_SHORT - 1e-9) or (gain >= _EV_RISE_D and el <= _EV_RISE_S + 1e-9))` 로 el 상한을 명시하십시오. 재시작 때 앞선 증가분을 잃지 않으려면 대안이 있습니다. 연속 상승 구간의 (t, d_near) 표본을 S 에 쌓고, _EV_RISE_S 보다 오래된 표본을 버린 뒤 `d_near - 남은 표본의 최솟값 >= _EV_RISE_D` 로 판정하십시오. 이 경우 inc_since 를 리셋하는 모든 곳(trigger 의 danger 리셋, rising 이 아닐 때, 회피 시작)에서 표본 목록도 비우십시오. 변경 이유는 실제 동작에 맞게 다시 쓰십시오."
+   }
+  }
+ ],
+ "ended": "no reviewed code"
+}

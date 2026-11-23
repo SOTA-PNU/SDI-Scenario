@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시에 따라 지시 6을 그대로 구현했습니다. 회피 종료의 정적 조건 `st_ok` 를 `st_n >= _RESUME_ST` 하나로만 두고, `or st_n >= st_now - 0.02` 대안과 그 대안에만 쓰이던 `st_now` 계산을 지웠습니다. 이제 회피는 TTC ≥ 1.0 s, 명목 경로 정적 여유 ≥ 0.3 m, 라이다 여유 ≥ `_RESUME_F * _CLR_GO` 가 0.5 s 동안 이어질 때만 끝납니다. 0.3 m 를 만족할 수 없는 곳(예: (0, 12) 경유점에서 동쪽으로 돌 때 상자 10 근처)에서는 기존 `_EVADE_MAX`(8 s) 상한 경로가 회피를 끝내며, 지시 1~5, -1e4 정적 제약, `_RESUME_HOLD` 는 그대로 두었습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Waypoint law + 2D-lidar mover handling (attempt 9):\n    - evasion starts when TTC < _TTC_TRIG (1.0 s) and is held at least _EVADE_HOLD (1.0 s) after the last trigger\n    - evasion ends only when TTC >= _TTC_TRIG, the nominal path's static clearance >= _RESUME_ST (0.3 m) and the lidar\n      clearance clr_all >= _RESUME_F * _CLR_GO have all held continuously for _RESUME_HOLD (0.5 s);\n      where 0.3 m cannot be met, the _EVADE_MAX (8 s) cap ends the evasion\n    - _choose gets all movers within _EARLY_R as moving anchors; during evasion it favours static-clear candidates.\"\"\"\n    S = _CS\n    if not S:\n        S.update(idx=0, tracks=[], mv={\"front\": np.zeros((0, 2)), \"back\": np.zeros((0, 2))},\n                 mt={\"front\": -99.0, \"back\": -99.0}, last={}, v=0.0, w=0.0,\n                 slow=False, stopped=False, n_stop=0, stop_t=0.0, stop_sum=0.0,\n                 started=False, reported=False,\n                 evading=False, evade_until=-1.0, n_evade=0, evade_t=0.0, evade_sum=0.0,\n                 evade_on=False, evade_start=0.0, cool_until=-1.0, safe_since=-1.0)\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    # 1) sensing: both 2D lidars -> world points -> drop static map -> mover clusters/tracks\n    fresh = {}\n    for which in (\"front\", \"back\"):\n        p = lidar2d_points(which)\n        if p.shape[0] > 0 and p is not S[\"last\"].get(which):\n            S[\"last\"][which] = p\n            S[\"mv\"][which] = _ingest(p, pose, abs(S[\"w\"]))\n            S[\"mt\"][which] = t\n            fresh[which] = True\n    if fresh.get(\"front\") or (fresh.get(\"back\") and t - S[\"mt\"][\"front\"] > 0.25):\n        parts = [S[\"mv\"][k] for k in (\"front\", \"back\") if t - S[\"mt\"][k] < 0.25]\n        _update_tracks(np.concatenate(parts) if parts else np.zeros((0, 2)), t)\n\n    if not S[\"started\"]:   # look before the first move (a mover may be near START)\n        if not ((S[\"mt\"][\"front\"] > -1.0 and t >= 0.3) or t >= 2.0):\n            return 0.0, 0.0, False\n        S[\"started\"] = True\n\n    # 2) goal alignment / finish\n    if S[\"idx\"] >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.5:\n        S[\"idx\"] = n - 1\n    if S[\"idx\"] >= n and abs(_wrap_angle(GOAL[2] - yaw)) < 0.05:\n        _log_stop(t, pose, False, 9.0)\n        _log_evade(t, pose, False, 99.0, 9.0)\n        if not S[\"reported\"]:\n            S[\"reported\"] = True\n            print(\"[C2 debug] done t=%.2f stop_episodes=%d stopped_total=%.2fs evade_episodes=%d evade_total=%.2fs\"\n                  % (t, S[\"n_stop\"], S[\"stop_sum\"], S[\"n_evade\"], S[\"evade_sum\"]), flush=True)\n        return 0.0, 0.0, True\n\n    # 3) nominal command (verified law) and its predicted safety against ALL movers\n    v_n, w_n, S[\"idx\"] = _nominal_cmd(x, y, yaw, S[\"idx\"], 1.0)\n    target = _WAYPOINTS[min(S[\"idx\"], n - 1)]\n    P, U = _movers_now(t)                    # all-around movers (front + back lidar)\n\n    d_near = _nearest_mover(P, pose)\n    ttc = _ttc(P, U, pose, S[\"v\"], _EARLY_R)  # recomputed every frame, also during evasion\n    anchors = _mover_anchors(t, pose)         # all movers within _EARLY_R, with velocities\n\n    traj_n = _rollout_nominal(pose, S[\"idx\"], S[\"v\"], 1.0)\n    st_n = _static_clearance(traj_n[None, :_KS + 1])[0]\n    clr_all = _mover_clearance(traj_n[None], P, U)[0]\n\n    # evasion trigger: TTC < _TTC_TRIG; hold at least _EVADE_HOLD after the last trigger\n    if ttc < _TTC_TRIG and (t >= S[\"cool_until\"] or clr_all < _CLR_GO):\n        if not S[\"evade_on\"]:\n            S[\"evade_on\"] = True\n            S[\"evade_start\"] = t\n            S[\"safe_since\"] = -1.0\n        S[\"evade_until\"] = max(S[\"evade_until\"], t + _EVADE_HOLD)\n    if S[\"evade_on\"]:\n        # direction 6: TTC >= trigger AND static clearance >= _RESUME_ST AND lidar clearance, held _RESUME_HOLD\n        st_ok = st_n >= _RESUME_ST\n        ok = ttc >= _TTC_TRIG and st_ok and clr_all >= _CLR_GO * _RESUME_F\n        if ok:\n            if S[\"safe_since\"] < 0.0:\n                S[\"safe_since\"] = t\n        else:\n            S[\"safe_since\"] = -1.0\n        sustained = ok and t - S[\"safe_since\"] >= _RESUME_HOLD\n        long_ = t - S[\"evade_start\"] > _EVADE_MAX\n        if (t >= S[\"evade_until\"] and sustained) or (long_ and st_n >= 0.0 and clr_all >= _CLR_GO):\n            if long_:\n                S[\"cool_until\"] = t + _EVADE_COOL\n            S[\"evade_on\"] = False\n            S[\"safe_since\"] = -1.0\n    early = S[\"evade_on\"]\n\n    # slow mode on clr_all with hysteresis (enter < _CLR_GO, leave >= _HYST * _CLR_GO)\n    if S[\"slow\"]:\n        if st_n >= 0.0 and clr_all >= _CLR_GO * _HYST:\n            S[\"slow\"] = False\n    elif clr_all < _CLR_GO:\n        S[\"slow\"] = True\n\n    # 4) decide\n    stop = False\n    if st_n < 0.0:                                     # off the verified path: safe arc toward the waypoint\n        v, w, _ = _choose(pose, P, U, target, anchors, True)\n    elif early:                                        # evasion: relative-motion scoring + static-clearance bonus\n        v, w, _ = _choose(pose, P, U, target, anchors, True)\n    elif not S[\"slow\"]:\n        if clr_all >= _CLR_STOP:\n            v, w = v_n, w_n\n        else:\n            v, w, _ = _choose(pose, P, U, target, anchors)\n    else:\n        v, w, stop = _slow_cmd(pose, S[\"idx\"], S[\"v\"], clr_all, P, U)\n        if stop or S[\"stopped\"]:\n            closing = _closing_speed(P, U, pose, S[\"v\"], _CLOSE_R)\n            hit_still = False\n            if stop:\n                still = np.tile(np.array([x, y, yaw], dtype=np.float64), (_KP + 1, 1))[None]\n                hit_still = _mover_clearance(still, P, U)[0] < _CLR_STOP\n            if hit_still or closing < _CLOSE_V:\n                v, w, _ = _choose(pose, P, U, target, anchors)\n\n    _log_evade(t, pose, early, ttc, d_near)\n    _log_stop(t, pose, stop, clr_all)\n    S[\"v\"], S[\"w\"] = v, w\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 34527,
+  "completion_tokens": 4225
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 33234,
+  "total_cost_usd": 0.360708,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4225,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 34525,
+    "webSearchRequests": 0,
+    "costUSD": 0.360708,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1137,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 34525,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "8003907a-d6b1-496c-9e8d-9a1ea2861f4b"
+ }
+}

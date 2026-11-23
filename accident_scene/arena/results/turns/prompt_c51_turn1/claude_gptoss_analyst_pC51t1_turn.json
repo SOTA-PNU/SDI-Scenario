@@ -1,0 +1,451 @@
+{
+ "turn": 1,
+ "started": "2026-11-23 04:00:37",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c51_turn0/claude_gptoss_analyst_pC51t0_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c51t0_s616467864: collision at t=3.433 s (v=1.5 m/s) with mover_00; first_not_on_map detected at t=-0.05 s within 2 m (bearing -26°)",
+   "run c51t0_s968001227: collision at t=29.383 s with mover_02; first_not_on_map within 2 m at t=27.85 s (bearing 19°) showing detection before impact",
+   "run c51t0_s1941232753: collision at t=46.067 s with mover_03; first_not_on_map within 2 m at t=43.38 s and multiple stop‑turn episodes indicate lack of dynamic avoidance"
+  ],
+  "assumptions": [
+   {
+    "assumption": "환경에 움직이는 물체가 없으며 정적 지도만 존재한다",
+    "holds": false,
+    "why": "세 실행 모두 움직이는 박스와 충돌했음"
+   },
+   {
+    "assumption": "경유점은 모든 정적 장애물을 회피하도록 설계되었다",
+    "holds": true,
+    "why": "정적 장애물에 대한 충돌 기록 없음"
+   },
+   {
+    "assumption": "센서를 사용하지 않아도 안전하게 주행 가능하다",
+    "holds": false,
+    "why": "움직이는 물체를 감지하지 못해 충돌 발생"
+   },
+   {
+    "assumption": "현재 속도·회전 한계는 정적 환경에서 충분히 안전하다",
+    "holds": true,
+    "why": "정적 장애물과의 충돌이 없으며, 충돌은 이동 물체와만 발생"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static_waypoint",
+    "turns": "0",
+    "result": "0/1 pass (0 %); 3 collisions"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방 2D 라이다로 움직이는 물체를 감지하고, 안전 거리(1 m) 이내이면 정지·대기 후 재시작",
+    "new_family": true,
+    "for": "센서로 물체를 사전에 인지해 충돌을 피함",
+    "risk": "물체가 오래 머무르면 정체·시간 초과 위험"
+   },
+   {
+    "idea": "각 경유점 도착 시 전방 라이다·카메라로 2 m 이내 물체가 없을 때만 이동 시작(대기·정지 로직)",
+    "new_family": true,
+    "for": "움직이는 물체가 지나가기를 기다려 안전하게 통과",
+    "risk": "다수의 물체가 연속으로 나타나면 전체 실행 시간이 제한을 초과"
+   },
+   {
+    "idea": "3D 라이다를 이용해 물체의 속도를 추정·예측하고, 충돌 가능성이 있으면 경로를 일시적으로 우회하도록 회전·전진 제어",
+    "new_family": true,
+    "for": "예측 기반 회피로 진행 속도 유지",
+    "risk": "속도 추정 오류가 회피 실패·복잡도 증가"
+   }
+  ],
+  "chosen": "전방 2D 라이다 기반 반응형 정지·대기 회피 (첫 번째 후보) – 간단하고 실시간 구현 가능",
+  "target": "controller (추가 상태 변수·라이다 감지·정지·재시작 로직)",
+  "direction": "1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.",
+  "confidence": "high",
+  "last_direction_ok": "no: 이전 지시가 static waypoint만 사용하도록 한 것이 3번 모두 충돌을 일으켰음",
+  "base_turn": 0
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 선택안(전방 2D 라이다 기반 정지·대기, 지시 1~6)을 따라 `controller` 에 `go/stop/detour` 상태와 `stop_t` 를 넣었습니다. 전방 ±30°(와 차체 폭 통로) 안에서 앞 범퍼부터 잰 최소 거리 `d_front` 가 1.0 m 미만이면 정지하고, 1.2 m 이상이면 재출발하며, 정지가 5 s 넘게 이어지면 ±0.5 rad/s 회전으로 우회한 뒤 `go` 로 돌아갑니다. 기존 경유점 추종 법칙은 `go` 일 때만 그대로 씁니다. C-1 의 교훈에 따라 라이다 점 가운데 `MISSION[\"boxes\"]`·`FIXED_OBSTACLES`·`WALLS` 바깥(여유 0.3 m)에 해당하는 점은 정적이라 빼고 나머지만 물체로 보며, 그 물체의 속도를 0.6 s 이력으로 추정해 3 s 앞을 예측합니다. 이 예측으로 진행 명령을 감속하고, 멈춰 서 있어도 물체가 다가오면(“멈춰 있어도 닿으면 충돌”) 정적 지도와 겹치지 않는 후보 중 가장 안전한 명령으로 비켜섭니다. 시간 `t` 는 정지·우회 타이머에만 씁니다.",
+   "changed": [
+    "_CANDS",
+    "_CANDS_MOVE",
+    "_DETOUR_ROT",
+    "_DETOUR_T",
+    "_DT",
+    "_GO_D",
+    "_HORIZON",
+    "_K_STATIC",
+    "_MAP_MARGIN",
+    "_MAP_PTS",
+    "_MOVER_R",
+    "_P",
+    "_RECTS",
+    "_RECT_ARR",
+    "_RELAX",
+    "_SAFE",
+    "_SAFE_GO",
+    "_STOP_D",
+    "_STOP_WAIT",
+    "_ST_CLEAR",
+    "_TAU",
+    "_box_center",
+    "_clusters",
+    "_detour_side",
+    "_evade",
+    "_front_gap",
+    "_is_safe",
+    "_is_static",
+    "_map_points",
+    "_mover_clear",
+    "_movers",
+    "_nominal",
+    "_perceive",
+    "_rect_dist",
+    "_rollout",
+    "_scan_world",
+    "_static_clear",
+    "_static_ok",
+    "_static_rects",
+    "_to_robot",
+    "_update_tracks",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. controller 정적 속성 state='go', stop_timer=0 초기화",
+      "implemented": true,
+      "note": "첫 호출에서 c.state='go', c.stop_t=0.0 으로 초기화함. 이름만 stop_t 로 다름."
+     },
+     {
+      "instruction": "2. 매 호출 lidar2d_points('front') 로 전방 ±30° 최소 거리 d_front 계산",
+      "implemented": true,
+      "note": "_perceive 가 매 호출 front·back 을 읽고 _front_gap 이 ±30° 또는 |y|<0.6 m 영역의 최소 거리를 앞 범퍼 기준 x 거리로 잼. 진단과 달리 정적 지도 점을 뺀 물체 점만 쓰고 back 라이다 점도 섞음. 과제 힌트에 맞는 확장임."
+     },
+     {
+      "instruction": "3. d_front<1.0 m 이면 state='stop', stop_timer=t, (0,0) 반환",
+      "implemented": true,
+      "note": "gap<_STOP_D(1.0) 이면 state='stop', stop_t=t 로 바꾸고 정지 분기에서 (0,0)을 반환함. 정지 중 물체가 다가오면 _evade 로 비켜서는 동작이 추가됨."
+     },
+     {
+      "instruction": "4. stop 중 d_front>=1.2 m 이면 타이머 초기화 후 'go' 로 전환",
+      "implemented": true,
+      "note": "resume=gap>=_GO_D(1.2) 이면 go 로 전환함. 다만 _is_safe(_SAFE_GO) 조건이 추가됐고, stop_t 를 0으로 되돌리지 않고 다음 정지 때 다시 기록함."
+     },
+     {
+      "instruction": "5. stop 5 s 이상이면 w=±0.5 회전 우회, state='detour', 일정 시간 후 'go' 복귀",
+      "implemented": true,
+      "note": "_STOP_WAIT=5.0 이 지나면 detour 로 바꾸고 1.2 s 동안 ±0.5 rad/s 로 회전한 뒤 _evade 를 씀. 길이 비면 resume 으로 go 에 복귀함. 6 s 가 지나도 비지 않으면 go 가 아니라 stop 으로 돌아가며, 이 점이 지시와 다름."
+     },
+     {
+      "instruction": "6. 기존 경유점 추종은 state='go' 일 때만 실행",
+      "implemented": true,
+      "note": "_nominal 의 명령은 go 분기와 go 전환 순간에만 반환됨. 다만 _nominal 은 매 호출 실행돼 정지·우회 중에도 경유점 index 가 증가할 수 있음. 속도에 f·k 감속 배율이 추가됨."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 2대로 원시 전방 라이다 최소 거리를 쓰면 벽·선반·박스에도 멈춥니다. 정적 지도 점을 빼야 하는데 진단에 그 지시가 없습니다.",
+     "전방 ±30° 정지만으로는 옆·뒤에서 오는 물체를 피할 수 없습니다. 멈춰 있어도 닿으면 충돌입니다.",
+     "정적 장면 주행 시간이 48.6 s 인데 5 s 대기와 우회가 반복되면 평균 60 s 예산을 넘길 위험이 큽니다. confidence high 는 과합니다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 0,
+ "diag_turn": 0,
+ "reason": "변경 이유: 진단의 선택안(전방 2D 라이다 기반 정지·대기, 지시 1~6)을 따라 `controller` 에 `go/stop/detour` 상태와 `stop_t` 를 넣었습니다. 전방 ±30°(와 차체 폭 통로) 안에서 앞 범퍼부터 잰 최소 거리 `d_front` 가 1.0 m 미만이면 정지하고, 1.2 m 이상이면 재출발하며, 정지가 5 s 넘게 이어지면 ±0.5 rad/s 회전으로 우회한 뒤 `go` 로 돌아갑니다. 기존 경유점 추종 법칙은 `go` 일 때만 그대로 씁니다. C-1 의 교훈에 따라 라이다 점 가운데 `MISSION[\"boxes\"]`·`FIXED_OBSTACLES`·`WALLS` 바깥(여유 0.3 m)에 해당하는 점은 정적이라 빼고 나머지만 물체로 보며, 그 물체의 속도를 0.6 s 이력으로 추정해 3 s 앞을 예측합니다. 이 예측으로 진행 명령을 감속하고, 멈춰 서 있어도 물체가 다가오면(“멈춰 있어도 닿으면 충돌”) 정적 지도와 겹치지 않는 후보 중 가장 안전한 명령으로 비켜섭니다. 시간 `t` 는 정지·우회 타이머에만 씁니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  2084900639,
+  1928439320,
+  305387405,
+  450455218,
+  1372224215,
+  246308248,
+  694236717,
+  1486436744,
+  2026299861,
+  1339831266
+ ],
+ "sim_used_s": 601.0,
+ "verdicts": {
+  "2084900639": "pass",
+  "1928439320": "pass",
+  "305387405": "pass",
+  "450455218": "pass",
+  "1372224215": "pass",
+  "246308248": "pass",
+  "694236717": "pass",
+  "1486436744": "pass",
+  "2026299861": "pass",
+  "1339831266": "fail"
+ },
+ "passes": 9,
+ "prior_chars": 172,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 10개를 실행했고, 0개는 실행하지 못했습니다.\n- 통과 9개, 실패 1개. 시뮬 시간 합계 601초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 63초 (가장 짧은 것 53초, 가장 긴 것 74초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 2대로 원시 전방 라이다 최소 거리를 쓰면 벽·선반·박스에도 멈춥니다. 정적 지도 점을 빼야 하는데 진단에 그 지시가 없습니다.\n- (검토 1회차, 판정 pass) 전방 ±30° 정지만으로는 옆·뒤에서 오는 물체를 피할 수 없습니다. 멈춰 있어도 닿으면 충돌입니다.\n- (검토 1회차, 판정 pass) 정적 장면 주행 시간이 48.6 s 인데 5 s 대기와 우회가 반복되면 평균 60 s 예산을 넘길 위험이 큽니다. confidence high 는 과합니다.\n",
+ "diagnosis_out": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "run c51t1_s1339831266: time_limit 35.8 s, sim_time 36.8 s, final_goal_dist 9.03 m, stop_turn_episodes 4 → 목표 미달성으로 시간 초과",
+   "run c51t1_s2084900639: stop_turn_episodes 17, sim_time 73.3 s → 평균 60 s 이하 목표 초과",
+   "run c51t1_s1928439320: first_not_on_map t=48.85 s, dist=1.54 m, 로봇 속도 1.52 m/s → 정지·우회 반복으로 전체 시간 증가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 앞 ±30° 안에서 충분히 빨리 감지된다",
+    "holds": false,
+    "why": "물체가 ≈‑90°(오른쪽)에서 나타나며, 감지 시점이 1.5‑2 m로 너무 가까워 정지·대기만으로는 충분히 회피 못함"
+   },
+   {
+    "assumption": "정지 5 s 후 물체가 지나가면 다시 진행 가능하다",
+    "holds": false,
+    "why": "많은 실행에서 정지 후에도 우회(detour) 단계가 필요해 시간 손실이 크게 증가"
+   },
+   {
+    "assumption": "이동 물체는 속도가 낮아 멈추고 기다리면 안전하다",
+    "holds": true,
+    "why": "물체 속도 추정이 2 m/s 이하로 대부분 맞으며 충돌 없이 회피 가능하지만 시간 효율은 낮음"
+   },
+   {
+    "assumption": "단일 정적 경유점 경로는 움직이는 물체가 있더라도 충분히 빠르게 목표에 도달한다",
+    "holds": false,
+    "why": "정지·우회 로직으로 인해 평균 시뮬 시간 60 s 이상, 전체 예산 600 s 초과"
+   },
+   {
+    "assumption": "라이다 2D 점만으로 정적 장애물을 배제하고 움직이는 물체만 식별한다",
+    "holds": true,
+    "why": "_is_static 함수가 지도 점을 정확히 제외해 움직이는 물체만 추적함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static baseline (센서 미사용)",
+    "turns": "0",
+    "result": "0/3 통과 (충돌 3회)"
+   },
+   {
+    "family": "stop/detour 상태 머신 (전방 거리 기반 정지·우회)",
+    "turns": "1",
+    "result": "9/10 통과, 1개 시간 제한 초과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방·전체 2D 라이다를 이용해 매 프레임 후보 속도(v,w)를 평가하고, 안전 거리와 목표 진행도를 동시에 최적화하는 연속 로컬 플래너(DWA 스타일) 적용",
+    "new_family": true,
+    "for": "불필요한 정지·우회 사이클 감소, 모든 방향의 물체 회피 가능",
+    "risk": "예측 시간·거리 설정이 부적절하면 안전 여유 부족, 연산량 증가"
+   },
+   {
+    "idea": "시간‑충돌(TTC) 기반 예측 감속: TTC < 2 s이면 속도를 비례적으로 감소시켜 정지 없이 회피",
+    "new_family": true,
+    "for": "진행 속도 유지, 정지 대기 시간 감소",
+    "risk": "속도 추정 오차가 클 경우 충돌 위험"
+   },
+   {
+    "idea": "동적 경유점 삽입: 움직이는 물체가 현재 경유점을 차단하면 임시 우회 점을 생성해 우회 후 원래 경로 복귀",
+    "new_family": true,
+    "for": "경유점 기반 진행 유지, 물체 회피 시 경로 재계획",
+    "risk": "경유점 관리 복잡, 반복 삽입 시 경로 진동 가능"
+   }
+  ],
+  "chosen": "전방·전체 라이다 기반 연속 로컬 플래너(DWA) 후보를 선택, 정지·우회 대신 매 순간 안전한 속도 명령을 선택하도록 함",
+  "target": "controller (go/stop/detour 로직 전체 교체, _evade 기반 연속 후보 선택 적용)",
+  "direction": "1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.",
+  "confidence": "medium",
+  "last_direction_ok": "yes, 전방 정지·우회 로직 덕분에 0→9 통과로 크게 개선됐지만 시간 초과가 발생해 추가 개선 필요",
+  "base_turn": 1
+ },
+ "table": [
+  {
+   "run": "c51t1_s2084900639",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 73.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 67.33,
+   "goal_dist_m": 0.2247,
+   "time_to_goal_s": 69.333
+  },
+  {
+   "run": "c51t1_s1928439320",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 526.7,
+   "sim_time_s": 54.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 48.85,
+   "goal_dist_m": 0.1949,
+   "time_to_goal_s": 50.867
+  },
+  {
+   "run": "c51t1_s305387405",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 471.9,
+   "sim_time_s": 73.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 67.55,
+   "goal_dist_m": 0.2195,
+   "time_to_goal_s": 69.617
+  },
+  {
+   "run": "c51t1_s450455218",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 398.4,
+   "sim_time_s": 56.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 50.52,
+   "goal_dist_m": 0.221,
+   "time_to_goal_s": 52.55
+  },
+  {
+   "run": "c51t1_s1372224215",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 341.9,
+   "sim_time_s": 61.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 55.72,
+   "goal_dist_m": 0.2195,
+   "time_to_goal_s": 57.683
+  },
+  {
+   "run": "c51t1_s246308248",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 280.3,
+   "sim_time_s": 69.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 63.72,
+   "goal_dist_m": 0.2279,
+   "time_to_goal_s": 65.833
+  },
+  {
+   "run": "c51t1_s694236717",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 210.6,
+   "sim_time_s": 53.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 47.12,
+   "goal_dist_m": 0.2029,
+   "time_to_goal_s": 49.183
+  },
+  {
+   "run": "c51t1_s1486436744",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 157.5,
+   "sim_time_s": 59.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 53.55,
+   "goal_dist_m": 0.2244,
+   "time_to_goal_s": 55.6
+  },
+  {
+   "run": "c51t1_s2026299861",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 98.0,
+   "sim_time_s": 62.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 56.32,
+   "goal_dist_m": 0.2044,
+   "time_to_goal_s": 58.267
+  },
+  {
+   "run": "c51t1_s1339831266",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 35.8,
+   "sim_time_s": 36.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 9.0307,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 97 s / 한도 600 s)\n#1 이번 코드(진단 \"1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)",
+ "ended": "2026-11-23 04:22:59"
+}

@@ -1,0 +1,322 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "총 10개의 실행 중 9개만 수행되었으며 남은 4초는 최소 실행 시간 30초보다 부족해 10번째 실행을 시작하지 못했습니다.",
+   "전체 시뮬 시간 합계 596초로 600초 예산을 초과했으며 평균 실행 시간 66초로 60초 목표를 초과했습니다.",
+   "모든 9개의 실행은 충돌 없이 통과했으나 시간 제한으로 배치 전체 통과에 실패했습니다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D 라이다가 8m 이내의 움직이는 물체를 신뢰성 있게 감지한다",
+    "holds": true,
+    "why": "코드가 lidar2d_points 로 점을 수집하고 _scan_world 에서 8m 이하만 사용함"
+   },
+   {
+    "assumption": "움직이는 물체의 속도는 2 m/s 이하이며, vm·wm 추정이 충분히 정확하다",
+    "holds": true,
+    "why": "속도 추정에서 2.0 m/s 로 상한을 두고 _min_ttc 에서 같은 값 사용"
+   },
+   {
+    "assumption": "TTC 검사 창 1 s가 충돌을 사전에 감지하기에 충분하다",
+    "holds": false,
+    "why": "이전 턴에서 _TTC_H=1.0 로는 빠른 물체에 대한 선제 감속이 부족했음"
+   },
+   {
+    "assumption": "STOP_WAIT=2.0 s 와 DETOUR_T=6.0 s 가 안전하게 회피하도록 충분히 길다",
+    "holds": true,
+    "why": "현재 9개 실행 모두 충돌 없이 목표에 도달했음"
+   },
+   {
+    "assumption": "전체 경로를 현재 속도 프로파일로 주행하면 평균 55–70 s 가 소요된다",
+    "holds": true,
+    "why": "실행 요약에서 time_to_goal_s 가 55–71 s 사이임"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "basic_stop_detour",
+    "turns": [
+     1,
+     3,
+     5,
+     8,
+     10,
+     11,
+     13,
+     15,
+     24,
+     26,
+     27
+    ],
+    "result": "대부분 8/9~9/10 통과, 평균 60–70 s, 일부 충돌·시간 초과 발생"
+   },
+   {
+    "family": "ttc_scaling",
+    "turns": [
+     7,
+     28
+    ],
+    "result": "충돌 전무, 통과 8/10·9/9, 평균 62–66 s, 아직 시간 제한 미충족"
+   },
+   {
+    "family": "velocity_obstacle",
+    "turns": [
+     6
+    ],
+    "result": "7/8 통과, 평균 79 s, 충돌 거의 없음"
+   },
+   {
+    "family": "reverse_state",
+    "turns": [
+     19,
+     20,
+     21
+    ],
+    "result": "7/8 통과, 평균 77–81 s, 충돌 없음"
+   },
+   {
+    "family": "danger_side_detection",
+    "turns": [
+     12,
+     13
+    ],
+    "result": "0/3·7/10 통과, 충돌·정지 문제 다수"
+   },
+   {
+    "family": "front_angle_expansion",
+    "turns": [
+     18
+    ],
+    "result": "6/7 통과, 평균 88 s"
+   },
+   {
+    "family": "remove_stop_detour",
+    "turns": [
+     16
+    ],
+    "result": "0/3 통과 실패"
+   },
+   {
+    "family": "proximity_scaling",
+    "turns": [
+     15,
+     23
+    ],
+    "result": "8/10·5/7 통과, 평균 64–85 s, 일부 충돌"
+   },
+   {
+    "family": "detour_time_reduction",
+    "turns": [
+     22,
+     26,
+     27
+    ],
+    "result": "8/10·8/9·8/9 통과, 평균 61–71 s"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "STOP_WAIT 를 0.5 s 로, DETOUR_T 를 4.0 s 로, DETOUR_ROT 를 0.8 s 로 감소시키면서 현재 TTC‑기반 속도 스케일링을 유지한다",
+    "new_family": true,
+    "for": "정지·우회 단계에서 소요되는 시간을 크게 줄여 평균 실행 시간을 60 s 이하로 낮출 수 있다",
+    "risk": "짧은 대기·회전 시간이 물체 회피에 충분하지 않을 경우 충돌 위험이 증가한다"
+   },
+   {
+    "idea": "stop·detour 분기를 삭제하고 go 단계에서만 TTC‑스케일링과 _evade 로 회피하도록 만든다",
+    "new_family": true,
+    "for": "정지·우회에 드는 시간 손실을 완전히 없애 전체 실행 시간을 최소화한다",
+    "risk": "TTC‑스케일링만으로는 급격히 접근하는 물체를 충분히 피하지 못해 충돌이 발생할 수 있다"
+   },
+   {
+    "idea": "속도 스케일링 최소값을 0.15 → 0.05 로 낮춰 전방 물체가 가까워도 더 빠르게 전진하도록 한다",
+    "new_family": false,
+    "for": "전반적인 주행 속도를 높여 평균 실행 시간을 단축한다",
+    "risk": "안전 여유가 감소해 충돌 가능성이 상승한다"
+   }
+  ],
+  "chosen": "속도를 높여 전체 주행 시간을 줄이면서 기존 안전 검사(_is_safe 등)는 유지한다",
+  "target": "_CANDS 정의와 _nominal 함수의 속도 제한",
+  "direction": "1. _CANDS 배열을 현재보다 큰 전진 속도 값을 포함하도록 수정한다: 예를 들어 v 값에 -2.0, -1.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5 를 추가하고, 기존 각도 w 값은 그대로 유지한다. 2. _nominal(pose) 함수에서 전진 속도 v 를 제한하는 부분을 `v = min(2.0, 2.5 * dist + 0.5)` 로 바꿔 최대 전진 속도를 2.0 m/s 로 올린다(필요 시 2.5 m/s 로도 가능). 3. 후보 속도 확대에 맞춰 기존 `_CANDS_MOVE` 정의가 자동으로 새로운 비정지 후보를 반영하도록 유지한다. 4. 다른 상수나 로직은 그대로 두어 기존 _is_safe, _static_ok, _evade 등의 안전 검증이 그대로 적용되게 한다. 5. 변경 후 전체 배치를 실행해 평균 실행 시간이 60 s 이하로 감소했는지 확인한다. 6. 만약 충돌이 발생하면 _TTC_H 를 2.0으로 늘리거나 _SAFE 값을 약간 상승시키는 추가 조정을 검토한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no - TTC‑스케일링으로 충돌을 제거했지만 실행 시간이 평균 66 s 로 남아 전체 10개 실행을 600 s 안에 마치지 못했다",
+  "base_turn": 24,
+  "stage1": {
+   "chosen": "첫 번째 후보를 선택해 STOP_WAIT·DETOUR_T·DETOUR_ROT 를 크게 줄이고 기존 TTC‑스케일링을 유지한다.",
+   "target": "constants _STOP_WAIT, _DETOUR_T, _DETOUR_ROT",
+   "direction": "1) 파일 하단에 정의된 _STOP_WAIT, _DETOUR_T, _DETOUR_ROT 값을 각각 0.5, 4.0, 0.8 로 수정한다. 2) 기존 stop‑wait 로직은 그대로 두되, 대기 시간이 0.5 s 만큼만 유지되도록 한다. 3) detour 상태에서 회전 시간은 0.8 s 로 제한하고, 전체 detour 지속 시간은 4 s 로 제한한다. 4) 이 변경 후 기존 TTC‑기반 속도 스케일링 로직은 그대로 유지한다. 5) 코드 변경 외에 추가 함수나 변수는 도입하지 않는다. 6) 테스트 시 전체 배치 실행 시간이 600 s 이하가 되는지 확인한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"timeout\",\n  \"evidence\": [\n    \"총 10개의 실행 중 9개만 수행되었으며 남은 4초는 최소 실행 시간 30초보다 부족해 10번째 실행을 시작하지 못했습니다.\",\n    \"전체 시뮬 시간 합계 596초로 600초 예산을 초과했으며 평균 실행 시간 66초로 60초 목표를 초과했습니다.\",\n    \"모든 9개의 실행은 충돌 없이 통과했으나 시간 제한으로 배치 전체 통과에 실패했습니다.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D 라이다가 8m 이내의 움직이는 물체를 신뢰성 있게 감지한다\",\n      \"holds\": true,\n      \"why\": \"코드가 lidar2d_points 로 점을 수집하고 _scan_world 에서 8m 이하만 사용함\"\n    },\n    {\n      \"assumption\": \"움직이는 물체의 속도는 2 m/s 이하이며, vm·wm 추정이 충분히 정확하다\",\n      \"holds\": true,\n      \"why\": \"속도 추정에서 2.0 m/s 로 상한을 두고 _min_ttc 에서 같은 값 사용\"\n    },\n    {\n      \"assumption\": \"TTC 검사 창 1 s가 충돌을 사전에 감지하기에 충분하다\",\n      \"holds\": false,\n      \"why\": \"이전 턴에서 _TTC_H=1.0 로는 빠른 물체에 대한 선제 감속이 부족했음\"\n    },\n    {\n      \"assumption\": \"STOP_WAIT=2.0 s 와 DETOUR_T=6.0 s 가 안전하게 회피하도록 충분히 길다\",\n      \"holds\": true,\n      \"why\": \"현재 9개 실행 모두 충돌 없이 목표에 도달했음\"\n    },\n    {\n      \"assumption\": \"전체 경로를 현재 속도 프로파일로 주행하면 평균 55–70 s 가 소요된다\",\n      \"holds\": true,\n      \"why\": \"실행 요약에서 time_to_goal_s 가 55–71 s 사이임\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"basic_stop_detour\",\n      \"turns\": [1,3,5,8,10,11,13,15,24,26,27],\n      \"result\": \"대부분 8/9~9/10 통과, 평균 60–70 s, 일부 충돌·시간 초과 발생\"\n    },\n    {\n      \"family\": \"ttc_scaling\",\n      \"turns\": [7,28],\n      \"result\": \"충돌 전무, 통과 8/10·9/9, 평균 62–66 s, 아직 시간 제한 미충족\"\n    },\n    {\n      \"family\": \"velocity_obstacle\",\n      \"turns\": [6],\n      \"result\": \"7/8 통과, 평균 79 s, 충돌 거의 없음\"\n    },\n    {\n      \"family\": \"reverse_state\",\n      \"turns\": [19,20,21],\n      \"result\": \"7/8 통과, 평균 77–81 s, 충돌 없음\"\n    },\n    {\n      \"family\": \"danger_side_detection\",\n      \"turns\": [12,13],\n      \"result\": \"0/3·7/10 통과, 충돌·정지 문제 다수\"\n    },\n    {\n      \"family\": \"front_angle_expansion\",\n      \"turns\": [18],\n      \"result\": \"6/7 통과, 평균 88 s\"\n    },\n    {\n      \"family\": \"remove_stop_detour\",\n      \"turns\": [16],\n      \"result\": \"0/3 통과 실패\"\n    },\n    {\n      \"family\": \"proximity_scaling\",\n      \"turns\": [15,23],\n      \"result\": \"8/10·5/7 통과, 평균 64–85 s, 일부 충돌\"\n    },\n    {\n      \"family\": \"detour_time_reduction\",\n      \"turns\": [22,26,27],\n      \"result\": \"8/10·8/9·8/9 통과, 평균 61–71 s\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"STOP_WAIT 를 0.5 s 로, DETOUR_T 를 4.0 s 로, DETOUR_ROT 를 0.8 s 로 감소시키면서 현재 TTC‑기반 속도 스케일링을 유지한다\",\n      \"new_family\": true,\n      \"for\": \"정지·우회 단계에서 소요되는 시간을 크게 줄여 평균 실행 시간을 60 s 이하로 낮출 수 있다\",\n      \"risk\": \"짧은 대기·회전 시간이 물체 회피에 충분하지 않을 경우 충돌 위험이 증가한다\"\n    },\n    {\n      \"idea\": \"stop·detour 분기를 삭제하고 go 단계에서만 TTC‑스케일링과 _evade 로 회피하도록 만든다\",\n      \"new_family\": true,\n      \"for\": \"정지·우회에 드는 시간 손실을 완전히 없애 전체 실행 시간을 최소화한다\",\n      \"risk\": \"TTC‑스케일링만으로는 급격히 접근하는 물체를 충분히 피하지 못해 충돌이 발생할 수 있다\"\n    },\n    {\n      \"idea\": \"속도 스케일링 최소값을 0.15 → 0.05 로 낮춰 전방 물체가 가까워도 더 빠르게 전진하도록 한다\",\n      \"new_family\": false,\n      \"for\": \"전반적인 주행 속도를 높여 평균 실행 시간을 단축한다\",\n      \"risk\": \"안전 여유가 감소해 충돌 가능성이 상승한다\"\n    }\n  ],\n  \"chosen\": \"첫 번째 후보를 선택해 STOP_WAIT·DETOUR_T·DETOUR_ROT 를 크게 줄이고 기존 TTC‑스케일링을 유지한다.\",\n  \"target\": \"constants _STOP_WAIT, _DETOUR_T, _DETOUR_ROT\",\n  \"direction\": \"1) 파일 하단에 정의된 _STOP_WAIT, _DETOUR_T, _DETOUR_ROT 값을 각각 0.5, 4.0, 0.8 로 수정한다. 2) 기존 stop‑wait 로직은 그대로 두되, 대기 시간이 0.5 s 만큼만 유지되도록 한다. 3) detour 상태에서 회전 시간은 0.8 s 로 제한하고, 전체 detour 지속 시간은 4 s 로 제한한다. 4) 이 변경 후 기존 TTC‑기반 속도 스케일링 로직은 그대로 유지한다. 5) 코드 변경 외에 추가 함수나 변수는 도입하지 않는다. 6) 테스트 시 전체 배치 실행 시간이 600 s 이하가 되는지 확인한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no - TTC‑스케일링으로 충돌을 제거했지만 실행 시간이 평균 66 s 로 남아 전체 10개 실행을 600 s 안에 마치지 못했다\",\n  \"base_turn\": 24\n}",
+ "table": [
+  {
+   "run": "c51t28_s1370574796",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 59.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 53.62,
+   "goal_dist_m": 0.2235,
+   "time_to_goal_s": 55.633
+  },
+  {
+   "run": "c51t28_s1637861404",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 540.4,
+   "sim_time_s": 66.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 60.88,
+   "goal_dist_m": 0.1977,
+   "time_to_goal_s": 62.867
+  },
+  {
+   "run": "c51t28_s1970928455",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 473.6,
+   "sim_time_s": 61.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 55.32,
+   "goal_dist_m": 0.2309,
+   "time_to_goal_s": 57.367
+  },
+  {
+   "run": "c51t28_s1438946679",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 412.3,
+   "sim_time_s": 63.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 56.95,
+   "goal_dist_m": 0.1998,
+   "time_to_goal_s": 59.0
+  },
+  {
+   "run": "c51t28_s169474263",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 349.3,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 66.82,
+   "goal_dist_m": 0.1986,
+   "time_to_goal_s": 68.833
+  },
+  {
+   "run": "c51t28_s113353886",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 276.5,
+   "sim_time_s": 71.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 65.35,
+   "goal_dist_m": 0.231,
+   "time_to_goal_s": 67.533
+  },
+  {
+   "run": "c51t28_s1874354988",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 205.2,
+   "sim_time_s": 62.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 56.03,
+   "goal_dist_m": 0.2035,
+   "time_to_goal_s": 58.05
+  },
+  {
+   "run": "c51t28_s2120295016",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 143.2,
+   "sim_time_s": 64.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 58.65,
+   "goal_dist_m": 0.204,
+   "time_to_goal_s": 60.633
+  },
+  {
+   "run": "c51t28_s1679040283",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 78.6,
+   "sim_time_s": 75.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 69.12,
+   "goal_dist_m": 0.2238,
+   "time_to_goal_s": 71.117
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

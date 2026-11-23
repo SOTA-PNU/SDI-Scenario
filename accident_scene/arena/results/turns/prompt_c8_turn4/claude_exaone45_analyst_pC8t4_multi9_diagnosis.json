@@ -1,0 +1,233 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3개 실행에서 충돌 발생 (c8t4_s793304212, c8t4_s714054992, c8t4_s708813833), 충돌 시 로봇 속도 0.87~0.98m/s, 물체 접근 속도 0.31~0.69m/s",
+   "충돌 직전 5초 라이다 기록에서 로봇이 정지하지 않고 주행 중이었으며, 첫 번째 비정적 물체 감지 시점(3.82s~11.22s)에서 2m 이내 접근",
+   "정지 중 재개 시 접근 속도 검사(_closing_speed)는 수행되었으나, 주행 중 물체 접근 시 즉시 회피 로직 미적용"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체 접근 시 정지/재개 상태에서만 _closing_speed 검사가 수행되므로 주행 중 접근하는 물체에 반응하지 못함",
+    "holds": false,
+    "why": "실행 기록에서 주행 중 충돌 다수 발생, _closing_speed 검사는 _slow_cmd 내 정지 시만 호출됨"
+   },
+   {
+    "assumption": "clr_all 기반 감속 모드가 모든 방향 물체를 감지해 충분한 안전 마진 확보",
+    "holds": false,
+    "why": "측면에서 접근하는 물체(partner_rel_xy y축 성분 -0.56 등)에도 충돌 발생, 예측 경로 검증이 실제 충돌 방지로 이어지지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 실시간 접근 물체 감지 및 즉시 회피",
+    "turns": "4",
+    "result": "6/9 통과, 3/9 충돌"
+   },
+   {
+    "family": "정지/재개 시에만 접근 속도 검사 적용",
+    "turns": "3",
+    "result": "통과율 향상되었으나 주행 중 충돌 미해결"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "주행 중에도 _closing_speed 검사를 수행해 접근 속도 임계값 초과 시 즉시 _choose() 호출",
+    "new_family": true,
+    "for": "주행 중 측면/정면 접근 물체에 신속히 대응",
+    "risk": "과도한 회피로 인한 경로 이탈 또는 정지 과다"
+   },
+   {
+    "idea": "clr_all 임계값(_CLR_STOP)을 0.15로 낮추고, 거리 기반 정지 조건 추가 (물체 2m 이내 시 무조건 정지)",
+    "new_family": false,
+    "for": "예측 오차 보완을 위한 보수적 안전 마진 확보",
+    "risk": "정적 장애물 근처에서 과도한 정지 발생 가능성"
+   }
+  ],
+  "chosen": "주행 중에도 접근 속도(_closing_speed)를 실시간으로 검사해 임계값(-0.15 m/s) 초과 시 즉시 회피 동작(_choose())을 유도함. 이는 정지/재개 상태 외 주행 중 발생하는 측면 충돌 문제를 해결하기 위한 구조적 개선임.",
+  "target": "controller 함수 내 주행 중 물체 접근 속도 검사 로직 추가",
+  "direction": "1. _movers_now 호출 직후 partner 클로즈드 포인트(P, U)를 기반으로 _closing_speed 계산\n2. 결과가 -0.15 미만이고 가장 가까운 물체 거리가 3m 이내일 때, 즉시 _choose(pose, P, U, target) 호출로 회피 동작 실행\n3. 정지 모드 진입 전에도 동일 조건으로 조기 회피 유도\n4. _slow_cmd 내 stop 조건 검사와 별도로 주행 중 검사 로직 분리\n5. _CLOSE_V 값을 -0.15로 강화해 민감도 조정\n6. 정지 후 재개 시 검사와 병행해 모든 상태에서 접근 물체 감지 보장",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"3개 실행에서 충돌 발생 (c8t4_s793304212, c8t4_s714054992, c8t4_s708813833), 충돌 시 로봇 속도 0.87~0.98m/s, 물체 접근 속도 0.31~0.69m/s\", \"충돌 직전 5초 라이다 기록에서 로봇이 정지하지 않고 주행 중이었으며, 첫 번째 비정적 물체 감지 시점(3.82s~11.22s)에서 2m 이내 접근\", \"정지 중 재개 시 접근 속도 검사(_closing_speed)는 수행되었으나, 주행 중 물체 접근 시 즉시 회피 로직 미적용\"], \"assumptions\": [{\"assumption\": \"물체 접근 시 정지/재개 상태에서만 _closing_speed 검사가 수행되므로 주행 중 접근하는 물체에 반응하지 못함\", \"holds\": false, \"why\": \"실행 기록에서 주행 중 충돌 다수 발생, _closing_speed 검사는 _slow_cmd 내 정지 시만 호출됨\"}, {\"assumption\": \"clr_all 기반 감속 모드가 모든 방향 물체를 감지해 충분한 안전 마진 확보\", \"holds\": false, \"why\": \"측면에서 접근하는 물체(partner_rel_xy y축 성분 -0.56 등)에도 충돌 발생, 예측 경로 검증이 실제 충돌 방지로 이어지지 않음\"}], \"approach_families\": [{\"family\": \"센서 기반 실시간 접근 물체 감지 및 즉시 회피\", \"turns\": \"4\", \"result\": \"6/9 통과, 3/9 충돌\"}, {\"family\": \"정지/재개 시에만 접근 속도 검사 적용\", \"turns\": \"3\", \"result\": \"통과율 향상되었으나 주행 중 충돌 미해결\"}], \"candidates\": [{\"idea\": \"주행 중에도 _closing_speed 검사를 수행해 접근 속도 임계값 초과 시 즉시 _choose() 호출\", \"new_family\": true, \"for\": \"주행 중 측면/정면 접근 물체에 신속히 대응\", \"risk\": \"과도한 회피로 인한 경로 이탈 또는 정지 과다\"}, {\"idea\": \"clr_all 임계값(_CLR_STOP)을 0.15로 낮추고, 거리 기반 정지 조건 추가 (물체 2m 이내 시 무조건 정지)\", \"new_family\": false, \"for\": \"예측 오차 보완을 위한 보수적 안전 마진 확보\", \"risk\": \"정적 장애물 근처에서 과도한 정지 발생 가능성\"}], \"chosen\": \"주행 중에도 접근 속도(_closing_speed)를 실시간으로 검사해 임계값(-0.15 m/s) 초과 시 즉시 회피 동작(_choose())을 유도함. 이는 정지/재개 상태 외 주행 중 발생하는 측면 충돌 문제를 해결하기 위한 구조적 개선임.\", \"target\": \"controller 함수 내 주행 중 물체 접근 속도 검사 로직 추가\", \"direction\": \"1. _movers_now 호출 직후 partner 클로즈드 포인트(P, U)를 기반으로 _closing_speed 계산\\n2. 결과가 -0.15 미만이고 가장 가까운 물체 거리가 3m 이내일 때, 즉시 _choose(pose, P, U, target) 호출로 회피 동작 실행\\n3. 정지 모드 진입 전에도 동일 조건으로 조기 회피 유도\\n4. _slow_cmd 내 stop 조건 검사와 별도로 주행 중 검사 로직 분리\\n5. _CLOSE_V 값을 -0.15로 강화해 민감도 조정\\n6. 정지 후 재개 시 검사와 병행해 모든 상태에서 접근 물체 감지 보장\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t4_s376894202",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 57.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 51.63,
+   "goal_dist_m": 0.203,
+   "time_to_goal_s": 53.65
+  },
+  {
+   "run": "c8t4_s1351337252",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 542.4,
+   "sim_time_s": 72.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 66.62,
+   "goal_dist_m": 0.2247,
+   "time_to_goal_s": 68.667
+  },
+  {
+   "run": "c8t4_s1676930991",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 469.8,
+   "sim_time_s": 62.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 56.12,
+   "goal_dist_m": 0.2013,
+   "time_to_goal_s": 58.117
+  },
+  {
+   "run": "c8t4_s793304212",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 407.7,
+   "sim_time_s": 22.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 16.2,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    0.16,
+    -0.56
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 14.72,
+   "goal_dist_m": 21.7017,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t4_s1142520213",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 385.5,
+   "sim_time_s": 54.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 48.32,
+   "goal_dist_m": 0.1969,
+   "time_to_goal_s": 50.333
+  },
+  {
+   "run": "c8t4_s714054992",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 331.2,
+   "sim_time_s": 62.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 56.2,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    -0.37,
+    0.56
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 51.25,
+   "goal_dist_m": 0.2117,
+   "time_to_goal_s": 58.883
+  },
+  {
+   "run": "c8t4_s392890994",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 269.0,
+   "sim_time_s": 60.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 54.65,
+   "goal_dist_m": 0.2219,
+   "time_to_goal_s": 56.65
+  },
+  {
+   "run": "c8t4_s1886516069",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 208.4,
+   "sim_time_s": 59.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 53.65,
+   "goal_dist_m": 0.2286,
+   "time_to_goal_s": 55.717
+  },
+  {
+   "run": "c8t4_s708813833",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 148.8,
+   "sim_time_s": 14.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.8,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.87m/s",
+   "partner_rel_xy": [
+    0.45,
+    -0.29
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 3.82,
+   "goal_dist_m": 30.4079,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

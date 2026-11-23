@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 go 상태는 앞쪽 gap 만 보고 정지했기 때문에, 측면 물체가 d_min < _STOP_D 로 다가와도 감속하지 않아 충돌했습니다(t=38.667s, bearing 69°). 진단 direction 2·3에 따라 go 블록의 조건을 `gap < _STOP_D or d_min < _STOP_D` 로 넓혔습니다. 앞쪽 gap 이 _STOP_D 이상인 측면 물체이면 정지하지 않고 곧바로 `_evade(pose, movers, target, False)` 로 회피하고, 앞쪽 물체(gap < _STOP_D)이면 기존처럼 stop 상태로 바꿉니다. direction 4·5·6에 따라 resume 조건, stop/detour 흐름, `_STOP_WAIT` 는 그대로 두었고, 새 함수나 상수 없이 controller 만 고쳤습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 정지·대기·우회(go / stop / detour) + 다가오는 물체 회피.\n    go 상태에서 측면 물체가 _STOP_D 안이면(앞쪽 gap 은 충분) 정지 대신 즉시 _evade 로 회피하고,\n    앞쪽 물체(gap < _STOP_D)면 기존대로 stop 상태로 바꾼다.\n    stop/detour -> go 재출발은 측면 물체도 _STOP_D 밖일 때만 허용한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    # 진단 지시 1: gap 과 d_min 계산은 그대로 유지\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n    d_min = _min_mover_dist(pose, movers)            # 측면 포함 가장 가까운 물체까지의 거리\n\n    # 경유점 추종은 go 일 때만(물체 예측으로 감속)\n    if c.state == \"go\":\n        # 진단 지시 2: 앞쪽 gap 또는 측면 물체 거리 d_min 이 _STOP_D 안이면 반응\n        if gap < _STOP_D or d_min < _STOP_D:\n            if gap >= _STOP_D:\n                # 측면 물체: 정지·대기 없이 즉시 회피\n                v, w = _evade(pose, movers, target, False)\n                return v, w, False\n            # 진단 지시 3: 앞쪽 물체는 기존 정지-대기-우회 흐름\n            c.state, c.stop_t = \"stop\", t\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (v_nom * f * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            # 안전한 스케일 명령이 하나도 없을 때만 정지 대신 회피 이동\n            v, w = _evade(pose, movers, target, False)\n            return v, w, False\n\n    # 진단 지시 4: resume 조건은 그대로\n    resume = gap >= _GO_D and d_min >= _STOP_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)\n\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * f, w_nom, False\n        if t - c.stop_t >= _STOP_WAIT:               # 진단 지시 5: _STOP_WAIT 2.0 유지\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _evade(pose, movers, target, True)    # 멈춰 있어도 물체가 다가오면 비켜선다\n            return v, w, False\n\n    # detour\n    if resume:\n        c.state = \"go\"\n        return v_nom * f, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 36109,
+  "completion_tokens": 2554
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 19728,
+  "total_cost_usd": 0.339944,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2554,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 36107,
+    "webSearchRequests": 0,
+    "costUSD": 0.339944,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 398,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 36107,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "c8aa3af6-f3a5-43fd-8e5e-8631af8a732c"
+ }
+}

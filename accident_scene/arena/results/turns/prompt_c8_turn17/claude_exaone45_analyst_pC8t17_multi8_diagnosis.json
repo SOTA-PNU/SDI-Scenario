@@ -1,0 +1,234 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "In failed runs (e.g., c8t17_s69078927), collision occurred while robot was moving (0.41 m/s) with mover within 1m and positive closing speed (0.35 m/s)",
+   "Evasion trigger requires st_n >= 0.1m, but in narrow passages (st_n < 0.1m) evasion is disabled, causing no evasion action when movers approach",
+   "Mover detected within 2m at t=18.35s, collision at 22.733s; TTC likely <1.0s before collision, but evasion not triggered due to low static clearance"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Evasion should only trigger when static clearance (st_n) is sufficient (≥0.1m) to avoid static obstacles during evasion",
+    "holds": false,
+    "why": "Narrow passages are common; disabling evasion there causes collisions when movers approach"
+   },
+   {
+    "assumption": "Static clearance check (st_n) reliably indicates safe evasion zones",
+    "holds": false,
+    "why": "In narrow paths, st_n <0.1m but robot can still evade safely using lateral movement if mover is detected early"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Static clearance dependency",
+    "turns": "10",
+    "result": "5/8 passes but 3/8 fails consistently in narrow passages"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Remove st_n >= _EV_TRIG_ST from evasion trigger, activate based on TTC alone",
+    "new_family": true,
+    "for": "Evasion disabled in low-clearance zones; _choose already ensures static safety via stc checks",
+    "risk": "May trigger evasion in extremely tight spaces, but _choose filters unsafe candidates"
+   },
+   {
+    "idea": "Use closing speed threshold (e.g., >0.1 m/s) instead of TTC for evasion trigger",
+    "new_family": true,
+    "for": "High closing speed indicates imminent collision regardless of static clearance",
+    "risk": "May trigger evasion too early in static-dense areas"
+   },
+   {
+    "idea": "In st_n <0.1m zones, reduce evade speed instead of full stop",
+    "new_family": true,
+    "for": "Allows cautious movement in narrow paths while avoiding movers",
+    "risk": "Slowdown may not prevent collision if mover is fast"
+   }
+  ],
+  "chosen": "Remove st_n >= _EV_TRIG_ST from evasion trigger, as _choose already enforces static safety via stc checks and narrow passages are common failure zones",
+  "target": "Evasion trigger condition in controller()",
+  "direction": "Remove the static clearance check (st_n >= _EV_TRIG_ST) from the evasion trigger condition. This activates evasion based solely on TTC < 1.0s, ensuring mover avoidance in narrow passages. The _choose function already filters candidates with sufficient static clearance (stc ≥ 0), so evasion remains safe. Adjust evasion end conditions to prioritize distance increase over static clearance when st_n is low. Increase mover detection radius to 3.0m for earlier TTC calculation. Cap evasion duration at t + 1.0s instead of _EVADE_MAX when st_n < 0.1m. Prioritize lateral movement when movers are within 1.0m–2.0m during evasion.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"In failed runs (e.g., c8t17_s69078927), collision occurred while robot was moving (0.41 m/s) with mover within 1m and positive closing speed (0.35 m/s)\", \"Evasion trigger requires st_n >= 0.1m, but in narrow passages (st_n < 0.1m) evasion is disabled, causing no evasion action when movers approach\", \"Mover detected within 2m at t=18.35s, collision at 22.733s; TTC likely <1.0s before collision, but evasion not triggered due to low static clearance\"], \"assumptions\": [{\"assumption\": \"Evasion should only trigger when static clearance (st_n) is sufficient (≥0.1m) to avoid static obstacles during evasion\", \"holds\": false, \"why\": \"Narrow passages are common; disabling evasion there causes collisions when movers approach\"}, {\"assumption\": \"Static clearance check (st_n) reliably indicates safe evasion zones\", \"holds\": false, \"why\": \"In narrow paths, st_n <0.1m but robot can still evade safely using lateral movement if mover is detected early\"}], \"approach_families\": [{\"family\": \"Static clearance dependency\", \"turns\": \"10\", \"result\": \"5/8 passes but 3/8 fails consistently in narrow passages\"}], \"candidates\": [{\"idea\": \"Remove st_n >= _EV_TRIG_ST from evasion trigger, activate based on TTC alone\", \"new_family\": true, \"for\": \"Evasion disabled in low-clearance zones; _choose already ensures static safety via stc checks\", \"risk\": \"May trigger evasion in extremely tight spaces, but _choose filters unsafe candidates\"}, {\"idea\": \"Use closing speed threshold (e.g., >0.1 m/s) instead of TTC for evasion trigger\", \"new_family\": true, \"for\": \"High closing speed indicates imminent collision regardless of static clearance\", \"risk\": \"May trigger evasion too early in static-dense areas\"}, {\"idea\": \"In st_n <0.1m zones, reduce evade speed instead of full stop\", \"new_family\": true, \"for\": \"Allows cautious movement in narrow paths while avoiding movers\", \"risk\": \"Slowdown may not prevent collision if mover is fast\"}], \"chosen\": \"Remove st_n >= _EV_TRIG_ST from evasion trigger, as _choose already enforces static safety via stc checks and narrow passages are common failure zones\", \"target\": \"Evasion trigger condition in controller()\", \"direction\": \"Remove the static clearance check (st_n >= _EV_TRIG_ST) from the evasion trigger condition. This activates evasion based solely on TTC < 1.0s, ensuring mover avoidance in narrow passages. The _choose function already filters candidates with sufficient static clearance (stc ≥ 0), so evasion remains safe. Adjust evasion end conditions to prioritize distance increase over static clearance when st_n is low. Increase mover detection radius to 3.0m for earlier TTC calculation. Cap evasion duration at t + 1.0s instead of _EVADE_MAX when st_n < 0.1m. Prioritize lateral movement when movers are within 1.0m–2.0m during evasion.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c8t17_s33828129",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 100.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 94.95,
+   "goal_dist_m": 0.1991,
+   "time_to_goal_s": 97.083
+  },
+  {
+   "run": "c8t17_s1743364653",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 499.1,
+   "sim_time_s": 92.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 86.72,
+   "goal_dist_m": 0.2009,
+   "time_to_goal_s": 88.85
+  },
+  {
+   "run": "c8t17_s1519693914",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 406.4,
+   "sim_time_s": 65.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 59.65,
+   "goal_dist_m": 0.1973,
+   "time_to_goal_s": 61.767
+  },
+  {
+   "run": "c8t17_s1586127144",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 340.8,
+   "sim_time_s": 77.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 71.62,
+   "goal_dist_m": 0.2211,
+   "time_to_goal_s": 73.683
+  },
+  {
+   "run": "c8t17_s1299648467",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 263.2,
+   "sim_time_s": 70.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 64.15,
+   "goal_dist_m": 0.1986,
+   "time_to_goal_s": 66.117
+  },
+  {
+   "run": "c8t17_s69078927",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 193.1,
+   "sim_time_s": 28.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 22.733,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.41m/s",
+   "partner_rel_xy": [
+    -0.22,
+    -0.61
+   ],
+   "closing_m_s": 0.35,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 18.35,
+   "goal_dist_m": 20.3115,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t17_s2128818323",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 164.4,
+   "sim_time_s": 29.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 23.45,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.42m/s",
+   "partner_rel_xy": [
+    0.03,
+    -0.56
+   ],
+   "closing_m_s": 0.79,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 20.65,
+   "goal_dist_m": 23.9813,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t17_s1475865256",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 134.9,
+   "sim_time_s": 19.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.717,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.56m/s",
+   "partner_rel_xy": [
+    -0.19,
+    0.58
+   ],
+   "closing_m_s": 0.57,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 8.72,
+   "goal_dist_m": 32.1177,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": 2,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": "no_prior",
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

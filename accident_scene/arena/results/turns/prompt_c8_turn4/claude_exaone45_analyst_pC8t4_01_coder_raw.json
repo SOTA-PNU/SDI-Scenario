@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 `chosen`(clr_all 기반 감속 결정)에 맞춰, 감속 모드의 진입·해제 조건과 `_slow_cmd` 의 속도 비율을 전방 ±45° 섹터의 `clr_n` 대신 전체 물체 기준 `clr_all` 로 바꿨습니다. 이제 `_front_sector` 를 부르지 않으므로 70° 처럼 측면에서 다가오는 물체도 감속·정지 판단에 들어갑니다(지시 1, 2, 5). 감속 경로 검증은 모든 물체에 대해 `clr >= _CLR_STOP` 을 요구하고 `_CLR_STOP` 값은 그대로 두었으며(지시 3), `_HYST` 는 1.5 로 올렸습니다(지시 6). 정지 중이거나 정지에서 막 재개할 때, 몸체 1 m 이내 물체의 접근 속도(closing)가 -0.1 m/s 보다 빠르게 다가오면 그 자리에서 기다리지 않고 곧바로 `_choose()` 로 회피합니다(지시 4).\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Waypoint law + 2D-lidar mover handling (attempt 4):\n    - slow mode and the speed scale use clr_all (movers all around, front + back lidar) instead of the\n      forward +-45 deg clr_n; _front_sector is no longer called (diagnosis 1, 2, 5)\n    - the scaled path must keep >= _CLR_STOP from all movers, otherwise stop (diagnosis 3)\n    - while stopped or right after resuming, an approaching mover (closing speed < _CLOSE_V) triggers an\n      immediate evasive _choose() (diagnosis 4)\n    - slow mode ends when clr_all >= _HYST * _CLR_GO with _HYST = 1.5 (diagnosis 6).\"\"\"\n    S = _CS\n    if not S:\n        S.update(idx=0, tracks=[], mv={\"front\": np.zeros((0, 2)), \"back\": np.zeros((0, 2))},\n                 mt={\"front\": -99.0, \"back\": -99.0}, last={}, v=0.0, w=0.0,\n                 slow=False, stopped=False, n_stop=0, stop_t=0.0, stop_sum=0.0,\n                 started=False, reported=False)\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    # 1) sensing: both 2D lidars -> world points -> drop static map -> mover clusters/tracks\n    fresh = {}\n    for which in (\"front\", \"back\"):\n        p = lidar2d_points(which)\n        if p.shape[0] > 0 and p is not S[\"last\"].get(which):\n            S[\"last\"][which] = p\n            S[\"mv\"][which] = _ingest(p, pose, abs(S[\"w\"]))\n            S[\"mt\"][which] = t\n            fresh[which] = True\n    if fresh.get(\"front\") or (fresh.get(\"back\") and t - S[\"mt\"][\"front\"] > 0.25):\n        parts = [S[\"mv\"][k] for k in (\"front\", \"back\") if t - S[\"mt\"][k] < 0.25]\n        _update_tracks(np.concatenate(parts) if parts else np.zeros((0, 2)), t)\n\n    if not S[\"started\"]:   # look before the first move (a mover may be near START)\n        if not ((S[\"mt\"][\"front\"] > -1.0 and t >= 0.3) or t >= 2.0):\n            return 0.0, 0.0, False\n        S[\"started\"] = True\n\n    # 2) goal alignment / finish\n    if S[\"idx\"] >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.5:\n        S[\"idx\"] = n - 1\n    if S[\"idx\"] >= n and abs(_wrap_angle(GOAL[2] - yaw)) < 0.05:\n        _log_stop(t, pose, False, 9.0)\n        if not S[\"reported\"]:\n            S[\"reported\"] = True\n            print(\"[C2 debug] done t=%.2f stop_episodes=%d stopped_total=%.2fs\"\n                  % (t, S[\"n_stop\"], S[\"stop_sum\"]), flush=True)\n        return 0.0, 0.0, True\n\n    # 3) nominal command (verified law) and its predicted safety against ALL movers (no front sector)\n    v_n, w_n, S[\"idx\"] = _nominal_cmd(x, y, yaw, S[\"idx\"], 1.0)\n    target = _WAYPOINTS[min(S[\"idx\"], n - 1)]\n    P, U = _movers_now(t)                    # all-around movers (front + back lidar)\n    traj_n = _rollout_nominal(pose, S[\"idx\"], S[\"v\"], 1.0)\n    st_n = _static_clearance(traj_n[None, :_KS + 1])[0]\n    clr_all = _mover_clearance(traj_n[None], P, U)[0]\n\n    # diagnosis 1, 6: slow mode on clr_all with hysteresis (enter < _CLR_GO, leave >= _HYST * _CLR_GO)\n    if S[\"slow\"]:\n        if st_n >= 0.0 and clr_all >= _CLR_GO * _HYST:\n            S[\"slow\"] = False\n    elif clr_all < _CLR_GO:\n        S[\"slow\"] = True\n\n    # 4) decide\n    stop = False\n    if st_n < 0.0:                                     # off the verified path: safe arc toward the waypoint\n        v, w, _ = _choose(pose, P, U, target)\n    elif not S[\"slow\"]:\n        if clr_all >= _CLR_STOP:\n            v, w = v_n, w_n\n        else:\n            v, w, _ = _choose(pose, P, U, target)\n    else:\n        # diagnosis 2, 3: speed scaled by clr_all / _CLR_GO on the nominal path, all-mover check\n        v, w, stop = _slow_cmd(pose, S[\"idx\"], S[\"v\"], clr_all, P, U)\n        if stop or S[\"stopped\"]:\n            # diagnosis 4: stopped / resuming while a mover closes in -> evade now\n            closing = _closing_speed(P, U, pose, S[\"v\"])\n            hit_still = False\n            if stop:\n                still = np.tile(np.array([x, y, yaw], dtype=np.float64), (_KP + 1, 1))[None]\n                hit_still = _mover_clearance(still, P, U)[0] < _CLR_STOP\n            if hit_still or closing < _CLOSE_V:\n                v, w, _ = _choose(pose, P, U, target)\n\n    _log_stop(t, pose, stop, clr_all)\n    S[\"v\"], S[\"w\"] = v, w\n    return v, w, False\n\n\n_HYST = 1.5             # diagnosis 6: leave slow mode only when clr_all >= 1.5 * _CLR_GO\n\n\ndef _slow_cmd(pose, idx, v0, clr, P, U):\n    \"\"\"Diagnosis 2, 3: follow the nominal path with the speed scaled by s = clr_all / _CLR_GO (0..1).\n    The scaled path must be static-safe and keep >= _CLR_STOP from ALL mover points (front and back lidar);\n    otherwise the robot stops: returns (0.0, 0.0, True).\"\"\"\n    x, y, yaw = pose\n    s = _clamp(clr / _CLR_GO, 0.0, 1.0)\n    v, w, _ = _nominal_cmd(x, y, yaw, idx, s)\n    traj = _rollout_nominal(pose, idx, v0, s)\n    ok = (_static_clearance(traj[None, :_KS + 1])[0] >= 0.0\n          and _mover_clearance(traj[None], P, U)[0] >= _CLR_STOP)\n    if not ok:\n        return 0.0, 0.0, True\n    return v, w, False\n\n\n_CLOSE_R = 1.0          # diagnosis 4: movers within 1.0 m of the body rectangle are checked for closing speed\n\n\n_CLOSE_V = -0.10        # diagnosis 4: closing speed below this [m/s] (approaching) -> evade immediately\n\n\ndef _closing_speed(P, U, pose, v):\n    \"\"\"Diagnosis 4: most negative radial (closing) speed [m/s] of mover points within _CLOSE_R of the body,\n    relative to the robot moving at v along its heading. 0.0 when no mover point is near.\"\"\"\n    if P.shape[0] == 0:\n        return 0.0\n    x, y, yaw = pose\n    c, s = math.cos(yaw), math.sin(yaw)\n    L = _to_robot(P, pose)\n    ex = np.maximum(np.maximum(_BODY[0] - L[:, 0], L[:, 0] - _BODY[1]), 0.0)\n    ey = np.maximum(np.maximum(_BODY[2] - L[:, 1], L[:, 1] - _BODY[3]), 0.0)\n    near = np.hypot(ex, ey) < _CLOSE_R\n    if not np.any(near):\n        return 0.0\n    off = 0.5 * (_BODY[0] + _BODY[1])\n    cx, cy = x + off * c, y + off * s\n    dx = P[near, 0] - cx\n    dy = P[near, 1] - cy\n    dist = np.maximum(np.hypot(dx, dy), 1e-3)\n    rvx = U[near, 0] - v * c\n    rvy = U[near, 1] - v * s\n    return float(((dx * rvx + dy * rvy) / dist).min())\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 22094,
+  "completion_tokens": 7184
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 62867,
+  "total_cost_usd": 0.32042400000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 7184,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 22092,
+    "webSearchRequests": 0,
+    "costUSD": 0.32042400000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3913,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 22092,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b33681e0-17bb-4007-9782-a5fd46eba5e6"
+ }
+}

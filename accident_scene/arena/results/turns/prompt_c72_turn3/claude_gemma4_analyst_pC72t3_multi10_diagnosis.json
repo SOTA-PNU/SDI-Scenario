@@ -1,0 +1,239 @@
+{
+ "diagnosis": {
+  "failure_mode": "other",
+  "evidence": [
+   "10개 배치 모두 통과 (10/10 pass)",
+   "전체 시뮬레이션 시간 592초로 예산 600초 이내 충족",
+   "충돌 0회"
+  ],
+  "assumptions": [
+   {
+    "assumption": "45도 감지 콘과 1m 전방 근접 구역 설정이 대부분의 움직이는 물체를 충돌 전에 감지한다",
+    "holds": true,
+    "why": "10개 배치 모두 충돌 없이 통과함"
+   },
+   {
+    "assumption": "현재의 경로와 속도 제어 식(v = min(1.5, 3.0 * dist + 0.8))이 시간 제한 내에 도착하게 한다",
+    "holds": true,
+    "why": "실행당 평균 59초로 시간 예산을 충족함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 정지 및 감속",
+    "turns": "3",
+    "result": "10/10 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "현재 로직 및 파라미터 유지",
+    "new_family": false,
+    "for": "모든 테스트 케이스 통과 및 시간 예산의 여유가 거의 없음 (592/600s)",
+    "risk": "검토자가 지적한 매우 드문 측면 접근 물체에 대한 취약성"
+   },
+   {
+    "idea": "측면 감지 범위 확장 (x < 0 구역 포함)",
+    "new_family": true,
+    "for": "로봇 몸체 옆에서 다가오는 물체에 의한 충돌 방지",
+    "risk": "불필요한 정지 횟수가 증가하여 전체 실행 시간이 600초를 초과할 위험이 매우 높음"
+   }
+  ],
+  "chosen": "후보 1. 10/10 통과를 달성했고 시간 예산이 매우 촉박하므로, 현재의 안정적인 설정을 유지하는 것이 가장 합리적임",
+  "target": "none",
+  "direction": "현재 코드가 모든 배치에서 성공했으며 시간 제한에 매우 근접해 있으므로, 로직이나 상수를 변경하지 않고 그대로 유지합니다.",
+  "confidence": "high",
+  "last_direction_ok": "yes, 통과율을 8/10에서 10/10으로 높였으며 시간 예산 내에 들어옴",
+  "base_turn": 3
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"other\",\n \"evidence\": [\"10개 배치 모두 통과 (10/10 pass)\", \"전체 시뮬레이션 시간 592초로 예산 600초 이내 충족\", \"충돌 0회\"],\n \"assumptions\": [\n  {\"assumption\": \"45도 감지 콘과 1m 전방 근접 구역 설정이 대부분의 움직이는 물체를 충돌 전에 감지한다\", \"holds\": true, \"why\": \"10개 배치 모두 충돌 없이 통과함\"},\n  {\"assumption\": \"현재의 경로와 속도 제어 식(v = min(1.5, 3.0 * dist + 0.8))이 시간 제한 내에 도착하게 한다\", \"holds\": true, \"why\": \"실행당 평균 59초로 시간 예산을 충족함\"}\n ],\n \"approach_families\": [\n  {\"family\": \"센서 기반 정지 및 감속\", \"turns\": \"3\", \"result\": \"10/10 통과\"}\n ],\n \"candidates\": [\n  {\"idea\": \"현재 로직 및 파라미터 유지\", \"new_family\": false, \"for\": \"모든 테스트 케이스 통과 및 시간 예산의 여유가 거의 없음 (592/600s)\", \"risk\": \"검토자가 지적한 매우 드문 측면 접근 물체에 대한 취약성\"},\n  {\"idea\": \"측면 감지 범위 확장 (x < 0 구역 포함)\", \"new_family\": true, \"for\": \"로봇 몸체 옆에서 다가오는 물체에 의한 충돌 방지\", \"risk\": \"불필요한 정지 횟수가 증가하여 전체 실행 시간이 600초를 초과할 위험이 매우 높음\"}\n ],\n \"chosen\": \"후보 1. 10/10 통과를 달성했고 시간 예산이 매우 촉박하므로, 현재의 안정적인 설정을 유지하는 것이 가장 합리적임\",\n \"target\": \"none\",\n \"direction\": \"현재 코드가 모든 배치에서 성공했으며 시간 제한에 매우 근접해 있으므로, 로직이나 상수를 변경하지 않고 그대로 유지합니다.\",\n \"confidence\": \"high\",\n \"last_direction_ok\": \"yes, 통과율을 8/10에서 10/10으로 높였으며 시간 예산 내에 들어옴\",\n \"base_turn\": 3\n}\n```",
+ "table": [
+  {
+   "run": "c72t3_s593094673",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 57.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 51.12,
+   "goal_dist_m": 0.3909,
+   "time_to_goal_s": 53.133
+  },
+  {
+   "run": "c72t3_s220564235",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 542.9,
+   "sim_time_s": 50.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 44.65,
+   "goal_dist_m": 0.3649,
+   "time_to_goal_s": 46.583
+  },
+  {
+   "run": "c72t3_s2079856603",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 492.4,
+   "sim_time_s": 72.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 66.95,
+   "goal_dist_m": 0.393,
+   "time_to_goal_s": 68.933
+  },
+  {
+   "run": "c72t3_s1698247287",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 419.4,
+   "sim_time_s": 59.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 53.82,
+   "goal_dist_m": 0.4154,
+   "time_to_goal_s": 55.883
+  },
+  {
+   "run": "c72t3_s237034528",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 359.6,
+   "sim_time_s": 56.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 50.42,
+   "goal_dist_m": 0.3894,
+   "time_to_goal_s": 52.417
+  },
+  {
+   "run": "c72t3_s194277974",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 303.3,
+   "sim_time_s": 56.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 50.52,
+   "goal_dist_m": 0.359,
+   "time_to_goal_s": 52.483
+  },
+  {
+   "run": "c72t3_s1942466312",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 246.8,
+   "sim_time_s": 55.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 49.78,
+   "goal_dist_m": 0.3706,
+   "time_to_goal_s": 51.783
+  },
+  {
+   "run": "c72t3_s256280402",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 191.0,
+   "sim_time_s": 44.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 38.92,
+   "goal_dist_m": 0.3639,
+   "time_to_goal_s": 40.9
+  },
+  {
+   "run": "c72t3_s1779060489",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 146.2,
+   "sim_time_s": 68.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 62.42,
+   "goal_dist_m": 0.3662,
+   "time_to_goal_s": 64.4
+  },
+  {
+   "run": "c72t3_s2101470307",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 77.8,
+   "sim_time_s": 69.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 63.95,
+   "goal_dist_m": 0.3817,
+   "time_to_goal_s": 65.933
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

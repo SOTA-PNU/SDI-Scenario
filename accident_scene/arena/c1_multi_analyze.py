@@ -45,6 +45,31 @@ PRIOR_HEADER = """
 """
 PRIOR_DIRECTION_CHARS = 160
 
+# C-8b on (user 2026-11-19): the analyst chooses which turn's code the next coder starts from. Until now the next turn
+# always built on the latest code, so an analyst that saw results get worse could only pile instructions on top
+# (C-8: 5/8 at turn 17, 1,055 lines -> 0/3 at turn 30, 1,759 lines, with no way back).
+BASE_TURN_SECTION = """
+## 다음 턴의 시작 코드 고르기 (`base_turn`)
+
+다음 턴의 수정 담당은 **당신이 고른 턴의 코드**에서 시작해 당신의 `direction` 을 반영합니다. 고를 수 있는 턴: {allowed}.
+이번 턴은 {turn}턴이고, 이번에 시험한 코드는 {started} 만든 것입니다.
+
+결과가 이전보다 나빠졌다면 먼저 **직전 지시가 옳았는지** 판단하십시오(`이전 턴 요약` 표의 통과 수와 통과 실행 평균 시간을 비교).
+그런 다음 둘 중 하나를 고릅니다.
+
+- 직전 지시가 옳았고 모자란 것만 채우면 된다: `base_turn` 을 이번 턴({turn})으로 두고, 이번 코드에 더할 지시를 씁니다.
+- 직전 지시(또는 그 앞 몇 턴의 지시)가 틀렸다: 결과가 더 좋았던 이전 턴을 `base_turn` 으로 고르고, 그 턴의 코드에 적용할
+  **새 지시**를 씁니다. 그 턴 뒤에 더해진 변경은 모두 버려집니다. 이미 실패한 지시를 그 코드에 다시 내리지 마십시오.
+
+이전 턴의 코드는 이 입력에 없습니다(이번 코드만 있습니다). 이전 턴으로 돌아갈 때는 그 턴 뒤에 생긴 이름(상수, 함수)에 기대지 말고,
+`direction` 을 동작으로 적으십시오(무엇을 언제 하게 할지). 그 턴의 설정값은 `이전 턴 요약` 표에 있습니다.
+
+JSON 에 다음 두 항목을 더합니다.
+
+ "last_direction_ok": "yes|no|unclear 와 그렇게 본 근거 한 문장 (직전 지시가 결과를 좋게 했는지)",
+ "base_turn": 다음 턴이 시작할 코드의 턴 번호(정수)
+"""
+
 
 def _constants(block):
     """Top-level constant assignments of a code block, as 'NAME=value' (value source text, shortened)."""
@@ -90,7 +115,7 @@ def _failure_counts(table):
     return {k: v for k, v in c.items() if v}
 
 
-def prior_analyses(turn_dirs):
+def prior_analyses(turn_dirs, extra=False):
     """Harness-made table of earlier turns: settings -> result -> failure-type counts (no run names, no reasoning).
     Raw earlier diagnoses + reasoning made the analyst copy earlier turns' runs as its own evidence (C-2 turns 5-9)."""
     rows = []
@@ -129,10 +154,21 @@ def prior_analyses(turn_dirs):
         if len(direction) > PRIOR_DIRECTION_CHARS:
             direction = direction[:PRIOR_DIRECTION_CHARS] + "…"
         passes = sum(1 for r in table if r.get("verdict") == "pass")
+        if extra:      # C-8b: which code the turn started from, and how long its passing runs took
+            tp = [r.get("sim_time_s") or 0.0 for r in table if r.get("verdict") == "pass"]
+            bt = tdata.get("base_turn")
+            rows.append(f"| {n} | {'출발점' if n == 0 else (f'{bt}턴 코드' if bt is not None else '-')} | "
+                        f"{', '.join(_constants(blk[0].read_text())) if blk else '-'} | {direction} | "
+                        f"{passes}/{len(table)} | {f'{sum(tp) / len(tp):.0f}초' if tp else '-'} | "
+                        f"{json.dumps(_failure_counts(table), ensure_ascii=False)} |")
+            continue
         rows.append(f"| {n} | {', '.join(_constants(blk[0].read_text())) if blk else '-'} | {direction} | "
                     f"{passes}/{len(table)} | {json.dumps(_failure_counts(table), ensure_ascii=False)} |")
     if not rows:
         return ""
+    if extra:
+        return ("| 턴 | 시작한 코드 | 시험한 코드의 설정값 | 그 코드를 만든 지시(요지) | 통과 | 통과 실행 평균 시간 | 실패 유형 개수 |\n"
+                "|---|---|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
     return ("| 턴 | 시험한 코드의 설정값 | 그 코드를 만든 지시(요지) | 통과 | 실패 유형 개수 |\n|---|---|---|---|---|\n"
             + "\n".join(rows) + "\n")
 
@@ -164,6 +200,45 @@ def dbg_section(variants, log_dir, DBG_HEAD=DBG_HEAD, DBG_TAIL=DBG_TAIL, why="")
         return "\n## DBG 출력\n\n(코드가 출력한 DBG 줄 없음)\n"
     return ("\n## DBG 출력 (코드가 print 한 'DBG' 로 시작하는 줄. 실행별 처음 %d줄과 마지막 %d줄, 줄당 %d자까지만 전달하며 "
             "넘는 부분은 버려집니다%s)\n\n" % (DBG_HEAD, DBG_TAIL, DBG_CHARS, why) + "\n\n".join(parts) + "\n")
+
+
+STAGE2_PROMPT = """
+당신은 다음 턴을 **{bt}턴의 코드**에서 시작하기로 했습니다. 방금 낸 `direction` 은 그 코드를 보지 않고 쓴 것입니다.
+아래가 {bt}턴에 시험한 코드입니다({bt}턴 뒤의 변경은 들어 있지 않습니다). 이 코드를 읽고, 수정 담당이 **이 코드에** 적용할 지시를
+다시 쓰십시오.
+
+- 이 코드에 실제로 있는 이름(상수, 함수)만 가리키십시오. 없는 것을 새로 만들게 하려면 무엇을 하는 것인지 적습니다.
+- 이번 턴 실행에서 본 실패를 이 코드가 그대로 겪을지, 이 코드에는 없는 문제인지 구분하십시오. 이번 턴의 근거는 이번 코드의
+  실행에서 나온 것이고, 이 코드의 결과는 `이전 턴 요약` 표의 {bt}턴 줄입니다.
+- 이 코드 다음에 내렸던 지시(`시도 기록` 의 #{nx})는 이미 시험했습니다. 그 뒤 결과가 좋아지지 않았다면 같은 지시를 다시 내리지 마십시오.
+- 통과 기준은 배치 10개 모두 통과, 시뮬 합계 600초 이내입니다.
+
+## {bt}턴의 코드
+
+```python
+{code}```
+
+JSON 객체 하나만 냅니다. 코드 펜스나 설명을 붙이지 않습니다.
+
+{{"chosen": "이 코드에 무엇을 할지와 이유 한 문장",
+ "target": "고칠 곳(이 코드에 있는 이름)",
+ "direction": "어떻게 구현할지 6문장 이내 (수정 에이전트와 검토 담당은 이 지시만 따릅니다)"}}
+"""
+
+
+def base_turn_errors(diag, revert):
+    """C-8b: the answer must name the turn the next coder starts from (EXAONE left the new keys out when first tried)."""
+    if not revert or not diag:
+        return []
+    try:
+        ok = int(diag.get("base_turn")) in revert["allowed_set"]
+    except (TypeError, ValueError):
+        ok = False
+    errs = [] if ok else [f"`base_turn` 이 없거나 고를 수 없는 값입니다({diag.get('base_turn')!r}). 고를 수 있는 턴: {revert['allowed']}. "
+                          f"이번 코드에서 이어 가려면 {revert['turn']} 을 적습니다."]
+    if not str(diag.get("last_direction_ok") or "").strip():
+        errs.append("`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오.")
+    return errs
 
 
 EVIDENCE_RETRIES = 2
@@ -230,7 +305,7 @@ def count_tokens(base_url, model, text):
 
 
 def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b", base_url="http://127.0.0.1:8420/v1",
-            prior="", facts=""):
+            prior="", facts="", revert=None):
     """One analyst call over `variants` (runs of `code`); writes <out>_request/_raw/_diagnosis.json, returns (diag, table)."""
     base = (HERE / C1.BASE_FILE).read_text()
     dg = MR.digest(variants, log_dir)
@@ -244,7 +319,9 @@ def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b",
                 + f"\n## 여러 실행 요약 ({len(variants)}개 배치. 턴 예산은 모든 실행 합계 600초이고, 실행별 시간 한도는 표의 time_limit_s)\n\n```json\n" + json.dumps(dg, ensure_ascii=False) + "\n```\n"
                 + dbg
                 + "\n## 시도 기록\n\n" + history + "\n"
-                + ((PRIOR_HEADER + "\n" + prior + "\n") if prior else ""))
+                + (BASE_TURN_SECTION.format(**revert) if revert else "")
+                + ((PRIOR_HEADER + "\n" + prior + "\n") if prior else "")
+                + ("\n답 JSON 에는 `last_direction_ok` 와 `base_turn` 을 반드시 넣으십시오.\n" if revert and prior else ""))
     body = make_body(dbg_section(variants, log_dir))
     if not str(model).startswith("claude"):
         # C-5 (2026-11-17): a vLLM analyst has a context limit (C-3's inputs reached 130-167k tokens with DBG lines).
@@ -269,24 +346,32 @@ def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b",
     for attempt in range(EVIDENCE_RETRIES + 1):
         r = AL.post(base_url, payload, 7200)
         Path(f"{out}_raw.json").write_text(json.dumps(r, ensure_ascii=False, indent=1))
+        Path(f"{out}_raw_try{attempt}.json").write_text(json.dumps(r, ensure_ascii=False, indent=1))  # keep rejected answers
         u = r.get("usage", {})
         content = r["choices"][0]["message"].get("content") or ""
         print(f"[multi] {time.time() - t0:.0f}s 입력={u.get('prompt_tokens')} 출력={u.get('completion_tokens')} 답={len(content)}자", flush=True)
         s, e = content.find("{"), content.rfind("}")
+        perr = None
         try:
             diag = json.loads(content[s:e + 1])
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as ex:
             diag = None
-        errs = check_evidence(diag, rows)
+            if revert:      # C-8b: say what was wrong. EXAONE's rejected answers were bracket slips, and the retry text
+                pos = getattr(ex, "pos", 0)     # (stale evidence) never told it so - it repeated them three times
+                perr = [f"답이 올바른 JSON 이 아니어서 읽지 못했습니다({ex}). 오류 근처: …{content[s:e + 1][max(0, pos - 80):pos + 40]}… "
+                        "괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."]
+        errs = perr or (check_evidence(diag, rows) + base_turn_errors(diag, revert))
         checks.append({"attempt": attempt, "errors": errs})
         if not errs:
             break
         print(f"[multi] 근거 검사 실패 {len(errs)}건 - 다시 요청: {errs[0][:160]}", flush=True)
         payload["messages"] = payload["messages"][:1] + [
             {"role": "assistant", "content": content},
-            {"role": "user", "content": "근거가 이번 실행 요약과 맞지 않습니다. 이전 턴 기록의 숫자를 이번 근거로 쓰면 안 됩니다.\n\n"
+            {"role": "user", "content": ("답에 고칠 것이 있습니다.\n\n" if revert else
+                                          "근거가 이번 실행 요약과 맞지 않습니다. 이전 턴 기록의 숫자를 이번 근거로 쓰면 안 됩니다.\n\n")
              + "\n".join(f"- {x}" for x in errs)
-             + "\n\n이번 턴 `여러 실행 요약` 의 실제 값만 근거로 진단을 다시 내십시오. 같은 JSON 형식 하나만 냅니다."}]
+             + ("\n\n같은 JSON 형식 하나만 냅니다." if perr else
+                "\n\n이번 턴 `여러 실행 요약` 의 실제 값만 근거로 진단을 다시 내십시오. 같은 JSON 형식 하나만 냅니다.")}]
         Path(f"{out}_request.json").write_text(json.dumps(payload, ensure_ascii=False, indent=1))
     if checks[-1]["errors"] and prior:
         # every attempt kept citing earlier turns' runs (C-2 turn 8, 39k-token input): ask once more without the record
@@ -301,8 +386,60 @@ def analyze(code, reason, history, variants, log_dir, out, model="gpt-oss-120b",
             diag = json.loads(content[s:e + 1])
         except (json.JSONDecodeError, ValueError):
             diag = None
-        checks.append({"attempt": "no_prior", "errors": check_evidence(diag, rows)})
+        checks.append({"attempt": "no_prior", "errors": check_evidence(diag, rows) + base_turn_errors(diag, revert)})
         print(f"[multi] 기록 없이: 근거 검사 {len(checks[-1]['errors'])}건", flush=True)
+    if revert and diag:
+        # an unreadable or not-allowed base_turn means "this turn's code" (the behaviour of every earlier series)
+        bt = diag.get("base_turn")
+        try:
+            bt = int(bt)
+        except (TypeError, ValueError):
+            bt = None
+        if bt not in revert["allowed_set"]:
+            print(f"[multi] base_turn {diag.get('base_turn')!r} 은 고를 수 없는 값 - 이번 턴({revert['turn']}) 코드로 둠", flush=True)
+            diag["base_turn_given"], bt = diag.get("base_turn"), revert["turn"]
+        diag["base_turn"] = bt
+        print(f"[multi] 다음 턴 시작 코드: {bt}턴 | 직전 지시 판단: {str(diag.get('last_direction_ok'))[:160]}", flush=True)
+        code_k = (revert.get("code_of") or {}).get(bt)
+        if bt != revert["turn"] and code_k and not checks[-1]["errors"]:
+            # stage 2 (user 2026-11-19): the analyst wrote its direction without the older turn's code in view (in the
+            # first trial it went back to turn 16 and named constants that exist only in turn 20). Show it that code
+            # and have it write the direction again; the rest of the diagnosis stays as it is.
+            msgs = payload["messages"][:1] + [
+                {"role": "assistant", "content": content},
+                {"role": "user", "content": STAGE2_PROMPT.format(bt=bt, nx=bt + 1, code=Path(code_k).read_text())}]
+            p2 = {**payload, "messages": msgs}
+            s2 = None
+            for attempt in range(EVIDENCE_RETRIES + 1):
+                Path(f"{out}_request_stage2.json").write_text(json.dumps(p2, ensure_ascii=False, indent=1))
+                r2 = AL.post(base_url, p2, 7200)
+                Path(f"{out}_raw_stage2_try{attempt}.json").write_text(json.dumps(r2, ensure_ascii=False, indent=1))
+                c2 = r2["choices"][0]["message"].get("content") or ""
+                u2 = r2.get("usage", {})
+                print(f"[multi] 2단계 {time.time() - t0:.0f}s 입력={u2.get('prompt_tokens')} 출력={u2.get('completion_tokens')} 답={len(c2)}자", flush=True)
+                a_, b_ = c2.find("{"), c2.rfind("}")
+                try:
+                    s2 = json.loads(c2[a_:b_ + 1])
+                    why = None if str(s2.get("direction") or "").strip() else "`direction` 이 비어 있습니다."
+                except (json.JSONDecodeError, ValueError) as ex:
+                    pos = getattr(ex, "pos", 0)
+                    s2, why = None, (f"답이 올바른 JSON 이 아니어서 읽지 못했습니다({ex}). 오류 근처: …{c2[a_:b_ + 1][max(0, pos - 80):pos + 40]}… "
+                                     "괄호와 쉼표를 확인하십시오.")
+                if not why:
+                    break
+                s2 = None
+                print(f"[multi] 2단계 답을 쓰지 못함 - 다시 요청: {why[:160]}", flush=True)
+                p2 = {**payload, "messages": msgs + [{"role": "assistant", "content": c2},
+                                                     {"role": "user", "content": why + " 같은 JSON 형식 하나만 다시 내십시오."}]}
+            if s2:
+                diag["stage1"] = {k: diag.get(k) for k in ("chosen", "target", "direction")}
+                for k in ("chosen", "target", "direction"):
+                    if str(s2.get(k) or "").strip():
+                        diag[k] = s2[k]
+                print(f"[multi] 2단계: {bt}턴 코드를 보고 지시를 다시 씀", flush=True)
+            else:
+                diag["stage2_failed"] = True
+                print("[multi] 2단계 실패 - 1단계 지시를 그대로 씀", flush=True)
     failed = bool(checks[-1]["errors"])
     Path(f"{out}_diagnosis.json").write_text(json.dumps({"diagnosis": diag, "raw": content, "table": dg["table"],
                                                          "evidence_checks": checks, "evidence_failed": failed},

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"TTC로 회피가 시작되면 evade_until 을 t + _EVADE_HOLD 로 둔다\", \"implemented\": true, \"note\": \"ttc < _TTC_TRIG 이면 evade_on=True 로 하고 evade_until=max(기존, t+_EVADE_HOLD) 로 둔다\"},\n  {\"instruction\": \"TTC가 2.0 s 미만으로 남아 있으면 회피를 연장한다\", \"implemented\": true, \"note\": \"TTC<2.0 인 프레임마다 evade_until 을 다시 미룬다. 예외가 있다: 6 s 상한(_EVADE_MAX)을 넘고 clr_all>=_CLR_GO 이면 TTC<2.0 이어도 해제한다. 그 뒤 2 s 동안은 clr_all<_CLR_GO 일 때만 다시 걸린다. 진단의 위험 항목에 대응한 것으로 보고 허용한다\"},\n  {\"instruction\": \"회피 중에도 매 프레임 TTC를 다시 계산한다\", \"implemented\": true, \"note\": \"_ttc 는 상태 분기 전에 매 프레임 호출된다\"},\n  {\"instruction\": \"물체 방위에서 각도가 크게 벗어나는 측면 회피 후보를 우선한다\", \"implemented\": true, \"note\": \"_choose 에서 가장 가까운 앵커 방위와의 편차 dev 로 _LAT_W*0.5*(1-cos dev) 가산점을 준다. 최대값은 정반대(이탈) 방향이다\"},\n  {\"instruction\": \"물체 속도 벡터를 상대 운동 예측으로 _choose 점수에 넣는다\", \"implemented\": true, \"note\": \"_mover_anchors 가 3 m 안의 트랙을 (x,y,vx,vy) 로 넘긴다. 1.5 s 앵커 이동 벌점(합산)과 창 끝 상대 접근속도 벌점(_REL_W)을 준다\"},\n  {\"instruction\": \"_ANCHOR_R 을 0.8 m 로 줄인다\", \"implemented\": true, \"note\": \"_ANCHOR_R = 0.8\"},\n  {\"instruction\": \"주행 재개 전에 라이다 클리어런스로 회피 효과를 확인한다\", \"implemented\": true, \"note\": \"해제 조건은 st_n>=0 이고 clr_all>=_RESUME_F*_CLR_GO(0.42) 이다. 상한 해제 경로만 clr_all>=_CLR_GO 로 기준이 낮다\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"_ANCHOR_R 은 몸체 중심과 물체 점 사이 거리다. 몸체 반길이가 약 0.475 m 라서 0.8 m 면 앞뒤 끝 여유가 약 0.3 m 뿐이다. 충돌이 실패 원인인데 회피 반경을 줄이는 방향이라 의문이다\",\n  \"'각도 편차가 큰 측면 후보 우선'에서 편차 최대는 정반대 이탈이다. 측면 회피와 같은 뜻이 아닐 수 있다\",\n  \"가정 1(2.0 s 기준이 너무 높아 늦게 반응)은 논리가 거꾸로다. 기준이 높을수록 일찍 트리거된다\",\n  \"회피 중에도 충돌했다는 근거와 회피를 더 오래 유지하자는 선택이 같은 원인을 겨누는지 불분명하다\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 43528,
+  "completion_tokens": 4903
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 48127,
+  "total_cost_usd": 0.446276,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4903,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 43526,
+    "webSearchRequests": 0,
+    "costUSD": 0.446276,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3614,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 43526,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "c0567feb-ac9a-49aa-afdb-522c2c4aaf39"
+ }
+}

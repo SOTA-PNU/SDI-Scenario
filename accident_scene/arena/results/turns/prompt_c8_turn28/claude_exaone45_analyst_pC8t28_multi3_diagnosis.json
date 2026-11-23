@@ -1,0 +1,126 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 1, 2에서 stop_turn_episodes 72, 56회 발생 및 progress_abort로 종료",
+   "마지막 5초 기록에서 제자리 회전 반복 (예: \"제자리 회전 -0.4rad/s\")과 정지 상태 지속 (d_near 2.86m → 3.07m로 미세 증가)",
+   "첫 감지 거리 3.38m~4.9m지만 로봇은 전진 없이 회전만 반복해 목표까지 거리 10.8m 유지"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 트리거 시 d_dot > 0인 후보 선택으로 거리 증가 유도 가능",
+    "holds": false,
+    "why": "실행 기록에서 d_near 변화가 미미(0.19m)하고 제자리 회전 반복, 거리 증가율 미달"
+   },
+   {
+    "assumption": "정적 여유(stc) 보장 시 회피 종료 조건 충족 가능",
+    "holds": false,
+    "why": "st_n < 0.15m 구간에서도 회피 종료되지 않고 반복 트리거"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 트리거 민감도 조정",
+    "turns": 20,
+    "result": "TTC_TRIG, NEAR_TRIG_D 등 파라미터 변경 시도 다수 실패"
+   },
+   {
+    "family": "회피 중 정적 여유 강제 조건",
+    "turns": 15,
+    "result": "stc ≥ 0.15m 필터 적용 시 정지 빈도 증가, 진행 없음"
+   },
+   {
+    "family": "회피 종료 조건 완화/강화",
+    "turns": 12,
+    "result": "EV_END_ST, RESUME_CLR_F 조정에도 진행 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 제자리 회전 대신 전진 속도 유지하며 d_dot > 0인 방향 선택",
+    "new_family": true,
+    "for": "로봇이 회전 없이 전진하며 거리 증가 가능하도록 유도",
+    "risk": "정적 장애물과의 충돌 위험 증가"
+   },
+   {
+    "idea": "d_dot 기반 종료 조건 강화: 0.1m/s 지속 증가 시 무조건 회피 종료",
+    "new_family": false,
+    "for": "미세 거리 증가에도 회피 유지로 인한 시간 낭비 방지",
+    "risk": "정적 장애물 근접 시 조기 종료 위험"
+   },
+   {
+    "idea": "회피 중 lateral candidate 선택 시 전진 속도(v) 최소 0.2m/s 강제",
+    "new_family": false,
+    "for": "회전 위주 동작 대신 전진+회전 조합으로 거리 증가 및 진행 유도",
+    "risk": "회피 대상 물체와의 상대 속도 계산 오류 시 비효율적 회피"
+   }
+  ],
+  "chosen": "후보 1 선택: 제자리 회전 대신 전진 속도 유지하며 거리 증가율(d_dot)을 최우선 평가하도록 _choose 함수 수정",
+  "target": "_choose 함수와 evasion 종료 조건 (end_rise, end_ddot)",
+  "direction": "1) _choose 내 evading=True 분기에서 d_dot 계산 필수화하고, v > 0.2m/s 후보만 허용\n2) d_dot > 0.05m/s인 후보에 점수 2배 부여, 제자리 회전(v < 0.05m/s) 후보 페널티 적용\n3) end_rise 조건에서 ddot_win > 0.1m/s 대신 d_near 증가율 지속 확인(1.0s 내 0.3m 이상)\n4) 회피 중 v=0 명령 강제 제거, 최소 전진 속도 유지로 진행성 확보\n5) 정적 여유(stc) 검증은 2차 평가로 전환해 거리 증가 우선시"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 1, 2에서 stop_turn_episodes 72, 56회 발생 및 progress_abort로 종료\", \"마지막 5초 기록에서 제자리 회전 반복 (예: \\\"제자리 회전 -0.4rad/s\\\")과 정지 상태 지속 (d_near 2.86m → 3.07m로 미세 증가)\", \"첫 감지 거리 3.38m~4.9m지만 로봇은 전진 없이 회전만 반복해 목표까지 거리 10.8m 유지\"], \"assumptions\": [{\"assumption\": \"회피 트리거 시 d_dot > 0인 후보 선택으로 거리 증가 유도 가능\", \"holds\": false, \"why\": \"실행 기록에서 d_near 변화가 미미(0.19m)하고 제자리 회전 반복, 거리 증가율 미달\"}, {\"assumption\": \"정적 여유(stc) 보장 시 회피 종료 조건 충족 가능\", \"holds\": false, \"why\": \"st_n < 0.15m 구간에서도 회피 종료되지 않고 반복 트리거\"}], \"approach_families\": [{\"family\": \"회피 트리거 민감도 조정\", \"turns\": 20, \"result\": \"TTC_TRIG, NEAR_TRIG_D 등 파라미터 변경 시도 다수 실패\"}, {\"family\": \"회피 중 정적 여유 강제 조건\", \"turns\": 15, \"result\": \"stc ≥ 0.15m 필터 적용 시 정지 빈도 증가, 진행 없음\"}, {\"family\": \"회피 종료 조건 완화/강화\", \"turns\": 12, \"result\": \"EV_END_ST, RESUME_CLR_F 조정에도 진행 실패\"}], \"candidates\": [{\"idea\": \"회피 중 제자리 회전 대신 전진 속도 유지하며 d_dot > 0인 방향 선택\", \"new_family\": true, \"for\": \"로봇이 회전 없이 전진하며 거리 증가 가능하도록 유도\", \"risk\": \"정적 장애물과의 충돌 위험 증가\"}, {\"idea\": \"d_dot 기반 종료 조건 강화: 0.1m/s 지속 증가 시 무조건 회피 종료\", \"new_family\": false, \"for\": \"미세 거리 증가에도 회피 유지로 인한 시간 낭비 방지\", \"risk\": \"정적 장애물 근접 시 조기 종료 위험\"}, {\"idea\": \"회피 중 lateral candidate 선택 시 전진 속도(v) 최소 0.2m/s 강제\", \"new_family\": false, \"for\": \"회전 위주 동작 대신 전진+회전 조합으로 거리 증가 및 진행 유도\", \"risk\": \"회피 대상 물체와의 상대 속도 계산 오류 시 비효율적 회피\"}], \"chosen\": \"후보 1 선택: 제자리 회전 대신 전진 속도 유지하며 거리 증가율(d_dot)을 최우선 평가하도록 _choose 함수 수정\", \"target\": \"_choose 함수와 evasion 종료 조건 (end_rise, end_ddot)\", \"direction\": \"1) _choose 내 evading=True 분기에서 d_dot 계산 필수화하고, v > 0.2m/s 후보만 허용\\n2) d_dot > 0.05m/s인 후보에 점수 2배 부여, 제자리 회전(v < 0.05m/s) 후보 페널티 적용\\n3) end_rise 조건에서 ddot_win > 0.1m/s 대신 d_near 증가율 지속 확인(1.0s 내 0.3m 이상)\\n4) 회피 중 v=0 명령 강제 제거, 최소 전진 속도 유지로 진행성 확보\\n5) 정적 여유(stc) 검증은 2차 평가로 전환해 거리 증가 우선시\"}",
+ "table": [
+  {
+   "run": "c8t28_s818165318",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 272.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 271.75,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 72,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 10.8127,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t28_s509575978",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 327.2,
+   "sim_time_s": 210.9,
+   "stall_abort_t": null,
+   "progress_abort_t": 209.92,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 56,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 10.6345,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t28_s109666278",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 116.3,
+   "sim_time_s": 117.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": 111.85,
+   "goal_dist_m": 6.9973,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

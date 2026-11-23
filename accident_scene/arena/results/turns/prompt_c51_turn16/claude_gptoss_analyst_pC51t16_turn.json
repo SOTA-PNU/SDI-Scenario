@@ -1,0 +1,364 @@
+{
+ "turn": 16,
+ "started": "2026-11-23 08:00:40",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c51_turn15/claude_gptoss_analyst_pC51t15_block.py",
+ "diagnosis_in": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "run c51t15_s1718142053 collided at t=45.9 s with mover_03 while a side object was within _STOP_D but resume ignored side distance, causing immediate restart (collision)",
+   "total batch simulation time 601 s exceeds the 600 s budget, so the mission fails due to timeout",
+   "run c51t15_s537908611 timed out at its 32.5 s limit, never reaching the goal (final distance 12.87 m), showing insufficient progress"
+  ],
+  "assumptions": [
+   {
+    "assumption": "stop condition based on any mover within _STOP_D is sufficient",
+    "holds": true,
+    "why": "code uses d_min < _STOP_D to enter stop state"
+   },
+   {
+    "assumption": "resume can ignore side distances",
+    "holds": false,
+    "why": "collision occurred because resume only checked front gap"
+   },
+   {
+    "assumption": "front‑gap scaling f alone can keep speed safe",
+    "holds": false,
+    "why": "side objects caused collisions despite f"
+   },
+   {
+    "assumption": "_STOP_WAIT of 2 s is enough for movers to pass",
+    "holds": false,
+    "why": "many stop‑turn episodes inflate total time"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "front‑gap stop only",
+    "turns": "1",
+    "result": "9/10, avg 63 s"
+   },
+   {
+    "family": "candidate rollout planner",
+    "turns": "2",
+    "result": "0/3"
+   },
+   {
+    "family": "danger‑zone check + stop/detour",
+    "turns": "4‑5",
+    "result": "9/10, avg 63 s"
+   },
+   {
+    "family": "improved TTC in _is_safe",
+    "turns": "5‑6",
+    "result": "9/10, avg 63 s"
+   },
+   {
+    "family": "increase TTC window",
+    "turns": "7",
+    "result": "8/10, avg 62 s"
+   },
+   {
+    "family": "increase _STOP_D to 1.5 m",
+    "turns": "8",
+    "result": "9/9, avg 65 s"
+   },
+   {
+    "family": "reduce _STOP_WAIT to 0.5 s",
+    "turns": "10",
+    "result": "7/9, avg 66 s"
+   },
+   {
+    "family": "danger_close detection",
+    "turns": "11‑13",
+    "result": "7/9, avg 79 s"
+   },
+   {
+    "family": "ttc‑based speed scaling",
+    "turns": "14",
+    "result": "1/4, avg 141 s"
+   },
+   {
+    "family": "distance‑based scaling (g) with _STOP_D=1.5",
+    "turns": "15",
+    "result": "8/10, avg 60 s"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "add side‑distance check to resume condition (require d_min >= _STOP_D + hysteresis)",
+    "new_family": false,
+    "for": "collision caused by side objects",
+    "risk": "more stop time may increase total runtime"
+   },
+   {
+    "idea": "reduce _STOP_WAIT to 0.5 s and add side‑distance hysteresis",
+    "new_family": false,
+    "for": "both collision and timeout",
+    "risk": "very short wait may cause frequent stop‑restart oscillation"
+   },
+   {
+    "idea": "replace stop/detour state machine with continuous candidate‑based evasion: each step evaluate _CANDS with _rollout/_evade logic and pick the safest high‑progress command, only stop if no safe candidate exists",
+    "new_family": true,
+    "for": "eliminate stop‑wait cycles and steer around side movers",
+    "risk": "more computation each step; may still stop if environment is too crowded"
+   }
+  ],
+  "chosen": "candidate 3 – continuous candidate‑based evasion, because it removes stop‑wait cycles, handles side movers proactively and should cut average runtime while preventing collisions",
+  "target": "controller function (state machine and command selection)",
+  "direction": "1. Delete the explicit \"stop\" and \"detour\" branches and keep a single \"go\" branch. 2. After obtaining movers and the nominal target, call the existing _evade logic (or replicate its scoring) on the full _CANDS set (including zero‑velocity) to produce a list of safe candidates using _is_safe and _static_ok. 3. Choose the candidate with the highest score (progress‑plus‑clearance) and return its (v,w). 4. If no candidate passes safety, command (0.0,0.0). 5. Keep the front‑gap scaling f for speed reduction in narrow passages. 6. Remove the stop‑timer and detour‑timer variables.",
+  "confidence": "medium",
+  "last_direction_ok": "yes – turn 15’s distance‑based scaling raised pass count from 1/4 to 8/10 and cut average time to ~60 s",
+  "base_turn": 15
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 chosen(후보 3)에 따라 `controller` 의 stop/detour 상태 머신과 그 타이머 변수(state, stop_t, detour_t, detour_w)를 모두 없앴습니다(지시 1, 6). 이제 매 스텝 새 함수 `_choose` 가 `_CANDS` 전체(정지 (0,0) 포함)와 f 로 줄인 경유점 추종 명령을 후보로 삼습니다. 그중 `_is_safe` 와 `_static_ok` 를 통과한 후보만 남기고, 물체 여유(`_mover_clear`)와 목표 진행도로 점수를 매겨 가장 높은 후보를 고릅니다(지시 2, 3). 물체 문제가 없으면 기존 경로를 그대로 따르도록 경유점 추종 후보에 가산점을 줍니다. 여유 0.25 m 로 안전한 후보가 없으면 여유 0.05 m 로 한 번 더 찾고, 그래도 없으면 (0,0) 으로 멈춥니다(지시 4). 전방 gap 스케일 f 는 경유점 추종 후보의 속도에 그대로 곱합니다(지시 5).",
+   "changed": [
+    "_CLEAR_CAP",
+    "_NEED_LEVELS",
+    "_NOM_BONUS",
+    "_choose",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "stop·detour 분기를 지우고 go 분기 하나만 남긴다",
+      "implemented": true,
+      "note": "controller 의 state 분기와 resume 로직이 모두 사라지고 _choose 호출 하나로 끝난다"
+     },
+     {
+      "instruction": "movers 와 목표를 구한 뒤 _CANDS 전체(정지 포함)를 _is_safe·_static_ok 로 걸러 안전 후보를 만든다",
+      "implemented": true,
+      "note": "_choose 가 nom 5개와 _CANDS 49개(0,0 포함)를 _is_safe 와 _static_ok 로 거른다"
+     },
+     {
+      "instruction": "진행도+여유 점수가 가장 높은 후보의 (v,w) 를 돌려준다",
+      "implemented": true,
+      "note": "점수는 10*min(mc,0.8)+prog-후진 벌점이고 argmax 를 고른다. 경유점 추종 후보에 가산점 3.0 을 더한 것은 진단에 없던 추가다"
+     },
+     {
+      "instruction": "안전 후보가 없으면 (0,0) 을 명령한다",
+      "implemented": true,
+      "note": "마지막 대안은 (0,0) 이다. 다만 그 전에 need 를 0.25 에서 0.05 로 낮춰 한 번 더 찾는 단계가 추가됐다"
+     },
+     {
+      "instruction": "전방 gap 스케일 f 를 유지한다",
+      "implemented": true,
+      "note": "f 는 경유점 추종 후보에만 곱한다. _CANDS 후보는 f 와 관계없이 최대 1.5 m/s 까지 고를 수 있다"
+     },
+     {
+      "instruction": "정지 타이머·우회 타이머 변수를 없앤다",
+      "implemented": true,
+      "note": "c.state, stop_t, detour_t, detour_w 를 제거했다. _STOP_WAIT·_DETOUR_T·_DETOUR_ROT·_GO_D·_SAFE_GO 상수와 _detour_side 함수는 쓰이지 않은 채 남아 있지만 실행에는 영향이 없다"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 4대로 안전 후보가 없을 때 (0,0) 으로 멈추면, 이전 _evade(allow_stop) 가 하던 '멈춰 있을 때 다가오는 물체를 비켜서기'가 사라진다. 멈춰 있어도 물체가 닿으면 충돌로 판정된다",
+     "f 는 정적 점을 뺀 물체 점으로만 계산하므로, 지시 5의 '좁은 통로 감속' 설명과 실제 동작이 다르다",
+     "충돌 원인은 측면 물체였는데, 재출발 여유 _SAFE_GO(0.6) 히스테리시스가 없어지고 0.05 로 완화하는 단계가 생겨 측면 여유가 오히려 줄 수 있다"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 15,
+ "diag_turn": 15,
+ "reason": "변경 이유: 진단의 chosen(후보 3)에 따라 `controller` 의 stop/detour 상태 머신과 그 타이머 변수(state, stop_t, detour_t, detour_w)를 모두 없앴습니다(지시 1, 6). 이제 매 스텝 새 함수 `_choose` 가 `_CANDS` 전체(정지 (0,0) 포함)와 f 로 줄인 경유점 추종 명령을 후보로 삼습니다. 그중 `_is_safe` 와 `_static_ok` 를 통과한 후보만 남기고, 물체 여유(`_mover_clear`)와 목표 진행도로 점수를 매겨 가장 높은 후보를 고릅니다(지시 2, 3). 물체 문제가 없으면 기존 경로를 그대로 따르도록 경유점 추종 후보에 가산점을 줍니다. 여유 0.25 m 로 안전한 후보가 없으면 여유 0.05 m 로 한 번 더 찾고, 그래도 없으면 (0,0) 으로 멈춥니다(지시 4). 전방 gap 스케일 f 는 경유점 추종 후보의 속도에 그대로 곱합니다(지시 5).",
+ "budget_s": 600.0,
+ "seeds": [
+  1776074949,
+  632080912,
+  1532851939
+ ],
+ "sim_used_s": 262.9,
+ "verdicts": {
+  "1776074949": "fail",
+  "632080912": "fail",
+  "1532851939": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 8461,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 0개, 실패 3개. 시뮬 시간 합계 263초 / 예산 600초.\n- 통과한 실행이 없습니다. 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 4대로 안전 후보가 없을 때 (0,0) 으로 멈추면, 이전 _evade(allow_stop) 가 하던 '멈춰 있을 때 다가오는 물체를 비켜서기'가 사라진다. 멈춰 있어도 물체가 닿으면 충돌로 판정된다\n- (검토 1회차, 판정 pass) f 는 정적 점을 뺀 물체 점으로만 계산하므로, 지시 5의 '좁은 통로 감속' 설명과 실제 동작이 다르다\n- (검토 1회차, 판정 pass) 충돌 원인은 측면 물체였는데, 재출발 여유 _SAFE_GO(0.6) 히스테리시스가 없어지고 0.05 로 완화하는 단계가 생겨 측면 여유가 오히려 줄 수 있다\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "세 실행 모두 t≈88 s 에 stall_abort 발생, 60 s 구간에 이동 거리 0.298 m 로 정지 상태 지속 (stall_abort 데이터)",
+   "첫 움직이는 물체가 5 m 이내에 감지된 시점 t≈83 s (first_not_on_map) 이후 로봇이 \"정지\" 상태를 유지함",
+   "last_5s 로그에 로봇 상태가 계속 \"정지\"이며 최근접 비지도 물체 거리만 5→3 m 로 감소, 움직임 없음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "앞±30° 구역만 감지하면 이동 물체를 회피할 수 있다",
+    "holds": false,
+    "why": "측면 물체가 앞쪽에 없었음에도 정지·정체가 발생해 전방만 고려하면 부족함"
+   },
+   {
+    "assumption": "TTC 윈도우 1 s가 충분히 빠른 물체를 예측한다",
+    "holds": false,
+    "why": "이전 턴에서 _TTC_H=2.0 으로 늘리면 통과율이 크게 상승함"
+   },
+   {
+    "assumption": "안전 후보가 없을 때 정지하면 물체가 지나가면 재시작한다",
+    "holds": false,
+    "why": "정지 후 60 s 내에 움직임이 없으면 stall_abort 로 실패"
+   },
+   {
+    "assumption": "후보 집합에 (0,0) 포함이면 언제든 진행 가능",
+    "holds": false,
+    "why": "안전 후보가 전혀 없을 경우 (0,0) 선택이 stall_abort 으로 이어짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "state_machine_front_gap",
+    "turns": "1,3,8",
+    "result": "27/29"
+   },
+   {
+    "family": "danger_zone_speed_scaling",
+    "turns": "4,5,15",
+    "result": "23/28"
+   },
+   {
+    "family": "velocity_obstacle",
+    "turns": "6",
+    "result": "7/8"
+   },
+   {
+    "family": "extended_ttc",
+    "turns": "7",
+    "result": "8/10"
+   },
+   {
+    "family": "short_stop_wait_detour",
+    "turns": "10",
+    "result": "7/9"
+   },
+   {
+    "family": "danger_proximity",
+    "turns": "11,13",
+    "result": "14/19"
+   },
+   {
+    "family": "ttc_min_combined",
+    "turns": "14",
+    "result": "1/4"
+   },
+   {
+    "family": "candidate_scoring_no_state",
+    "turns": "2,16",
+    "result": "0/6"
+   },
+   {
+    "family": "tcc_speed_factor",
+    "turns": "9",
+    "result": "4/7"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지·우회 상태 머신을 재도입하고, 안전 후보가 없을 때 일정 시간 정지 후 _detour_side 로 회전 회피",
+    "new_family": true,
+    "for": "stall 상황을 방지하고 side 물체를 회피할 수 있음",
+    "risk": "과도한 회전이 정적 장애물에 충돌을 유발할 수 있음"
+   },
+   {
+    "idea": "_TTC_H 값을 2.0 으로 확대해 TTC 예측 범위를 늘린 뒤 기존 후보 점수 로직 유지",
+    "new_family": true,
+    "for": "빠른 물체에 대한 조기 감지를 가능하게 함",
+    "risk": "과도한 감속으로 진행 속도가 크게 감소할 수 있음"
+   },
+   {
+    "idea": "좌측·우측 위험 감지를 위한 _danger_side 를 추가하고, 감지 시 즉시 회전 명령을 내리되 _evade 로 안전 검증 후 실행",
+    "new_family": true,
+    "for": "측면 물체가 앞쪽 gap 에 포함되지 않을 때도 회피 가능",
+    "risk": "오탐으로 불필요한 회전이 발생해 목표 진행이 늦어질 수 있음"
+   }
+  ],
+  "chosen": "evade 로 선택한 명령을 안전 검증 후 반환해, 안전하지 않은 회피 명령이 stall이나 충돌을 일으키는 것을 방지한다.",
+  "target": "controller, _safe_evade (새 함수)",
+  "direction": "1) _evade 뒤에 _safe_evade 함수를 새로 정의한다: (v,w)=_evade(...); if _is_safe(pose,(v,w),movers,_SAFE) and _static_ok(pose,(v,w)) return (v,w) else return (0.0,0.0). 2) controller 안에서 모든 _evade 호출을 _safe_evade 로 교체한다 (go 상태, stop 상태, detour 상태 모두). 3) stop 상태에서 _evade(...,True) 호출 후에도 반환값을 _safe_evade 로 검증해 안전하지 않으면 (0,0) 유지하고, 필요 시 기존 detour 로 전환한다. 4) 기존 go/stop/detour 상태 머신 로직은 그대로 유지한다. 5) 새 함수 정의는 _evade 정의 바로 아래에 위치시켜 기존 이름 충돌 없이 사용한다. 6) 코드 포맷은 기존 _EDIT REGION 범위 내에서만 수정한다.",
+  "confidence": "high",
+  "last_direction_ok": "no|STOP/DET0 상태 머신을 제거한 이번 지시가 모든 실행에서 stall_abort 로 이어져 이전 상태‑머신 기반 접근보다 성능이 크게 떨어졌다",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "candidate 1 (정지·우회 상태 머신 재도입) 을 선택함",
+   "target": "controller",
+   "direction": "controller 내부에 c.state('go','stop','detour') 를 도입한다. _choose 로부터 (0,0) 반환 시 c.state='stop' 과 c.stop_t=t 를 기록한다. 정지 상태에서 t-c.stop_t >= _STOP_WAIT 이면 c.state='detour', c.detour_w=_detour_side(pose), c.detour_t=t 로 전환하고 (0,c.detour_w) 를 반환한다. detour 상태는 t-c.detour_t >= _DETOUR_T 가 되면 다시 c.state='go' 로 돌아가 _choose 로 후보 선택을 진행한다. 모든 상태 전환 전 _is_safe 와 _static_ok 로 안전성을 검증한다."
+  }
+ },
+ "table": [
+  {
+   "run": "c51t16_s1776074949",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 89.3,
+   "stall_abort_t": 88.28,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 17.1249,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t16_s632080912",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 510.7,
+   "sim_time_s": 84.4,
+   "stall_abort_t": 83.37,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 17.1299,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t16_s1532851939",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 426.3,
+   "sim_time_s": 89.2,
+   "stall_abort_t": 88.2,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 17.1341,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 97 s / 한도 600 s)\n#1 이번 코드(진단 \"1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#2 이번 코드(진단 \"1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 282 s / 한도 600 s)\n#3 이번 코드(1턴 코드로 돌아가 시작, 진단 \"1. _STOP_WAIT 값을 5.0에서 2.0 초로 줄여 정지 후 대기 시간을 단축한다. 2. controller 함수의 c.state == \\\"go\\\" 블록에서 현재 for‑k 루프가 끝난 뒤, 안전한 스케일 명령을 찾지 못했을 경우에만 _evade(pose, movers, target, False) 를 호출해 반환값을 사용한다. 3. 이 fallback 은 기존 안전 후보가 존재하면 기존 로직을 그대로 따르며, 안전 후보가 없을 때만 적용한다. 4. stop 및 detour 상태 로직은 기존대로 유지하되, 감소된 _STOP_WAIT 로 인해 detour 전환이 더 빨리 일어난다. 5. 새로운 함수나 변수는 추가하지 않고, 기존 _STOP_WAIT 상수와 controller 내부 코드를 수정한다. 6. 이렇게 하면 로봇이 안전 후보가 부족한 상황에서도 최소한의 전진/회피 동작을 수행해 60 s 동안 0.3 m 미만 이동하는 스톨을 방지한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 577 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _danger_zone_check(pose,movers) 를 구현해 _rollout으로 예측된 궤적과 mover 위치를 비교해 최소 여유 거리를 반환한다. 2) 최소 여유 거리가 0.5 m 이하이면 speed_scale = max(0.1, min_dist/0.5) 로 계산한다. 3) controller의 go‑블록에서 v_nom = v_nom * speed_scale 적용한다. 4) _front_gap의 각도 조건을 ±45° 로 확대해 측면 물체도 정지 트리거에 포함한다. 5) 기존 _STOP_D, _SAFE 값은 유지하되 speed_scale 로 속도 조절을 추가한다. 6) 필요 시 _detour_side 로 회전 방향을 재평가한다.\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#5 이번 코드(3턴 코드로 돌아가 시작, 진단 \"1. _is_safe 내부에서 cmd 로부터 로봇의 세계 속도(vx,vy) 를 pose 와 (v,w) 로 변환한다. 2. 각 mover 에 대해 현재 상대 위치와 상대 속도(vx‑mx, vy‑my)를 구하고, 최소 접근 시간 t_c = - (dx·dv) / |dv|² 를 계산한다( t_c<0이면 현재 거리만 고려). 3. t_c 가 0~1 s 사이이면 해당 시점의 거리 d_c = sqrt(|dx+dv·t_c|²) 를 구하고, d_c < _MOVER_R + _SAFE (또는 _SAFE_GO) 이면 False 를 반환한다. 4. 모든 mover 에 대해 위 조건을 통과하면 True 를 반환하도록 _is_safe 를 수정한다. 5. 컨트롤러의 go, stop, detour 블록에서 기존 _is_safe 호출을 그대로 유지해 새 로직을 적용한다. 6. 필요 시 _SAFE_GO 를 0.6 m 로 증가시켜 재시작 시 여유를 더 확보한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 580 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _vo_safe_velocities(pose, movers, cands)를 추가해 각 후보 (v,w)의 세계 속도를 구한다. 2. 후보가 mover와 형성하는 velocity‑obstacle을 검사해 _SAFE와 MOVER_R을 합한 반경을 사용한다. 3. _TTC_H(또는 2 s) 내에 VO가 존재하면 해당 후보를 unsafe 로 표시한다. 4. controller에서 기존 _is_safe 호출 대신 _vo_safe_velocities 로 후보를 필터링하고, 남은 후보 중 목표 진행도가 가장 큰 것을 선택한다. 5. 안전 후보가 없으면 정지 명령을 내리고 기존 stop/detour 상태 머신을 유지한다. 6. 다른 상수는 변경하지 않는다.\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#7 이번 코드(5턴 코드로 돌아가 시작, 진단 \"Locate the constant _TTC_H defined near the end of the file. Change its value from 1.0 to 2.0. This will extend the time window used by _is_safe for TTC calculations. No other code modifications are required because _is_safe already respects _TTC_H. The existing speed‑scaling logic will now react earlier to slower‑approaching objects. Verify that the change does not cause excessive stopping by running the batch again.\" 반영, 검토 통과): 새 배치 10개 중 8개 pass, 2개 fail (시뮬 시간 합계 555 s / 한도 600 s)\n#8 이번 코드(5턴 코드로 돌아가 시작, 진단 \"1. 파일 맨 아래 _STOP_D 정의를 `_STOP_D = 1.5` 로 바꾼다. 2. 기존 f 계산식 `f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)` 은 그대로 두어, 더 큰 _STOP_D 로 인해 gap 가 작아질 때 속도 스케일링이 더 강하게 적용되도록 한다. 3. 나머지 로직은 그대로 유지한다; stop/detour 상태 전환은 기존 _STOP_D 기준에 따라 동작한다. 4. 코드 내 다른 상수와 함수는 수정하지 않는다. 5. 변경 후 실행 시 물체가 1.5 m 이내에 들어오면 즉시 state='stop' 로 전환돼 정지·우회 절차가 시작된다. 6. 이 변경은 기존 통과 실행 시간에 큰 영향을 주지 않으며, 앞서 충돌이 발생한 경우를 예방한다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 587 s / 한도 600 s)\n#9 이번 코드(5턴 코드로 돌아가 시작, 진단 \"1. _tcc_scale(pose, movers) 함수를 정의해 각 mover에 대해 dx·dv와 dv² 로 TTC를 구하고 0~_TTC_H 로 클램프한 최소값을 반환한다. 2. controller 내부에서 기존 c.state, c.stop_t, c.detour_t, c.detour_w 관련 분기를 모두 삭제하고 항상 \\\"go\\\" 로 동작한다. 3. _perceive와 _movers 호출 후 v_nom, w_nom, done, target 를 얻고, ttc = _tcc_scale(pose, movers) 를 계산한다. 4. speed_factor = max(min(ttc / _TTC_H, 1.0), 0.15) 로 정의하고 scaled_cmd = (v_nom * speed_factor, w_nom) 를 만든다. 5. _is_safe(pose, scaled_cmd, movers, _SAFE) 가 True이면 scaled_cmd 를 반환하고, False이면 _evade(pose, movers, target, False) 로 회피 명령을 반환한다. 6. 기존 c.vm, c.wm 의 속도 추정 로직은 그대로 유지하고, 필요 시 _is_safe 내부의 응답 지연(_TAU) 보정을 그대로 사용한다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 310 s / 한도 600 s)\n#10 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. _STOP_WAIT 값을 0.5 로 줄여 정지 대기 시간을 최소화한다. 2. controller 내부에서 `if c.state == \\\"go\\\":` 블록을 수정한다: `if gap < _STOP_D:` 에서 `c.state, c.detour_t = \\\"detour\\\", t` 로 바꾸고 `c.detour_w = _detour_side(pose)` 를 설정한다. 3. 위 조건에서 바로 회전 명령 `cmd = (0.0, c.detour_w)` 를 안전 검사 `_is_safe` 와 `_static_ok` 로 확인하고 안전하면 `return cmd[0], cmd[1], False` 로 반환한다. 4. 기존 `c.state = \\\"stop\\\"` 로 전환하는 코드를 삭제하거나 주석 처리해 정지 상태가 발생하지 않도록 한다. 5. 이후 `if c.state == \\\"stop\\\":` 블록은 그대로 두되, 실제로는 호출되지 않으므로 무시된다. 6. 나머지 로직(resume 조건, detour 진행, _evade 호출)은 그대로 유지해 기존 안전 검증과 회피 행동을 보존한다.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 579 s / 한도 600 s)\n#11 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. Define a new constant `_DANGER_DIST = 2.0` near the other safety constants. 2. Add a helper `def _danger_close(pose, movers):` that iterates over `movers` and returns True if `math.hypot(mx - pose[0], my - pose[1]) < _DANGER_DIST`. 3. In `controller()`, after `movers = _movers(t, pose)` and before computing `gap = _front_gap(pose)`, insert `if _danger_close(pose, movers): v,w = _evade(pose, movers, target, False); return v,w,False`. 4. Keep the existing `gap`‑based stop/detour logic unchanged for forward obstacles. 5. Place the new function after `_movers` (or any other helper) so it is available to the controller. 6. No other code changes are required.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. Define `_DANGER_DIST = 2.0` and `_SIDE_ANGLE = math.radians(45)` after the other safety constants. 2. Add a helper `_danger_side(pose, movers)` that converts each mover to robot coordinates, checks if its distance < _DANGER_DIST and |bearing| > _SIDE_ANGLE, and returns +1 for left (bearing>0) or -1 for right (bearing<0) or None. 3. In `controller()`, after `movers = _movers(t, pose)`, call `side_dir = _danger_side(pose, movers)`. 4. If `side_dir` is not None, set `c.state = \\\"detour\\\"`, `c.detour_w = 0.5 * side_dir`, `c.detour_t = t`, and immediately `return 0.0, c.detour_w, False`. 5. Preserve the existing front‑gap stop/detour logic for frontal obstacles. 6. No other code changes are needed.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 80 s / 한도 600 s)\n#13 이번 코드(11턴 코드로 돌아가 시작, 진단 \"1. `if _danger_close(pose, movers):` 내부에서 `_evade(pose, movers, target, False)` 로 (v, w) 를 얻는다. 2. 바로 `if _is_safe(pose, (v, w), movers, _SAFE):` 로 안전성을 검사한다. 3. 안전하면 `return v, w, False` 로 그대로 반환한다. 4. 안전하지 않으면 `c.state = \\\"stop\\\"; c.stop_t = t;` 로 상태를 정지로 전환하고 `return 0.0, 0.0, False` 를 반환한다. 5. 기존 stop → detour 흐름이 그대로 작동해 일정 시간 후 회피 회전이 진행되도록 유지한다. 6. 다른 부분은 그대로 두고, 이 블록만 위와 같이 수정한다.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 595 s / 한도 600 s)\n#14 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. 코드 상단에 `_ttc_min(pose, movers)` 함수를 정의한다: `_is_safe`와 동일한 TTC 계산을 사용해 각 mover에 대해 tc = -(dx·dv)/|dv|² 를 구하고, 0~_TTC_H 로 클램프한 뒤 최소값을 반환한다; mover가 없으면 _TTC_H 를 반환한다. 2. `controller()` 안에서 `v_nom, w_nom, done, target = _nominal(pose)` 뒤에 `tc_min = _ttc_min(pose, movers)` 를 호출한다. 3. `speed_factor = max(0.15, min(tc_min / _TTC_H, 1.0))` 를 계산하고, 기존 `f` 계산식과 결합해 최종 전진 속도 스케일을 `scale = f * speed_factor` 로 만든다. 4. `if c.state == \\\"go\\\":` 블록의 후보 루프에서 `cmd = (v_nom * scale * k, w_nom)` 로 명령을 생성하고 `_is_safe` 로 검증한다; 안전한 후보가 없을 경우 기존 `_evade` 로 회피한다. 5. `resume` 조건을 `gap >= _GO_D and _is_safe(pose, (v_nom * scale, w_nom), movers, _SAFE_GO)` 로 업데이트해 정지‑재시작 시에도 TTC 스케일을 반영한다. 6. 기존 `_danger_close` 관련 코드는 8턴에 없으므로 추가하지 않으며, 기존 상태 머신 로직은 그대로 유지한다.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 485 s / 한도 600 s)\n#15 이번 코드(8턴 코드로 돌아가 시작, 진단 \"새 함수 `_min_mover_dist(pose, movers)` 를 추가해 movers 리스트가 비어 있으면 큰 값(예: 99.0)을 반환하고, 그렇지 않으면 로봇 중심과 각 mover 중심 사이의 유클리드 거리를 계산해 최소값을 반환한다. controller() 내부에서 `gap = _front_gap(pose)` 와 `f` 계산 뒤에 `d_min = _min_mover_dist(pose, movers)` 를 호출하고, `g = _clamp((d_min - 0.5) / 1.5, 0.15, 1.0)` 로 거리 기반 스케일을 만든다. `scale = f * g` 로 정의하고, 후보 명령 생성 루프에서 `cmd = (v_nom * scale * k, w_nom)` 로 사용한다. 정지 전환 조건을 `if gap < _STOP_D or d_min < _STOP_D:` 로 수정해 전방뿐 아니라 측면에 가까운 물체가 있으면 즉시 stop 상태로 전환한다. 나머지 상태 머신 로직과 _is_safe 검사는 기존과 동일하게 유지한다.\" 반영, 검토 통과): 새 배치 10개 중 8개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#16 이번 코드(진단 \"1. Delete the explicit \\\"stop\\\" and \\\"detour\\\" branches and keep a single \\\"go\\\" branch. 2. After obtaining movers and the nominal target, call the existing _evade logic (or replicate its scoring) on the full _CANDS set (including zero‑velocity) to produce a list of safe candidates using _is_safe and _static_ok. 3. Choose the candidate with the highest score (progress‑plus‑clearance) and return its (v,w). 4. If no candidate passes safety, command (0.0,0.0). 5. Keep the front‑gap scaling f for speed reduction in narrow passages. 6. Remove the stop‑timer and detour‑timer variables.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 263 s / 한도 600 s)",
+ "ended": "2026-11-23 08:09:48"
+}

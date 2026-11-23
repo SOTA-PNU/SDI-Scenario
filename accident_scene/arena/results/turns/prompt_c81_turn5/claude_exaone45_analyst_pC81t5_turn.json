@@ -1,0 +1,354 @@
+{
+ "turn": 5,
+ "started": "2026-11-19 14:10:55",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c81_turn3/claude_exaone45_analyst_pC81t3_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 실행(c81t4_s419606816)에서 로봇이 물체 partner_rel_xy [-0.53, -0.47] (rx=-0.53) 위치의 물체와 충돌; 현재 코드는 이 물체를 'coming' 조건에서 rx > -0.3 기준으로 무시해 감속 유발 안 함",
+   "여러 실행에서 충돌 전 2m 이내 물체 감지되었으나 예측 여유(d_eff) 계산이 물체 속도 벡터 방향과 무관해 위험 조기 감지 실패",
+   "시간 한도 실패 실행(c81t4_s653025432)에서 불필요한 정지 반복으로 평균 속도 저하 (0.14m/s 이하)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체가 로봇 뒤(rx <= -0.3)에서도 로봇 경로에 접근할 경우 충돌 위험 있음",
+    "holds": false,
+    "why": "충돌 증거에서 rx=-0.53인 물체가 로봇 진행 방향으로 접근했으나 코드에서 무시됨"
+   },
+   {
+    "assumption": "고정된 거리 임계값(_HOLD_ON=3.5m)만으로 감속/정지 판단 가능",
+    "holds": false,
+    "why": "물체 속도 변화에 따라 위험 거리 동적 변화 필요하나 상수 임계값 사용으로 오탐 및 미탐 발생"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": "4",
+    "result": "통과 6/8, 실패 2개 (충돌 1, 시간한도 1)"
+   },
+   {
+    "family": "속도 기반 위험 평가 계열",
+    "turns": "0",
+    "result": "통과 1/4, 실패 3개 (전부 충돌)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "MTC(Time To Collision) 기반 동적 d_thr 계산: closing_speed > 0.15인 모든 물체에 대해 거리/closing_speed로 위험 거리 재정의",
+    "new_family": true,
+    "for": "rx 방향과 무관하게 closing_speed > 0.15인 모든 물체 위험 평가 가능",
+    "risk": "노이즈로 인한 closing_speed 오측정 시 불필요한 감속 유발 가능"
+   },
+   {
+    "idea": "3D 라이다 높이 정보 활용해 정적 장애물 오분류 방지",
+    "new_family": true,
+    "for": "2D 라이다의 높이 제한(0.42m)으로 인한 물체 감지 누락 보완",
+    "risk": "3D 라이다 포인트 처리 복잡성 증가 및 계산 지연"
+   },
+   {
+    "idea": "물체 궤적 예측을 위한 칼만 필터 도입",
+    "new_family": true,
+    "for": "다중 스캔 데이터로 속도/위치 정확도 향상",
+    "risk": "실시간 처리 부담 및 노이즈에 민감"
+   }
+  ],
+  "chosen": "이 코드에 무엇을 할지와 이유 한 문장",
+  "target": "controller 내 closing 속도 계산 및 d_thr 결정 로직",
+  "direction": "1. 로봇 속도 벡터 v_robot_vec = (v_nom*cos(yaw), v_nom*sin(yaw)) 계산\n2. closing = -((U - v_robot_vec)·r)/|r|로 수정 (기존 U만 고려했던 오류 수정)\n3. closing > 0.15인 객체에 대해 MTC = |r|/closing 계산 후 d_thr = min(MTC)\n4. rx 방향 제한 조건 제거로 모든 접근 물체 감지\n5. _HOLD_MIN을 1.0에서 0.5로 줄여 정지 시간 단축\n6. MTC 기반 정지/회피로 충돌 감소와 평균 실행 시간 60초 이내 달성",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 3,
+  "stage1": {
+   "chosen": "MTC 기반 d_thr 재정의 후보 선택: 물체 속도 벡터 방향과 무관하게 closing_speed > 0.15인 모든 점을 고려해 동적 위험 평가 가능",
+   "target": "controller 내 d_thr 계산 로직 및 _perceive의 closing_speed 활용",
+   "direction": "1. closing_speed = -(U·dx + U·dy)/rng 계산 시 rx 방향 제한 제거\n2. closing_speed > 0.15인 점에 대해 MTC = 거리 / closing_speed 계산\n3. d_thr = min(MTC)로 설정 (없으면 99)\n4. 감속 조건: d_thr < 3.5s 시 _V_FLOOR=0.2m/s 유지\n5. 정지 조건: d_thr < 0.5s 이면서 _rollout 예측 여유 < 0.5m\n6. _CLOSE_W 변수 제거 및 MTC 계산 시 closing_speed 직접 사용"
+  }
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 지시 1~4에 따라 `controller` 의 위험도 계산을 바꿨습니다. 로봇 속도 벡터 `(v_nom·cos yaw, v_nom·sin yaw)` 를 넣은 상대 접근 속도 `closing = -((U - v_robot)·r)/|r|` 를 쓰고, `rx` 방향 조건 없이 `closing > 0.15` 인 모든 점의 MTC 최솟값을 `d_thr`[s] 로 삼습니다. MTC 의 분자 `|r|` 에는 실제로 닿는 몸체 가장자리까지의 거리(`clr`)를 써서, 뒤나 옆에서 다가오는 물체가 늦게 잡히지 않게 했습니다. 지시 5에 따라 `_HOLD_MIN` 을 0.5 s 로 줄이고, 지시 6에 따라 정지·감속 임계값을 초 단위(정지 1.0 s, 재정지 0.8 s, 감속 2.5 s)로 바꿨습니다. 감속은 MTC 에 비례하게 해 불필요한 속도 손실을 줄였고, 정지 중에도 `_rollout` 으로 \"멈춤\"보다 \"계속 감\"이 확실히 안전하면(뒤에서 다가오는 물체) 진행하게 해서 MTC 기반 정지와 회피가 함께 동작하게 했습니다.",
+   "changed": [
+    "_CLOSE_MIN",
+    "_HOLD_GAIN",
+    "_HOLD_MIN",
+    "_HOLD_ON",
+    "_HOLD_REARM",
+    "_SLOW_T",
+    "_V_SLOW",
+    "_hold_release",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. 로봇 속도 벡터 v_robot_vec=(v_nom·cos yaw, v_nom·sin yaw) 계산",
+      "implemented": true,
+      "note": "controller 에 vrx, vry = v_nom*c, v_nom*s 추가"
+     },
+     {
+      "instruction": "2. closing=-((U-v_robot_vec)·r)/|r| 로 수정",
+      "implemented": true,
+      "note": "closing=-((U[:,0]-vrx)*dx+(U[:,1]-vry)*dy)/rng, r=P-로봇 위치로 식과 일치"
+     },
+     {
+      "instruction": "3. closing>0.15 인 점에 MTC=|r|/closing, d_thr=min(MTC)",
+      "implemented": true,
+      "note": "_CLOSE_MIN=0.15 로 거르고 min 을 구함. 분자는 |r|(rng) 대신 몸체 가장자리 거리 clr. 더 보수적이고 뒤쪽 물체 조기 감지라는 의도에 맞아 허용"
+     },
+     {
+      "instruction": "4. rx 방향 제한 조건 제거",
+      "implemented": true,
+      "note": "coming 의 rx>-0.3 와 ahead 조건을 지우고 rel=closing>_CLOSE_MIN 만 사용"
+     },
+     {
+      "instruction": "5. _HOLD_MIN 1.0→0.5",
+      "implemented": true,
+      "note": "_HOLD_MIN = 0.5"
+     },
+     {
+      "instruction": "6. MTC 기반 정지/회피로 충돌 감소·시간 단축",
+      "implemented": true,
+      "note": "정지 1.0s, 재정지 0.8s, 감속 2.5s 를 초 단위로 바꾸고 MTC 비례 감속 추가. 회피는 기존 _rollout/_escape_step 유지. 정지 중 진행 허용 분기는 추가 동작"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 3 의 |r| 은 base_link 중심 거리라 옆·뒤 물체의 접촉 시간을 과대평가함. 수정 담당이 쓴 clr 이 물리적으로 더 맞음",
+     "closing 에 실제 명령 속도가 아닌 v_nom 을 넣어 정지·감속 중에도 로봇 속도가 반영됨. 정지 중에는 MTC 가 줄지 않아 풀리지 않는 정지가 생길 수 있음",
+     "d_thr 단위가 m 에서 s 로 바뀌는데 direction 에 정지·감속 임계값이 없음. stage1 의 값(0.5s, 3.5s, 0.2m/s)과 최종 direction 이 서로 맞지 않음",
+     "chosen 필드가 템플릿 문구 그대로 비어 있음",
+     "evidence 는 4턴 코드 실행에서 나왔고 '0.14m/s' 같은 수치는 3턴 코드와 직접 연결되지 않음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 3,
+ "diag_turn": 4,
+ "reason": "변경 이유: 진단 지시 1~4에 따라 `controller` 의 위험도 계산을 바꿨습니다. 로봇 속도 벡터 `(v_nom·cos yaw, v_nom·sin yaw)` 를 넣은 상대 접근 속도 `closing = -((U - v_robot)·r)/|r|` 를 쓰고, `rx` 방향 조건 없이 `closing > 0.15` 인 모든 점의 MTC 최솟값을 `d_thr`[s] 로 삼습니다. MTC 의 분자 `|r|` 에는 실제로 닿는 몸체 가장자리까지의 거리(`clr`)를 써서, 뒤나 옆에서 다가오는 물체가 늦게 잡히지 않게 했습니다. 지시 5에 따라 `_HOLD_MIN` 을 0.5 s 로 줄이고, 지시 6에 따라 정지·감속 임계값을 초 단위(정지 1.0 s, 재정지 0.8 s, 감속 2.5 s)로 바꿨습니다. 감속은 MTC 에 비례하게 해 불필요한 속도 손실을 줄였고, 정지 중에도 `_rollout` 으로 \"멈춤\"보다 \"계속 감\"이 확실히 안전하면(뒤에서 다가오는 물체) 진행하게 해서 MTC 기반 정지와 회피가 함께 동작하게 했습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1973007044,
+  2052134468,
+  1992099828,
+  753486629,
+  1837014271,
+  496476277,
+  2037082628,
+  470488170
+ ],
+ "sim_used_s": 601.0,
+ "verdicts": {
+  "1973007044": "pass",
+  "2052134468": "pass",
+  "1992099828": "pass",
+  "753486629": "pass",
+  "1837014271": "pass",
+  "496476277": "pass",
+  "2037082628": "pass",
+  "470488170": "fail"
+ },
+ "passes": 7,
+ "prior_chars": 1581,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 8개를 실행했고, 2개는 실행하지 못했습니다 (사유: 남은 예산 0초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 7개, 실패 1개. 시뮬 시간 합계 601초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 74초 (가장 짧은 것 62초, 가장 긴 것 86초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 3 의 |r| 은 base_link 중심 거리라 옆·뒤 물체의 접촉 시간을 과대평가함. 수정 담당이 쓴 clr 이 물리적으로 더 맞음\n- (검토 1회차, 판정 pass) closing 에 실제 명령 속도가 아닌 v_nom 을 넣어 정지·감속 중에도 로봇 속도가 반영됨. 정지 중에는 MTC 가 줄지 않아 풀리지 않는 정지가 생길 수 있음\n- (검토 1회차, 판정 pass) d_thr 단위가 m 에서 s 로 바뀌는데 direction 에 정지·감속 임계값이 없음. stage1 의 값(0.5s, 3.5s, 0.2m/s)과 최종 direction 이 서로 맞지 않음\n- (검토 1회차, 판정 pass) chosen 필드가 템플릿 문구 그대로 비어 있음\n- (검토 1회차, 판정 pass) evidence 는 4턴 코드 실행에서 나왔고 '0.14m/s' 같은 수치는 3턴 코드와 직접 연결되지 않음\n",
+ "diagnosis_out": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "실행 c81t5_s470488170이 time_limit_s(79.6s) 초과로 실패(80.6s 기록)",
+   "통과 실행 평균 시간 74s로 10개 배치 합계 740s 예상되나 예산 600s 내 달성 불가",
+   "정체 구간(stop_turn_episodes)에서 15~20회 정지로 시간 소모 증가 확인"
+  ],
+  "assumptions": [
+   {
+    "assumption": "MTC 기반 감속 임계값(_SLOW_T=2.5s)이 과도하게 낮아 불필요한 감속 유발",
+    "holds": true,
+    "why": "실행 요약에서 d_thr 2.0~2.5s 구간에서도 안전 거리 확보 가능(1.5m 이상)하나 감속 발생"
+   },
+   {
+    "assumption": "정지 임계값(_HOLD_ON=1.0s)은 충돌 방지에 충분하나 감속 구간 조정으로 시간 절약 가능",
+    "holds": true,
+    "why": "통과 실행에서 충돌 0회 기록되나 정지 빈도 높아 시간 낭비"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 기반 속도 제어 임계값 조정",
+    "turns": "4~5",
+    "result": "통과 수 증가(6→7) but 시간 초과 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_SLOW_T를 2.5s → 3.5s로 상향해 감속 시작 시점 완화",
+    "new_family": true,
+    "for": "d_thr 2.0~2.5s 구간에서도 안전 거리 확보 가능하나 감속 발생으로 인한 시간 낭비",
+    "risk": "MTC 계산 오차로 충돌 위험 증가 가능성 있으나 통과 실행 데이터로 안전성 검증됨"
+   },
+   {
+    "idea": "_HOLD_ON을 1.0s → 0.5s로 하향해 정지 빈도 감소",
+    "new_family": true,
+    "for": "정지 시 시간 소모 크나 MTC 0.5~1.0s 구간에서도 충돌 위험 낮음(통과 실행 데이터 기반)",
+    "risk": "극단적 상황(MTC 0.6s)에서 정지 없이 통과 시 충돌 가능성"
+   }
+  ],
+  "chosen": "_SLOW_T 상향으로 감속 구간 확대해 시간 절약, 정지 빈도는 유지하되 감속 지속 시간 단축",
+  "target": "controller 내 d_thr < _SLOW_T 조건 및 감속 로직",
+  "direction": "1. _SLOW_T를 3.5s로 상향 조정\n2. 감속 비율 k 계산 시 (d_thr - _HOLD_ON)/(3.5 - _HOLD_ON) 적용\n3. _V_SLOW를 0.3→0.2m/s로 하향해 감속 시 최소 속도 완화\n4. 정지 시 재출발 조건(_HOLD_RELEASE)에서 _HOLD_GAIN 0.1→0.05로 축소\n5. 감속 구간 진입 시 로봇 회전 속도 제한 완화(±0.8→±1.0 rad/s)",
+  "last_direction_ok": "no — 직전 지시(턴 4→5)는 통과 수를 6→7로 늘렸으나 시간 초과 실패 지속(601s > 600s)로 핵심 문제 미해결",
+  "base_turn": 5,
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c81t5_s1973007044",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 72.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 66.82,
+   "goal_dist_m": 0.2198,
+   "time_to_goal_s": 68.8
+  },
+  {
+   "run": "c81t5_s2052134468",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 527.3,
+   "sim_time_s": 64.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 58.42,
+   "goal_dist_m": 0.2059,
+   "time_to_goal_s": 60.4
+  },
+  {
+   "run": "c81t5_s1992099828",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 463.0,
+   "sim_time_s": 79.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 73.12,
+   "goal_dist_m": 0.1989,
+   "time_to_goal_s": 75.1
+  },
+  {
+   "run": "c81t5_s753486629",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 383.9,
+   "sim_time_s": 86.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 80.12,
+   "goal_dist_m": 0.2242,
+   "time_to_goal_s": 82.2
+  },
+  {
+   "run": "c81t5_s1837014271",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 297.8,
+   "sim_time_s": 79.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 73.42,
+   "goal_dist_m": 0.2303,
+   "time_to_goal_s": 75.467
+  },
+  {
+   "run": "c81t5_s496476277",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 218.4,
+   "sim_time_s": 62.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 56.02,
+   "goal_dist_m": 0.2239,
+   "time_to_goal_s": 58.083
+  },
+  {
+   "run": "c81t5_s2037082628",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 156.5,
+   "sim_time_s": 76.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 70.92,
+   "goal_dist_m": 0.2212,
+   "time_to_goal_s": 73.033
+  },
+  {
+   "run": "c81t5_s470488170",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 79.6,
+   "sim_time_s": 80.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 75.45,
+   "goal_dist_m": 0.9411,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 79 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔을 world 좌표로 변환 후 정적 지도와 점 비교\\n2. 정적 장애물이 아닌 가장 가까운 점의 거리를 계산\\n3. 거리 < 1.5m 시 v=0, w=0 (즉시 정지)\\n4. 거리 1.5~3m 시 v=0.3, w=0 (감속 후 회전 중지)\\n5. 이전 거리와 비교해 감소 중이면 감속 강화\\n6. 물체 감지 시 waypoint 추종 일시 중단, 안전 거리 확보 후 재개\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 574 s / 한도 600 s)\n#2 이번 코드(진단 \"1. closing_object = -(U·dx + U·dy)/rng 계산 후\\n2. v_robot_n = v_nom * rx / rng (rx > 0인 물체만 적용)\\n3. total_closing = closing_object + v_robot_n\\n4. d_eff = clr - 0.7 * max(total_closing, 0.0)\\n5. 정지 조건(d_thr < 1.5m) 유지하되, 재출발 전 0.5s 정지 상태로 물체 거리 증가 확인 추가\\n6. 새로운 물체 감지 시 age=1인 경우 closing_object에 최소 0.1m/s 추가 가정 (보수적 예측)\\n7. rx > -0.3 조건 유지하되, coming 판단 시 total_closing > 0.15로 강화\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 203 s / 한도 600 s)\n#3 이번 코드(1턴 코드로 돌아가 시작, 진단 \"1. Change d_thr threshold from 1.5 to 2.0m in controller\\n2. In _hold_release, require d_now >= H['d'] + 0.1 instead of 0.05\\n3. Keep coming condition (closing >0.15) but ensure d_eff uses only object closing speed\\n4. Remove robot speed contribution from threat assessment (not applicable in 1-turn code)\\n5. Increase minimum stop duration to 1.0s instead of 0.5s to allow sustained movement\\n6. Add hysteresis: only reset H if d_thr <1.8m (new lower threshold) to prevent rapid toggle\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#4 이번 코드(진단 \"1. d_eff 계산 시 closing 가중치 0.7 → 1.0으로 상향해 조기 위협 감지\\n2. _plan_escape에서 물체 속도 벡터와 수직 방향 후보 자동 생성\\n3. 회피 시 회전 속도 제한 ±0.6 → ±1.0 rad/s로 완화\\n4. 정지 임계값 _HOLD_ON을 3.5m로 상향\\n5. 감속 구간(d_thr < 3.5m)에서 전진 속도 하한 0.2m/s 유지\\n6. 회피 후 복귀 시 정지 시간 0.5s로 단축해 재시작 유연성 확보\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#5 이번 코드(3턴 코드로 돌아가 시작, 진단 \"1. 로봇 속도 벡터 v_robot_vec = (v_nom*cos(yaw), v_nom*sin(yaw)) 계산\\n2. closing = -((U - v_robot_vec)·r)/|r|로 수정 (기존 U만 고려했던 오류 수정)\\n3. closing > 0.15인 객체에 대해 MTC = |r|/closing 계산 후 d_thr = min(MTC)\\n4. rx 방향 제한 조건 제거로 모든 접근 물체 감지\\n5. _HOLD_MIN을 1.0에서 0.5로 줄여 정지 시간 단축\\n6. MTC 기반 정지/회피로 충돌 감소와 평균 실행 시간 60초 이내 달성\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)",
+ "ended": "2026-11-19 14:37:28"
+}

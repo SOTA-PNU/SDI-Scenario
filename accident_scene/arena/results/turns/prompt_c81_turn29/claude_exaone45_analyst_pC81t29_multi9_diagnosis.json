@@ -1,0 +1,226 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실패 실행(c81t29_s1086896063)은 time_limit(46.4s)으로 종료, sim_time 47.4s 소요 및 최종 목표 거리 10.445m로 미도달",
+   "로봇이 41.42s부터 1.9m 거리의 움직이는 물체 감지했으나, 저속 주행(0.2m/s) 지속 및 정지 구간 8회 발생",
+   "통과 실행 대비 평균 sim_time 60~70초 소요되나, 실패 실행은 시간 한도 부족(남은 예산 46.4s)으로 인해 목표 미도달"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 MTC 계산이 3m 이상 떨어진 물체까지 포함해 불필요한 감속/정지 유발",
+    "holds": true,
+    "why": "실패 실행에서 첫 감지 물체 거리 1.9m이나, 다른 먼 물체로 인한 MTC 임계치 조기 충족 가능성"
+   },
+   {
+    "assumption": "정지/감속 임계값(_HOLD_ON=1.0, _SLOW_T=2.5) 조정만으로 해결 불가",
+    "holds": true,
+    "why": "이전 턴에서 _HOLD_ON/ _SLOW_T 조정 시도 시 통과율 변동했으나 근본 원인 미해결"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 상수 조정 (HOLD_ON, SLOW_T 등)",
+    "turns": "12회 시도",
+    "result": "통과율 4~8회/10회, 평균 sim_time 60~86초로 예산 한계 노출"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "MTC 계산 시 5m 이내 물체만 고려하는 거리 필터링 추가",
+    "new_family": true,
+    "for": "먼 물체의 불필요한 MTC 트리거 방지로 평균 속도 향상",
+    "risk": "급격히 접근하는 먼 물체 감지 지연 가능성"
+   },
+   {
+    "idea": "상대속도 기반 가중 MTC 계산 (거리 역비중 적용)",
+    "new_family": true,
+    "for": "근접 물체에 더 높은 가중치 부여로 정확한 위협 평가",
+    "risk": "복잡도 증가로 실시간 성능 저하 우려"
+   }
+  ],
+  "chosen": "RESUME_GO를 0.5로 낮춰 정지 후 재출발 시간을 단축해 평균 실행 시간을 60초 이내로 조정",
+  "target": "_RESUME_GO",
+  "direction": "1. _RESUME_GO 값을 0.8에서 0.5로 감소\n2. 정지 후 재출발 조건(_RESUME_T 및 거리 기준) 유지하되, 지속 시간 요구 완화\n3. 이로 인해 정지 구간 감소 및 로봇이 정체 상태에서의 대기 시간 단축\n4. 충돌 위험은 _HOLD_ON(1.0)과 _CLOSE_MIN(0.15)으로 유지해 안전성 보장\n5. _SLOW_T(3.5)와 _V_SLOW(0.2)는 현행 유지해 감속 시점 조정 불필요\n6. 시뮬레이션 시간 평균 60초 이내 달성을 위해 재출발 민감도 향상",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 7,
+  "stage1": {
+   "chosen": "MTC 계산 시 5m 이내 물체만 필터링하는 거리 제한 도입 (근접 위협에 집중)",
+   "target": "controller 내 MTC 계산 로직 (d_thr 산출 부분)",
+   "direction": "1. controller에서 동적 물체(P, U) 필터링 시 거리(rng) 5m 이내만 선택\n2. MTC 계산 전 rng < 5.0 조건 추가해 먼 물체 제외\n3. 필터링된 물체만으로 mtc 및 d_thr 재계산\n4. 기존 _CLOSE_MIN(0.3 m/s)과 결합해 위협 평가 정확도 향상\n5. 정지/감속 임계값(_HOLD_ON, _SLOW_T)은 현행 유지하되 필터링으로 민감도 조정\n6. 5m 거리는 테스트 배치 평균 물체 이동 거리(2~4m)를 고려해 설정"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실패 실행(c81t29_s1086896063)은 time_limit(46.4s)으로 종료, sim_time 47.4s 소요 및 최종 목표 거리 10.445m로 미도달\", \"로봇이 41.42s부터 1.9m 거리의 움직이는 물체 감지했으나, 저속 주행(0.2m/s) 지속 및 정지 구간 8회 발생\", \"통과 실행 대비 평균 sim_time 60~70초 소요되나, 실패 실행은 시간 한도 부족(남은 예산 46.4s)으로 인해 목표 미도달\"], \"assumptions\": [{\"assumption\": \"현재 MTC 계산이 3m 이상 떨어진 물체까지 포함해 불필요한 감속/정지 유발\", \"holds\": true, \"why\": \"실패 실행에서 첫 감지 물체 거리 1.9m이나, 다른 먼 물체로 인한 MTC 임계치 조기 충족 가능성\"}, {\"assumption\": \"정지/감속 임계값(_HOLD_ON=1.0, _SLOW_T=2.5) 조정만으로 해결 불가\", \"holds\": true, \"why\": \"이전 턴에서 _HOLD_ON/ _SLOW_T 조정 시도 시 통과율 변동했으나 근본 원인 미해결\"}], \"approach_families\": [{\"family\": \"임계값 상수 조정 (HOLD_ON, SLOW_T 등)\", \"turns\": \"12회 시도\", \"result\": \"통과율 4~8회/10회, 평균 sim_time 60~86초로 예산 한계 노출\"}], \"candidates\": [{\"idea\": \"MTC 계산 시 5m 이내 물체만 고려하는 거리 필터링 추가\", \"new_family\": true, \"for\": \"먼 물체의 불필요한 MTC 트리거 방지로 평균 속도 향상\", \"risk\": \"급격히 접근하는 먼 물체 감지 지연 가능성\"}, {\"idea\": \"상대속도 기반 가중 MTC 계산 (거리 역비중 적용)\", \"new_family\": true, \"for\": \"근접 물체에 더 높은 가중치 부여로 정확한 위협 평가\", \"risk\": \"복잡도 증가로 실시간 성능 저하 우려\"}], \"chosen\": \"MTC 계산 시 5m 이내 물체만 필터링하는 거리 제한 도입 (근접 위협에 집중)\", \"target\": \"controller 내 MTC 계산 로직 (d_thr 산출 부분)\", \"direction\": \"1. controller에서 동적 물체(P, U) 필터링 시 거리(rng) 5m 이내만 선택\\n2. MTC 계산 전 rng < 5.0 조건 추가해 먼 물체 제외\\n3. 필터링된 물체만으로 mtc 및 d_thr 재계산\\n4. 기존 _CLOSE_MIN(0.3 m/s)과 결합해 위협 평가 정확도 향상\\n5. 정지/감속 임계값(_HOLD_ON, _SLOW_T)은 현행 유지하되 필터링으로 민감도 조정\\n6. 5m 거리는 테스트 배치 평균 물체 이동 거리(2~4m)를 고려해 설정\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 7}",
+ "table": [
+  {
+   "run": "c81t29_s676972008",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 71.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 65.72,
+   "goal_dist_m": 0.1963,
+   "time_to_goal_s": 67.717
+  },
+  {
+   "run": "c81t29_s1476988644",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 528.4,
+   "sim_time_s": 58.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 52.42,
+   "goal_dist_m": 0.2051,
+   "time_to_goal_s": 54.483
+  },
+  {
+   "run": "c81t29_s1073779270",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 470.0,
+   "sim_time_s": 69.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 63.72,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 65.783
+  },
+  {
+   "run": "c81t29_s584581800",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 400.3,
+   "sim_time_s": 67.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 61.15,
+   "goal_dist_m": 0.2282,
+   "time_to_goal_s": 63.217
+  },
+  {
+   "run": "c81t29_s1870473933",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 333.1,
+   "sim_time_s": 64.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 58.42,
+   "goal_dist_m": 0.2042,
+   "time_to_goal_s": 60.4
+  },
+  {
+   "run": "c81t29_s254471402",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 268.8,
+   "sim_time_s": 71.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 65.45,
+   "goal_dist_m": 0.1951,
+   "time_to_goal_s": 67.5
+  },
+  {
+   "run": "c81t29_s1925915998",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 197.4,
+   "sim_time_s": 73.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 67.05,
+   "goal_dist_m": 0.2295,
+   "time_to_goal_s": 69.067
+  },
+  {
+   "run": "c81t29_s1375634412",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 124.4,
+   "sim_time_s": 78.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 72.05,
+   "goal_dist_m": 0.2233,
+   "time_to_goal_s": 74.117
+  },
+  {
+   "run": "c81t29_s1086896063",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 46.4,
+   "sim_time_s": 47.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 41.42,
+   "goal_dist_m": 10.4451,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

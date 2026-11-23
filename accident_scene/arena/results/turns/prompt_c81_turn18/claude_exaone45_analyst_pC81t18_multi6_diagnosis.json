@@ -1,0 +1,188 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실패 실행(c81t18_s2117037709)은 time_limit으로 종료되었으며, 8회의 정지-재회전 구간과 49.3초 실행 시간(한도 48.3초)으로 정체가 확인됨",
+   "2D 라이다 기록에서 물체(1.97m 거리)가 로봇에 접근 중임에도 정지 상태 유지(closing > 0.25m/s로 위협 판단), recede 조건 미충족으로 재출발 불가",
+   "성공 실행 대비 정지 구간 평균 지속 시간 증가 및 재출발 지연으로 인한 시간 초과 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇은 물체가 멀어질 때까지 정지해야 하며, MTC가 _HOLD_ON 이상일 때만 재출발 가능하다고 가정",
+    "holds": false,
+    "why": "실패 실행에서 물체 접근 시 MTC가 지속적으로 낮아 재출발 조건이 충족되지 않아 장시간 정체 발생, _HOLD_ON이 과도하게 엄격함"
+   },
+   {
+    "assumption": "recede 상태 확인을 위해 물체 거리가 _RESUME_DIST 이상이어야 하며, 지속 시간 _RESUME_GO 이상이어야 재출발 허용된다고 가정",
+    "holds": false,
+    "why": "실패 실행에서 물체는 2.0m 미만으로 접근 중이었으나, 재출발 조건 자체가 recede 의존적이어서 물체 접근 시 재출발 불가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지/재출발 임계값 조정 계열",
+    "turns": "0~18",
+    "result": "성공 7회, 실패 11회 (실패 유형: stall_abort, collision_driving, time_limit 혼재)"
+   },
+   {
+    "family": "센서 기반 동적 속도 제어 계열",
+    "turns": "4, 6, 10, 12, 14",
+    "result": "성공 5회, 실패 5회 (감속/정지 로직 개선 시도했으나 정체 문제 지속)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 해제 조건 완화: _HOLD_ON을 1.0s로 낮추고, recede 조건의 거리 제한(_RESUME_DIST) 제거 또는 1.5m로 하향 조정",
+    "new_family": true,
+    "for": "실패 실행에서 물체 접근 시 MTC가 1.0s 미만으로 떨어져 재출발 불가했던 점, _HOLD_ON 1.5s가 과도하게 엄격해 정체 유발",
+    "risk": "물체 근접 시 재출발 조건이 완화되어 충돌 위험 증가 가능"
+   },
+   {
+    "idea": "물체 접근 시 감속 모드 도입: MTC가 _SLOW_T 미만일 때 속도 점진 감소, 정지 대신 회피 경로 탐색 우선",
+    "new_family": true,
+    "for": "정지-재출발 사이클로 인한 시간 손실 방지, 물체 접근 시 즉시 정지 대신 안전한 감속으로 정체 완화",
+    "risk": "물체 속도 추정 오차로 인한 과도한 감속 또는 충돌 위험"
+   },
+   {
+    "idea": "MTC 계산 시 물체 상대 속도 가중치 조정: closing 가중치 1.0으로 상향해 조기 위협 감지 강화",
+    "new_family": false,
+    "for": "현재 0.7 가중치로 MTC 과대평가되어 조기 정지 발생, 가중치 조정으로 정확한 위협 평가 가능"
+   }
+  ],
+  "chosen": "16턴 코드의 _HOLD_MIN을 1.0s에서 0.5s로, _RESUME_GO를 0.5s에서 0.3s로 낮춰 정지 후 재출발 대기 시간을 줄여 시간 초과 문제를 해결",
+  "target": "_HOLD_MIN, _RESUME_GO 상수 (코드 하단 정의된 상수)",
+  "direction": "1. _HOLD_MIN 값을 0.5로 수정해 최소 정지 시간 단축 (이전 시도에서 0.5s 적용 시 평균 실행 시간 78~86초로 개선됨). 2. _RESUME_GO 값을 0.3으로 낮춰 recede 상태 지속 시간 요구 완화. 3. 정지 중 재출발 조건인 rec_ok 계산 시 _RESUME_GO를 0.3s로 적용해 더 빠른 재개 허용. 4. _HOLD_MIN 미달 시 재출발 조건 검토 불가 문제를 해소해 정체 구간 감소. 5. 시간 한도 600초 내 10개 배치 통과를 위해 평균 실행 시간을 60초 미만으로 유도. 6. 충돌 위험은 _HOLD_ON(1.0s)과 _ESC_CLOSE(0.05m/s)로 유지해 안전성 보존.",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 16,
+  "stage1": {
+   "chosen": "Candidate 1 선택: _HOLD_ON 1.0s로 낮추고 recede 조건의 거리 제한을 제거해 물체 재출발 허용 조건 완화, 이전 성공 턴(7, 16)에서 검증된 임계값 기반 접근",
+   "target": "controller 내 _HOLD_ON, _RESUME_GO, _RESUME_DIST 상수 및 _hold_release 로직",
+   "direction": "1. _HOLD_ON을 1.5s에서 1.0s로 하향 조정해 정지 해제 임계값 완화. 2. _RESUME_GO를 1.0s에서 0.5s로 감소시켜 recede 지속 시간 요구 완화. 3. recede 조건의 거리 제한(_RESUME_DIST=2.0m)을 제거하거나 1.5m로 하향. 4. _hold_release에서 recede 조건 시 거리 검증 생략하고 지속 시간만 확인. 5. MTC 기반 재출발 조건(d_now >= _HOLD_ON)을 우선시하도록 로직 재정렬. 6. 정지 시 재출발 전 물체 거리 확인 로직을 _RESUME_DIST 대신 _CLOSE_MIN(0.25m) 기준으로 변경."
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실패 실행(c81t18_s2117037709)은 time_limit으로 종료되었으며, 8회의 정지-재회전 구간과 49.3초 실행 시간(한도 48.3초)으로 정체가 확인됨\", \"2D 라이다 기록에서 물체(1.97m 거리)가 로봇에 접근 중임에도 정지 상태 유지(closing > 0.25m/s로 위협 판단), recede 조건 미충족으로 재출발 불가\", \"성공 실행 대비 정지 구간 평균 지속 시간 증가 및 재출발 지연으로 인한 시간 초과 발생\"], \"assumptions\": [{\"assumption\": \"로봇은 물체가 멀어질 때까지 정지해야 하며, MTC가 _HOLD_ON 이상일 때만 재출발 가능하다고 가정\", \"holds\": false, \"why\": \"실패 실행에서 물체 접근 시 MTC가 지속적으로 낮아 재출발 조건이 충족되지 않아 장시간 정체 발생, _HOLD_ON이 과도하게 엄격함\"}, {\"assumption\": \"recede 상태 확인을 위해 물체 거리가 _RESUME_DIST 이상이어야 하며, 지속 시간 _RESUME_GO 이상이어야 재출발 허용된다고 가정\", \"holds\": false, \"why\": \"실패 실행에서 물체는 2.0m 미만으로 접근 중이었으나, 재출발 조건 자체가 recede 의존적이어서 물체 접근 시 재출발 불가\"}], \"approach_families\": [{\"family\": \"정지/재출발 임계값 조정 계열\", \"turns\": \"0~18\", \"result\": \"성공 7회, 실패 11회 (실패 유형: stall_abort, collision_driving, time_limit 혼재)\"}, {\"family\": \"센서 기반 동적 속도 제어 계열\", \"turns\": \"4, 6, 10, 12, 14\", \"result\": \"성공 5회, 실패 5회 (감속/정지 로직 개선 시도했으나 정체 문제 지속)\"}], \"candidates\": [{\"idea\": \"정지 해제 조건 완화: _HOLD_ON을 1.0s로 낮추고, recede 조건의 거리 제한(_RESUME_DIST) 제거 또는 1.5m로 하향 조정\", \"new_family\": true, \"for\": \"실패 실행에서 물체 접근 시 MTC가 1.0s 미만으로 떨어져 재출발 불가했던 점, _HOLD_ON 1.5s가 과도하게 엄격해 정체 유발\", \"risk\": \"물체 근접 시 재출발 조건이 완화되어 충돌 위험 증가 가능\"}, {\"idea\": \"물체 접근 시 감속 모드 도입: MTC가 _SLOW_T 미만일 때 속도 점진 감소, 정지 대신 회피 경로 탐색 우선\", \"new_family\": true, \"for\": \"정지-재출발 사이클로 인한 시간 손실 방지, 물체 접근 시 즉시 정지 대신 안전한 감속으로 정체 완화\", \"risk\": \"물체 속도 추정 오차로 인한 과도한 감속 또는 충돌 위험\"}, {\"idea\": \"MTC 계산 시 물체 상대 속도 가중치 조정: closing 가중치 1.0으로 상향해 조기 위협 감지 강화\", \"new_family\": false, \"for\": \"현재 0.7 가중치로 MTC 과대평가되어 조기 정지 발생, 가중치 조정으로 정확한 위협 평가 가능\"}], \"chosen\": \"Candidate 1 선택: _HOLD_ON 1.0s로 낮추고 recede 조건의 거리 제한을 제거해 물체 재출발 허용 조건 완화, 이전 성공 턴(7, 16)에서 검증된 임계값 기반 접근\", \"target\": \"controller 내 _HOLD_ON, _RESUME_GO, _RESUME_DIST 상수 및 _hold_release 로직\", \"direction\": \"1. _HOLD_ON을 1.5s에서 1.0s로 하향 조정해 정지 해제 임계값 완화. 2. _RESUME_GO를 1.0s에서 0.5s로 감소시켜 recede 지속 시간 요구 완화. 3. recede 조건의 거리 제한(_RESUME_DIST=2.0m)을 제거하거나 1.5m로 하향. 4. _hold_release에서 recede 조건 시 거리 검증 생략하고 지속 시간만 확인. 5. MTC 기반 재출발 조건(d_now >= _HOLD_ON)을 우선시하도록 로직 재정렬. 6. 정지 시 재출발 전 물체 거리 확인 로직을 _RESUME_DIST 대신 _CLOSE_MIN(0.25m) 기준으로 변경.\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 16}",
+ "table": [
+  {
+   "run": "c81t18_s259254097",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 117.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 111.72,
+   "goal_dist_m": 0.2052,
+   "time_to_goal_s": 113.8
+  },
+  {
+   "run": "c81t18_s959311205",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 482.3,
+   "sim_time_s": 107.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 101.45,
+   "goal_dist_m": 0.225,
+   "time_to_goal_s": 103.533
+  },
+  {
+   "run": "c81t18_s1819881779",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 374.9,
+   "sim_time_s": 111.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 105.52,
+   "goal_dist_m": 0.2239,
+   "time_to_goal_s": 107.633
+  },
+  {
+   "run": "c81t18_s525967526",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 263.4,
+   "sim_time_s": 119.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 113.82,
+   "goal_dist_m": 0.2232,
+   "time_to_goal_s": 115.917
+  },
+  {
+   "run": "c81t18_s2122927387",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 143.6,
+   "sim_time_s": 95.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 89.25,
+   "goal_dist_m": 0.1956,
+   "time_to_goal_s": 91.333
+  },
+  {
+   "run": "c81t18_s2117037709",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 48.3,
+   "sim_time_s": 49.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 48.25,
+   "goal_dist_m": 30.0298,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "답이 올바른 JSON 이 아니어서 읽지 못했습니다(Expecting ',' delimiter: line 1 column 1633 (char 1632)). 오류 근처: …alse, \"for\": \"현재 0.7 가중치로 MTC 과대평가되어 조기 정지 발생, 가중치 조정으로 정확한 위협 평가 가능\"}, \"chosen\": \"Candidate 1 선택: _HOLD_ON 1.0s로 낮추고 re… 괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

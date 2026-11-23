@@ -1,0 +1,127 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 3개 모두 progress_abort로 종료, 로봇이 정지 후 제자리 회전(stop_turns: 10, 52, 7) 반복하며 진행 불가",
+   "첫 번째 비정적 물체 감지 시점이 92~94초로 매우 늦음 (거리 1.82~4.97m), 충돌 전 충분한 회피 시간 부족",
+   "최종 목표 거리 10.6~31.8m로 미도달, 이동 중 정지 에피소드 다수 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체 감지 시 즉시 효과적인 회피 동작이 실행된다",
+    "holds": false,
+    "why": "감지 시점이 90초 이후로 늦고, 회피 중 제자리 회전만 반복해 진행 불가"
+   },
+   {
+    "assumption": "현재 회피 트리거(TTC<0.5s, 근접 거리<1.5m)가 충분히 일찍 활성화된다",
+    "holds": false,
+    "why": "물체가 1.8~4.9m 거리에서 감지되며 근접 트리거(1.5m) 미활성화, TTC 트리거도 늦게 발생"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 트리거 임계값 조정 (TTC, 근접 거리)",
+    "turns": "10+",
+    "result": "일부 통과 있으나 다수 실패 (예: TTC 0.5s→1.0s 상향 시 시간 초과)"
+   },
+   {
+    "family": "회피 동작 강화 (측면 이동, 정적 여유 고려)",
+    "turns": "8",
+    "result": "일시적 개선 있으나 장기 회피 시 정지 반복 (예: attempt 16, 20)"
+   },
+   {
+    "family": "물체 감지 범위 및 방향 확장",
+    "turns": "0",
+    "result": "미시도 - 기존 코드는 전방 45도 섹터만 집중 분석"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체 감지 시 전방 45도 섹터 제한 해제 및 360도 라이다 데이터 기반 회피 방향 계산",
+    "new_family": true,
+    "for": "물체가 측면/후방에서 접근해도 조기 감지 및 효과적인 회피 가능",
+    "risk": "센서 노이즈로 인한 오탐 가능성, 회전 시 거리 측정 지연"
+   },
+   {
+    "idea": "회피 중 _choose에서 '물체 이동 방향과 수직인 경로' 우선 선택 (속도 벡터 기반)",
+    "new_family": true,
+    "for": "로봇이 물체 경로에서 벗어나도록 강제 이동 유도",
+    "risk": "정적 장애물과의 충돌 위험 증가"
+   },
+   {
+    "idea": "물체 감지 시 즉시 목표 경유점 재계산 (동적 경로 조정)",
+    "new_family": true,
+    "for": "정적 경유점 고정으로 인한 회피 실패 문제 해결",
+    "risk": "시간 초과 위험, 계산 복잡도 증가"
+   }
+  ],
+  "chosen": "물체가 측면/후방에서 접근해도 감지할 수 있도록 360도 라이다 데이터 기반 회피 방향 계산을 도입, 현재 전방 45도 섹터 제한을 해제하고 _front_sector 호출을 제거해 모든 방향의 물체를 동등하게 고려",
+  "target": "controller, _choose, _front_sector",
+  "direction": "1. _front_sector 호출을 _ttc 및 _nearest_mover 계산에서 제거하고 360도 라이다 데이터를 직접 사용\n2. 회피 중 _choose에서 물체 속도 벡터를 계산해 로봇이 물체 이동 방향과 수직인 경로를 선택하도록 점수 부여\n3. 물체 감지 시 즉시 현재 목표 경유점을 일시 보류하고, 물체 위치 기반으로 우회 경유점 생성 (예: 물체 위치 반대편 1m 이격)\n4. 회피 종료 조건으로 물체 거리 증가율(d_dot > 0.2 m/s)을 0.5초 이상 지속 시 강제 종료\n5. 정지 시 물체와의 상대 속도(closure speed)가 음수(멀어짐)일 경우 즉시 회피 모드 해제\n6. 모든 센서 데이터에서 물체 감지 시 후방 라이다 데이터 포함해 감지 범위 확대",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 3개 모두 progress_abort로 종료, 로봇이 정지 후 제자리 회전(stop_turns: 10, 52, 7) 반복하며 진행 불가\", \"첫 번째 비정적 물체 감지 시점이 92~94초로 매우 늦음 (거리 1.82~4.97m), 충돌 전 충분한 회피 시간 부족\", \"최종 목표 거리 10.6~31.8m로 미도달, 이동 중 정지 에피소드 다수 발생\"], \"assumptions\": [{\"assumption\": \"물체 감지 시 즉시 효과적인 회피 동작이 실행된다\", \"holds\": false, \"why\": \"감지 시점이 90초 이후로 늦고, 회피 중 제자리 회전만 반복해 진행 불가\"}, {\"assumption\": \"현재 회피 트리거(TTC<0.5s, 근접 거리<1.5m)가 충분히 일찍 활성화된다\", \"holds\": false, \"why\": \"물체가 1.8~4.9m 거리에서 감지되며 근접 트리거(1.5m) 미활성화, TTC 트리거도 늦게 발생\"}], \"approach_families\": [{\"family\": \"회피 트리거 임계값 조정 (TTC, 근접 거리)\", \"turns\": \"10+\", \"result\": \"일부 통과 있으나 다수 실패 (예: TTC 0.5s→1.0s 상향 시 시간 초과)\"}, {\"family\": \"회피 동작 강화 (측면 이동, 정적 여유 고려)\", \"turns\": \"8\", \"result\": \"일시적 개선 있으나 장기 회피 시 정지 반복 (예: attempt 16, 20)\"}, {\"family\": \"물체 감지 범위 및 방향 확장\", \"turns\": \"0\", \"result\": \"미시도 - 기존 코드는 전방 45도 섹터만 집중 분석\"}], \"candidates\": [{\"idea\": \"물체 감지 시 전방 45도 섹터 제한 해제 및 360도 라이다 데이터 기반 회피 방향 계산\", \"new_family\": true, \"for\": \"물체가 측면/후방에서 접근해도 조기 감지 및 효과적인 회피 가능\", \"risk\": \"센서 노이즈로 인한 오탐 가능성, 회전 시 거리 측정 지연\"}, {\"idea\": \"회피 중 _choose에서 '물체 이동 방향과 수직인 경로' 우선 선택 (속도 벡터 기반)\", \"new_family\": true, \"for\": \"로봇이 물체 경로에서 벗어나도록 강제 이동 유도\", \"risk\": \"정적 장애물과의 충돌 위험 증가\"}, {\"idea\": \"물체 감지 시 즉시 목표 경유점 재계산 (동적 경로 조정)\", \"new_family\": true, \"for\": \"정적 경유점 고정으로 인한 회피 실패 문제 해결\", \"risk\": \"시간 초과 위험, 계산 복잡도 증가\"}], \"chosen\": \"물체가 측면/후방에서 접근해도 감지할 수 있도록 360도 라이다 데이터 기반 회피 방향 계산을 도입, 현재 전방 45도 섹터 제한을 해제하고 _front_sector 호출을 제거해 모든 방향의 물체를 동등하게 고려\", \"target\": \"controller, _choose, _front_sector\", \"direction\": \"1. _front_sector 호출을 _ttc 및 _nearest_mover 계산에서 제거하고 360도 라이다 데이터를 직접 사용\\n2. 회피 중 _choose에서 물체 속도 벡터를 계산해 로봇이 물체 이동 방향과 수직인 경로를 선택하도록 점수 부여\\n3. 물체 감지 시 즉시 현재 목표 경유점을 일시 보류하고, 물체 위치 기반으로 우회 경유점 생성 (예: 물체 위치 반대편 1m 이격)\\n4. 회피 종료 조건으로 물체 거리 증가율(d_dot > 0.2 m/s)을 0.5초 이상 지속 시 강제 종료\\n5. 정지 시 물체와의 상대 속도(closure speed)가 음수(멀어짐)일 경우 즉시 회피 모드 해제\\n6. 모든 센서 데이터에서 물체 감지 시 후방 라이다 데이터 포함해 감지 범위 확대\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t25_s252924052",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 100.3,
+   "stall_abort_t": null,
+   "progress_abort_t": 99.27,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 94.35,
+   "goal_dist_m": 31.4145,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t25_s14906957",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 499.7,
+   "sim_time_s": 188.7,
+   "stall_abort_t": null,
+   "progress_abort_t": 187.67,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 52,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 10.6865,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t25_s1165230235",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 311.0,
+   "sim_time_s": 93.3,
+   "stall_abort_t": null,
+   "progress_abort_t": 92.28,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 92.25,
+   "goal_dist_m": 31.8102,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

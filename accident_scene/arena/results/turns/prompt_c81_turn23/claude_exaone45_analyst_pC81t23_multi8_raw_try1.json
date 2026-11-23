@@ -1,0 +1,42 @@
+{
+ "id": "chatcmpl-909bb1d61955df52",
+ "object": "chat.completion",
+ "created": 1795359025,
+ "model": "exaone-4.5-33b",
+ "choices": [
+  {
+   "index": 0,
+   "message": {
+    "role": "assistant",
+    "content": "\n\n{\"failure_mode\": \"collision|stall\", \"evidence\": [\"In collision run (c81t23_s1574478275), recede stayed True during approach because closing0=-0.61m/s did not satisfy (closing0 > -_ESC_CLOSE) condition, allowing premature hold release after _RESUME_GO (0.3s)\", \"Robot had 18 stop_turn episodes but failed to avoid mover_03 despite first detection at 1m (74.05s) and 1.15s until collision\", \"Time‑limit failure (c81t23_s623396788) shows excessive stops (4 episodes) stalling progress, indicating recede logic also causes unnecessary holds\"], \"assumptions\": [{\"assumption\": \"recede should be True only when all nearby objects are moving away (closing0 < 0)\", \"holds\": false, \"why\": \"Evidence shows recede remained True during approaching object (closing0=-0.61), causing false hold release\"}, {\"assumption\": \"hold release requires recede True for _RESUME_GO seconds\", \"holds\": true, \"why\": \"Code uses recede state for resumption, but recede is incorrectly set\"}], \"approach_families\": [{\"family\": \"Fix recede condition to detect approaching objects\", \"turns\": 13, \"result\": \"0/3 passes\"}, {\"family\": \"Adjust _HOLD_ON/RESUME_GO thresholds\", \"turns\": 23, \"result\": \"6/8 passes\"}], \"candidates\": [{\"idea\": \"Change recede condition to False if any nearby object has closing0 >= 0\", \"new_family\": true, \"for\": \"Ensures recede=False when objects approach or stop, preventing premature hold release\", \"risk\": \"May increase hold duration if closing0 noise causes false negatives\"}, {\"idea\": \"Add emergency stop when MTC < 0.5s and clr_min < 0.35m\", \"new_family\": true, \"for\": \"Last‑resort stop for imminent collisions\", \"risk\": \"Over‑aggressive braking in edge cases\"}, {\"idea\": \"Reduce _HOLD_MIN to 0.5s to shorten stalls\", \"new_family\": false, \"for\": \"May alleviate time‑limit failures\", \"risk\": \"Increases collision risk if hold is too short\"}], \"chosen\": \"Fix recede condition: set recede=False when any nearby object has closing0 >= 0, ensuring hold stays during approach\", \"target\": \"_perceive 함수 내 recede 계산 로직\", \"direction\": \"1. In _perceive, compute recede as not (near & (closing0 >= 0)).any()\\n2. Remove the _ESC_CLOSE offset from recede logic\\n3. Keep _RESUME_GO=0.5s for safety margin\\n4. Ensure hold remains active when recede=False\\n5. Add debug print when recede flips\\n6. Verify hold release requires both d_thr >= _HOLD_ON and sustained recede\", \"confidence\": \"high\", \"last_direction_ok\": \"yes\", \"base_turn\": 23}",
+    "refusal": null,
+    "annotations": null,
+    "audio": null,
+    "function_call": null,
+    "reasoning": "먼저, `last_direction_ok`와 `base_turn`을 반드시 넣어야 함.\n\n`last_direction_ok`: 직전 지시(23번 턴의 지시)는 이번 코드(23턴 코드)를 만들었고, 그 결과는 6/8 통과, 2 실패. 이전 턴(22턴)은 5/8 통과, 3 실패. 즉, 23턴이 22턴보다 약간 더 나아졌지만, 여전히 실패 2회 존재. 하지만 23턴이 22턴보다 통과 수 증가(5→6), 실패 수 감소(3→2)했으므로 \"yes\" 또는 \"unclear\". 하지만 충돌 실패 원인(stop_turn 중 충돌)이 해결되지 않음. 검토 담당의 의문에서 \"이전 지시가 옳았는지 판단\"하라고 했고, 결과가 더 나아졌으므로 \"yes\"로 볼 수 있음. 하지만 실패 원인이 여전히 존재하므로 \"unclear\"도 가능. 그러나 통과 수 증가, 평균 시간 601초(통과 6개 평균 81.2초)로 예산 내임. 직전 지시(23번)는 _HOLD_ON 상향, _RESUME_GO 하향, _HOLD_GAIN 하향 등으로 정지 빈도를 줄였고, 이는 실행 시간 단축에 기여했을 수 있음. 충돌은 여전히 발생했지만, 통과 수 증가했으므로 \"yes\"로 판단.\n\n`base_turn`: 이번 코드를 계속 이어가려면 현재 턴인 23을 선택. JSON에 `base_turn`: 23.\n\n이제 진단을 다시 내야 함. 여러 실행 요약에서 공통된 실패 원인을 찾아야 함.\n\n실행 요약 표에서:\n\n- 실패 2건: c81t23_s1574478275 (collision), c81t23_s623396788 (time_limit)\n- 충돌 건: partner_mover_03, closing_m_s=0.61, first_seen_within_1m at 74.05s, 충돌 75.2s, 1m 거리 감지 후 1.15초 만에 충돌. 로봇이 정지했지만 회피 실패.\n- time_limit 건: 33.8초 제한, 34.8초 사용, 4회 정지. 목표 거리 19.75m, 아직 멀었음. 아마도 정지/회전으로 인해 진행이 느려지고 시간 초과.\n\n공통 원인: 정지(stop_turn)가 너무 자주 발생하여 진행이 느려지고, 회피 동작이 제대로 작동하지 않음. 특히 충돌 건에서 recede 상태가 잘못되어 hold가 해제되었을 가능성이 있음.\n\n여러 실행의 `last_5s` 데이터에서: 충돌 건에서는 74.05s에 1.0m 거리에서 감지, 74.2s에 정지, 74.5s 정지, 75.0s 주행 0.08m/s, 75.2s 충돌. 즉, 정지 후 재출발했지만 물체가 여전히 접근 중이었음.\n\nrecede 로직 문제: _perceive에서 recede = recede and (closing0 > -_ESC_CLOSE).any()? 현재 코드에서:\n\n```python\nnear = clr < _RECEDE_R\nif near & (closing0 > -_ESC_CLOSE).any():     # 근처 물체 중 멀어지지 않는(정지·재접근) 것이 있음\n    recede = False\nfar_app = (~near) & (closing0 > _ESC_CLOSE)\nif far_app.any() and float((clr[far_app] / closing0[far_app]).min()) < _RESUME_T + _HOLD_ON:\n    recede = False\n```\n\n즉, recede는 초기 True로 시작하고, 조건이 충족되면 False로 바뀜. 그런데 충돌 건에서는 recede가 True로 유지되어 hold가 조기 해제되었을 수 있음.\n\n또한, _hold_release에서 recede 조건:\n\n```python\nif S.get(\"recede\") and S.get(\"recede_t\") is not None and t - S[\"recede_t\"] >= _RESUME_GO:\n    return True\n```\n\n즉, recede가 True이고 지속 시간이 _RESUME_GO 이상이면 재출발 허용. _RESUME_GO=0.3s (23턴 설정). 충돌 건에서 recede가 True로 유지되었다면, 0.3초 이상 지속되면 재출발 허용됨.\n\n그런데 충돌 건에서 물체가 접근 중이므로 recede는 False여야 함. 하지만 closing0 > -_ESC_CLOSE 조건: closing0이 -0.61이므로 -0.61 > -0.05? False. 따라서 (closing0 > -_ESC_CLOSE).any()는 False. 따라서 recede = recede and False? 아니, 코드는:\n\n```python\nif near & (closing0 > -_ESC_CLOSE).any():\n    recede = False\n```\n\n`near` 중 closing0 > -_ESC_CLOSE 인 것이 있으면 recede = False. 충돌 건에서는 near인 물체가 closing0 = -0.61, -_ESC_CLOSE = -0.05, -0.61 > -0.05는 거짓. 따라서 조건 불만족, recede는 그대로 유지됨. 따라서 recede가 False로 바뀌지 않음. 이것이 문제.\n\n즉, recede는 \"물체가 멀어지거나 정지한 상태\"여야 True인데, 현재는 \"물체가 멀어지지 않는(접근하는)\" 경우만 False로 설정. 하지만 물체가 접근 중일 때도 recede가 True로 유지됨. 따라서 수정: recede를 \"모든 근처 물체가 멀어지는 경우(True)\"로 설정해야 함. 현재 로직은 반대.\n\n수정 방향: recede = (near & (closing0 < 0)).any()? 아니, recede는 \"물체들이 모두 멀어지고 있는가\"이므로, recede = not (near & (closing0 >= 0)).any()? 더 간단히: recede = not any(closing0 >= 0 for near objects).\n\n그러나 기존 코드에서 recede는 hold 중 재출발 조건으로 사용됨. recede가 True면 재출발 허용. 따라서 recede는 \"물체들이 모두 멀어지고 있는 상태\"를 의미해야 함.\n\n현재 코드에서는 recede 초기값 True, 그리고 조건이 만족하면 False로 설정. 조건은 \"근처 물체 중 멀어지지 않는 것이 있음\"이면 False. 즉, recede = 모든 근처 물체가 멀어지고 있음.\n\n그런데 조건은 `closing0 > -_ESC_CLOSE`임. 즉, closing0이 -0.05보다 크면 (즉, 0에 가까우거나 양수이면) 멀어지지 않는 것으로 판단. 하지만 closing0이 -0.61처럼 음수라도 -0.61 > -0.05는 거짓이므로 조건을 만족 안 함. 따라서 recede는 False로 바뀌지 않음. 즉, recede가 True로 유지됨. 이는 오류.\n\n조건을 `closing0 >= 0`으로 바꾸거나, `closing0 > -_ESC_CLOSE`를 `closing0 > 0`으로 바꾸어야 함. 하지만 _ESC_CLOSE=0.05는 작은 양수이므로, 음수인 closing0은 멀어지는 것. 따라서 recede를 False로 만들려면 closing0 >= 0이어야 함.\n\n수정: `if near & (closing0 >= 0).any(): recede = False`\n\n또는 recede = not (near & (closing0 >= 0)).any()\n\n이렇게 하면 충돌 건에서 recede가 False가 되고, 재출발 조건인 `recede and t - recede_t >= _RESUME_GO`가 False가 되어 재출발이 지연됨.\n\n또한 time_limit 실패는 정지/회전이 너무 많아 진행이 느려서 발생. 정지 빈도를 줄여야 함. 정지 조건은 d_thr < _HOLD_ON (1.0s)이고, recede가 True일 때 재출발 허용. recede 조건 수정으로 재출발이 늦어지면 정지 시간이 길어져 time_limit 실패 가능성 증가. 따라서 정지 조건을 더 엄격하게 하거나, 정지 시간을 줄여야 함.\n\n하지만 현재 _HOLD_MIN=1.0s로 최소 정지 시간이 있음. 이를 줄이면 time_limit 실패 완화 가능. 그러나 충돌 위험 증가.\n\n대안: 정지 조건을 MTC 기반에 더 민감하게 하거나, recede 조건 외에 다른 조건 추가.\n\n여러 실행에서 공통된 실패: 정지 후 재출발 시 충돌 발생. 즉, 재출발 타이밍이 잘못됨.\n\n따라서 진단은 recede 로직 수정이 핵심.\n\n이제 JSON 작성.\n\nassumptions: 현재 recede 가정이 틀렸음.\n\napproach_families: 기존 recede 수정 시도들이 실패했음(13, 15 등). 새로운 접근: recede를 \"모든 근처 물체가 멀어지고 있는가\"로 정확히 정의.\n\ncandidates: recede 조건 수정.\n\nchosen: recede 조건 수정.\n\ntarget: _perceive 함수의 recede 계산 부분.\n\ndirection: 6문장 이내.\n\nconfidence: high (증거가 명확함).\n\n이제 JSON 구성.\n\n주의: `last_direction_ok`는 \"yes\"로. 근거: 직전 지시(23번)는 통과 수를 증가시켰고, 평균 실행 시간을 예산 내로 유지했으므로 결과가 개선되었다.\n\n`base_turn`: 23.\n\n이제 최종 JSON.\n"
+   },
+   "logprobs": null,
+   "finish_reason": "stop",
+   "stop_reason": null,
+   "token_ids": null,
+   "routed_experts": null
+  }
+ ],
+ "service_tier": null,
+ "system_fingerprint": "vllm-0.32.0-40ec4b14",
+ "usage": {
+  "prompt_tokens": 38918,
+  "total_tokens": 41534,
+  "completion_tokens": 2616,
+  "prompt_tokens_details": null,
+  "completion_tokens_details": {
+   "reasoning_tokens": 1924
+  }
+ },
+ "prompt_logprobs": null,
+ "prompt_token_ids": null,
+ "prompt_text": null,
+ "kv_transfer_params": null,
+ "ec_transfer_params": null,
+ "metrics": null
+}

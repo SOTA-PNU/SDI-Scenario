@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1·2·5·6에 따라 `controller` 의 정지 거리를 1.5 m 에서 2.0 m 로 올렸습니다. 그리고 새 함수 `_hold_release` 로 정지 상태(H)를 둡니다. 정지는 최소 1.0 s 유지하고, 거리가 H['d'] 보다 0.1 m 늘어나거나 2.0 m 이상이 되면 다시 출발합니다. 다시 출발한 직후에는 1.8 m 아래로 들어오고 출발 때보다 0.1 m 더 가까워질 때만 다시 정지하도록 히스테리시스를 두었습니다. 지시 3·4는 1턴 코드에 이미 맞습니다. `d_eff` 와 `coming` 은 물체 자신의 접근 속도(`closing`)만 쓰고 로봇 속도 기여는 없으며, 이 점을 주석으로 분명히 했습니다. 정지 거리를 넓히면서 2~3 m 감속 구간에서 로봇이 회전하지 못해 멈춰 서거나 경로에서 벗어나지 않도록, 바로 옆 물체가 없을 때는 ±0.6 rad/s 이내 회전을 허용했습니다.\n\n```python\n_HOLD_ON = 2.0       # 정지 시작 거리 [m] (진단 지시 1: 1.5 -> 2.0)\n_HOLD_REARM = 1.8    # 재출발 직후 다시 정지하는 낮은 임계값 [m] (지시 6: 히스테리시스)\n_HOLD_MIN = 1.0      # 최소 정지 시간 [s] (지시 5: 0.5 -> 1.0)\n_HOLD_GAIN = 0.1     # 재출발에 필요한 거리 증가 [m] (지시 2: 0.05 -> 0.1)\n\n\ndef _hold_release(H, d_now, t):\n    \"\"\"정지 상태 H 를 풀어도 되면 True: 최소 정지 시간이 지났고,\n    거리가 정지 기준 거리보다 0.1 m 이상 늘었거나 정지 시작 거리(2.0 m) 밖으로 벗어났을 때.\"\"\"\n    if t - H[\"t0\"] < _HOLD_MIN:\n        return False\n    return d_now >= H[\"d\"] + _HOLD_GAIN or d_now >= _HOLD_ON\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다로 지도에 없는 물체를 감지해 감속/정지(히스테리시스 있는 정지 상태)/회피.\"\"\"\n    S = _ST\n    x, y, yaw = pose\n    if not S:\n        S.update(idx=0, prev_wp=(START[0], START[1]), rejoin=None, esc=None, esc_start=None,\n                 scan_obj={}, dyn={}, tracks=[], track_t=-1.0,\n                 P=np.zeros((0, 2)), U=np.zeros((0, 2)), seen=False,\n                 last=(t, x, y, yaw), speed=0.0, yawrate=0.0,\n                 hold=None, armed=True, rel_d=99.0)\n    t0, x0, y0, yaw0 = S[\"last\"]\n    dt = t - t0\n    if dt > 1e-4:                                       # 자기 이동 속도 (스캔 지연 여유 계산용)\n        S[\"speed\"] = 0.7 * S[\"speed\"] + 0.3 * math.hypot(x - x0, y - y0) / dt\n        S[\"yawrate\"] = 0.7 * S[\"yawrate\"] + 0.3 * abs(_wrap_angle(yaw - yaw0)) / dt\n    S[\"last\"] = (t, x, y, yaw)\n\n    _perceive(t, pose)\n    if not S[\"seen\"] and t < 2.0:                       # 첫 스캔이 들어올 때까지 출발하지 않음\n        return 0.0, 0.0, False\n    if S[\"esc\"] is not None:\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n    P, U = S[\"P\"], S[\"U\"]\n\n    d_thr, clr_min = 99.0, 99.0\n    if len(P):\n        c, s = math.cos(yaw), math.sin(yaw)\n        dx, dy = P[:, 0] - x, P[:, 1] - y\n        rx, ry = c * dx + s * dy, -s * dx + c * dy\n        clr = _rect_clear(rx, ry)                       # 몸체 가장자리까지 거리\n        rng = np.maximum(np.hypot(dx, dy), 1e-6)\n        # 물체 자신의 속도만으로 계산한 접근 속도 (로봇 속도 기여 없음: 지시 3, 4)\n        closing = -(U[:, 0] * dx + U[:, 1] * dy) / rng\n        ahead = (v_nom > 0.0) & (rx > 0.0) & (np.abs(ry) < 1.0)\n        coming = (closing > 0.15) & (rx > -0.3)\n        rel = ahead | coming\n        d_eff = clr - 0.7 * np.maximum(closing, 0.0)    # 다가오는 물체만 그만큼 더 일찍 감속/정지\n        d_thr = float(d_eff[rel].min()) if rel.any() else 99.0\n        clr_min = float(clr.min())\n\n    # 정지 상태(H) 관리: 시작 2.0 m, 재출발 직후에는 1.8 m 이하이고 더 가까워질 때만 다시 정지\n    H = S[\"hold\"]\n    if H is None:\n        S[\"rel_d\"] = max(S[\"rel_d\"], d_thr)\n        if d_thr >= _HOLD_ON:\n            S[\"armed\"] = True\n        thr = _HOLD_ON if S[\"armed\"] else min(_HOLD_REARM, S[\"rel_d\"] - _HOLD_GAIN)\n        if d_thr < thr:\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr}\n    else:\n        if d_thr < min(_HOLD_REARM, H[\"d\"] - _HOLD_GAIN):\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr}           # 물체가 더 다가옴: 1.8 m 안에서만 H 재설정\n        elif _hold_release(H, d_thr, t):\n            S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, d_thr\n\n    if S[\"hold\"] is not None:\n        v, w = 0.0, 0.0                                 # 정지\n    elif d_thr < 3.0:\n        v, w = min(v_nom, 0.3), _clamp(w_nom, -0.6, 0.6)   # 감속, 회전은 천천히만\n    else:\n        v, w = v_nom, w_nom\n    if clr_min < 0.45:\n        w = 0.0                                         # 바로 옆 물체가 있으면 회전 금지\n\n    if _rollout(P, U, x, y, yaw, yaw, v, 0.0) < 0.3:\n        if v > 0.0 and _rollout(P, U, x, y, yaw, yaw, 0.0, 0.0) >= 0.3:\n            return 0.0, 0.0, False\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)                    # 멈춰도 부딪힘: 비켜섬\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 21433,
+  "completion_tokens": 12087
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 115078,
+  "total_cost_usd": 0.413196,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 12087,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 21431,
+    "webSearchRequests": 0,
+    "costUSD": 0.413196,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 9451,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 21431,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "93579118-e058-42f6-9dd4-c9b8726b7753"
+ }
+}

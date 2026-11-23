@@ -1,0 +1,393 @@
+{
+ "turn": 3,
+ "started": "2026-11-18 22:17:06",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn2/claude_exaone45_analyst_pC8t2_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 요약에서 19회 정지 에피소드 발생 (stop_turn_episodes.count: 19), 마지막 5초 구간에서 정지 후 재진행 반복으로 시간 소모",
+   "통과 실행의 sim_time_s 63.0초로 평균 60초 이하 목표 초과 (배치 10개 합계 600초 제한)",
+   "first_not_on_map 시점(56.95s) 이후 거리 증가(1.53m→3.87m)에도 지속적 정지 발생, 정지 원인 과도 추정"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±45° 섹터 내 물체 점만 정지 판단에 사용되며, _CLR_GO(0.35m) 미만 시 무조건 정지한다",
+    "holds": false,
+    "why": "정지 19회 중 대부분 전방 물체가 아닌 측면 물체 감지 시 발생 가능성 (bearing -98° 물체도 first_not_on_map 기록됨), 정지 조건이 너무 엄격해 비충돌 상황에서도 정지 유발"
+   },
+   {
+    "assumption": "정지 후 _HOLD_S(0.5s) 동안 재감지하면 즉시 진행 가능하다",
+    "holds": false,
+    "why": "정지 반복 발생 (stop_turn_episodes에 짧은 정지 간격 다수), _HOLD_S 부족 또는 정지 조건 충족 후 즉시 재진행 불가로 시간 누적"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 임계값 상수 조정 계열",
+    "turns": 3,
+    "result": "0/3→1/3→1/2 (시간 초과로 통과 불가)"
+   },
+   {
+    "family": "정지 후 회피 동작 강제 계열",
+    "turns": 2,
+    "result": "정지 빈도는 감소했으나 시간 소모 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체 근접도에 따라 속도 비례 감속 (정지 대신 점진적 감속)",
+    "new_family": true,
+    "for": "정지 빈도 감소로 시간 단축 (증거: 정지 시에도 물체 거리 증가 구간 존재)",
+    "risk": "감속 임계값 부적절 시 충돌 위험 증가"
+   },
+   {
+    "idea": "예측 경로에서 물체 상대 속도 고려, 접근 중인 물체만 정지 유발",
+    "new_family": true,
+    "for": "비충돌 물체로 인한 불필요한 정지 방지",
+    "risk": "상대 속도 계산 오류 시 정지 누락 가능성"
+   },
+   {
+    "idea": "전방 섹터 각도 확대 (±60°→±75°)로 정지 감지 범위 조정",
+    "new_family": false,
+    "for": "측면 물체 조기 감지로 회피 시간 확보",
+    "risk": "과도한 정지 유발로 시간 추가 소모"
+   }
+  ],
+  "chosen": "물체 근접도(clr_n)에 따라 속도를 비례 감속(정지 대신)하여 정지 빈도 감소 (새로운 속도 조절 메커니즘 도입)",
+  "target": "controller 함수의 정지/재진행 판단 로직 및 _choose 함수 내 속도 후보 선정",
+  "direction": "1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단에 따르면 이번 실패는 충돌이 아니라 정지와 재출발의 반복(19회)에 따른 시간 초과입니다. 그래서 `clr_n < _CLR_GO` 일 때 0.5 s 정지하던 방식을 바꿨습니다. 이제는 `s = clr_n/_CLR_GO` 를 `_nominal_cmd` 의 scale 인자로 넘겨, 감속한 속도로 기존 경로를 계속 따라갑니다(지시 1, 2, 5). 감속 명령의 예측 경로가 안전하지 않을 때만 멈추고, 멈춰 있어도 물체 여유가 `_CLR_STOP`(0.20 m) 미만일 때만 `_choose` 로 비킵니다(지시 3). 감속 모드를 끝내는 조건은 `clr_n >= 1.2·_CLR_GO` 로 하여 히스테리시스를 두었고(지시 4), 정지 에피소드의 시작·끝·합계를 출력하는 디버그 로그를 추가했습니다(지시 6).",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. clr_n < _CLR_GO 일 때 정지 대신 v_n 을 clr_n/_CLR_GO 비율로 감속(최소 0)",
+      "implemented": false,
+      "note": "감속은 _slow_cmd 안에 있어야 하는데 새 코드 어디에도 _slow_cmd 정의가 없어 구현을 확인할 수 없음"
+     },
+     {
+      "instruction": "2. 감속 시 _choose 대신 감속 속도로 기존 경로 추종",
+      "implemented": false,
+      "note": "slow 분기는 _choose 대신 _slow_cmd 를 부르도록 구조만 바뀜. _slow_cmd 가 정의되지 않아 경로 추종 여부를 확인할 수 없음"
+     },
+     {
+      "instruction": "3. 정지 중 _choose 는 물체 여유 < _CLR_STOP 일 때만",
+      "implemented": true,
+      "note": "stop 일 때 제자리 궤적(still)의 _mover_clearance 가 _CLR_STOP 미만이면 _choose 를 부름"
+     },
+     {
+      "instruction": "4. 재진행 조건 clr_n >= 1.2·_CLR_GO 히스테리시스",
+      "implemented": false,
+      "note": "구조는 맞으나 _HYST 상수가 정의되지 않음. 1.2 값이 코드에 없음"
+     },
+     {
+      "instruction": "5. _nominal_cmd 의 scale 인자에 clr_n 반영",
+      "implemented": false,
+      "note": "controller 의 _nominal_cmd 와 _rollout_nominal 은 여전히 scale 1.0. 반영은 정의되지 않은 _slow_cmd 에만 있다고 적혀 있음"
+     },
+     {
+      "instruction": "6. 정지 에피소드 수 디버그 출력",
+      "implemented": false,
+      "note": "done 시 print 는 있음. 그러나 n_stop·stop_sum 을 갱신하는 _log_stop 이 정의되지 않아 값이 항상 0이고, 호출 시 예외가 남"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [
+     "_log_stop 미정의: 출발 직후(t≈0.3 s) 매 스텝 호출되므로 첫 주행 스텝에서 NameError",
+     "_slow_cmd 미정의: slow 모드에 들어가는 순간 NameError",
+     "_HYST 미정의: slow 상태에서 st_n >= 0 이면 NameError"
+    ],
+    "diagnosis_concerns": [
+     "가정 1은 측면(-98°) 물체가 정지를 일으킨다고 보지만, 현재 코드의 정지 판단 clr_n 은 전방 ±45° 점만 씀. 측면 물체는 clr_all·_choose 경로로만 영향을 줌",
+     "후보 3의 '±60°→±75°' 는 현재 값 ±45° 와 맞지 않음",
+     "clr_n 은 전속(scale 1.0) 궤적으로 계산되므로, 이를 감속 비율로 쓰면 실제 감속 궤적의 여유와 다름. 여유가 작을 때도 물체 쪽으로 계속 전진할 위험이 있음",
+     "slow 모드 해제에 히스테리시스를 두면 감속 시간이 늘어 지시 1의 시간 단축 효과와 상충할 수 있음"
+    ],
+    "feedback": "코드 펜스에 controller 가 쓰는 새 정의 세 개를 반드시 추가하십시오. (1) _HYST = 1.2 를 정의하십시오. (2) def _slow_cmd(pose, idx, v0, clr_n, P, U, Pf, Uf) 를 정의하십시오. s = _clamp(clr_n / _CLR_GO, 0.0, 1.0) 로 두고 v, w, _ = _nominal_cmd(x, y, yaw, idx, s) 를 얻습니다. traj = _rollout_nominal(pose, idx, v0, s) 로 궤적을 만든 뒤 세 조건을 검사합니다: _static_clearance(traj[None, :_KS+1])[0] >= 0, _mover_clearance(traj[None], P, U)[0] >= _CLR_STOP, 그리고 전방 Pf, Uf 에 대한 여유가 0보다 큰지. 하나라도 어긋나면 (0.0, 0.0, True), 아니면 (v, w, False) 를 돌려주십시오. 정지 시 v, w 는 반드시 0 이어야 합니다. (3) def _log_stop(t, pose, stop, clr) 를 정의하십시오. _CS 의 stopped 가 False→True 로 바뀌면 n_stop 을 1 늘리고 stop_t=t 로 둡니다. True→False 로 바뀌면 stop_sum 에 t-stop_t 를 더합니다. 전이가 있을 때만 한 줄 print 하십시오. 이 세 정의가 없으면 첫 스텝에서 NameError 로 끝납니다."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 지난 답은 새 정의 세 개를 두 번째 코드 펜스에 따로 넣었습니다. 그래서 하네스가 controller 만 반영했고, `_HYST`·`_slow_cmd`·`_log_stop` 이 빠져 첫 스텝에서 NameError 가 나게 되었습니다. 이번에는 이 세 정의만 펜스 하나에 넣었고, `_slow_cmd` 는 검토 지시대로 바꿨습니다. 이제 `s = clr_n/_CLR_GO` 비율로 감속한 같은 경로가 정적 지도, 전체 물체(`_CLR_STOP`), 전방 물체(여유 > 0)를 모두 통과할 때만 그 명령을 돌려주고, 하나라도 어긋나면 v=w=0 으로 멈춥니다(진단 지시 1, 2, 3, 5). `_HYST = 1.2` 는 감속 모드를 끝낼 때 쓰는 히스테리시스이고(지시 4), `_log_stop` 은 정지 상태가 바뀔 때만 한 줄씩 출력해 정지 횟수와 누적 정지 시간을 기록합니다(지시 6).",
+   "changed": [
+    "_HYST",
+    "_log_stop",
+    "_slow_cmd"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "clr_n < _CLR_GO 조건을 유지하고, 정지 대신 v 를 clr_n/_CLR_GO 비율로 감속(최소 0.0)",
+      "implemented": true,
+      "note": "clr_n < _CLR_GO 이면 slow=True 가 됩니다. _slow_cmd 가 s=_clamp(clr_n/_CLR_GO, 0, 1) 로 v 를 줄입니다."
+     },
+     {
+      "instruction": "감속 중에는 _choose 대신 감속한 속도로 기존 경로를 추종",
+      "implemented": true,
+      "note": "_slow_cmd 가 _nominal_cmd(..., s) 로 같은 경유점 법칙을 따릅니다. _choose 는 부르지 않습니다."
+     },
+     {
+      "instruction": "정지 중 _choose 는 물체 거리 < _CLR_STOP 일 때만 사용",
+      "implemented": true,
+      "note": "stop=True 일 때 제자리 궤적 still 의 _mover_clearance 가 _CLR_STOP 미만일 때만 _choose 를 부릅니다."
+     },
+     {
+      "instruction": "재진행 조건을 clr_n >= _CLR_GO*1.2 로 바꿔 히스테리시스 추가",
+      "implemented": true,
+      "note": "slow 해제 조건이 st_n>=0 이고 clr_n >= _CLR_GO*_HYST(1.2) 입니다."
+     },
+     {
+      "instruction": "_nominal_cmd 의 scale 인자에 clr_n 반영",
+      "implemented": true,
+      "note": "_slow_cmd 에서 _nominal_cmd 와 _rollout_nominal 모두 scale=s 로 부릅니다."
+     },
+     {
+      "instruction": "정지 에피소드 수 모니터링용 디버그 출력 추가",
+      "implemented": true,
+      "note": "_log_stop 이 정지 시작과 끝마다 횟수·시간을 출력하고, 완료 시 합계를 한 번 출력합니다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "clr_n 은 전속(scale 1.0) 궤적으로 계산한 값입니다. 가로지르는 물체 앞에서 감속하면 오히려 그 경로에 머물러 여유가 줄 수 있습니다.",
+     "_slow_cmd 는 전방 물체 여유가 0 초과이기만 하면 주행을 허용합니다. 감속 중 실제 여유가 매우 작을 수 있습니다.",
+     "s=0 이어도 w 는 줄이지 않아 제자리 회전이 일어납니다. 정지로 기록되지 않는 정체가 생길 수 있습니다.",
+     "증거의 -98° 측면 물체와 후보의 ±60°→±75° 는 실제 코드의 ±45° 섹터와 맞지 않습니다. 정지 원인 분석이 추정에 머뭅니다.",
+     "평균 63초를 60초 이하로 줄이는 것이 목표인데, 감속 방식이 총 주행 시간을 줄인다는 근거는 약합니다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 지난 답은 새 정의 세 개를 두 번째 코드 펜스에 따로 넣었습니다. 그래서 하네스가 controller 만 반영했고, `_HYST`·`_slow_cmd`·`_log_stop` 이 빠져 첫 스텝에서 NameError 가 나게 되었습니다. 이번에는 이 세 정의만 펜스 하나에 넣었고, `_slow_cmd` 는 검토 지시대로 바꿨습니다. 이제 `s = clr_n/_CLR_GO` 비율로 감속한 같은 경로가 정적 지도, 전체 물체(`_CLR_STOP`), 전방 물체(여유 > 0)를 모두 통과할 때만 그 명령을 돌려주고, 하나라도 어긋나면 v=w=0 으로 멈춥니다(진단 지시 1, 2, 3, 5). `_HYST = 1.2` 는 감속 모드를 끝낼 때 쓰는 히스테리시스이고(지시 4), `_log_stop` 은 정지 상태가 바뀔 때만 한 줄씩 출력해 정지 횟수와 누적 정지 시간을 기록합니다(지시 6).",
+ "budget_s": 600.0,
+ "seeds": [
+  987548031,
+  760857205,
+  548714755,
+  1864291485,
+  1941892341,
+  1641382236,
+  465626135
+ ],
+ "sim_used_s": 300.2,
+ "verdicts": {
+  "987548031": "fail",
+  "760857205": "pass",
+  "548714755": "fail",
+  "1864291485": "pass",
+  "1941892341": "pass",
+  "1641382236": "pass",
+  "465626135": "fail"
+ },
+ "passes": 4,
+ "prior_chars": 982,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 7개를 실행했고, 3개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 4개, 실패 3개. 시뮬 시간 합계 300초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 65초 (가장 짧은 것 64초, 가장 긴 것 66초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 reject) 가정 1은 측면(-98°) 물체가 정지를 일으킨다고 보지만, 현재 코드의 정지 판단 clr_n 은 전방 ±45° 점만 씀. 측면 물체는 clr_all·_choose 경로로만 영향을 줌\n- (검토 1회차, 판정 reject) 후보 3의 '±60°→±75°' 는 현재 값 ±45° 와 맞지 않음\n- (검토 1회차, 판정 reject) clr_n 은 전속(scale 1.0) 궤적으로 계산되므로, 이를 감속 비율로 쓰면 실제 감속 궤적의 여유와 다름. 여유가 작을 때도 물체 쪽으로 계속 전진할 위험이 있음\n- (검토 1회차, 판정 reject) slow 모드 해제에 히스테리시스를 두면 감속 시간이 늘어 지시 1의 시간 단축 효과와 상충할 수 있음\n- (검토 2회차, 판정 pass) clr_n 은 전속(scale 1.0) 궤적으로 계산한 값입니다. 가로지르는 물체 앞에서 감속하면 오히려 그 경로에 머물러 여유가 줄 수 있습니다.\n- (검토 2회차, 판정 pass) _slow_cmd 는 전방 물체 여유가 0 초과이기만 하면 주행을 허용합니다. 감속 중 실제 여유가 매우 작을 수 있습니다.\n- (검토 2회차, 판정 pass) s=0 이어도 w 는 줄이지 않아 제자리 회전이 일어납니다. 정지로 기록되지 않는 정체가 생길 수 있습니다.\n- (검토 2회차, 판정 pass) 증거의 -98° 측면 물체와 후보의 ±60°→±75° 는 실제 코드의 ±45° 섹터와 맞지 않습니다. 정지 원인 분석이 추정에 머뭅니다.\n- (검토 2회차, 판정 pass) 평균 63초를 60초 이하로 줄이는 것이 목표인데, 감속 방식이 총 주행 시간을 줄인다는 근거는 약합니다.\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "여러 실행에서 충돌 시 로봇이 전방 ±45° 섹터 외부(70°, 66° 등) 물체의 접근을 감지하지 못해 clr_n이 정상으로 유지됨",
+   "충돌 직전 로봇 속도 0.6-0.9 m/s로 고속 주행 중이었으며, 정지 임계값 _CLR_STOP=0.20 m이 고속 주행 시 필요한 정지 거리보다 작음",
+   "정지 구간(6회) 후 재개 시 물체 접근 속도가 높아 충돌 회피 실패 (closing_m_s -0.16~ -0.25 m/s)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 섹터 외 물체는 충돌 위험이 없으므로 clr_n만으로 감속 결정해도 안전하다",
+    "holds": false,
+    "why": "실행 1,3,5,7에서 70° 등 외부 각도 물체로 인해 충돌 발생, clr_all(전체 물체)이 위험 신호였으나 반영되지 않음"
+   },
+   {
+    "assumption": "고정된 _CLR_STOP=0.20 m은 모든 속도에서 충분한 정지 거리를 제공한다",
+    "holds": false,
+    "why": "0.7 m/s 주행 시 1 m/s² 감속 가정 시 정지 거리 약 0.25 m 필요하지만, _CLR_STOP=0.20 m으로 부족해 정지 후 재개 시 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 섹터 기반 감속 + 고정 정지 임계값",
+    "turns": 3,
+    "result": "4/7 통과 (3회 충돌)"
+   },
+   {
+    "family": "속도 비례 정지 임계값 + 히스테리시스",
+    "turns": 1,
+    "result": "0/1 통과 (전부 실패)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "clr_all(전체 물체 최소 거리)을 clr_n 대신 감속 비율 및 정지 결정에 사용",
+    "new_family": true,
+    "for": "전방 외 각도 물체 접근 시에도 조기 감속 및 정지 유발",
+    "risk": "측면 물체로 인한 불필요한 감속으로 평균 속도 저하 및 시간 초과 가능성"
+   },
+   {
+    "idea": "정지 임계값 _CLR_STOP을 로봇 속도에 비례하게 동적 조정 (_CLR_STOP = 0.2 + 0.1 * v)",
+    "new_family": true,
+    "for": "고속 주행 시 충분한 정지 거리 확보로 충돌 방지",
+    "risk": "가속도 가정에 따라 정확도 달라지며, 과도한 감속으로 목표 시간 초과 유발"
+   },
+   {
+    "idea": "물체 접근 속도(closing_m_s) 기반 긴급 정지 조건 추가",
+    "new_family": true,
+    "for": "음의 closing_m_s(접근) 시 즉시 정지로 충돌 회피",
+    "risk": "진동/오탐으로 인한 불필요한 정지로 주행 지연"
+   }
+  ],
+  "chosen": "clr_all 기반 감속 결정 채택: 전방 외 각도 물체 접근도 조기 감지해 충돌 위험 대응",
+  "target": "controller 함수 내 감속 모드 진입 조건 및 _slow_cmd 속도 스케일링 로직",
+  "direction": "1. controller에서 slow 모드 진입 조건을 clr_n < _CLR_GO에서 clr_all < _CLR_GO로 변경\n2. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO로 수정 (0~1 범위 유지)\n3. 정지 결정 시 _CLR_STOP을 clr_all 기준으로 유지하되, 감속 궤적 검증 시 clr_all >= _CLR_STOP 조건 강화\n4. 정지 후 재개 시 물체 접근 속도(closing_m_s) 음수일 경우 즉시 회피 동작 유도\n5. clr_all 계산 시 전방 섹터 외 물체도 포함되도록 _front_sector 호출 제거\n6. 히스테리시스 값 _HYST를 1.5로 증가시켜 감속 모드 해제 조건 완화",
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c8t3_s987548031",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 13.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 7.267,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.79m/s 회전 +0.5",
+   "partner_rel_xy": [
+    0.45,
+    0.15
+   ],
+   "closing_m_s": -0.24,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 2.75,
+   "goal_dist_m": 30.2214,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t3_s760857205",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 586.7,
+   "sim_time_s": 66.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 60.45,
+   "goal_dist_m": 0.227,
+   "time_to_goal_s": 62.583
+  },
+  {
+   "run": "c8t3_s548714755",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 520.3,
+   "sim_time_s": 11.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.033,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.66m/s 회전 -0.4",
+   "partner_rel_xy": [
+    0.51,
+    -0.02
+   ],
+   "closing_m_s": -0.16,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 0.65,
+   "goal_dist_m": 30.0547,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t3_s1864291485",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 509.2,
+   "sim_time_s": 65.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 59.52,
+   "goal_dist_m": 0.2202,
+   "time_to_goal_s": 61.7
+  },
+  {
+   "run": "c8t3_s1941892341",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 443.8,
+   "sim_time_s": 63.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 57.82,
+   "goal_dist_m": 0.2255,
+   "time_to_goal_s": 59.817
+  },
+  {
+   "run": "c8t3_s1641382236",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 380.0,
+   "sim_time_s": 66.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 60.18,
+   "goal_dist_m": 0.2281,
+   "time_to_goal_s": 62.35
+  },
+  {
+   "run": "c8t3_s465626135",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 313.8,
+   "sim_time_s": 14.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.033,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.88m/s",
+   "partner_rel_xy": [
+    0.45,
+    0.16
+   ],
+   "closing_m_s": -0.25,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 3.35,
+   "goal_dist_m": 30.1436,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔에서 지도에 없는 점(움직이는 물체) 식별\\n2. 정적 장애물(MISSION boxes, WALLS, FIXED_OBSTACLES) 범위 외 점만 필터링\\n3. 가장 가까운 비정적 점까지의 거리 계산\\n4. 거리가 2m 미만이면 v=0, w=0으로 설정해 정지\\n5. 정지 후 1초간 재감지하여 물체 이동 확인 후 진행\\n6. 정지 없이 경유점 주행 시 기존 제어법 유지\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 229 s / 한도 600 s)\n#2 이번 코드(진단 \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\" 반영, 검토 통과): 새 배치 1개 중 1개 pass, 0개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#3 이번 코드(진단 \"1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 300 s / 한도 600 s)",
+ "ended": "2026-11-18 22:35:05"
+}

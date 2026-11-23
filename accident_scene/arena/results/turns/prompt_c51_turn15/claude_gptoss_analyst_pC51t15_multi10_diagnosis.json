@@ -1,0 +1,308 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "run c51t15_s1718142053 collided at t=45.9 s with mover_03 while a side object was within _STOP_D but resume ignored side distance, causing immediate restart (collision)",
+   "total batch simulation time 601 s exceeds the 600 s budget, so the mission fails due to timeout",
+   "run c51t15_s537908611 timed out at its 32.5 s limit, never reaching the goal (final distance 12.87 m), showing insufficient progress"
+  ],
+  "assumptions": [
+   {
+    "assumption": "stop condition based on any mover within _STOP_D is sufficient",
+    "holds": true,
+    "why": "code uses d_min < _STOP_D to enter stop state"
+   },
+   {
+    "assumption": "resume can ignore side distances",
+    "holds": false,
+    "why": "collision occurred because resume only checked front gap"
+   },
+   {
+    "assumption": "front‑gap scaling f alone can keep speed safe",
+    "holds": false,
+    "why": "side objects caused collisions despite f"
+   },
+   {
+    "assumption": "_STOP_WAIT of 2 s is enough for movers to pass",
+    "holds": false,
+    "why": "many stop‑turn episodes inflate total time"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "baseline (no control)",
+    "turns": "0",
+    "result": "0/3"
+   },
+   {
+    "family": "front‑gap stop only",
+    "turns": "1",
+    "result": "9/10, avg 63 s"
+   },
+   {
+    "family": "candidate rollout planner",
+    "turns": "2",
+    "result": "0/3"
+   },
+   {
+    "family": "danger‑zone check + stop/detour",
+    "turns": "4‑5",
+    "result": "9/10, avg 63 s"
+   },
+   {
+    "family": "improved TTC in _is_safe",
+    "turns": "5‑6",
+    "result": "9/10, avg 63 s"
+   },
+   {
+    "family": "increase TTC window",
+    "turns": "7",
+    "result": "8/10, avg 62 s"
+   },
+   {
+    "family": "increase _STOP_D to 1.5 m",
+    "turns": "8",
+    "result": "9/9, avg 65 s"
+   },
+   {
+    "family": "reduce _STOP_WAIT to 0.5 s",
+    "turns": "10",
+    "result": "7/9, avg 66 s"
+   },
+   {
+    "family": "danger_close detection",
+    "turns": "11‑13",
+    "result": "7/9, avg 79 s"
+   },
+   {
+    "family": "ttc‑based speed scaling",
+    "turns": "14",
+    "result": "1/4, avg 141 s"
+   },
+   {
+    "family": "distance‑based scaling (g) with _STOP_D=1.5",
+    "turns": "15",
+    "result": "8/10, avg 60 s"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "add side‑distance check to resume condition (require d_min >= _STOP_D + hysteresis)",
+    "new_family": false,
+    "for": "collision caused by side objects",
+    "risk": "more stop time may increase total runtime"
+   },
+   {
+    "idea": "reduce _STOP_WAIT to 0.5 s and add side‑distance hysteresis",
+    "new_family": false,
+    "for": "both collision and timeout",
+    "risk": "very short wait may cause frequent stop‑restart oscillation"
+   },
+   {
+    "idea": "replace stop/detour state machine with continuous candidate‑based evasion: each step evaluate _CANDS with _rollout/_evade logic and pick the safest high‑progress command, only stop if no safe candidate exists",
+    "new_family": true,
+    "for": "eliminate stop‑wait cycles and steer around side movers",
+    "risk": "more computation each step; may still stop if environment is too crowded"
+   }
+  ],
+  "chosen": "candidate 3 – continuous candidate‑based evasion, because it removes stop‑wait cycles, handles side movers proactively and should cut average runtime while preventing collisions",
+  "target": "controller function (state machine and command selection)",
+  "direction": "1. Delete the explicit \"stop\" and \"detour\" branches and keep a single \"go\" branch. 2. After obtaining movers and the nominal target, call the existing _evade logic (or replicate its scoring) on the full _CANDS set (including zero‑velocity) to produce a list of safe candidates using _is_safe and _static_ok. 3. Choose the candidate with the highest score (progress‑plus‑clearance) and return its (v,w). 4. If no candidate passes safety, command (0.0,0.0). 5. Keep the front‑gap scaling f for speed reduction in narrow passages. 6. Remove the stop‑timer and detour‑timer variables.",
+  "confidence": "medium",
+  "last_direction_ok": "yes – turn 15’s distance‑based scaling raised pass count from 1/4 to 8/10 and cut average time to ~60 s",
+  "base_turn": 15
+ },
+ "raw": "{\n  \"failure_mode\": \"timeout\",\n  \"evidence\": [\n    \"run c51t15_s1718142053 collided at t=45.9 s with mover_03 while a side object was within _STOP_D but resume ignored side distance, causing immediate restart (collision)\",\n    \"total batch simulation time 601 s exceeds the 600 s budget, so the mission fails due to timeout\",\n    \"run c51t15_s537908611 timed out at its 32.5 s limit, never reaching the goal (final distance 12.87 m), showing insufficient progress\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"stop condition based on any mover within _STOP_D is sufficient\",\n      \"holds\": true,\n      \"why\": \"code uses d_min < _STOP_D to enter stop state\"\n    },\n    {\n      \"assumption\": \"resume can ignore side distances\",\n      \"holds\": false,\n      \"why\": \"collision occurred because resume only checked front gap\"\n    },\n    {\n      \"assumption\": \"front‑gap scaling f alone can keep speed safe\",\n      \"holds\": false,\n      \"why\": \"side objects caused collisions despite f\"\n    },\n    {\n      \"assumption\": \"_STOP_WAIT of 2 s is enough for movers to pass\",\n      \"holds\": false,\n      \"why\": \"many stop‑turn episodes inflate total time\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"baseline (no control)\",\n      \"turns\": \"0\",\n      \"result\": \"0/3\"\n    },\n    {\n      \"family\": \"front‑gap stop only\",\n      \"turns\": \"1\",\n      \"result\": \"9/10, avg 63 s\"\n    },\n    {\n      \"family\": \"candidate rollout planner\",\n      \"turns\": \"2\",\n      \"result\": \"0/3\"\n    },\n    {\n      \"family\": \"danger‑zone check + stop/detour\",\n      \"turns\": \"4‑5\",\n      \"result\": \"9/10, avg 63 s\"\n    },\n    {\n      \"family\": \"improved TTC in _is_safe\",\n      \"turns\": \"5‑6\",\n      \"result\": \"9/10, avg 63 s\"\n    },\n    {\n      \"family\": \"increase TTC window\",\n      \"turns\": \"7\",\n      \"result\": \"8/10, avg 62 s\"\n    },\n    {\n      \"family\": \"increase _STOP_D to 1.5 m\",\n      \"turns\": \"8\",\n      \"result\": \"9/9, avg 65 s\"\n    },\n    {\n      \"family\": \"reduce _STOP_WAIT to 0.5 s\",\n      \"turns\": \"10\",\n      \"result\": \"7/9, avg 66 s\"\n    },\n    {\n      \"family\": \"danger_close detection\",\n      \"turns\": \"11‑13\",\n      \"result\": \"7/9, avg 79 s\"\n    },\n    {\n      \"family\": \"ttc‑based speed scaling\",\n      \"turns\": \"14\",\n      \"result\": \"1/4, avg 141 s\"\n    },\n    {\n      \"family\": \"distance‑based scaling (g) with _STOP_D=1.5\",\n      \"turns\": \"15\",\n      \"result\": \"8/10, avg 60 s\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"add side‑distance check to resume condition (require d_min >= _STOP_D + hysteresis)\",\n      \"new_family\": false,\n      \"for\": \"collision caused by side objects\",\n      \"risk\": \"more stop time may increase total runtime\"\n    },\n    {\n      \"idea\": \"reduce _STOP_WAIT to 0.5 s and add side‑distance hysteresis\",\n      \"new_family\": false,\n      \"for\": \"both collision and timeout\",\n      \"risk\": \"very short wait may cause frequent stop‑restart oscillation\"\n    },\n    {\n      \"idea\": \"replace stop/detour state machine with continuous candidate‑based evasion: each step evaluate _CANDS with _rollout/_evade logic and pick the safest high‑progress command, only stop if no safe candidate exists\",\n      \"new_family\": true,\n      \"for\": \"eliminate stop‑wait cycles and steer around side movers\",\n      \"risk\": \"more computation each step; may still stop if environment is too crowded\"\n    }\n  ],\n  \"chosen\": \"candidate 3 – continuous candidate‑based evasion, because it removes stop‑wait cycles, handles side movers proactively and should cut average runtime while preventing collisions\",\n  \"target\": \"controller function (state machine and command selection)\",\n  \"direction\": \"1. Delete the explicit \\\"stop\\\" and \\\"detour\\\" branches and keep a single \\\"go\\\" branch. 2. After obtaining movers and the nominal target, call the existing _evade logic (or replicate its scoring) on the full _CANDS set (including zero‑velocity) to produce a list of safe candidates using _is_safe and _static_ok. 3. Choose the candidate with the highest score (progress‑plus‑clearance) and return its (v,w). 4. If no candidate passes safety, command (0.0,0.0). 5. Keep the front‑gap scaling f for speed reduction in narrow passages. 6. Remove the stop‑timer and detour‑timer variables.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"yes – turn 15’s distance‑based scaling raised pass count from 1/4 to 8/10 and cut average time to ~60 s\",\n  \"base_turn\": 15\n}",
+ "table": [
+  {
+   "run": "c51t15_s933421663",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 59.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 53.05,
+   "goal_dist_m": 0.2222,
+   "time_to_goal_s": 55.117
+  },
+  {
+   "run": "c51t15_s1718142053",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 541.0,
+   "sim_time_s": 51.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 45.9,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.32m/s 회전 +0.7",
+   "partner_rel_xy": [
+    0.07,
+    -0.65
+   ],
+   "closing_m_s": 0.64,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 44.42,
+   "goal_dist_m": 4.6084,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t15_s85199943",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 489.1,
+   "sim_time_s": 65.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 59.32,
+   "goal_dist_m": 0.2065,
+   "time_to_goal_s": 61.417
+  },
+  {
+   "run": "c51t15_s292082273",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 423.8,
+   "sim_time_s": 71.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 65.35,
+   "goal_dist_m": 0.223,
+   "time_to_goal_s": 66.817
+  },
+  {
+   "run": "c51t15_s457682864",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 352.5,
+   "sim_time_s": 55.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 49.42,
+   "goal_dist_m": 0.1968,
+   "time_to_goal_s": 51.433
+  },
+  {
+   "run": "c51t15_s1907716071",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 297.1,
+   "sim_time_s": 60.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 54.25,
+   "goal_dist_m": 0.1954,
+   "time_to_goal_s": 56.267
+  },
+  {
+   "run": "c51t15_s1027423347",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 236.9,
+   "sim_time_s": 75.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 69.45,
+   "goal_dist_m": 0.1932,
+   "time_to_goal_s": 71.333
+  },
+  {
+   "run": "c51t15_s1495526588",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 161.5,
+   "sim_time_s": 62.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 56.25,
+   "goal_dist_m": 0.2283,
+   "time_to_goal_s": 58.317
+  },
+  {
+   "run": "c51t15_s875701156",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 99.2,
+   "sim_time_s": 66.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 60.85,
+   "goal_dist_m": 0.2228,
+   "time_to_goal_s": 62.85
+  },
+  {
+   "run": "c51t15_s537908611",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 32.5,
+   "sim_time_s": 33.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 12.8739,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,203 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "시뮬 시간 합계 601s로 600s 예산 초과 (7개 실행 평균 86s, 10개 실행 시 600s 내 불가능)",
+   "stop_turn_episodes 평균 14.5회로 정지-회전 반복으로 인한 시간 낭비",
+   "mover 감지 후 MTC 급감 시 _HOLD_MIN=1.0s 정지로 인한 재출발 지연 누적"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_SLOW_T=3.5s가 mover 감지 시 감속 시작 시점을 지연시켜 MTC 급감 유발",
+    "holds": true,
+    "why": "실행 요약에서 mover 감지 후 1.2~1.7m 거리에서 로봇이 1.0m/s로 접근하다 MTC <1.0s로 급감해 정지 발생"
+   },
+   {
+    "assumption": "정지 지속 시간(_HOLD_MIN=1.0s)이 불필요하게 길어 총 시간 증가",
+    "holds": true,
+    "why": "stop_turn_episodes 평균 지속 시간 0.5s 미만인데 _HOLD_MIN=1.0s로 재출발 지연 발생"
+   },
+   {
+    "assumption": "MTC 기반 정지 임계값(_HOLD_ON=1.0s)이 mover 속도 변동성 고려 미흡",
+    "holds": false,
+    "why": "모든 실행에서 충돌 없이 통과했으나 _HOLD_ON 상향 시 time_limit 실패 증가(턴 3 102s 평균)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "속도 프로파일 조정",
+    "turns": "4,5,6",
+    "result": "턴 4(76s), 턴 5(74s), 턴 6(83s) - 감속 구간 조정으로 시간 변동성 존재"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_SLOW_T를 5.0s로 상향해 mover 감지 시 더 일찍 감속 시작",
+    "new_family": true,
+    "for": "MTC 감소율 완화로 정지 빈도 감소 (실행 요약에서 mover 감지 후 1.5m 이상 거리 유지 구간 존재)",
+    "risk": "과도한 감속으로 경로 이탈 가능성 있으나, _rollout T=3.0s로 보수적 경로 예측 유지"
+   },
+   {
+    "idea": "_HOLD_MIN을 0.5s로 하향해 정지 지속 시간 단축",
+    "new_family": false,
+    "for": "턴 5에서 _HOLD_MIN=0.5s 적용 시 평균 74s 달성 (현재 86s 대비 15% 감소)",
+    "risk": "정지 해제 조건 미충족 시 재충돌 위험 (현재 코드에서 _hold_release 로직은 _HOLD_MIN 충족 필수)"
+   },
+   {
+    "idea": "_V_SLOW를 0.3→0.4m/s로 상향해 감속 구간 최소 속도 완화",
+    "new_family": false,
+    "for": "턴 6에서 _V_SLOW=0.2m/s 적용 시 감속 구간 시간 단축 효과 있으나 한계 존재",
+    "risk": "mover 접근 시 최소 속도 부족으로 인한 충돌 위험 증가"
+   }
+  ],
+  "chosen": "SLOW_T 상향(5.0s) 후보 선택 - 감속 타이밍 조정으로 정지 빈도 감소가 time_limit 해결에 가장 직접적이며, _V_SLOW/감속 비율 조정보다 구조적 개선 효과 큼",
+  "target": "_SLOW_T",
+  "direction": "1. _SLOW_T를 3.5에서 5.0으로 상향 조정 2. 감속 비율 계산 시 (d_thr - _HOLD_ON)/(_SLOW_T - _HOLD_ON) 공식 유지하되 _SLOW_T 증가로 감속 시작 시점 이전화 3. _V_SLOW는 0.2m/s로 유지해 감속 구간 최소 속도 보장 4. 정지 해제 조건(_HOLD_MIN=1.0s)은 변경 없이 유지해 안전성 확보 5. _rollout 예측 시간(T=3.0s)은 유지해 회피 동작 보수성 강화 6. 모든 변경은 센서 기반 MTC 계산 로직과 연동해 mover 감지 시 자동 적용",
+  "confidence": "medium",
+  "last_direction_ok": "yes, pass count increased from 6 to 7 but caused timeout due to longer run times from extended _HOLD_MIN",
+  "base_turn": 7
+ },
+ "raw": "\n\n{\"failure_mode\": \"timeout\", \"evidence\": [\"시뮬 시간 합계 601s로 600s 예산 초과 (7개 실행 평균 86s, 10개 실행 시 600s 내 불가능)\", \"stop_turn_episodes 평균 14.5회로 정지-회전 반복으로 인한 시간 낭비\", \"mover 감지 후 MTC 급감 시 _HOLD_MIN=1.0s 정지로 인한 재출발 지연 누적\"], \"assumptions\": [{\"assumption\": \"_SLOW_T=3.5s가 mover 감지 시 감속 시작 시점을 지연시켜 MTC 급감 유발\", \"holds\": true, \"why\": \"실행 요약에서 mover 감지 후 1.2~1.7m 거리에서 로봇이 1.0m/s로 접근하다 MTC <1.0s로 급감해 정지 발생\"}, {\"assumption\": \"정지 지속 시간(_HOLD_MIN=1.0s)이 불필요하게 길어 총 시간 증가\", \"holds\": true, \"why\": \"stop_turn_episodes 평균 지속 시간 0.5s 미만인데 _HOLD_MIN=1.0s로 재출발 지연 발생\"}, {\"assumption\": \"MTC 기반 정지 임계값(_HOLD_ON=1.0s)이 mover 속도 변동성 고려 미흡\", \"holds\": false, \"why\": \"모든 실행에서 충돌 없이 통과했으나 _HOLD_ON 상향 시 time_limit 실패 증가(턴 3 102s 평균)\"}], \"approach_families\": [{\"family\": \"속도 프로파일 조정\", \"turns\": \"4,5,6\", \"result\": \"턴 4(76s), 턴 5(74s), 턴 6(83s) - 감속 구간 조정으로 시간 변동성 존재\"}], \"candidates\": [{\"idea\": \"_SLOW_T를 5.0s로 상향해 mover 감지 시 더 일찍 감속 시작\", \"new_family\": true, \"for\": \"MTC 감소율 완화로 정지 빈도 감소 (실행 요약에서 mover 감지 후 1.5m 이상 거리 유지 구간 존재)\", \"risk\": \"과도한 감속으로 경로 이탈 가능성 있으나, _rollout T=3.0s로 보수적 경로 예측 유지\"}, {\"idea\": \"_HOLD_MIN을 0.5s로 하향해 정지 지속 시간 단축\", \"new_family\": false, \"for\": \"턴 5에서 _HOLD_MIN=0.5s 적용 시 평균 74s 달성 (현재 86s 대비 15% 감소)\", \"risk\": \"정지 해제 조건 미충족 시 재충돌 위험 (현재 코드에서 _hold_release 로직은 _HOLD_MIN 충족 필수)\"}, {\"idea\": \"_V_SLOW를 0.3→0.4m/s로 상향해 감속 구간 최소 속도 완화\", \"new_family\": false, \"for\": \"턴 6에서 _V_SLOW=0.2m/s 적용 시 감속 구간 시간 단축 효과 있으나 한계 존재\", \"risk\": \"mover 접근 시 최소 속도 부족으로 인한 충돌 위험 증가\"}], \"chosen\": \"SLOW_T 상향(5.0s) 후보 선택 - 감속 타이밍 조정으로 정지 빈도 감소가 time_limit 해결에 가장 직접적이며, _V_SLOW/감속 비율 조정보다 구조적 개선 효과 큼\", \"target\": \"_SLOW_T\", \"direction\": \"1. _SLOW_T를 3.5에서 5.0으로 상향 조정 2. 감속 비율 계산 시 (d_thr - _HOLD_ON)/(_SLOW_T - _HOLD_ON) 공식 유지하되 _SLOW_T 증가로 감속 시작 시점 이전화 3. _V_SLOW는 0.2m/s로 유지해 감속 구간 최소 속도 보장 4. 정지 해제 조건(_HOLD_MIN=1.0s)은 변경 없이 유지해 안전성 확보 5. _rollout 예측 시간(T=3.0s)은 유지해 회피 동작 보수성 강화 6. 모든 변경은 센서 기반 MTC 계산 로직과 연동해 mover 감지 시 자동 적용\", \"confidence\": \"medium\", \"last_direction_ok\": \"yes, pass count increased from 6 to 7 but caused timeout due to longer run times from extended _HOLD_MIN\", \"base_turn\": 7}",
+ "table": [
+  {
+   "run": "c81t7_s1902347953",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 76.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 70.62,
+   "goal_dist_m": 0.2246,
+   "time_to_goal_s": 72.717
+  },
+  {
+   "run": "c81t7_s273997778",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 523.4,
+   "sim_time_s": 88.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 82.42,
+   "goal_dist_m": 0.2024,
+   "time_to_goal_s": 84.45
+  },
+  {
+   "run": "c81t7_s1546799682",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 435.0,
+   "sim_time_s": 101.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 95.82,
+   "goal_dist_m": 0.2249,
+   "time_to_goal_s": 97.9
+  },
+  {
+   "run": "c81t7_s251107373",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 333.2,
+   "sim_time_s": 75.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 69.05,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 71.1
+  },
+  {
+   "run": "c81t7_s610997609",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 258.2,
+   "sim_time_s": 80.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 74.32,
+   "goal_dist_m": 0.2018,
+   "time_to_goal_s": 76.317
+  },
+  {
+   "run": "c81t7_s980140093",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 177.9,
+   "sim_time_s": 84.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 78.22,
+   "goal_dist_m": 0.2303,
+   "time_to_goal_s": 80.267
+  },
+  {
+   "run": "c81t7_s696592730",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 93.8,
+   "sim_time_s": 94.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 88.75,
+   "goal_dist_m": 0.2299,
+   "time_to_goal_s": 90.833
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7. 이번 코드에서 이어 가려면 7 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

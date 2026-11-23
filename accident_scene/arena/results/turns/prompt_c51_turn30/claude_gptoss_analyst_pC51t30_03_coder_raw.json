@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시 1에 따라 `_free_heading` 의 구간 선택 비용은 지금처럼 목표 방향에 가장 가까운 점으로 계산하고, 돌려주는 진행 각만 고른 구간의 중심각 `lo + 0.5*width` 로 바꿨습니다. 검토 지시 2에 따라 `controller` 에서 stop/detour 상태일 때 `gap >= _STOP_D` 이고 `pc` 가 None 이 아니면 바로 `state='go'` 로 바꾸고 go 분기로 넘깁니다. 그러면 go 분기와 같은 pc 스케일 루프(`_is_safe`, `_SAFE`, 안전한 명령이 없으면 `_evade`)의 결과가 반환됩니다. 이에 따라 `d_min` 과 `_SAFE_GO` 를 쓰던 resume 조건과 그 분기들은 지웠고, 나머지 stop 대기와 detour 흐름은 그대로 두었습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 + 각도 구간 로컬 플래너(go) / 앞 gap 정지·대기·우회(stop / detour).\n    앞 gap < _STOP_D (또는 빈 각도 구간 없음) 일 때만 stop/detour, 나머지는 로컬 플래너 결과를 반환.\n    검토 지시 2: stop/detour 에서 gap >= _STOP_D 이고 pc 가 있으면 바로 go 로 바꾸고 go 분기의 스케일 루프 결과를 반환.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n    pc = _plan_cmd(pose, target, movers, v_nom, w_nom, f)   # 로컬 플래너 명령 (빈 구간이 없으면 None)\n\n    # 검토 지시 2: stop/detour 에서 앞이 열리고 플래너 명령이 있으면 바로 go (d_min, _SAFE_GO 조건 없음)\n    if c.state != \"go\" and gap >= _STOP_D and pc is not None:\n        c.state = \"go\"\n\n    if c.state == \"go\":\n        if gap < _STOP_D or pc is None:\n            c.state, c.stop_t = \"stop\", t\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (pc[0] * k, pc[1])\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            v, w = _evade(pose, movers, target, False)\n            return v, w, False\n\n    if c.state == \"stop\":\n        if t - c.stop_t >= _STOP_WAIT:\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _evade(pose, movers, target, True)\n            return v, w, False\n\n    # detour\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n\n\ndef _free_heading(pose, target, movers, r):\n    \"\"\"점을 극좌표로 바꿔 _FREE_R 안 점(과 물체 예측 위치)이 막는 각도 칸을 표시하고,\n    폭 _FREE_MIN 이상인 연속 빈 구간 중 경유점 방향에 가장 가까운 구간을 고른다.\n    검토 지시 1: 고른 구간의 진행 각은 중심각 lo + 0.5 * width.\n    (진행 각, 목표 각) 을 돌려주며 빈 구간이 없으면 진행 각은 None.\"\"\"\n    x, y, yaw = pose\n    ta = _wrap_angle(math.atan2(target[1] - y, target[0] - x) - yaw)\n    if len(r):\n        d = np.hypot(r[:, 0], r[:, 1])\n        m = d < _FREE_R\n        ang = np.arctan2(r[m, 1], r[m, 0])\n        half = np.arcsin(np.clip(_FREE_W / np.maximum(d[m], 1e-3), 0.0, 1.0))\n    else:\n        ang = np.zeros(0)\n        half = np.zeros(0)\n    if movers:\n        q = np.array([(mx + vx * s, my + vy * s) for mx, my, vx, vy in movers for s in (0.0, 0.4, 0.8)],\n                     dtype=np.float64)\n        rq = _to_robot(q, pose)\n        dq = np.hypot(rq[:, 0], rq[:, 1])\n        k = (dq < _FREE_RM) & (dq > 0.3)\n        ang = np.concatenate([ang, np.arctan2(rq[k, 1], rq[k, 0])])\n        half = np.concatenate([half, np.arcsin(np.clip((_FREE_W + _MOVER_R) / dq[k], 0.0, 1.0))])\n    if len(ang) == 0:\n        _P[\"hw\"] = ta + yaw\n        return ta, ta\n    blocked = (np.abs(_wrap_arr(_BIN_A[None, :] - ang[:, None])) <= half[:, None] + 0.5 * _BIN_W).any(axis=0)\n    if not blocked.any():\n        _P[\"hw\"] = ta + yaw\n        return ta, ta\n    if blocked.all():\n        return None, ta\n    i0 = int(np.argmax(blocked))                 # 막힌 칸에서 시작하면 구간이 끝을 넘지 않는다\n    segs = []\n    j = 0\n    while j < _NBIN:\n        if blocked[(i0 + j) % _NBIN]:\n            j += 1\n            continue\n        s = j\n        while j < _NBIN and not blocked[(i0 + j) % _NBIN]:\n            j += 1\n        segs.append((float(_BIN_A[(i0 + s) % _NBIN]) - 0.5 * _BIN_W, (j - s) * _BIN_W))\n    prev = _P.get(\"hw\")\n    best, bc = None, 1e9\n    for lo, width in segs:\n        if width < _FREE_MIN - 1e-6:\n            continue\n        hi = lo + width\n        # 구간 선택 비용: 지금처럼 구간 안에서 목표 방향에 가장 가까운 점 기준\n        a = lo + ((ta - lo) % (2.0 * math.pi))\n        e = min(_FREE_EDGE, 0.5 * width)\n        if a <= hi:\n            near = _clamp(a, lo + e, hi - e)\n        elif a - hi < lo + 2.0 * math.pi - a:\n            near = hi - e\n        else:\n            near = lo + e\n        cost = abs(_wrap_angle(near - ta))\n        if prev is not None:\n            cost += 0.2 * abs(_wrap_angle(near + yaw - prev))   # 이전 선택 방향 유지(떨림 방지)\n        if cost < bc:\n            best, bc = lo + 0.5 * width, cost    # 검토 지시 1: 진행 각은 구간 중심각\n    if best is None:\n        return None, ta\n    best = _wrap_angle(best)\n    _P[\"hw\"] = best + yaw\n    return best, ta\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 42217,
+  "completion_tokens": 4042
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30192,
+  "total_cost_usd": 0.418568,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4042,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 42215,
+    "webSearchRequests": 0,
+    "costUSD": 0.418568,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 792,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 42215,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "dcab376e-57bb-41ab-8e4b-9d6d2436e683"
+ }
+}

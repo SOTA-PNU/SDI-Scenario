@@ -1,0 +1,252 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t20_s167916281: robot 정지 상태에서 mover_03가 1.24 m(첫 감지 시점 66.52 s)에서 접근해 71.433 s에 충돌 (robot_at_collision=정지, partner_rel_xy=[-0.85,-0.47])",
+   "`_TTC_H` 은 1.0 s 로 정의돼 있어 _is_safe 가 1 s 내 충돌만 예측, 실제 충돌까지 약 5 s 소요됨",
+   "`_STOP_WAIT` 가 0.5 s 로 감소돼 움직이는 물체가 지나갈 충분한 대기시간을 제공하지 못함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 라이다 8 m 이내에서 감지된다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 1.24 m 거리에서 mover_03이 감지됨"
+   },
+   {
+    "assumption": "_is_safe 와 _SAFE=0.25 로 1 s 내 충돌을 충분히 방지한다",
+    "holds": false,
+    "why": "충돌이 5 s 뒤에 발생해 _TTC_H=1 s 가 부족함"
+   },
+   {
+    "assumption": "_STOP_WAIT=0.5 s 로 정지 후 물체가 지나가기에 충분하다",
+    "holds": false,
+    "why": "같은 실행에서 mover_03 은 최소 5 s 동안 접근했음"
+   },
+   {
+    "assumption": "reverse 상태는 정적 장애물에만 필요하다",
+    "holds": false,
+    "why": "이번 충돌은 뒤에서 접근한 움직이는 물체 때문에 발생, 정적 reverse 로는 회피 불가"
+   },
+   {
+    "assumption": "detour_side 가 물체가 많은 쪽의 반대로 회전하면 충돌을 방지한다",
+    "holds": false,
+    "why": "detour_side 은 왼쪽으로 회전했지만 mover_03 은 오른쪽 뒤에서 접근해 회피에 실패함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "simple_state_machine",
+    "turns": "1,3,10,20",
+    "result": "4 attempts, 32/37 passes, 평균 66‑74 s, 일부 충돌·시간 초과"
+   },
+   {
+    "family": "speed_scaling_distance",
+    "turns": "4,5,15",
+    "result": "3 attempts, 23/28 passes, 평균 64‑77 s, 충돌·시간 초과 존재"
+   },
+   {
+    "family": "danger_detection",
+    "turns": "11,13",
+    "result": "2 attempts, 14/19 passes, 평균 70‑79 s, 충돌 여전히 발생"
+   },
+   {
+    "family": "reverse_static",
+    "turns": "19",
+    "result": "1 attempt, 7/8 passes, 평균 79 s, 시간 제한만 발생"
+   },
+   {
+    "family": "TTC_horizon_extension",
+    "turns": "7",
+    "result": "1 attempt, 8/10 passes, 평균 62 s, 충돌 일부 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "움직이는 물체가 뒤쪽에서 접근하면 reverse 상태와 유사하게 후진 명령을 수행하도록 mover_reverse 로직 추가",
+    "new_family": true,
+    "for": "collision 발생 시 robot이 정지 상태에서 뒤에서 다가오는 mover 로 인해 충돌",
+    "risk": "후진이 정적 장애물과 충돌하거나 실행 시간 증가로 예산 초과"
+   },
+   {
+    "idea": "TTC 검사 창을 확대하고 최소 TTC 값을 구해 _SAFE_GO 판단에 사용, 즉 _min_ttc 함수를 도입해 2 s 이상 안전 여부를 확인",
+    "new_family": true,
+    "for": "현재 _TTC_H=1.0 이 너무 짧아 느리게 접근하는 mover 를 놓침",
+    "risk": "안전 마진 확대가 과도한 정지와 시간 증가를 초래할 수 있음"
+   }
+  ],
+  "chosen": "뒤에서 접근하는 움직이는 물체를 감지하면 정지 상태에서도 후진(reverse)으로 회피하도록 로직을 추가한다",
+  "target": "controller 함수와 새로운 헬퍼 _danger_behind",
+  "direction": "1) controller 위에 `def _danger_behind(pose, movers):` 를 정의한다. 로봇 기준 좌표 r = _to_robot(np.array([[mx, my] for mx, my, _, _ in movers]), pose) 로 변환하고, 뒤쪽(r[:,0] < -_BODY[0])에 있으면서 거리 < 1.5 m이고 상대 속도(vx*dx+vy*dy < 0)인 물체가 있으면 True 반환한다. 2) `if c.state == \"stop\":` 블록 안에서 `_static_tight(pose)` 검사를 앞에 두고, 그 뒤에 `if _danger_behind(pose, movers):` 를 추가한다. 3) 조건이 True이면 `rv, rw = _reverse_cmd(pose, movers)` 호출하고, `rv < 0.0`이면 `c.state, c.rev_t = \"reverse\", t` 로 전환하고 `return rv, rw, False`. 4) 기존 `_static_tight` 로직은 그대로 유지하되, 이제 뒤에서 오는 물체도 reverse 로 처리된다. 5) `_danger_behind` 함수는 기존 `_to_robot` 와 `_MOVER_R` 를 사용해 안전 마진을 고려한다. 6) 이 변경만으로 기존 정지·우회·go 흐름은 그대로 유지되며, 뒤쪽 물체 충돌을 방지한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no - STOP_WAIT을 0.5 s 로 감소시켜 실행 시간은 줄였지만 뒤에서 접근한 mover_03 이 정지 상태에서 충돌해 새로운 실패가 발생함",
+  "base_turn": 19,
+  "stage1": {
+   "chosen": "움직이는 물체 뒤에서 접근 시 mover_reverse 로직을 도입해 후진 회피를 시도한다",
+   "target": "controller 로직 (새 상태 mover_reverse 및 관련 헬퍼 함수)",
+   "direction": "1) 로봇 뒤쪽에 있는 mover 를 판별하기 위해 _reverse_mover_cmd(pose,movers) 함수를 만든다; _REV_SPEEDS 를 사용해 가장 큰 음수 속도를 선택하고 _is_safe 와 _static_ok 로 검증한다. 2) controller 의 stop 상태에서 _static_tight 이 False 이지만 _is_safe(pose,(0,0),movers,_SAFE) 가 False 이면 c.state='reverse_mover', c.rev_t=t 로 전환한다. 3) reverse_mover 상태에서는 _reverse_mover_cmd 로 얻은 (v<0,0) 명령을 _REV_T 초 동안 실행하고, 이후 gap 와 safety 를 재평가해 go 혹은 stop 으로 전환한다. 4) 기존 static reverse 상태는 그대로 유지한다. 5) 필요 시 _detour_side 은 mover_reverse 와 충돌하지 않도록 기존 static_ok 검증을 그대로 사용한다. 6) 새로운 상태와 함수는 기존 변수 c.rev_t 와 기존 타이머 로직에 통합한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t20_s167916281: robot 정지 상태에서 mover_03가 1.24 m(첫 감지 시점 66.52 s)에서 접근해 71.433 s에 충돌 (robot_at_collision=정지, partner_rel_xy=[-0.85,-0.47])\",\n    \"`_TTC_H` 은 1.0 s 로 정의돼 있어 _is_safe 가 1 s 내 충돌만 예측, 실제 충돌까지 약 5 s 소요됨\",\n    \"`_STOP_WAIT` 가 0.5 s 로 감소돼 움직이는 물체가 지나갈 충분한 대기시간을 제공하지 못함\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 라이다 8 m 이내에서 감지된다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 1.24 m 거리에서 mover_03이 감지됨\"\n    },\n    {\n      \"assumption\": \"_is_safe 와 _SAFE=0.25 로 1 s 내 충돌을 충분히 방지한다\",\n      \"holds\": false,\n      \"why\": \"충돌이 5 s 뒤에 발생해 _TTC_H=1 s 가 부족함\"\n    },\n    {\n      \"assumption\": \"_STOP_WAIT=0.5 s 로 정지 후 물체가 지나가기에 충분하다\",\n      \"holds\": false,\n      \"why\": \"같은 실행에서 mover_03 은 최소 5 s 동안 접근했음\"\n    },\n    {\n      \"assumption\": \"reverse 상태는 정적 장애물에만 필요하다\",\n      \"holds\": false,\n      \"why\": \"이번 충돌은 뒤에서 접근한 움직이는 물체 때문에 발생, 정적 reverse 로는 회피 불가\"\n    },\n    {\n      \"assumption\": \"detour_side 가 물체가 많은 쪽의 반대로 회전하면 충돌을 방지한다\",\n      \"holds\": false,\n      \"why\": \"detour_side 은 왼쪽으로 회전했지만 mover_03 은 오른쪽 뒤에서 접근해 회피에 실패함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"simple_state_machine\",\n      \"turns\": \"1,3,10,20\",\n      \"result\": \"4 attempts, 32/37 passes, 평균 66‑74 s, 일부 충돌·시간 초과\"\n    },\n    {\n      \"family\": \"speed_scaling_distance\",\n      \"turns\": \"4,5,15\",\n      \"result\": \"3 attempts, 23/28 passes, 평균 64‑77 s, 충돌·시간 초과 존재\"\n    },\n    {\n      \"family\": \"danger_detection\",\n      \"turns\": \"11,13\",\n      \"result\": \"2 attempts, 14/19 passes, 평균 70‑79 s, 충돌 여전히 발생\"\n    },\n    {\n      \"family\": \"reverse_static\",\n      \"turns\": \"19\",\n      \"result\": \"1 attempt, 7/8 passes, 평균 79 s, 시간 제한만 발생\"\n    },\n    {\n      \"family\": \"TTC_horizon_extension\",\n      \"turns\": \"7\",\n      \"result\": \"1 attempt, 8/10 passes, 평균 62 s, 충돌 일부 지속\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"움직이는 물체가 뒤쪽에서 접근하면 reverse 상태와 유사하게 후진 명령을 수행하도록 mover_reverse 로직 추가\",\n      \"new_family\": true,\n      \"for\": \"collision 발생 시 robot이 정지 상태에서 뒤에서 다가오는 mover 로 인해 충돌\",\n      \"risk\": \"후진이 정적 장애물과 충돌하거나 실행 시간 증가로 예산 초과\"\n    },\n    {\n      \"idea\": \"TTC 검사 창을 확대하고 최소 TTC 값을 구해 _SAFE_GO 판단에 사용, 즉 _min_ttc 함수를 도입해 2 s 이상 안전 여부를 확인\",\n      \"new_family\": true,\n      \"for\": \"현재 _TTC_H=1.0 이 너무 짧아 느리게 접근하는 mover 를 놓침\",\n      \"risk\": \"안전 마진 확대가 과도한 정지와 시간 증가를 초래할 수 있음\"\n    }\n  ],\n  \"chosen\": \"움직이는 물체 뒤에서 접근 시 mover_reverse 로직을 도입해 후진 회피를 시도한다\",\n  \"target\": \"controller 로직 (새 상태 mover_reverse 및 관련 헬퍼 함수)\",\n  \"direction\": \"1) 로봇 뒤쪽에 있는 mover 를 판별하기 위해 _reverse_mover_cmd(pose,movers) 함수를 만든다; _REV_SPEEDS 를 사용해 가장 큰 음수 속도를 선택하고 _is_safe 와 _static_ok 로 검증한다. 2) controller 의 stop 상태에서 _static_tight 이 False 이지만 _is_safe(pose,(0,0),movers,_SAFE) 가 False 이면 c.state='reverse_mover', c.rev_t=t 로 전환한다. 3) reverse_mover 상태에서는 _reverse_mover_cmd 로 얻은 (v<0,0) 명령을 _REV_T 초 동안 실행하고, 이후 gap 와 safety 를 재평가해 go 혹은 stop 으로 전환한다. 4) 기존 static reverse 상태는 그대로 유지한다. 5) 필요 시 _detour_side 은 mover_reverse 와 충돌하지 않도록 기존 static_ok 검증을 그대로 사용한다. 6) 새로운 상태와 함수는 기존 변수 c.rev_t 와 기존 타이머 로직에 통합한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no - STOP_WAIT을 0.5 s 로 감소시켜 실행 시간은 줄였지만 뒤에서 접근한 mover_03 이 정지 상태에서 충돌해 새로운 실패가 발생함\",\n  \"base_turn\": 19\n}",
+ "table": [
+  {
+   "run": "c51t20_s1508486935",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 67.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 61.95,
+   "goal_dist_m": 0.2291,
+   "time_to_goal_s": 63.95
+  },
+  {
+   "run": "c51t20_s503149137",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 532.1,
+   "sim_time_s": 69.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 63.52,
+   "goal_dist_m": 0.2288,
+   "time_to_goal_s": 65.517
+  },
+  {
+   "run": "c51t20_s167916281",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 462.6,
+   "sim_time_s": 77.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 71.433,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.85,
+    -0.47
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 66.52,
+   "goal_dist_m": 2.0321,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t20_s1822739430",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 385.2,
+   "sim_time_s": 72.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 66.15,
+   "goal_dist_m": 0.1982,
+   "time_to_goal_s": 68.133
+  },
+  {
+   "run": "c51t20_s344610498",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 313.1,
+   "sim_time_s": 76.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 70.05,
+   "goal_dist_m": 0.2295,
+   "time_to_goal_s": 72.0
+  },
+  {
+   "run": "c51t20_s1040797411",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 237.1,
+   "sim_time_s": 76.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 70.55,
+   "goal_dist_m": 0.2232,
+   "time_to_goal_s": 72.55
+  },
+  {
+   "run": "c51t20_s777584439",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 160.6,
+   "sim_time_s": 80.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 74.75,
+   "goal_dist_m": 0.2205,
+   "time_to_goal_s": 76.683
+  },
+  {
+   "run": "c51t20_s1550500723",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 79.9,
+   "sim_time_s": 73.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 67.32,
+   "goal_dist_m": 0.2013,
+   "time_to_goal_s": 69.317
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "답이 올바른 JSON 이 아니어서 읽지 못했습니다(Expecting value: line 31 column 16 (char 1036)). 오류 근처: …      \"assumption\": \"detour_side 가 물체가 많은 쪽의 반대로 회전하면 충돌을 방지한다\",\n      \"holds\": partially,\n      \"why\": \"detour_side 은 왼… 괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,236 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t18_s843019745 실행에서 t=57.617 s에 static:arena_box_07와 충돌했으며 로봇 상태는 '정지'였다.",
+   "해당 실행의 stop_turn_episodes는 15번이며, 충돌 직전 로봇은 0 m/s 속도로 정지 상태였다.",
+   "_front_gap 함수는 이동 물체 점만 사용해 거리(gap)를 계산하고 정적 장애물은 제외하므로 정적 장애물과의 근접을 감지하지 못한다."
+  ],
+  "assumptions": [
+   {
+    "assumption": "정적 장애물은 지도에 포함돼 있으므로 로봇이 정지 상태에서 별도 검사를 하지 않아도 된다.",
+    "holds": false,
+    "why": "정적 박스와 충돌이 발생해 정적 장애물과의 거리 검사가 필요함"
+   },
+   {
+    "assumption": "전방 ±30° 라이다 점만으로 충돌을 예방할 수 있다.",
+    "holds": false,
+    "why": "정적 장애물이 전방이 아닌 위치에 있어도 충돌이 발생함"
+   },
+   {
+    "assumption": "_safe_evade가 (0,0) 반환 시 안전하다고 가정한다.",
+    "holds": false,
+    "why": "정지 명령(0,0)이 정적 장애물과 너무 가깝게 위치해 충돌을 일으킴"
+   },
+   {
+    "assumption": "정적 장애물과의 최소 여유는 _static_ok가 회전 명령에만 적용된다.",
+    "holds": true,
+    "why": "회전 시 _static_ok가 호출되지만 정지 시에는 호출되지 않음"
+   },
+   {
+    "assumption": "이동 물체는 라이다2D 점에만 나타나며, 정적 장애물은 필터링된다.",
+    "holds": true,
+    "why": "_scan_world에서 정적 점을 걸러내어 _P['pts']에 저장함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "simple front-lidar stop (stop_wait 5s)",
+    "turns": "1",
+    "result": "1 turn, 9 passes"
+   },
+   {
+    "family": "front-lidar stop with reduced stop_wait (2s)",
+    "turns": "3",
+    "result": "1 turn, 9 passes"
+   },
+   {
+    "family": "increase STOP_D to 1.5",
+    "turns": "8",
+    "result": "1 turn, 9 passes"
+   },
+   {
+    "family": "danger_close early evasion",
+    "turns": "11",
+    "result": "1 turn, 7 passes"
+   },
+   {
+    "family": "combined front gap + mover distance scaling",
+    "turns": "15",
+    "result": "1 turn, 8 passes"
+   },
+   {
+    "family": "extended TTC horizon",
+    "turns": "7",
+    "result": "1 turn, 8 passes"
+   },
+   {
+    "family": "front_angle expansion + safe_evade",
+    "turns": "18",
+    "result": "1 turn, 6 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 상태에서 정적 장애물과의 여유가 부족하면 뒤로 이동하는 'reverse' 상태를 도입한다.",
+    "new_family": true,
+    "for": "static collision 방지",
+    "risk": "뒤로 이동 중 새로운 충돌 가능성 및 진동 발생"
+   },
+   {
+    "idea": "3D 라이다를 사용해 이동 물체와 정적 장애물을 구분하고, 정적 장애물도 회피 후보에 포함한다.",
+    "new_family": true,
+    "for": "정적 장애물 감지 강화",
+    "risk": "계산 비용 증가와 3D 라이다 데이터 처리 복잡도"
+   },
+   {
+    "idea": "상태 머신을 없애고 DWA와 TTC 기반 속도 스케일링을 결합한 연속 로컬 플래너를 구현한다.",
+    "new_family": true,
+    "for": "복잡한 상태 전환 없이 지속적인 안전 주행",
+    "risk": "안전 후보가 없을 때 정지에 빠져 시간 초과 가능"
+   }
+  ],
+  "chosen": "candidate 1을 선택한다. 정지 중 정적 장애물과 가까워지면 뒤로 물러나는 reverse 상태를 추가한다.",
+  "target": "controller (새 reverse 상태와 로직)",
+  "direction": "controller 내부에 새로운 상태 'reverse'를 추가하고, c.state가 'stop'이면서 _static_ok(pose,(0,0))가 False일 경우 c.state를 'reverse'로 전환한다. reverse 상태에서는 목표를 현재 위치에서 뒤쪽(음수 v)으로 이동하도록 하며, _rollout을 이용해 안전한 후진 속도(v<0)를 후보로 평가한다. 후진 후보 중 _is_safe와 _static_ok를 모두 통과하는 가장 큰 음수 속도와 0 회전(w=0)을 선택해 반환한다. 후진 명령이 실행된 뒤 1.0 s 정도 유지하고, 후진이 끝나면 gap와 static 검사를 재평가해 'go' 혹은 'stop' 상태로 전환한다. reverse 전환 시 기존 stop 타이머와 detour 타이머를 초기화해 상태 간 충돌을 방지한다. 기존 _safe_evade 호출은 그대로 유지한다.",
+  "confidence": "high",
+  "last_direction_ok": "yes와 turn 18이 6/7 성공률을 기록하며 이전보다 높은 통과 비율을 보였으므로 방향이 효과적이었다.",
+  "base_turn": 18
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t18_s843019745 실행에서 t=57.617 s에 static:arena_box_07와 충돌했으며 로봇 상태는 '정지'였다.\",\n    \"해당 실행의 stop_turn_episodes는 15번이며, 충돌 직전 로봇은 0 m/s 속도로 정지 상태였다.\",\n    \"_front_gap 함수는 이동 물체 점만 사용해 거리(gap)를 계산하고 정적 장애물은 제외하므로 정적 장애물과의 근접을 감지하지 못한다.\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"정적 장애물은 지도에 포함돼 있으므로 로봇이 정지 상태에서 별도 검사를 하지 않아도 된다.\",\n      \"holds\": false,\n      \"why\": \"정적 박스와 충돌이 발생해 정적 장애물과의 거리 검사가 필요함\"\n    },\n    {\n      \"assumption\": \"전방 ±30° 라이다 점만으로 충돌을 예방할 수 있다.\",\n      \"holds\": false,\n      \"why\": \"정적 장애물이 전방이 아닌 위치에 있어도 충돌이 발생함\"\n    },\n    {\n      \"assumption\": \"_safe_evade가 (0,0) 반환 시 안전하다고 가정한다.\",\n      \"holds\": false,\n      \"why\": \"정지 명령(0,0)이 정적 장애물과 너무 가깝게 위치해 충돌을 일으킴\"\n    },\n    {\n      \"assumption\": \"정적 장애물과의 최소 여유는 _static_ok가 회전 명령에만 적용된다.\",\n      \"holds\": true,\n      \"why\": \"회전 시 _static_ok가 호출되지만 정지 시에는 호출되지 않음\"\n    },\n    {\n      \"assumption\": \"이동 물체는 라이다2D 점에만 나타나며, 정적 장애물은 필터링된다.\",\n      \"holds\": true,\n      \"why\": \"_scan_world에서 정적 점을 걸러내어 _P['pts']에 저장함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"simple front-lidar stop (stop_wait 5s)\",\n      \"turns\": \"1\",\n      \"result\": \"1 turn, 9 passes\"\n    },\n    {\n      \"family\": \"front-lidar stop with reduced stop_wait (2s)\",\n      \"turns\": \"3\",\n      \"result\": \"1 turn, 9 passes\"\n    },\n    {\n      \"family\": \"increase STOP_D to 1.5\",\n      \"turns\": \"8\",\n      \"result\": \"1 turn, 9 passes\"\n    },\n    {\n      \"family\": \"danger_close early evasion\",\n      \"turns\": \"11\",\n      \"result\": \"1 turn, 7 passes\"\n    },\n    {\n      \"family\": \"combined front gap + mover distance scaling\",\n      \"turns\": \"15\",\n      \"result\": \"1 turn, 8 passes\"\n    },\n    {\n      \"family\": \"extended TTC horizon\",\n      \"turns\": \"7\",\n      \"result\": \"1 turn, 8 passes\"\n    },\n    {\n      \"family\": \"front_angle expansion + safe_evade\",\n      \"turns\": \"18\",\n      \"result\": \"1 turn, 6 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"정지 상태에서 정적 장애물과의 여유가 부족하면 뒤로 이동하는 'reverse' 상태를 도입한다.\",\n      \"new_family\": true,\n      \"for\": \"static collision 방지\",\n      \"risk\": \"뒤로 이동 중 새로운 충돌 가능성 및 진동 발생\"\n    },\n    {\n      \"idea\": \"3D 라이다를 사용해 이동 물체와 정적 장애물을 구분하고, 정적 장애물도 회피 후보에 포함한다.\",\n      \"new_family\": true,\n      \"for\": \"정적 장애물 감지 강화\",\n      \"risk\": \"계산 비용 증가와 3D 라이다 데이터 처리 복잡도\"\n    },\n    {\n      \"idea\": \"상태 머신을 없애고 DWA와 TTC 기반 속도 스케일링을 결합한 연속 로컬 플래너를 구현한다.\",\n      \"new_family\": true,\n      \"for\": \"복잡한 상태 전환 없이 지속적인 안전 주행\",\n      \"risk\": \"안전 후보가 없을 때 정지에 빠져 시간 초과 가능\"\n    }\n  ],\n  \"chosen\": \"candidate 1을 선택한다. 정지 중 정적 장애물과 가까워지면 뒤로 물러나는 reverse 상태를 추가한다.\",\n  \"target\": \"controller (새 reverse 상태와 로직)\",\n  \"direction\": \"controller 내부에 새로운 상태 'reverse'를 추가하고, c.state가 'stop'이면서 _static_ok(pose,(0,0))가 False일 경우 c.state를 'reverse'로 전환한다. reverse 상태에서는 목표를 현재 위치에서 뒤쪽(음수 v)으로 이동하도록 하며, _rollout을 이용해 안전한 후진 속도(v<0)를 후보로 평가한다. 후진 후보 중 _is_safe와 _static_ok를 모두 통과하는 가장 큰 음수 속도와 0 회전(w=0)을 선택해 반환한다. 후진 명령이 실행된 뒤 1.0 s 정도 유지하고, 후진이 끝나면 gap와 static 검사를 재평가해 'go' 혹은 'stop' 상태로 전환한다. reverse 전환 시 기존 stop 타이머와 detour 타이머를 초기화해 상태 간 충돌을 방지한다. 기존 _safe_evade 호출은 그대로 유지한다.\",\n  \"confidence\": \"high\",\n  \"last_direction_ok\": \"yes와 turn 18이 6/7 성공률을 기록하며 이전보다 높은 통과 비율을 보였으므로 방향이 효과적이었다.\",\n  \"base_turn\": 18\n}",
+ "table": [
+  {
+   "run": "c51t18_s843019745",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 63.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 57.617,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 55.22,
+   "goal_dist_m": 9.2484,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t18_s233557075",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 536.4,
+   "sim_time_s": 85.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 79.65,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 81.567
+  },
+  {
+   "run": "c51t18_s96873841",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 450.8,
+   "sim_time_s": 77.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 71.55,
+   "goal_dist_m": 0.2237,
+   "time_to_goal_s": 73.433
+  },
+  {
+   "run": "c51t18_s459608763",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 373.3,
+   "sim_time_s": 76.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 70.75,
+   "goal_dist_m": 0.2282,
+   "time_to_goal_s": 72.783
+  },
+  {
+   "run": "c51t18_s260859932",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 296.5,
+   "sim_time_s": 97.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 91.12,
+   "goal_dist_m": 0.2026,
+   "time_to_goal_s": 93.133
+  },
+  {
+   "run": "c51t18_s2094209996",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 199.4,
+   "sim_time_s": 98.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 92.75,
+   "goal_dist_m": 0.203,
+   "time_to_goal_s": 94.517
+  },
+  {
+   "run": "c51t18_s1602203520",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 100.7,
+   "sim_time_s": 90.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 84.05,
+   "goal_dist_m": 0.2278,
+   "time_to_goal_s": 86.033
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

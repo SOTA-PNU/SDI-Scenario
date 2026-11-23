@@ -1,0 +1,131 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "모든 실행에서 충돌 발생 (closing_m_s: 0.29, 0.61, 0.66 m/s), 충돌 직전 로봇-물체 거리 0.34~0.55 m",
+   "물체가 2m 이내 첫 감지 후 5~25초 경과 후 충돌 (예: run1 t=5.25 감지 → t=10.23 충돌)",
+   "현재 코드에서 _CLOSE_R=1.0m 이내에서만 접근 속도 검사 수행 → 물체가 1.0m 도달 시 이미 너무 가까워 회피 시간 부족"
+  ],
+  "assumptions": [
+   {
+    "assumption": "접근 속도 검사 반경(_CLOSE_R=1.0m)이 충분해 충돌 전 조기 회피 가능하다고 전제",
+    "holds": false,
+    "why": "실행 데이터에서 1.0m 진입 후 0.7~1.3초 내 충돌 발생, 반경 확대 필요"
+   },
+   {
+    "assumption": "회피 동작(_choose)이 물체 위치를 명시적 앵커로 받지 않아도 자동으로 회피 경로 선택 가능",
+    "holds": false,
+    "why": "앵커 미사용 시 _choose가 물체 근처 경로 선택 가능성 높음 (실행 요약에서 지속적 접근 기록)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "매개변수 조정 계열 (slow 모드, _CLOSE_V 등)",
+    "turns": 5,
+    "result": "통과 0/3 (시도 기록 참조)"
+   },
+   {
+    "family": "센서 기반 실시간 회피 강화 계열",
+    "turns": 1,
+    "result": "통과 1/1 (시도 기록 #2)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "접근 속도 대신 충돌 예상 시간(TTC) 기반 조기 트리거 + 물체 위치를 앵커로 회피",
+    "new_family": true,
+    "for": "TTC 임계값(예: 1.0s) 이하 시 회피 발동, _choose에 물체 위치를 앵커로 전달해 회피 경로 강제",
+    "risk": "TTC 계산 오류 시 불필요한 정지 발생, 앵커 기준 거리(_EVADE_R) 설정에 민감"
+   },
+   {
+    "idea": "전방 90도 섹터 외 물체도 동적 안전도(clr_all) 계산에 포함",
+    "new_family": false,
+    "for": "기존 _front_sector 호출 제거로 측면/후방 물체도 회피 고려",
+    "risk": "계산 부하 증가, 정적 장애물과의 간섭 가능성"
+   },
+   {
+    "idea": "물체 감지 시 즉시 정지 후 재감지 대기 시간 단축 (0.3s → 0.1s)",
+    "new_family": false,
+    "for": "빠른 재진행 유도로 물체 회피 기회 증가",
+    "risk": "정지-재진행 반복으로 시간 예산 초과 위험"
+   }
+  ],
+  "chosen": "TTC 기반 조기 트리거와 물체 위치를 앵커로 한 회피를 선택, 1.0m 반경 검사의 지연 문제 해결 및 _choose의 회피 효율성 향상",
+  "target": "_controller 내 조기 회피 트리거 조건과 _choose 호출 방식 수정",
+  "direction": "1. _movers_now 직후 가장 가까운 물체의 거리(d_near)와 상대 속도(U)로 TTC 계산 (TTC = d_near / max(closing_speed, 0.01))\n2. TTC < 1.0s 일 때 조기 회피 트리거 활성화\n3. _choose 호출 시 현재 가장 가까운 물체 위치를 앵커로 전달\n4. 앵커 기반 패널티로 물체 근처 경로 선택 억제 (예: da - _EVADE_R > 0 시 -20 점수)\n5. _EVADE_HOLD를 0.5s로 유지하되, TTC 기반 트리거로 회피 시작 시점 앞당김\n6. _CLOSE_R을 1.5m로 완화해 더 넓은 범위에서 접근 속도 계산",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"모든 실행에서 충돌 발생 (closing_m_s: 0.29, 0.61, 0.66 m/s), 충돌 직전 로봇-물체 거리 0.34~0.55 m\", \"물체가 2m 이내 첫 감지 후 5~25초 경과 후 충돌 (예: run1 t=5.25 감지 → t=10.23 충돌)\", \"현재 코드에서 _CLOSE_R=1.0m 이내에서만 접근 속도 검사 수행 → 물체가 1.0m 도달 시 이미 너무 가까워 회피 시간 부족\"], \"assumptions\": [{\"assumption\": \"접근 속도 검사 반경(_CLOSE_R=1.0m)이 충분해 충돌 전 조기 회피 가능하다고 전제\", \"holds\": false, \"why\": \"실행 데이터에서 1.0m 진입 후 0.7~1.3초 내 충돌 발생, 반경 확대 필요\"}, {\"assumption\": \"회피 동작(_choose)이 물체 위치를 명시적 앵커로 받지 않아도 자동으로 회피 경로 선택 가능\", \"holds\": false, \"why\": \"앵커 미사용 시 _choose가 물체 근처 경로 선택 가능성 높음 (실행 요약에서 지속적 접근 기록)\"}], \"approach_families\": [{\"family\": \"매개변수 조정 계열 (slow 모드, _CLOSE_V 등)\", \"turns\": 5, \"result\": \"통과 0/3 (시도 기록 참조)\"}, {\"family\": \"센서 기반 실시간 회피 강화 계열\", \"turns\": 1, \"result\": \"통과 1/1 (시도 기록 #2)\"}], \"candidates\": [{\"idea\": \"접근 속도 대신 충돌 예상 시간(TTC) 기반 조기 트리거 + 물체 위치를 앵커로 회피\", \"new_family\": true, \"for\": \"TTC 임계값(예: 1.0s) 이하 시 회피 발동, _choose에 물체 위치를 앵커로 전달해 회피 경로 강제\", \"risk\": \"TTC 계산 오류 시 불필요한 정지 발생, 앵커 기준 거리(_EVADE_R) 설정에 민감\"}, {\"idea\": \"전방 90도 섹터 외 물체도 동적 안전도(clr_all) 계산에 포함\", \"new_family\": false, \"for\": \"기존 _front_sector 호출 제거로 측면/후방 물체도 회피 고려\", \"risk\": \"계산 부하 증가, 정적 장애물과의 간섭 가능성\"}, {\"idea\": \"물체 감지 시 즉시 정지 후 재감지 대기 시간 단축 (0.3s → 0.1s)\", \"new_family\": false, \"for\": \"빠른 재진행 유도로 물체 회피 기회 증가\", \"risk\": \"정지-재진행 반복으로 시간 예산 초과 위험\"}], \"chosen\": \"TTC 기반 조기 트리거와 물체 위치를 앵커로 한 회피를 선택, 1.0m 반경 검사의 지연 문제 해결 및 _choose의 회피 효율성 향상\", \"target\": \"_controller 내 조기 회피 트리거 조건과 _choose 호출 방식 수정\", \"direction\": \"1. _movers_now 직후 가장 가까운 물체의 거리(d_near)와 상대 속도(U)로 TTC 계산 (TTC = d_near / max(closing_speed, 0.01))\\n2. TTC < 1.0s 일 때 조기 회피 트리거 활성화\\n3. _choose 호출 시 현재 가장 가까운 물체 위치를 앵커로 전달\\n4. 앵커 기반 패널티로 물체 근처 경로 선택 억제 (예: da - _EVADE_R > 0 시 -20 점수)\\n5. _EVADE_HOLD를 0.5s로 유지하되, TTC 기반 트리거로 회피 시작 시점 앞당김\\n6. _CLOSE_R을 1.5m로 완화해 더 넓은 범위에서 접근 속도 계산\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t5_s1145325862",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 16.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 10.233,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.00m/s 회전 -0.6",
+   "partner_rel_xy": [
+    0.28,
+    -0.62
+   ],
+   "closing_m_s": 0.29,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 5.25,
+   "goal_dist_m": 30.537,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t5_s990652199",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 583.8,
+   "sim_time_s": 36.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 30.05,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.67m/s",
+   "partner_rel_xy": [
+    -0.15,
+    -0.67
+   ],
+   "closing_m_s": 0.61,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 25.52,
+   "goal_dist_m": 29.6443,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t5_s402399176",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 547.7,
+   "sim_time_s": 19.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.317,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.75m/s 회전 +0.3",
+   "partner_rel_xy": [
+    0.04,
+    -0.61
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 8.42,
+   "goal_dist_m": 30.2045,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

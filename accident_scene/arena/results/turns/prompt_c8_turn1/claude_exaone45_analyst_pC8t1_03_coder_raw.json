@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시대로 진단 지시 3·4를 그대로 구현했습니다. zone 판정에서 `v_n > 0.0` 조건을 빼서 제자리 회전 중에도 판정합니다. 비정적 점 P 를 `_to_robot` 으로 바꾼 뒤 몸체 사각형 `_BODY`(뒤쪽 -0.70 포함)에서 각 점까지의 최소 거리를 명시적으로 계산하고, 그 값이 `_STOP_DIST`(2.0 m) 미만이면 holding 으로 들어가 `v=0, w=0` 을 냅니다. 판정 범위는 앞쪽 통로로 좁히지 않았습니다. 몸체 둘레 전 방향을 보므로 회전할 때 몸체가 쓸고 지나가는 범위가 모두 들어갑니다. 정지 뒤에는 최소 1초 다시 관측하고, 2 m 안이 비고 예측 경로가 안전할 때만 기존 경유점 제어로 돌아갑니다(지시 5–6). 멈춰 있어도 부딪힐 것으로 예측될 때(`clr_stop < _CLR_STOP`)만 회피 예외를 그대로 둡니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Unchanged waypoint law + 2D-lidar mover handling: stop (v=0, w=0) when any mover point is within\n    2 m of the body rectangle (all around, also while turning in place), re-sense >= 1 s before resuming,\n    slow down on predicted conflicts, evade only if standing still would be hit.\"\"\"\n    S = _CS\n    if not S:\n        S.update(idx=0, tracks=[], mv={\"front\": np.zeros((0, 2)), \"back\": np.zeros((0, 2))},\n                 mt={\"front\": -99.0, \"back\": -99.0}, last={}, v=0.0, w=0.0,\n                 holding=False, hold_until=-1.0, started=False)\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    # 1) sensing: both 2D lidars -> world points -> drop static map -> mover clusters/tracks\n    fresh = {}\n    for which in (\"front\", \"back\"):\n        p = lidar2d_points(which)\n        if p.shape[0] > 0 and p is not S[\"last\"].get(which):\n            S[\"last\"][which] = p\n            S[\"mv\"][which] = _ingest(p, pose, abs(S[\"w\"]))\n            S[\"mt\"][which] = t\n            fresh[which] = True\n    if fresh.get(\"front\") or (fresh.get(\"back\") and t - S[\"mt\"][\"front\"] > 0.25):\n        parts = [S[\"mv\"][k] for k in (\"front\", \"back\") if t - S[\"mt\"][k] < 0.25]\n        _update_tracks(np.concatenate(parts) if parts else np.zeros((0, 2)), t)\n\n    if not S[\"started\"]:   # look before the first move (a mover may be near START)\n        if not ((S[\"mt\"][\"front\"] > -1.0 and t >= 0.3) or t >= 2.0):\n            return 0.0, 0.0, False\n        S[\"started\"] = True\n\n    # 2) goal alignment / finish\n    if S[\"idx\"] >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.5:\n        S[\"idx\"] = n - 1\n    if S[\"idx\"] >= n and abs(_wrap_angle(GOAL[2] - yaw)) < 0.05:\n        return 0.0, 0.0, True\n\n    # 3) nominal command (verified law) and its predicted safety\n    v_n, w_n, S[\"idx\"] = _nominal_cmd(x, y, yaw, S[\"idx\"], 1.0)\n    target = _WAYPOINTS[min(S[\"idx\"], n - 1)]\n    P, U = _movers_now(t)\n    traj_n = _rollout_nominal(pose, S[\"idx\"], S[\"v\"], 1.0)\n    st_n = _static_clearance(traj_n[None, :_KS + 1])[0]\n    clr_n = _mover_clearance(traj_n[None], P, U)[0]\n\n    # diagnosis rule 3-4: min distance from the body rectangle _BODY (x -0.70..0.25, y -0.34..0.34)\n    # to every non-static point, all around the robot (covers the area swept while turning in place);\n    # below _STOP_DIST -> hold with v=0, w=0. No v_n > 0 condition: also checked while rotating.\n    zone = False\n    if P.shape[0] > 0:\n        L = _to_robot(P, pose)\n        ex = np.maximum(np.maximum(_BODY[0] - L[:, 0], L[:, 0] - _BODY[1]), 0.0)\n        ey = np.maximum(np.maximum(_BODY[2] - L[:, 1], L[:, 1] - _BODY[3]), 0.0)\n        d_body = np.sqrt(ex * ex + ey * ey)\n        zone = bool(d_body.min() < _STOP_DIST)\n    if zone and not S[\"holding\"]:\n        S[\"holding\"], S[\"hold_until\"] = True, t + _HOLD_S\n    if S[\"holding\"] and t >= S[\"hold_until\"] and not zone and clr_n >= _CLR_GO:\n        S[\"holding\"] = False\n\n    # 4) decide\n    v, w, stop = 0.0, 0.0, False\n    if S[\"holding\"]:\n        stop = True                                    # v = 0, w = 0\n    elif st_n >= 0.0 and clr_n >= _CLR_GO:\n        v, w = v_n, w_n\n    else:\n        traj_s = _rollout_nominal(pose, S[\"idx\"], S[\"v\"], 0.5)\n        if (st_n >= 0.0 and _static_clearance(traj_s[None, :_KS + 1])[0] >= 0.0\n                and _mover_clearance(traj_s[None], P, U)[0] >= _CLR_GO):\n            v, w = 0.5 * v_n, w_n\n        elif st_n < 0.0:\n            v, w, _ = _choose(pose, P, U, target)      # off the verified path: safe arc toward the waypoint\n        else:\n            S[\"holding\"], S[\"hold_until\"] = True, t + _HOLD_S\n            stop = True\n    if stop:\n        v, w = 0.0, 0.0\n        ev, ew, clr_stop = _choose(pose, P, U, target)\n        if clr_stop < _CLR_STOP:                       # exception: standing still would be hit -> step aside\n            v, w = ev, ew\n\n    S[\"v\"], S[\"w\"] = v, w\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 21321,
+  "completion_tokens": 3944
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 34909,
+  "total_cost_usd": 0.24944,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3944,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 21319,
+    "webSearchRequests": 0,
+    "costUSD": 0.24944,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1663,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 21319,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "e8bb84d6-09fc-427d-881b-121b6a0e6ec9"
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1~5에 따라 새 함수 `_ttc_min(pose, movers)` 를 추가했습니다. 이 함수는 `_is_safe` 와 같은 방식으로 최소 접근 시간 tc = -(d·dv)/|dv|² 를 구하고 [0, _TTC_H] 로 제한한 뒤 최솟값을 돌려주며, 물체가 없으면 _TTC_H 를 돌려줍니다. `controller()` 에서는 `_nominal` 바로 뒤에 `tc_min` 을 구하고 `speed_factor = max(0.15, min(tc_min/_TTC_H, 1.0))` 와 기존 `f` 를 곱해 `scale` 을 만들었습니다. 이 `scale` 을 go 블록의 후보 명령, `resume` 조건, 재출발 명령에 모두 넣었고, 안전 후보가 없으면 기존처럼 `_evade` 를 쓰며 stop/detour 상태 머신은 그대로 두었습니다(지시 6, `_danger_close` 는 넣지 않음). 다만 진단이 경고한 과도한 감속을 막기 위해 두 가지 경우는 tc 최솟값에서 뺐습니다. 하나는 멀어지는 물체(tc ≤ 0)로, `_is_safe` 가 이 경우 `continue` 하는 것과 같습니다. 다른 하나는 최근접 거리가 _MOVER_R + _SAFE_GO + 0.6 m 보다 먼 물체입니다.\n\n```python\ndef _ttc_min(pose, movers):\n    \"\"\"진단 지시 1: _is_safe 와 같은 TTC 계산으로 물체별 최소 접근 시간 tc = -(d·dv)/|dv|^2 를 구해\n    [0, _TTC_H] 로 제한한 최솟값을 돌려준다(물체가 없으면 _TTC_H).\n    로봇 세계 속도는 측정 속도 controller.vm, 기준점은 _is_safe 와 같이 몸체 중심이다.\n    멀어지는 물체(tc <= 0)는 _is_safe 처럼 접근 계산에서 빼고, tc 시점의 최근접 거리가 먼 물체도 빼서\n    상관없는 물체 때문에 감속하지 않게 한다.\"\"\"\n    if not movers:\n        return _TTC_H\n    x, y, yaw = pose\n    c, s = math.cos(yaw), math.sin(yaw)\n    v = float(controller.vm)\n    w = float(controller.wm)\n    bxc = 0.5 * (_BODY[0] + _BODY[1])           # 몸체 중심 (로봇 기준 x)\n    cx0 = x + c * bxc\n    cy0 = y + s * bxc\n    rvx, rvy = v * c, v * s\n    near = _MOVER_R + _SAFE_GO + 0.6            # 이 거리보다 멀게 지나가는 물체는 감속 대상이 아님\n    best = _TTC_H\n    for mx, my, mvx, mvy in movers:\n        dx, dy = cx0 - mx, cy0 - my\n        dvx, dvy = rvx - mvx, rvy - mvy\n        dv2 = dvx * dvx + dvy * dvy\n        tc = 0.0 if dv2 < 1e-9 else -(dx * dvx + dy * dvy) / dv2\n        tc = _clamp(tc, 0.0, _TTC_H)\n        if tc <= 0.0:\n            continue                             # 접근하지 않음 (_is_safe 와 동일하게 제외)\n        d_c = float(_rect_dist(x + c * v * tc, y + s * v * tc, yaw + w * tc,\n                               mx + mvx * tc, my + mvy * tc))\n        if d_c > near:\n            continue\n        best = min(best, tc)\n    return best\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 정지·대기·우회(go / stop / detour) + 다가오는 물체 회피.\n    전방 갭 스케일 f 에 TTC 기반 연속 감속 speed_factor 를 곱한 scale 로 전진 속도를 줄인다.\n    go 상태에서 안전한 감속 명령이 없으면 정지 대신 _evade 로 회피 이동한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    # 진단 지시 2·3: TTC 기반 연속 속도 스케일\n    tc_min = _ttc_min(pose, movers)\n    speed_factor = max(0.15, min(tc_min / _TTC_H, 1.0))\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n    scale = f * speed_factor\n\n    # 경유점 추종은 go 일 때만(물체 예측으로 감속)\n    if c.state == \"go\":\n        if gap < _STOP_D:\n            c.state, c.stop_t = \"stop\", t\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):   # 진단 지시 4: scale 을 넣은 후보를 _is_safe 로 검증\n                cmd = (v_nom * scale * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            # 안전한 스케일 명령이 하나도 없을 때만 정지 대신 회피 이동\n            v, w = _evade(pose, movers, target, False)\n            return v, w, False\n\n    # 진단 지시 5: 재출발 조건에도 TTC 스케일 반영\n    resume = gap >= _GO_D and _is_safe(pose, (v_nom * scale, w_nom), movers, _SAFE_GO)\n\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * scale, w_nom, False\n        if t - c.stop_t >= _STOP_WAIT:               # 대기 뒤 우회\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _evade(pose, movers, target, True)    # 멈춰 있어도 물체가 다가오면 비켜선다\n            return v, w, False\n\n    # detour\n    if resume:\n        c.state = \"go\"\n        return v_nom * scale, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 29477,
+  "completion_tokens": 5456
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 44306,
+  "total_cost_usd": 0.344928,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 5456,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 29475,
+    "webSearchRequests": 0,
+    "costUSD": 0.344928,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2469,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 29475,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "d648ff27-81f5-4a14-be22-f86a4cd40423"
+ }
+}

@@ -1,0 +1,362 @@
+{
+ "turn": 2,
+ "started": "2026-11-23 04:24:46",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c51_turn1/claude_gptoss_analyst_pC51t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "run c51t1_s1339831266: time_limit 35.8 s, sim_time 36.8 s, final_goal_dist 9.03 m, stop_turn_episodes 4 → 목표 미달성으로 시간 초과",
+   "run c51t1_s2084900639: stop_turn_episodes 17, sim_time 73.3 s → 평균 60 s 이하 목표 초과",
+   "run c51t1_s1928439320: first_not_on_map t=48.85 s, dist=1.54 m, 로봇 속도 1.52 m/s → 정지·우회 반복으로 전체 시간 증가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 앞 ±30° 안에서 충분히 빨리 감지된다",
+    "holds": false,
+    "why": "물체가 ≈‑90°(오른쪽)에서 나타나며, 감지 시점이 1.5‑2 m로 너무 가까워 정지·대기만으로는 충분히 회피 못함"
+   },
+   {
+    "assumption": "정지 5 s 후 물체가 지나가면 다시 진행 가능하다",
+    "holds": false,
+    "why": "많은 실행에서 정지 후에도 우회(detour) 단계가 필요해 시간 손실이 크게 증가"
+   },
+   {
+    "assumption": "이동 물체는 속도가 낮아 멈추고 기다리면 안전하다",
+    "holds": true,
+    "why": "물체 속도 추정이 2 m/s 이하로 대부분 맞으며 충돌 없이 회피 가능하지만 시간 효율은 낮음"
+   },
+   {
+    "assumption": "단일 정적 경유점 경로는 움직이는 물체가 있더라도 충분히 빠르게 목표에 도달한다",
+    "holds": false,
+    "why": "정지·우회 로직으로 인해 평균 시뮬 시간 60 s 이상, 전체 예산 600 s 초과"
+   },
+   {
+    "assumption": "라이다 2D 점만으로 정적 장애물을 배제하고 움직이는 물체만 식별한다",
+    "holds": true,
+    "why": "_is_static 함수가 지도 점을 정확히 제외해 움직이는 물체만 추적함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static baseline (센서 미사용)",
+    "turns": "0",
+    "result": "0/3 통과 (충돌 3회)"
+   },
+   {
+    "family": "stop/detour 상태 머신 (전방 거리 기반 정지·우회)",
+    "turns": "1",
+    "result": "9/10 통과, 1개 시간 제한 초과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방·전체 2D 라이다를 이용해 매 프레임 후보 속도(v,w)를 평가하고, 안전 거리와 목표 진행도를 동시에 최적화하는 연속 로컬 플래너(DWA 스타일) 적용",
+    "new_family": true,
+    "for": "불필요한 정지·우회 사이클 감소, 모든 방향의 물체 회피 가능",
+    "risk": "예측 시간·거리 설정이 부적절하면 안전 여유 부족, 연산량 증가"
+   },
+   {
+    "idea": "시간‑충돌(TTC) 기반 예측 감속: TTC < 2 s이면 속도를 비례적으로 감소시켜 정지 없이 회피",
+    "new_family": true,
+    "for": "진행 속도 유지, 정지 대기 시간 감소",
+    "risk": "속도 추정 오차가 클 경우 충돌 위험"
+   },
+   {
+    "idea": "동적 경유점 삽입: 움직이는 물체가 현재 경유점을 차단하면 임시 우회 점을 생성해 우회 후 원래 경로 복귀",
+    "new_family": true,
+    "for": "경유점 기반 진행 유지, 물체 회피 시 경로 재계획",
+    "risk": "경유점 관리 복잡, 반복 삽입 시 경로 진동 가능"
+   }
+  ],
+  "chosen": "전방·전체 라이다 기반 연속 로컬 플래너(DWA) 후보를 선택, 정지·우회 대신 매 순간 안전한 속도 명령을 선택하도록 함",
+  "target": "controller (go/stop/detour 로직 전체 교체, _evade 기반 연속 후보 선택 적용)",
+  "direction": "1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.",
+  "confidence": "medium",
+  "last_direction_ok": "yes, 전방 정지·우회 로직 덕분에 0→9 통과로 크게 개선됐지만 시간 초과가 발생해 추가 개선 필요",
+  "base_turn": 1
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 시도 1의 go/stop/detour 상태 머신은 정지 대기(5 s)와 우회 회전 때문에 시간을 많이 썼습니다. 그래서 진단의 chosen과 direction 1~6에 따라 `state`, `stop_t`, `detour_t`를 없애고 연속 로컬 플래너로 바꿨습니다. 매 호출마다 `_nominal`로 현재 경유점과 기준 명령만 구하고, 기준 명령(0.3~1.0배)과 `_CANDS` 후보를 `_rollout`으로 굴립니다. 기준 명령은 경유점 추종 법칙을 그대로 따라 굴리므로 모퉁이에서 회전하는 모습까지 예측합니다. 각 후보는 `_mover_clear`와 `_static_clear`로 안전을 판정하고, 안전한 후보 중 목표 진행도와 물체 여유(1 m까지)의 점수가 가장 높은 (v, w)를 고릅니다. 안전한 후보가 없으면 정지를 포함한 후보 중 물체 여유가 가장 큰 명령을 골라 정지하거나 비켜섭니다.",
+   "changed": [
+    "_NOM_BONUS",
+    "_NOM_KS",
+    "_REM",
+    "_W_CLEAR",
+    "_cost_to_go",
+    "_nom_rollout",
+    "_path_rem",
+    "_plan",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "reject",
+    "follows_diagnosis": [
+     {
+      "instruction": "state, stop_t, detour_t 를 지우고 매 호출 현재 경유점을 구한다",
+      "implemented": true,
+      "note": "controller 초기화에서 state/stop_t/detour_t/detour_w 를 지웠고, 매 호출 _nominal(pose) 로 현재 경유점을 구함"
+     },
+     {
+      "instruction": "_CANDS 후보를 _rollout 으로 시뮬레이션한다",
+      "implemented": true,
+      "note": "_plan 에서 _rollout(pose, _CANDS, c.vm, c.wm) 호출, 기준 명령 4개는 _nom_rollout 으로 추가로 굴림"
+     },
+     {
+      "instruction": "_mover_clear, _static_clear 로 후보별 최소 여유를 계산한다",
+      "implemented": true,
+      "note": "합친 궤적 ro 에 _mover_clear, _static_clear 를 적용해 mc, sc 를 구함"
+     },
+     {
+      "instruction": "목표 진행도와 여유(≤1 m)로 점수를 매긴다",
+      "implemented": true,
+      "note": "score = prog + np.minimum(mc,1.0) + 기준 가산점 - 후진·회전 벌점"
+     },
+     {
+      "instruction": "안전 기준을 만족하는 후보가 없으면 0 m/s 로 정지한다",
+      "implemented": false,
+      "note": "ok.any() 가 거짓이면 fb 로 53개 전체 후보 중 mc 가 가장 큰 것을 고름. 전진·후진 명령도 고를 수 있어 0 m/s 정지가 아님"
+     },
+     {
+      "instruction": "점수가 가장 높은 후보의 (v,w)를 반환한다",
+      "implemented": true,
+      "note": "argmax(np.where(ok, score, -1e9)) 로 고른 cmds[i] 를 반환"
+     },
+     {
+      "instruction": "_nominal 은 목표만 주고 속도는 로컬 플래너가 정한다",
+      "implemented": true,
+      "note": "_nominal 의 v,w 는 후보 4개로만 쓰이고, 최종 선택은 _plan 이 함. 기준 후보에 가산점 1.0 이 붙는다는 점은 다름"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 4의 '안전 후보가 없으면 0 m/s 정지'는 과제의 '멈춰 있어도 물체가 닿으면 충돌' 조건과 맞지 않을 수 있음. 다가오는 물체 앞에서는 정지만으로 충돌을 피하지 못함",
+     "가정 1의 '앞 ±30° 안 감지'는 앞·뒤 2D 라이다가 이미 360°를 보므로 실패 원인 설명이 불명확함"
+    ],
+    "feedback": "_plan 의 else 분기(ok.any() 가 거짓일 때)가 진단 지시 4와 다릅니다. 지금은 fb 로 전진·후진 후보까지 포함해 mc 가 가장 큰 명령을 고릅니다. 진단대로 이 분기에서 return 0.0, 0.0 으로 정지하도록 바꾸십시오. 나머지 구조(_nom_rollout, _cost_to_go, 점수식, ok 판정)는 그대로 두면 됩니다."
+   }
+  },
+  {
+   "attempt": 1,
+   "reason": "변경 이유: 검토 지적과 진단 지시 4(\"안전 기준을 만족하지 못하면 0 m/s 로 정지한다\")에 맞추려고 `_plan` 의 else 분기를 바꿨습니다. 이제 안전한 후보가 하나도 없으면 `fb` 로 전진·후진 후보를 고르지 않고 `(0.0, 0.0)` 으로 정지합니다. `_nom_rollout`, `_cost_to_go`, 점수식, `ok` 판정은 그대로입니다. 다만 이 분기는 정지 후보 `(0, 0)` 도 `ok` 판정에서 떨어졌을 때, 곧 물체가 정지한 로봇 쪽으로 다가오는 상황에서만 실행되므로, 이번 실행에서 정지 중 접촉이 나오면 이 분기를 먼저 의심해야 합니다.",
+   "changed": [
+    "_plan"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "state, stop_t, detour_t 변수를 삭제한다",
+      "implemented": true,
+      "note": "초기화 블록에 idx, prev, vm, wm 만 남았고 go/stop/detour 분기도 모두 사라짐"
+     },
+     {
+      "instruction": "매 호출마다 현재 목표 waypoint 를 구한다",
+      "implemented": true,
+      "note": "controller 가 매 호출 _nominal(pose) 를 불러 idx 를 갱신하고 target 을 얻음"
+     },
+     {
+      "instruction": "_CANDS 후보 집합을 _rollout 으로 시뮬레이션한다",
+      "implemented": true,
+      "note": "_plan 에서 _rollout(pose, _CANDS, c.vm, c.wm) 를 부름. 기준 명령 4개는 _nom_rollout 으로 따로 굴려 합침"
+     },
+     {
+      "instruction": "_mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다",
+      "implemented": true,
+      "note": "합친 궤적 ro 에 _mover_clear 와 _static_clear 를 적용해 (C,) 여유를 얻음"
+     },
+     {
+      "instruction": "목표 진행도와 여유 거리(≤1 m)로 점수를 매긴다",
+      "implemented": true,
+      "note": "score = prog + _W_CLEAR*min(mc,1) + 기준 가산점 - 후진·회전 벌점. prog 는 _cost_to_go 차이로 계산"
+     },
+     {
+      "instruction": "안전 기준을 만족하는 후보가 없으면 0 m/s 로 정지한다",
+      "implemented": true,
+      "note": "ok.any() 가 거짓이면 (0.0, 0.0) 을 반환함"
+     },
+     {
+      "instruction": "점수가 가장 높은 후보의 (v,w) 를 반환한다",
+      "implemented": true,
+      "note": "np.argmax(np.where(ok, score, -1e9)) 로 고른 cmds[i] 를 반환함"
+     },
+     {
+      "instruction": "_nominal 은 목표만 제공하고 속도 명령은 로컬 플래너가 결정한다",
+      "implemented": true,
+      "note": "_nominal 의 v_nom, w_nom 은 후보(배율 4개)로만 쓰이고 최종 명령은 _plan 이 고름. 기준 후보에 가산점 1.0 이 있으나 지시 위반은 아님"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 4 의 '안전 후보 없으면 정지' 는 정지 후보 (0,0) 도 안전 판정에서 떨어진 경우, 곧 물체가 다가오는 경우에만 실행됨. 이때 정지하면 접촉할 수 있어 여유가 가장 큰 후보를 고르는 편이 물리적으로 더 안전해 보임",
+     "evidence 첫 항목에 time_limit 35.8 s 와 sim_time 36.8 s 가 같이 있어, 실패 원인이 남은 예산 부족인지 주행 지연인지 구분되지 않음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 1,
+ "diag_turn": 1,
+ "reason": "변경 이유: 검토 지적과 진단 지시 4(\"안전 기준을 만족하지 못하면 0 m/s 로 정지한다\")에 맞추려고 `_plan` 의 else 분기를 바꿨습니다. 이제 안전한 후보가 하나도 없으면 `fb` 로 전진·후진 후보를 고르지 않고 `(0.0, 0.0)` 으로 정지합니다. `_nom_rollout`, `_cost_to_go`, 점수식, `ok` 판정은 그대로입니다. 다만 이 분기는 정지 후보 `(0, 0)` 도 `ok` 판정에서 떨어졌을 때, 곧 물체가 정지한 로봇 쪽으로 다가오는 상황에서만 실행되므로, 이번 실행에서 정지 중 접촉이 나오면 이 분기를 먼저 의심해야 합니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1366449175,
+  961431489,
+  782625131
+ ],
+ "sim_used_s": 281.5,
+ "verdicts": {
+  "1366449175": "fail",
+  "961431489": "fail",
+  "782625131": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 688,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 0개, 실패 3개. 시뮬 시간 합계 282초 / 예산 600초.\n- 통과한 실행이 없습니다. 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 reject) 지시 4의 '안전 후보가 없으면 0 m/s 정지'는 과제의 '멈춰 있어도 물체가 닿으면 충돌' 조건과 맞지 않을 수 있음. 다가오는 물체 앞에서는 정지만으로 충돌을 피하지 못함\n- (검토 1회차, 판정 reject) 가정 1의 '앞 ±30° 안 감지'는 앞·뒤 2D 라이다가 이미 360°를 보므로 실패 원인 설명이 불명확함\n- (검토 2회차, 판정 pass) 지시 4 의 '안전 후보 없으면 정지' 는 정지 후보 (0,0) 도 안전 판정에서 떨어진 경우, 곧 물체가 다가오는 경우에만 실행됨. 이때 정지하면 접촉할 수 있어 여유가 가장 큰 후보를 고르는 편이 물리적으로 더 안전해 보임\n- (검토 2회차, 판정 pass) evidence 첫 항목에 time_limit 35.8 s 와 sim_time 36.8 s 가 같이 있어, 실패 원인이 남은 예산 부족인지 주행 지연인지 구분되지 않음\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c51t2_s1366449175: stall_abort t=132.33, pose (0.178,3.059,1.867), 60 s 동안 이동 0.3 m",
+   "c51t2_s961431489: stall_abort t=67.12, pose (-6.251,-3.995,0.364), 60 s 동안 이동 0.287 m, 물체 최초 감지 t=62.15 거리 2.88 m",
+   "c51t2_s782625131: stall_abort t=79.0, pose (-0.325,5.657,-0.666), 60 s 동안 이동 0.297 m, 물체 최초 감지 t=74.02 거리 2.63 m"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 후 대기하면 물체가 지나가 충돌을 피한다",
+    "holds": false,
+    "why": "정지 후 60 s 이동이 없어 stall_abort 발생"
+   },
+   {
+    "assumption": "0 m/s 정지는 안전하며 실패를 일으키지 않는다",
+    "holds": false,
+    "why": "정지 상태에서 stall_abort가 발생해 실패"
+   },
+   {
+    "assumption": "후보 속도 집합에 안전한 전진이 존재한다",
+    "holds": false,
+    "why": "모든 후보가 여유 부족해 안전 후보가 없어 정지"
+   },
+   {
+    "assumption": "정적 지도와 여유 거리(_ST_CLEAR, _SAFE)로 정적 충돌을 방지한다",
+    "holds": true,
+    "why": "어떤 실행에서도 충돌이 없었음"
+   },
+   {
+    "assumption": "앞·뒤 라이다가 8 m 이내 움직이는 물체를 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 2.6~2.9 m 거리에서 물체 감지"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": "0",
+    "result": "0/1"
+   },
+   {
+    "family": "stop_detour_state",
+    "turns": "1",
+    "result": "9/10"
+   },
+   {
+    "family": "candidate_DWA_safety",
+    "turns": "2",
+    "result": "0/3"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC 기반 긴급 정지 후 측면 회전 회피",
+    "new_family": true,
+    "for": "정지 시 스톨을 방지하고 빠른 회피 경로 제공",
+    "risk": "회전 중 정적 장애물에 충돌 가능"
+   },
+   {
+    "idea": "Velocity Obstacle(VO) 기반 연속 속도 계산",
+    "new_family": true,
+    "for": "동적 장애물에 대한 실시간 안전 속도 도출",
+    "risk": "예측 오차가 커지면 비안전 명령이 선택될 수 있음"
+   },
+   {
+    "idea": "하이브리드 상태 머신(대기·우회·재시도)과 짧은 대기 타이머",
+    "new_family": true,
+    "for": "물체가 지나갈 때 일정 시간만 대기하고 재시도",
+    "risk": "대기 시간이 부족하면 충돌 위험"
+   }
+  ],
+  "chosen": "정지 후 장시간 대기와 안전 후보 부재로 인한 스톨을 방지하기 위해 STOP_WAIT을 줄이고, 안전 후보가 없을 때 _evade 로 대체 이동을 수행한다.",
+  "target": "controller, _STOP_WAIT",
+  "direction": "1. _STOP_WAIT 값을 5.0에서 2.0 초로 줄여 정지 후 대기 시간을 단축한다. 2. controller 함수의 c.state == \"go\" 블록에서 현재 for‑k 루프가 끝난 뒤, 안전한 스케일 명령을 찾지 못했을 경우에만 _evade(pose, movers, target, False) 를 호출해 반환값을 사용한다. 3. 이 fallback 은 기존 안전 후보가 존재하면 기존 로직을 그대로 따르며, 안전 후보가 없을 때만 적용한다. 4. stop 및 detour 상태 로직은 기존대로 유지하되, 감소된 _STOP_WAIT 로 인해 detour 전환이 더 빨리 일어난다. 5. 새로운 함수나 변수는 추가하지 않고, 기존 _STOP_WAIT 상수와 controller 내부 코드를 수정한다. 6. 이렇게 하면 로봇이 안전 후보가 부족한 상황에서도 최소한의 전진/회피 동작을 수행해 60 s 동안 0.3 m 미만 이동하는 스톨을 방지한다.",
+  "confidence": "high",
+  "last_direction_ok": "no: turn 2에서 DWA 플래너로 교체해 0/10 통과로 성능이 크게 악화됨",
+  "base_turn": 1,
+  "stage1": {
+   "chosen": "TTC 기반 긴급 정지 후 측면 회전 회피를 선택, 정지만으로 스톨되는 상황을 회피하도록 함",
+   "target": "controller, 새 함수 _tTC와 _emergency_detour, 상태 변수 emergency, detour_timer",
+   "direction": "1) controller에 emergency=False, detour_timer=0을 초기화한다. 2) 매 호출마다 _tTC를 호출해 모든 트랙의 최소 TTC를 계산한다. 3) TTC가 1.0 s 미만이고 emergency가 False이면 emergency=True, detour_timer=0, 회전 방향을 물체 반대쪽으로 정한다(w=±0.5). 4) emergency 상태에서 detour_timer<2.0 s이면 회전 명령을 유지하고 detour_timer에 dt를 누적한다. 5) 회전이 끝나면 전진 속도 v=0.3 m/s로 전환하고, TTC가 2.0 s 이상이면 emergency=False로 리셋한다. 6) _plan에서 안전 후보가 없을 때도 위 emergency 흐름이 우선 적용돼 정지만으로 스톨되지 않는다."
+  }
+ },
+ "table": [
+  {
+   "run": "c51t2_s1366449175",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 133.3,
+   "stall_abort_t": 132.33,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 15.5505,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t2_s961431489",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 466.6,
+   "sim_time_s": 68.1,
+   "stall_abort_t": 67.12,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 24.9618,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t2_s782625131",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 398.5,
+   "sim_time_s": 80.0,
+   "stall_abort_t": 79.0,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 13.6707,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 97 s / 한도 600 s)\n#1 이번 코드(진단 \"1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#2 이번 코드(진단 \"1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 282 s / 한도 600 s)",
+ "ended": "2026-11-23 04:37:44"
+}

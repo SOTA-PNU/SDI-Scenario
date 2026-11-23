@@ -80,3 +80,20 @@
 - C-8: 계열 `c8`, 분석 EXAONE 4.5 33B(`fractal_setup/serve_exaone45-33b_gpu.sh`, 추론 기본 켜짐, 연구·비상업 라이선스). C-7b 가 끝나면 `fractal_setup/switch_to_c8.sh`(tmux c8wait, ~/logs/c8_switch.log)가 서버를 바꾸고 시험한 뒤 `start_c8.sh` 를 띄운다. 문맥은 131072 → 114688 → 98304 순으로 시도하고, 분석 입력 한도는 서버의 max_model_len 에서 읽는다(`c1_multi_analyze.server_context`).
 - C-7b 결과(2026-11-18 17:37 종료): 30턴까지 목표 미달성. 9/10 세 번(2턴 573 s, 22턴 560 s, 27턴 523 s), 9/9 한 번(1턴). 3~19턴은 단순 반응형 코드로 대부분 0~3건 통과, 20턴에 코더가 추적·예측 구조를 넣은 뒤 회복. 3턴에서 하네스의 근거 검사 버그(regex 가 "." 를 숫자로 읽음)로 분석이 죽어 고치고 3턴 분석만 다시 받음.
 - 2026-11-18 17:38: C-8 전환 중 EXAONE 가중치를 올리던 때(GPU 63 GB 확보 직후, 로딩 20초쯤) 호스트가 예고 없이 죽고 17:39:44 재부팅됨. vLLM 모델 로딩 중 호스트 다운은 세 번째(앞의 두 번은 gpt-oss-120b). C-8 은 시작되지 않음. 재시도: `tmux new -d -s c8wait "bash fractal_setup/switch_to_c8.sh > ~/logs/c8_switch.log 2>&1"` (C-7b 종료와 내려받기 완료는 이미 충족돼 바로 서버를 올림). GPU 감시(`~/logs/gpu_watch.csv`)도 재부팅으로 꺼졌으니 `resume_after_reboot.sh` 의 nohup 줄로 다시 켤 것.
+- C-8 시작 2026-11-18 21:01(재시도에서 EXAONE 서버 정상 기동). 21:22 1턴 분석 요청 중 vLLM 엔진이 segfault(flashinfer prefill + fp8 KV 캐시; 호스트는 무사). 서빙 스크립트에 `--attention-backend TRITON_ATTN` 을 넣어 다시 올리고, `fractal_setup/resume_c8_turn1.sh` 로 1턴 분석만 다시 받은 뒤 2턴부터 이어 감. 잘못 시작된 2턴은 `prompt_c8_turn2_aborted_vllmcrash`.
+
+## C-8b (`c81`) paused after turn 18 (2026-11-19, user: token budget; resume the following week)
+
+- Series `c81` = C-8 again (EXAONE 4.5 33B analyst, turn facts) + analyst picks `base_turn`, stage-2 direction on that
+  turn's code, prior table with start-code and mean-pass-time columns, parse-error retry text. `c72` = same with Gemma
+  (C-7c reached 10/10 at turn 3, 592 s).
+- Results so far (turn: pass/run): 0:1/4, 1:5/6, 2:0/3, 3:5/6, 4:6/8, 5:7/8, 6:6/7, 7:7/7, 8:3/5, 9:4/6, 10:6/8,
+  11:7/8, 12:4/6, 13:0/3, 14:2/4, 15:0/3, 16:7/7, 17:4/6, 18: see `~/logs/c81_turn18.log`.
+- Resume: start the EXAONE server (user approval for a vLLM start; host has crashed during model load before):
+  `tmux new -d -s vllmexaone "bash fractal_setup/serve_exaone45-33b_gpu.sh > ~/logs/vllm_exaone45.log 2>&1"`, wait for
+  `curl 127.0.0.1:8420/v1/models`, then
+  `tmux new -d -s c81 "cd ~/SDI-Scenario/accident_scene/arena && PYTHONFAULTHANDLER=1 python3 c2_auto.py --series c81 --start 19 --max-turn 30 >> ~/logs/c81_auto.log 2>&1"`.
+  The autopilot reads turn 18's diagnosis (its `base_turn`) and continues.
+- Nothing after commit 6a21786 is committed (C-8, C-7c, C-8b results; revert feature; wall-clock guard).
+
+> 2026-11-22: C-8b was resumed at turn 19 (SIGCONT to the autopilot) and runs to turn 30; C-5b (`c51`, gpt-oss-120b analyst, same method) starts after it via `~/logs/c51_chain.sh`. The pause section above is history.

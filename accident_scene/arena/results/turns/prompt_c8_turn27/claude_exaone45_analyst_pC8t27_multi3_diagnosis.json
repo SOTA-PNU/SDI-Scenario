@@ -1,0 +1,133 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c8t27_s1888011052 실행에서 로봇이 목표에서 멀리 떨어진 시작점 근처(-4.548, -10.435)에서 40회 정지-회전 반복하며 진행 중단",
+   "c8t27_s2133402299 실행에서 로봇이 목표까지 6.75m 떨어진 위치에서 85회 정지-회전, 마지막 5초 동안 제자리 회전만 지속",
+   "두 실패 실행 모두 정지 횟수가 많고 회피 상태(early)에서 거리 변화 없이 정체, 회피 종료 조건 미충족으로 무한 회피 루프 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 종료 조건이 거리 증가 또는 정적 여유 유지로 작동하여 진행 재개를 보장한다",
+    "holds": false,
+    "why": "실패 실행에서 물체 거리 변화 없이 회피 상태 지속, 거리 증가 없음"
+   },
+   {
+    "assumption": "회피 중 후보 경로 선택 시 물체 멀어지는 방향(d_dot > 0)을 충분히 우선시한다",
+    "holds": false,
+    "why": "정적 여유(stc) 기준만 강조해 거리 변화 없는 경로도 선택, 진행 정체 유발"
+   },
+   {
+    "assumption": "회피 트리거가 위험 상황을 정확히 식별하고 불필요한 회피를 방지한다",
+    "holds": false,
+    "why": "물체 거리 1.5~2.6m에서 트리거 발생, 정지 후 재진행 조건 충족 안 되어 정체"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": "12",
+    "result": "TTC, 거리, 속도 임계값 조정 시도했으나 배치 변화에 민감, 정체 현상 지속"
+   },
+   {
+    "family": "회피 상태 관리 계열",
+    "turns": "10",
+    "result": "감시(watchdog) 및 종료 조건 추가 시도했으나 거리 변화 없는 정체에는 효과 없음"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 후보 경로 선택 시 거리 변화율(d_dot) 점수 가중치 대폭 상향",
+    "new_family": true,
+    "for": "실패 실행에서 물체 거리 변화 없이 회피 상태 정체, d_dot 점수 강화로 멀어지는 경로 우선 선택",
+    "risk": "안전 여유(stc) 무시 시 충돌 위험, 특히 예측 불확실한 물체 배치에서 위험"
+   },
+   {
+    "idea": "회피 종료 조건에 '거리 변화율 지속성' 추가 (d_dot > 0.1m/s 지속 1.0s)",
+    "new_family": true,
+    "for": "무한 회피 루프 방지, 거리 변화 없는 정체 상태에서 강제 종료로 진행 재개 기회 제공",
+    "risk": "물체가 일시적으로 멀어지다가 다시 접근할 때 조기 종료로 충돌 가능성"
+   },
+   {
+    "idea": "회피 트리거에 거리와 속도 조건 결합 (d_near < 1.5m AND closing_speed > 0.1m/s)",
+    "new_family": true,
+    "for": "불필요한 회피 트리거 감소, 특히 물체 멀리 있을 때 조기 회피로 인한 정지 방지",
+    "risk": "빠른 접근 물체 감지 지연 가능성, TTC 단독 트리거보다 위험 증가"
+   }
+  ],
+  "chosen": "회피 중 후보 경로 선택 시 거리 변화율(d_dot) 점수 가중치 대폭 상향, 거리 변화 없는 정체 상태에서 진행 유도로 회피 루프 방지",
+  "target": "_choose 함수 (회피 모드(evading=True) 분기)",
+  "direction": "1. 회피 모드에서 후보 경로의 d_dot(거리 변화율) 계산 강화 및 점수 반영 가중치 증가\n2. d_dot이 양수(물체 멀어짐)인 후보를 우선 선택하고, 음수(가까워짐) 후보 배제\n3. 정적 여유(stc) 체크는 최소 기준(0.0)으로 유지하되, d_dot 기준 강화로 안전과 진행 균형\n4. 회피 종료 조건으로 d_dot > 0.1m/s 지속 1.0s 추가 (기존 거리 증가 조건 보완)\n5. 회피 시작 시 현재 물체 방향과 수직으로 회전 유도해 거리 증가율 향상\n6. _EV_INC_S(1.0s) 유지하되, d_dot 기반 종료 조건으로 민감도 조정",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"c8t27_s1888011052 실행에서 로봇이 목표에서 멀리 떨어진 시작점 근처(-4.548, -10.435)에서 40회 정지-회전 반복하며 진행 중단\", \"c8t27_s2133402299 실행에서 로봇이 목표까지 6.75m 떨어진 위치에서 85회 정지-회전, 마지막 5초 동안 제자리 회전만 지속\", \"두 실패 실행 모두 정지 횟수가 많고 회피 상태(early)에서 거리 변화 없이 정체, 회피 종료 조건 미충족으로 무한 회피 루프 발생\"], \"assumptions\": [{\"assumption\": \"회피 종료 조건이 거리 증가 또는 정적 여유 유지로 작동하여 진행 재개를 보장한다\", \"holds\": false, \"why\": \"실패 실행에서 물체 거리 변화 없이 회피 상태 지속, 거리 증가 없음\"}, {\"assumption\": \"회피 중 후보 경로 선택 시 물체 멀어지는 방향(d_dot > 0)을 충분히 우선시한다\", \"holds\": false, \"why\": \"정적 여유(stc) 기준만 강조해 거리 변화 없는 경로도 선택, 진행 정체 유발\"}, {\"assumption\": \"회피 트리거가 위험 상황을 정확히 식별하고 불필요한 회피를 방지한다\", \"holds\": false, \"why\": \"물체 거리 1.5~2.6m에서 트리거 발생, 정지 후 재진행 조건 충족 안 되어 정체\"}], \"approach_families\": [{\"family\": \"임계값 조정 계열\", \"turns\": \"12\", \"result\": \"TTC, 거리, 속도 임계값 조정 시도했으나 배치 변화에 민감, 정체 현상 지속\"}, {\"family\": \"회피 상태 관리 계열\", \"turns\": \"10\", \"result\": \"감시(watchdog) 및 종료 조건 추가 시도했으나 거리 변화 없는 정체에는 효과 없음\"}], \"candidates\": [{\"idea\": \"회피 중 후보 경로 선택 시 거리 변화율(d_dot) 점수 가중치 대폭 상향\", \"new_family\": true, \"for\": \"실패 실행에서 물체 거리 변화 없이 회피 상태 정체, d_dot 점수 강화로 멀어지는 경로 우선 선택\", \"risk\": \"안전 여유(stc) 무시 시 충돌 위험, 특히 예측 불확실한 물체 배치에서 위험\"}, {\"idea\": \"회피 종료 조건에 '거리 변화율 지속성' 추가 (d_dot > 0.1m/s 지속 1.0s)\", \"new_family\": true, \"for\": \"무한 회피 루프 방지, 거리 변화 없는 정체 상태에서 강제 종료로 진행 재개 기회 제공\", \"risk\": \"물체가 일시적으로 멀어지다가 다시 접근할 때 조기 종료로 충돌 가능성\"}, {\"idea\": \"회피 트리거에 거리와 속도 조건 결합 (d_near < 1.5m AND closing_speed > 0.1m/s)\", \"new_family\": true, \"for\": \"불필요한 회피 트리거 감소, 특히 물체 멀리 있을 때 조기 회피로 인한 정지 방지\", \"risk\": \"빠른 접근 물체 감지 지연 가능성, TTC 단독 트리거보다 위험 증가\"}], \"chosen\": \"회피 중 후보 경로 선택 시 거리 변화율(d_dot) 점수 가중치 대폭 상향, 거리 변화 없는 정체 상태에서 진행 유도로 회피 루프 방지\", \"target\": \"_choose 함수 (회피 모드(evading=True) 분기)\", \"direction\": \"1. 회피 모드에서 후보 경로의 d_dot(거리 변화율) 계산 강화 및 점수 반영 가중치 증가\\n2. d_dot이 양수(물체 멀어짐)인 후보를 우선 선택하고, 음수(가까워짐) 후보 배제\\n3. 정적 여유(stc) 체크는 최소 기준(0.0)으로 유지하되, d_dot 기준 강화로 안전과 진행 균형\\n4. 회피 종료 조건으로 d_dot > 0.1m/s 지속 1.0s 추가 (기존 거리 증가 조건 보완)\\n5. 회피 시작 시 현재 물체 방향과 수직으로 회전 유도해 거리 증가율 향상\\n6. _EV_INC_S(1.0s) 유지하되, d_dot 기반 종료 조건으로 민감도 조정\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t27_s386643393",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 187.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 61,
+   "first_seen_within_2m_t": 181.65,
+   "goal_dist_m": 0.206,
+   "time_to_goal_s": 183.8
+  },
+  {
+   "run": "c8t27_s1888011052",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 412.4,
+   "sim_time_s": 127.6,
+   "stall_abort_t": null,
+   "progress_abort_t": 126.6,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 40,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.258,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t27_s2133402299",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 284.7,
+   "sim_time_s": 285.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 85,
+   "first_seen_within_2m_t": 279.75,
+   "goal_dist_m": 6.7546,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "c8t27_s188801102: 이번 턴에 없는 실행입니다."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

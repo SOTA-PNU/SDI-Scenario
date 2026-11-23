@@ -1,0 +1,208 @@
+{
+ "turn": 2,
+ "started": "2026-11-18 21:40:56",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn1/claude_exaone45_analyst_pC8t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "3 실행 모두 'stall_abort'로 실패 (sim_time_s 69~88초), 최종 위치 31.9m 거리로 목표 미도달",
+   "로봇이 '정지' 상태에서 5초 간격 기록 시 움직이는 물체가 1.2~2.16m 거리로 접근 중 (last_5s 데이터)",
+   "모든 실행에서 'first_seen_within_2m_t' 이후 지속적 정지 발생 (예: 실행 1에서 82.72초 이후 60초 정지)",
+   "로봇이 물체 감지 시 2m 이내에서 무조건 정지 (zone 기반)하고 1초 대기 후 재감지하나, 물체가 접근 중이라 재진행 불가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체가 2m 이내일 때 무조건 정지하는 것이 안전하다고 가정",
+    "holds": false,
+    "why": "실행 데이터에서 물체가 정지 중에도 접근 중 (거리 감소)하여 1초 대기 후에도 2m 이내 유지, 로봇이 계속 정지함"
+   },
+   {
+    "assumption": "정적 장애물(WAYPOINTS 경로)만 고려해도 동적 물체 회피 가능하다고 가정",
+    "holds": false,
+    "why": "실행 요약에서 'first_not_on_map' 시점이 경로 근처에서 발생하나, 로봇이 정지해 진행 불가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 정지 (고정 임계값)",
+    "turns": 2,
+    "result": "통과 0, 실패 3 (모든 실행에서 stall 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "움직이는 물체의 상대 속도/접근 방향을 고려해 정지 임계값 동적 조정",
+    "new_family": true,
+    "for": "물체가 접근 중일 때만 정지, 통과 시 감속으로 회피 가능하도록",
+    "risk": "속도 계산 오류 시 불필요 정지 또는 충돌 위험"
+   },
+   {
+    "idea": "2m 정지 조건 제거, 예측 안전 거리(_CLR_GO 기준)만으로 정지 판단",
+    "new_family": true,
+    "for": "불필요 정지 감소로 진행률 향상",
+    "risk": "물체 접근 시 예측 실패로 충돌 가능성"
+   },
+   {
+    "idea": "전방 90도 영역만 감지 대상으로 제한 (후방 물체 무시)",
+    "new_family": true,
+    "for": "후방 접근 물체로 인한 불필요한 정지 방지",
+    "risk": "로봇 회전 시 측면 물체 미감지로 충돌"
+   }
+  ],
+  "chosen": "전방 90도 영역만 감지 대상으로 제한 (후방 물체 무시) + 예측 안전 거리 기준 정지 판단 결합",
+  "target": "zone 계산 로직 및 정지 조건 수정 (lidar2d_points 처리 부분)",
+  "direction": "1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 시도 #1의 실패 원인은 stall이었습니다. 몸체에서 2 m 안에 물체가 있으면 무조건 정지(zone)하도록 해서, 다가오는 물체 앞에서 로봇이 계속 멈춰 있었습니다. 그래서 진단 지시대로 `_STOP_DIST` 기반 zone 정지를 없애고, 정지 판단과 재진행 판단을 전방 ±45° 물체 점에 대한 예측 여유(`_mover_clearance < _CLR_GO`, 재진행은 `st_n >= 0` 과 `clr_n >= _CLR_GO` 동시 충족)로 바꿨으며, 대기 시간은 0.5 s로 줄였습니다(지시 1·2·4·5). 정지하는 동안에는 `_choose()`로 회피 동작을 매 스텝 강제로 고르되, 정지 지점에서 0.5 m 안에 머물도록 벌점을 줍니다(지시 3). 물체가 로봇을 피하지 않으므로 `_ingest`는 앞·뒤 라이다를 모두 그대로 처리하고(지시 6), 측면·후방 물체는 정지 사유로 쓰지 않고 실제 접촉이 예측될 때(`< _CLR_STOP`)의 회피에만 씁니다(진단의 위험 항목 \"회전 시 측면 물체 미감지로 충돌\"에 대한 보완).",
+   "changed": [
+    "_EVADE_R",
+    "_HOLD_S",
+    "_SECTOR_HALF",
+    "_choose",
+    "_front_sector",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. 2D 라이다 물체 점을 전방 ±45°로 거른 뒤 감지",
+      "implemented": true,
+      "note": "_front_sector()가 로봇 기준 x>0, |y|<=x·tan45° 인 점(Pf, Uf)만 남기고, 정지와 재진행 판단의 clr_n이 이 점들로 계산됨. 측면·후방 점(P)은 정지에는 안 쓰고 clr_all<_CLR_STOP 회피에만 씀"
+     },
+     {
+      "instruction": "2. _STOP_DIST 기반 정지 제거, _mover_clearance(traj)<_CLR_GO 이면 정지",
+      "implemented": true,
+      "note": "zone 계산과 판정이 삭제됨. clr_n<_CLR_GO 이고 반속 궤적의 여유도 _CLR_GO 미만일 때 holding=True로 정지함. 반속 단계는 이전 코드에도 있던 흐름. _STOP_DIST 상수는 남아 있으나 쓰이지 않음"
+     },
+     {
+      "instruction": "3. 정지 중 _choose()로 측면 회피를 강제하되 반경 0.5 m 이내",
+      "implemented": true,
+      "note": "holding 중 매 스텝 _choose(..., anchor)를 부름. 1 s 시점 위치가 정지점에서 _EVADE_R=0.5 m를 넘으면 벌점을 주는 연성 제약. clr_stop<_CLR_STOP 이면 제약 없이 회피"
+     },
+     {
+      "instruction": "4. 재진행은 st_n>=0 과 clr>=_CLR_GO 를 동시에 만족할 때",
+      "implemented": true,
+      "note": "t>=hold_until 그리고 st_n>=0.0 그리고 clr_n>=_CLR_GO 일 때 holding을 풀고 anchor=None 으로 둠"
+     },
+     {
+      "instruction": "5. 정지 대기 1 s → 0.5 s",
+      "implemented": true,
+      "note": "_HOLD_S=0.5 로 바꿈"
+     },
+     {
+      "instruction": "6. _ingest()의 후방 라이다 필터링 제거",
+      "implemented": true,
+      "note": "_ingest는 원래 back을 거르지 않았음. 앞·뒤 라이다 모두 그대로 트랙에 들어감(변경 없음)"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 6은 현재 코드에서 이미 그런 상태라 바뀌는 것이 없음. 지시 1(전방만 감지)과도 방향이 엇갈림",
+     "차동구동 로봇은 '측면 이동'을 할 수 없음. _choose 후보도 (v, w) 호라서 실제 동작은 비켜 도는 것",
+     "부채꼴 꼭짓점이 로봇 원점이라 앞 범퍼 옆(x 0~0.25, |y|>x)의 물체는 정지 판단에서 빠짐. clr_all 회피로만 보완됨",
+     "로봇 경로를 가로질러 측면에서 들어오는 물체를 전방 부채꼴에서 늦게 잡을 수 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 시도 #1의 실패 원인은 stall이었습니다. 몸체에서 2 m 안에 물체가 있으면 무조건 정지(zone)하도록 해서, 다가오는 물체 앞에서 로봇이 계속 멈춰 있었습니다. 그래서 진단 지시대로 `_STOP_DIST` 기반 zone 정지를 없애고, 정지 판단과 재진행 판단을 전방 ±45° 물체 점에 대한 예측 여유(`_mover_clearance < _CLR_GO`, 재진행은 `st_n >= 0` 과 `clr_n >= _CLR_GO` 동시 충족)로 바꿨으며, 대기 시간은 0.5 s로 줄였습니다(지시 1·2·4·5). 정지하는 동안에는 `_choose()`로 회피 동작을 매 스텝 강제로 고르되, 정지 지점에서 0.5 m 안에 머물도록 벌점을 줍니다(지시 3). 물체가 로봇을 피하지 않으므로 `_ingest`는 앞·뒤 라이다를 모두 그대로 처리하고(지시 6), 측면·후방 물체는 정지 사유로 쓰지 않고 실제 접촉이 예측될 때(`< _CLR_STOP`)의 회피에만 씁니다(진단의 위험 항목 \"회전 시 측면 물체 미감지로 충돌\"에 대한 보완).",
+ "budget_s": 600.0,
+ "seeds": [
+  35590477,
+  882192471
+ ],
+ "sim_used_s": 600.0,
+ "verdicts": {
+  "35590477": "pass",
+  "882192471": "no_result"
+ },
+ "passes": 1,
+ "prior_chars": 541,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 2개를 실행했고, 8개는 실행하지 못했습니다 (사유: 남은 예산 0초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 1개, 실패 1개. 시뮬 시간 합계 600초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 63초 (가장 짧은 것 63초, 가장 긴 것 63초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 6은 현재 코드에서 이미 그런 상태라 바뀌는 것이 없음. 지시 1(전방만 감지)과도 방향이 엇갈림\n- (검토 1회차, 판정 pass) 차동구동 로봇은 '측면 이동'을 할 수 없음. _choose 후보도 (v, w) 호라서 실제 동작은 비켜 도는 것\n- (검토 1회차, 판정 pass) 부채꼴 꼭짓점이 로봇 원점이라 앞 범퍼 옆(x 0~0.25, |y|>x)의 물체는 정지 판단에서 빠짐. clr_all 회피로만 보완됨\n- (검토 1회차, 판정 pass) 로봇 경로를 가로질러 측면에서 들어오는 물체를 전방 부채꼴에서 늦게 잡을 수 있음\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 요약에서 19회 정지 에피소드 발생 (stop_turn_episodes.count: 19), 마지막 5초 구간에서 정지 후 재진행 반복으로 시간 소모",
+   "통과 실행의 sim_time_s 63.0초로 평균 60초 이하 목표 초과 (배치 10개 합계 600초 제한)",
+   "first_not_on_map 시점(56.95s) 이후 거리 증가(1.53m→3.87m)에도 지속적 정지 발생, 정지 원인 과도 추정"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±45° 섹터 내 물체 점만 정지 판단에 사용되며, _CLR_GO(0.35m) 미만 시 무조건 정지한다",
+    "holds": false,
+    "why": "정지 19회 중 대부분 전방 물체가 아닌 측면 물체 감지 시 발생 가능성 (bearing -98° 물체도 first_not_on_map 기록됨), 정지 조건이 너무 엄격해 비충돌 상황에서도 정지 유발"
+   },
+   {
+    "assumption": "정지 후 _HOLD_S(0.5s) 동안 재감지하면 즉시 진행 가능하다",
+    "holds": false,
+    "why": "정지 반복 발생 (stop_turn_episodes에 짧은 정지 간격 다수), _HOLD_S 부족 또는 정지 조건 충족 후 즉시 재진행 불가로 시간 누적"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 임계값 상수 조정 계열",
+    "turns": 3,
+    "result": "0/3→1/3→1/2 (시간 초과로 통과 불가)"
+   },
+   {
+    "family": "정지 후 회피 동작 강제 계열",
+    "turns": 2,
+    "result": "정지 빈도는 감소했으나 시간 소모 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체 근접도에 따라 속도 비례 감속 (정지 대신 점진적 감속)",
+    "new_family": true,
+    "for": "정지 빈도 감소로 시간 단축 (증거: 정지 시에도 물체 거리 증가 구간 존재)",
+    "risk": "감속 임계값 부적절 시 충돌 위험 증가"
+   },
+   {
+    "idea": "예측 경로에서 물체 상대 속도 고려, 접근 중인 물체만 정지 유발",
+    "new_family": true,
+    "for": "비충돌 물체로 인한 불필요한 정지 방지",
+    "risk": "상대 속도 계산 오류 시 정지 누락 가능성"
+   },
+   {
+    "idea": "전방 섹터 각도 확대 (±60°→±75°)로 정지 감지 범위 조정",
+    "new_family": false,
+    "for": "측면 물체 조기 감지로 회피 시간 확보",
+    "risk": "과도한 정지 유발로 시간 추가 소모"
+   }
+  ],
+  "chosen": "물체 근접도(clr_n)에 따라 속도를 비례 감속(정지 대신)하여 정지 빈도 감소 (새로운 속도 조절 메커니즘 도입)",
+  "target": "controller 함수의 정지/재진행 판단 로직 및 _choose 함수 내 속도 후보 선정",
+  "direction": "1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c8t2_s35590477",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 63.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 56.95,
+   "goal_dist_m": 0.2064,
+   "time_to_goal_s": 59.133
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔에서 지도에 없는 점(움직이는 물체) 식별\\n2. 정적 장애물(MISSION boxes, WALLS, FIXED_OBSTACLES) 범위 외 점만 필터링\\n3. 가장 가까운 비정적 점까지의 거리 계산\\n4. 거리가 2m 미만이면 v=0, w=0으로 설정해 정지\\n5. 정지 후 1초간 재감지하여 물체 이동 확인 후 진행\\n6. 정지 없이 경유점 주행 시 기존 제어법 유지\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 229 s / 한도 600 s)\n#2 이번 코드(진단 \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\" 반영, 검토 통과): 새 배치 1개 중 1개 pass, 0개 fail (시뮬 시간 합계 600 s / 한도 600 s)",
+ "ended": "2026-11-18 22:16:55"
+}

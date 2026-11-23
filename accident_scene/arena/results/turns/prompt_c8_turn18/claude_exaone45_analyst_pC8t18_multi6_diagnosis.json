@@ -1,0 +1,179 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "S[\"evading\"] is initialized to False but never set to True; thus 'early = S[\"evading\"]' is always False, preventing evasion logic execution even when evasion is triggered (evade_on=True)",
+   "Collision occurred when d_near < _EV_STOP_D (1.0m) but robot kept moving (e.g., t=14.4s: 0.35m distance, 0.40m/s velocity)",
+   "In passing runs, evasion likely succeeded by chance; failing runs show consistent lack of evasion behavior due to missing state update"
+  ],
+  "assumptions": [
+   {
+    "assumption": "S[\"evading\"] is properly set to True when evade_on becomes True to activate evasion-specific logic",
+    "holds": false,
+    "why": "Code initializes S[\"evading\"] = False but never updates it; 'early' condition always false"
+   },
+   {
+    "assumption": "Evasion trigger (TTC < 1.0s) automatically switches robot to evasion behavior",
+    "holds": false,
+    "why": "Missing S[\"evading\"] update means evasion code blocks are skipped despite evade_on=True"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Parameter tuning (TTC_TRIG, evade_max, etc.)",
+    "turns": "16",
+    "result": "Mixed results; collisions persist due to core logic flaw"
+   },
+   {
+    "family": "Evasion state management fixes",
+    "turns": "0",
+    "result": "Not attempted; critical bug unaddressed"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Set S[\"evading\"] = True when evade_on becomes True to enable evasion logic",
+    "new_family": true,
+    "for": "Fixes root cause: evasion trigger sets evade_on but state flag never updates, so robot stays in normal mode",
+    "risk": "Minimal; directly addresses documented code flaw without altering safety logic"
+   },
+   {
+    "idea": "Add distance-based evasion trigger (e.g., d_near < 2.0m) alongside TTC",
+    "new_family": true,
+    "for": "Provides earlier reaction time when TTC may be inaccurate",
+    "risk": "False positives from distant movers; could cause unnecessary evasion"
+   },
+   {
+    "idea": "Override evasion behavior when d_near < _EV_STOP_D regardless of TTC",
+    "new_family": true,
+    "for": "Ensures immediate stop when mover is very close",
+    "risk": "Overriding TTC logic may ignore safe scenarios where mover is receding"
+   }
+  ],
+  "chosen": "Set S[\"evading\"] = True when evade_on becomes True; fixes root cause where evasion logic is skipped despite trigger",
+  "target": "S[\"evading\"] state variable update in evasion trigger section",
+  "direction": "1. In evasion trigger block, after setting S[\"evade_on\"] = True, add S[\"evading\"] = True.\n2. Ensure S[\"evading\"] is reset to False when evasion ends (after cool_down or force end).\n3. Verify 'early' condition now correctly activates evasion-specific logic like distance-prioritized stopping.\n4. Remove redundant checks that rely on S[\"evading\"] being pre-set.\n5. Maintain all existing evasion parameters; fix only state flag propagation.\n6. This ensures robot enters evasion behavior when trigger fires, addressing all collision cases where evade_on was True but robot kept moving.",
+  "confidence": "high"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"S[\\\"evading\\\"] is initialized to False but never set to True; thus 'early = S[\\\"evading\\\"]' is always False, preventing evasion logic execution even when evasion is triggered (evade_on=True)\", \"Collision occurred when d_near < _EV_STOP_D (1.0m) but robot kept moving (e.g., t=14.4s: 0.35m distance, 0.40m/s velocity)\", \"In passing runs, evasion likely succeeded by chance; failing runs show consistent lack of evasion behavior due to missing state update\"], \"assumptions\": [{\"assumption\": \"S[\\\"evading\\\"] is properly set to True when evade_on becomes True to activate evasion-specific logic\", \"holds\": false, \"why\": \"Code initializes S[\\\"evading\\\"] = False but never updates it; 'early' condition always false\"}, {\"assumption\": \"Evasion trigger (TTC < 1.0s) automatically switches robot to evasion behavior\", \"holds\": false, \"why\": \"Missing S[\\\"evading\\\"] update means evasion code blocks are skipped despite evade_on=True\"}], \"approach_families\": [{\"family\": \"Parameter tuning (TTC_TRIG, evade_max, etc.)\", \"turns\": \"16\", \"result\": \"Mixed results; collisions persist due to core logic flaw\"}, {\"family\": \"Evasion state management fixes\", \"turns\": \"0\", \"result\": \"Not attempted; critical bug unaddressed\"}], \"candidates\": [{\"idea\": \"Set S[\\\"evading\\\"] = True when evade_on becomes True to enable evasion logic\", \"new_family\": true, \"for\": \"Fixes root cause: evasion trigger sets evade_on but state flag never updates, so robot stays in normal mode\", \"risk\": \"Minimal; directly addresses documented code flaw without altering safety logic\"}, {\"idea\": \"Add distance-based evasion trigger (e.g., d_near < 2.0m) alongside TTC\", \"new_family\": true, \"for\": \"Provides earlier reaction time when TTC may be inaccurate\", \"risk\": \"False positives from distant movers; could cause unnecessary evasion\"}, {\"idea\": \"Override evasion behavior when d_near < _EV_STOP_D regardless of TTC\", \"new_family\": true, \"for\": \"Ensures immediate stop when mover is very close\", \"risk\": \"Overriding TTC logic may ignore safe scenarios where mover is receding\"}], \"chosen\": \"Set S[\\\"evading\\\"] = True when evade_on becomes True; fixes root cause where evasion logic is skipped despite trigger\", \"target\": \"S[\\\"evading\\\"] state variable update in evasion trigger section\", \"direction\": \"1. In evasion trigger block, after setting S[\\\"evade_on\\\"] = True, add S[\\\"evading\\\"] = True.\\n2. Ensure S[\\\"evading\\\"] is reset to False when evasion ends (after cool_down or force end).\\n3. Verify 'early' condition now correctly activates evasion-specific logic like distance-prioritized stopping.\\n4. Remove redundant checks that rely on S[\\\"evading\\\"] being pre-set.\\n5. Maintain all existing evasion parameters; fix only state flag propagation.\\n6. This ensures robot enters evasion behavior when trigger fires, addressing all collision cases where evade_on was True but robot kept moving.\", \"confidence\": \"high\"}",
+ "table": [
+  {
+   "run": "c8t18_s1269907383",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 32.8134,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t18_s427479282",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 509.0,
+   "sim_time_s": 77.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 71.22,
+   "goal_dist_m": 0.2235,
+   "time_to_goal_s": 73.233
+  },
+  {
+   "run": "c8t18_s725443521",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 431.8,
+   "sim_time_s": 20.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.65,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.39m/s",
+   "partner_rel_xy": [
+    0.43,
+    0.55
+   ],
+   "closing_m_s": 0.38,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 11.32,
+   "goal_dist_m": 31.5431,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t18_s1867438493",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 411.1,
+   "sim_time_s": 117.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": 111.92,
+   "goal_dist_m": 0.2278,
+   "time_to_goal_s": 113.917
+  },
+  {
+   "run": "c8t18_s2099365641",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 293.3,
+   "sim_time_s": 99.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 93.25,
+   "goal_dist_m": 0.2226,
+   "time_to_goal_s": 95.267
+  },
+  {
+   "run": "c8t18_s507162578",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 194.0,
+   "sim_time_s": 91.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 90.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 32.3888,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

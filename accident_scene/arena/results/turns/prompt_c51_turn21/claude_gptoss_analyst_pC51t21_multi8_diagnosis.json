@@ -1,0 +1,252 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c51t21_s1992888675: t=10.85 s 충돌, robot speed 0.10 m/s, mover_00 relative (0.0,0.55) m, closing speed 0.65 m/s",
+   "같은 run에서 mover_00이 t=5.92 s에 1.51 m 거리(‑5°)로 처음 관측되어 stop 후 1.5 s 이내에 재진입해 충돌",
+   "검토 담당 지적: _danger_behind 조건이 r[:,0] < -_BODY[0] 로 앞쪽까지 포함해 뒤쪽 감지가 부정확"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 gap 측정만으로 충돌을 예방할 수 있다",
+    "holds": false,
+    "why": "초기 충돌에서 gap이 충분히 커졌음에도 robot이 재진입해 충돌"
+   },
+   {
+    "assumption": "TTC‑horizon 1.0 s가 충분히 앞 물체를 예측한다",
+    "holds": false,
+    "why": "접근 물체가 0.5 s 이내에 충돌했지만 _is_safe 가 안전하다고 판단"
+   },
+   {
+    "assumption": "_danger_behind 은 뒤쪽 접근 물체만 잡는다",
+    "holds": false,
+    "why": "조건 r[:,0] < -_BODY[0] 가 x<0.70 로 앞쪽까지 포함해 잘못된 판단을 유발"
+   },
+   {
+    "assumption": "정적 지도와의 충돌은 _static_ok 로 완전히 방지된다",
+    "holds": true,
+    "why": "전체 실행에서 정적 충돌이 보고되지 않음"
+   },
+   {
+    "assumption": "정지‑대기 시간 2 s가 충분히 물체를 회피할 시간을 제공한다",
+    "holds": false,
+    "why": "이번 실패에서는 정지 후 1.5 s만에 재진입해 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "constant tuning (STOP_D, STOP_WAIT, DETOUR_T 등)",
+    "turns": "1,3,8,10,20",
+    "result": "41/46 pass, 5 fail"
+   },
+   {
+    "family": "danger detection (danger_behind, danger_close, danger_side)",
+    "turns": "11,12,13,21",
+    "result": "21/28 pass, 7 fail"
+   },
+   {
+    "family": "predictive scaling / TTC 기반 속도 조절",
+    "turns": "14,15,16,17,18",
+    "result": "18/30 pass, 12 fail"
+   },
+   {
+    "family": "velocity‑obstacle (VO) 접근",
+    "turns": "6",
+    "result": "7/8 pass, 1 fail"
+   },
+   {
+    "family": "reverse 상태 추가",
+    "turns": "19,20",
+    "result": "14/16 pass, 2 fail"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "예측 충돌 회피: mover 를 _HORIZON 초 후 위치로 예측하고 경로와 교차하면 좌우 1 m 오프셋 목표점으로 우회(state='avoid')",
+    "new_family": true,
+    "for": "초기 전방 물체가 gap 은 충분히 커도 곧 경로와 교차할 경우 충돌 방지",
+    "risk": "불필요한 우회가 늘어나 실행 시간이 증가"
+   },
+   {
+    "idea": "TTC‑horizon 2 s 로 확대하고 _ttc_min <0.5 s 일 때 강제 stop",
+    "new_family": true,
+    "for": "짧은 TTC 로 인해 _is_safe 가 놓치는 충돌을 사전에 차단",
+    "risk": "정지 횟수가 과도해 전체 시간 제한 초과 가능"
+   },
+   {
+    "idea": "잘못된 _danger_behind 조건 수정 (r[:,0] < _BODY[0]) 및 후진 속도·시간 확대",
+    "new_family": true,
+    "for": "뒤쪽 물체 감지를 정확히 하여 불필요한 reverse 전환 방지",
+    "risk": "앞쪽 물체에 대한 추가 회피가 없으므로 현재 충돌을 해결하지 못함"
+   }
+  ],
+  "chosen": "STOP_WAIT와 DETOUR_T 값을 줄여 정지·우회 시간을 단축한다.",
+  "target": "_STOP_WAIT, _DETOUR_T, (선택적으로 _DETOUR_ROT)",
+  "direction": "1. _STOP_WAIT 정의를 2.0에서 1.0으로 바꾼다. 2. _DETOUR_T 정의를 6.0에서 4.0으로 바꾼다. 3. (선택) _DETOUR_ROT 정의를 1.2에서 0.8로 줄여 회전 지속 시간을 감소시킨다. 4. 기존 상태 머신은 이 상수들을 그대로 사용하므로 별도 코드 수정은 필요 없다. 5. 변경 후 실행 시 정지 후 대기 시간이 절반으로 줄어 전체 시뮬 시간 평균이 60 s 이하로 감소할 것으로 기대한다. 6. 안전성은 기존 _is_safe와 _static_ok 검증이 그대로 적용돼 충돌 위험은 유지된다.",
+  "confidence": "medium",
+  "last_direction_ok": "no – turn 21은 전체 성공률을 7/8 로 낮추었으며, 앞 물체에 대한 충돌을 방지하지 못했다.",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "예측 충돌 회피(avoid) 방식을 선택한다 – 앞 물체가 곧 경로와 교차하면 좌우 오프셋으로 우회한다.",
+   "target": "controller 로직(상태 머신) 및 새로운 회피 보조 함수",
+   "direction": "1. _predict_collision(pose,movers,target) 함수를 추가해 mover 를 _HORIZON 초 후 위치로 예측하고 선분(pose→target)과의 최소 거리가 MOVER_R+0.5 m 미만이면 True 반환한다. 2. _avoid_target(pose) 함수를 만들고, 회피가 필요하면 _detour_side(pose) 로 방향을 정해 target 을 좌우 1 m 이동시킨 임시 목표점을 c.avoid_target 로 저장하고 c.state='avoid' 로 전환한다. 3. controller 의 go‑블록에서 c.state=='avoid' 일 때는 기존 _nominal 대신 임시 목표점에 대한 heading/e error 를 계산해 v,w 를 구하고, _is_safe 와 _static_ok 로 검증한다. 4. 임시 목표점에 0.35 m 이내 도달하거나 gap>=_GO_D 와 _is_safe(_SAFE_GO) 가 만족되면 c.state='go' 로 복귀하고 c.avoid_target 를 None 으로 초기화한다. 5. 기존 stop, detour, reverse 로직은 그대로 유지하되, avoid 상태가 활성화된 동안만 우회 명령을 사용한다. 6. 모든 새 함수와 변수는 [EDIT REGION] 내부에 정의하고, 기존 정의를 대체하지 않는다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c51t21_s1992888675: t=10.85 s 충돌, robot speed 0.10 m/s, mover_00 relative (0.0,0.55) m, closing speed 0.65 m/s\",\n    \"같은 run에서 mover_00이 t=5.92 s에 1.51 m 거리(‑5°)로 처음 관측되어 stop 후 1.5 s 이내에 재진입해 충돌\",\n    \"검토 담당 지적: _danger_behind 조건이 r[:,0] < -_BODY[0] 로 앞쪽까지 포함해 뒤쪽 감지가 부정확\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"전방 gap 측정만으로 충돌을 예방할 수 있다\",\n      \"holds\": false,\n      \"why\": \"초기 충돌에서 gap이 충분히 커졌음에도 robot이 재진입해 충돌\"\n    },\n    {\n      \"assumption\": \"TTC‑horizon 1.0 s가 충분히 앞 물체를 예측한다\",\n      \"holds\": false,\n      \"why\": \"접근 물체가 0.5 s 이내에 충돌했지만 _is_safe 가 안전하다고 판단\"\n    },\n    {\n      \"assumption\": \"_danger_behind 은 뒤쪽 접근 물체만 잡는다\",\n      \"holds\": false,\n      \"why\": \"조건 r[:,0] < -_BODY[0] 가 x<0.70 로 앞쪽까지 포함해 잘못된 판단을 유발\"\n    },\n    {\n      \"assumption\": \"정적 지도와의 충돌은 _static_ok 로 완전히 방지된다\",\n      \"holds\": true,\n      \"why\": \"전체 실행에서 정적 충돌이 보고되지 않음\"\n    },\n    {\n      \"assumption\": \"정지‑대기 시간 2 s가 충분히 물체를 회피할 시간을 제공한다\",\n      \"holds\": false,\n      \"why\": \"이번 실패에서는 정지 후 1.5 s만에 재진입해 충돌\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"constant tuning (STOP_D, STOP_WAIT, DETOUR_T 등)\",\n      \"turns\": \"1,3,8,10,20\",\n      \"result\": \"41/46 pass, 5 fail\"\n    },\n    {\n      \"family\": \"danger detection (danger_behind, danger_close, danger_side)\",\n      \"turns\": \"11,12,13,21\",\n      \"result\": \"21/28 pass, 7 fail\"\n    },\n    {\n      \"family\": \"predictive scaling / TTC 기반 속도 조절\",\n      \"turns\": \"14,15,16,17,18\",\n      \"result\": \"18/30 pass, 12 fail\"\n    },\n    {\n      \"family\": \"velocity‑obstacle (VO) 접근\",\n      \"turns\": \"6\",\n      \"result\": \"7/8 pass, 1 fail\"\n    },\n    {\n      \"family\": \"reverse 상태 추가\",\n      \"turns\": \"19,20\",\n      \"result\": \"14/16 pass, 2 fail\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"예측 충돌 회피: mover 를 _HORIZON 초 후 위치로 예측하고 경로와 교차하면 좌우 1 m 오프셋 목표점으로 우회(state='avoid')\",\n      \"new_family\": true,\n      \"for\": \"초기 전방 물체가 gap 은 충분히 커도 곧 경로와 교차할 경우 충돌 방지\",\n      \"risk\": \"불필요한 우회가 늘어나 실행 시간이 증가\"\n    },\n    {\n      \"idea\": \"TTC‑horizon 2 s 로 확대하고 _ttc_min <0.5 s 일 때 강제 stop\",\n      \"new_family\": true,\n      \"for\": \"짧은 TTC 로 인해 _is_safe 가 놓치는 충돌을 사전에 차단\",\n      \"risk\": \"정지 횟수가 과도해 전체 시간 제한 초과 가능\"\n    },\n    {\n      \"idea\": \"잘못된 _danger_behind 조건 수정 (r[:,0] < _BODY[0]) 및 후진 속도·시간 확대\",\n      \"new_family\": true,\n      \"for\": \"뒤쪽 물체 감지를 정확히 하여 불필요한 reverse 전환 방지\",\n      \"risk\": \"앞쪽 물체에 대한 추가 회피가 없으므로 현재 충돌을 해결하지 못함\"\n    }\n  ],\n  \"chosen\": \"예측 충돌 회피(avoid) 방식을 선택한다 – 앞 물체가 곧 경로와 교차하면 좌우 오프셋으로 우회한다.\",\n  \"target\": \"controller 로직(상태 머신) 및 새로운 회피 보조 함수\",\n  \"direction\": \"1. _predict_collision(pose,movers,target) 함수를 추가해 mover 를 _HORIZON 초 후 위치로 예측하고 선분(pose→target)과의 최소 거리가 MOVER_R+0.5 m 미만이면 True 반환한다. 2. _avoid_target(pose) 함수를 만들고, 회피가 필요하면 _detour_side(pose) 로 방향을 정해 target 을 좌우 1 m 이동시킨 임시 목표점을 c.avoid_target 로 저장하고 c.state='avoid' 로 전환한다. 3. controller 의 go‑블록에서 c.state=='avoid' 일 때는 기존 _nominal 대신 임시 목표점에 대한 heading/e error 를 계산해 v,w 를 구하고, _is_safe 와 _static_ok 로 검증한다. 4. 임시 목표점에 0.35 m 이내 도달하거나 gap>=_GO_D 와 _is_safe(_SAFE_GO) 가 만족되면 c.state='go' 로 복귀하고 c.avoid_target 를 None 으로 초기화한다. 5. 기존 stop, detour, reverse 로직은 그대로 유지하되, avoid 상태가 활성화된 동안만 우회 명령을 사용한다. 6. 모든 새 함수와 변수는 [EDIT REGION] 내부에 정의하고, 기존 정의를 대체하지 않는다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no – turn 21은 전체 성공률을 7/8 로 낮추었으며, 앞 물체에 대한 충돌을 방지하지 못했다.\",\n  \"base_turn\": 8\n}",
+ "table": [
+  {
+   "run": "c51t21_s2140064828",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 81.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 75.73,
+   "goal_dist_m": 0.2224,
+   "time_to_goal_s": 77.633
+  },
+  {
+   "run": "c51t21_s1309429322",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 518.3,
+   "sim_time_s": 85.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 79.15,
+   "goal_dist_m": 0.2314,
+   "time_to_goal_s": 81.367
+  },
+  {
+   "run": "c51t21_s1330377557",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 433.2,
+   "sim_time_s": 77.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 71.25,
+   "goal_dist_m": 0.2046,
+   "time_to_goal_s": 73.483
+  },
+  {
+   "run": "c51t21_s1992888675",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 356.0,
+   "sim_time_s": 16.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 10.85,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.10m/s",
+   "partner_rel_xy": [
+    0.0,
+    0.55
+   ],
+   "closing_m_s": 0.65,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 5.92,
+   "goal_dist_m": 32.0807,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t21_s573715427",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 339.2,
+   "sim_time_s": 76.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 70.82,
+   "goal_dist_m": 0.2037,
+   "time_to_goal_s": 72.6
+  },
+  {
+   "run": "c51t21_s262824645",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 262.4,
+   "sim_time_s": 86.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 79.95,
+   "goal_dist_m": 0.2028,
+   "time_to_goal_s": 82.183
+  },
+  {
+   "run": "c51t21_s864949388",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 176.5,
+   "sim_time_s": 82.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 76.75,
+   "goal_dist_m": 0.2292,
+   "time_to_goal_s": 78.75
+  },
+  {
+   "run": "c51t21_s1235244781",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 93.7,
+   "sim_time_s": 74.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 68.45,
+   "goal_dist_m": 0.2272,
+   "time_to_goal_s": 70.433
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

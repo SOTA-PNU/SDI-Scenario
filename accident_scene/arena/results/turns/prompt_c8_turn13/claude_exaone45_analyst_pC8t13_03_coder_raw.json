@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지시에 따라 `_choose` 의 evading 분기에서 필터 순서를 `(clr ≥ 0.9·_CLR_GO & stc ≥ 0.2 m)` → `(stc ≥ 0.2 m)` → `(clr ≥ 0.9·_CLR_GO & stc ≥ 0)` → `(stc ≥ 0)` 으로 바꿨습니다. 이제 `stc ≥ 0.2 m` 후보가 하나라도 있으면 반드시 그중에서 고르고, `stc ≥ 0` 대체는 0.2 m 후보가 전혀 없을 때만 씁니다. 진단 지시 1의 \"회피 후보 stc ≥ 0.2 m 강제 조건\" 을 지시 2의 clr 필터보다 우선하도록 한 것입니다. docstring 의 필터 순서 설명도 함께 고쳤고, 나머지 정의와 동작은 바꾸지 않았습니다.\n\n```python\ndef _choose(pose, P, U, target, anchor=None, evading=False, static_prio=False):\n    \"\"\"Pick the (v, w) candidate with the best mover clearance, static-map safety and progress.\n    anchor: (M, 4) array of moving anchors (x, y, vx, vy) within _EARLY_R (or None/empty).\n    evading (attempt 13):\n      - mover clearance term weighted x_EV_CLR_W, static bonuses scaled by _EV_ST_F (unchanged)\n      - static_prio: lateral bonus _LAT_PRIO_W scaled by the candidate static clearance stc / _EV_ST_REQ (direction 6)\n      - filter tiers (direction 1, 2): (clr >= 0.9*_CLR_GO and stc >= 0.2 m) -> (stc >= 0.2 m)\n        -> (clr >= 0.9*_CLR_GO and stc >= 0) -> (stc >= 0); whenever any candidate has stc >= 0.2 m the choice is\n        made among those, and the stc >= 0 fallbacks are used only when no candidate reaches 0.2 m.\n        A candidate with stc < 0 is only used when none has stc >= 0\n        (escape candidates never closer to the static map, then max stc).\n    not evading: static safety is a hard constraint (stc >= 0), as before.\n    Also returns the predicted clearance of standing still (all-around mover points).\"\"\"\n    trajc = _rollout_cands(pose, _CS[\"v\"])\n    clr = _mover_clearance(trajc, P, U)\n    stc = _static_clearance(trajc[:, 1:_KS + 1])\n    st0 = _pose_static_clearance(pose)\n    V = np.array([c[0] for c in _CAND])\n    W = np.array([c[1] for c in _CAND])\n    i0 = _CAND.index((0.0, 0.0))\n    end = trajc[:, -1, :2]\n    prog = np.hypot(end[:, 0] - target[0], end[:, 1] - target[1])\n    score = (10.0 * np.minimum(clr, 1.0) - 0.5 * prog\n             - 0.3 * (np.abs(V - _CS[\"v\"]) + 0.3 * np.abs(W - _CS[\"w\"]))\n             + 5.0 * np.minimum(stc, 0.0))\n    if evading:\n        score = score + (_EV_CLR_W - 1.0) * 10.0 * np.minimum(clr, 1.0)\n        sc = np.clip(stc, 0.0, _ST_SAFE) / _ST_SAFE\n        st_bonus = _ST_W * sc * (stc >= _ST_BONUS_MIN) + _ST_W2 * sc\n        if static_prio:\n            st_bonus = st_bonus + _ST_PRIO_W * sc\n        score = score + _EV_ST_F * st_bonus\n        if static_prio:\n            # direction 6: lateral bonus only as far as the candidate keeps static clearance (full at stc >= 0.2 m)\n            kl = max(1, min(_ANCHOR_K, trajc.shape[1] - 1))\n            c0, s0 = math.cos(float(pose[2])), math.sin(float(pose[2]))\n            lat = np.abs(-s0 * (trajc[:, kl, 0] - float(pose[0])) + c0 * (trajc[:, kl, 1] - float(pose[1])))\n            st_link = np.clip(stc / _EV_ST_REQ, 0.0, 1.0)\n            score = score + _LAT_PRIO_W * np.minimum(lat / 0.5, 1.0) * st_link\n    A = None\n    if anchor is not None:\n        A = np.asarray(anchor, dtype=np.float64).reshape(-1, 4)\n        if A.shape[0] == 0:\n            A = None\n    if A is not None:\n        k = max(1, min(_ANCHOR_K, trajc.shape[1] - 1))\n        ts = np.arange(k + 1) * _DTP\n        mx = A[:, 0][None, :] + A[:, 2][None, :] * ts[:, None]\n        my = A[:, 1][None, :] + A[:, 3][None, :] * ts[:, None]\n        off = 0.5 * (_BODY[0] + _BODY[1])\n        bx = trajc[:, :k + 1, 0] + off * np.cos(trajc[:, :k + 1, 2])\n        by = trajc[:, :k + 1, 1] + off * np.sin(trajc[:, :k + 1, 2])\n        dd = np.hypot(bx[:, :, None] - mx[None, :, :], by[:, :, None] - my[None, :, :])\n        da = dd.min(axis=1)\n        score = score - 20.0 * np.maximum(_ANCHOR_R - da, 0.0).sum(axis=1)\n        vcx = (bx[:, k] - bx[:, k - 1]) / _DTP\n        vcy = (by[:, k] - by[:, k - 1]) / _DTP\n        sx = mx[k][None, :] - bx[:, k][:, None]\n        sy = my[k][None, :] - by[:, k][:, None]\n        sd = np.maximum(np.hypot(sx, sy), 1e-3)\n        rate = (sx * (A[:, 2][None, :] - vcx[:, None]) + sy * (A[:, 3][None, :] - vcy[:, None])) / sd\n        near = sd < _REL_R\n        score = score - _REL_W * (np.maximum(-rate, 0.0) * near).max(axis=1)\n        cx0, cy0 = float(bx[0, 0]), float(by[0, 0])\n        j = int(np.argmin(np.hypot(A[:, 0] - cx0, A[:, 1] - cy0)))\n        b = math.atan2(A[j, 1] - cy0, A[j, 0] - cx0)\n        dx = bx[:, k] - cx0\n        dy = by[:, k] - cy0\n        dl = np.hypot(dx, dy)\n        ang = np.arctan2(dy, dx) - b\n        dev = np.abs(np.arctan2(np.sin(ang), np.cos(ang)))\n        score = score + _LAT_W * 0.5 * (1.0 - np.cos(dev)) * np.minimum(dl / 0.5, 1.0)\n    if evading:\n        # directions 1, 2 (review): any candidate with stc >= 0.2 m must win over every stc < 0.2 m candidate;\n        # inside each static level, clr >= 0.9 * _CLR_GO candidates come first\n        ok_clr = clr >= _CLR_GO * _EV_CLR_MIN_F\n        tiers = (ok_clr & (stc >= _EV_ST_REQ),\n                 stc >= _EV_ST_REQ,\n                 ok_clr & (stc >= 0.0),\n                 stc >= 0.0)\n        for allowed in tiers:\n            if np.any(allowed):\n                i = int(np.argmax(np.where(allowed, score, -np.inf)))\n                return float(V[i]), float(W[i]), float(clr[i0])\n        allowed = stc >= min(st0, 0.0) - 0.005\n        if np.any(allowed):\n            score = score + 20.0 * (stc - st0)\n            i = int(np.argmax(np.where(allowed, score, -np.inf)))\n        else:\n            i = int(np.argmax(stc))\n        return float(V[i]), float(W[i]), float(clr[i0])\n    # not evading: hard static constraint stc >= 0 (unchanged)\n    allowed = stc >= 0.0\n    if not np.any(allowed):\n        allowed = stc >= min(st0, 0.0) - 0.005\n        score = score + 20.0 * (stc - st0)\n    if not np.any(allowed):\n        i = int(np.argmax(stc))\n    else:\n        i = int(np.argmax(np.where(allowed, score, -np.inf)))\n    return float(V[i]), float(W[i]), float(clr[i0])\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 40302,
+  "completion_tokens": 3134
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 23841,
+  "total_cost_usd": 0.385088,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3134,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 40300,
+    "webSearchRequests": 0,
+    "costUSD": 0.385088,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 34,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 40300,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "38a19b81-2f71-49c7-aa79-1cb0dec27338"
+ }
+}

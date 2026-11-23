@@ -1,0 +1,288 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c51t22_s288052211: collision at t=52.1 s with mover_03 while robot speed 0.29 m/s; first detection of mover at t=47.12 s bearing -105° (outside front‑gap angle) and later at bearing -49° still not triggering stop",
+   "run c51t22_s1475949886: time limit abort at t=50.5 s (budget exhausted) with robot still 8 m from goal; many stop/turn episodes indicate frequent stopping without progress",
+   "pass runs (e.g., c51t22_s76695582) show first_not_on_map at t≈52 s while robot continues at >1 m/s, indicating side movers are not causing stop"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D lidar reliably detects moving objects within 8 m",
+    "holds": true,
+    "why": "first_not_on_map timestamps show detections at 2‑5 m in all runs"
+   },
+   {
+    "assumption": "Front‑gap detection (±30°) is sufficient to catch obstacles that can cause collision",
+    "holds": false,
+    "why": "collision run shows mover at bearing -49° and -33° never entered front‑gap, yet caused collision"
+   },
+   {
+    "assumption": "TTC horizon _TTC_H = 1 s provides enough reaction time for moving objects",
+    "holds": false,
+    "why": "collision occurred despite mover being visible >5 s earlier; TTC check missed the future intersection"
+   },
+   {
+    "assumption": "Stop distance _STOP_D = 1.5 m and stop‑wait 1 s guarantee safety",
+    "holds": false,
+    "why": "collision happened when mover was <1 m but not in front‑gap, so stop condition never triggered"
+   },
+   {
+    "assumption": "Reducing _STOP_WAIT to 1 s speeds up runs without harming safety",
+    "holds": false,
+    "why": "turn 22 shows both a new collision and a time‑limit failure after the reduction"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "basic front‑gap stop/detour (no side checks)",
+    "turns": "0,1,3,4,8,10,22",
+    "result": "turn 8: 9/9 pass (slow); other turns: mixed passes with collisions or stalls"
+   },
+   {
+    "family": "danger‑close side detection",
+    "turns": "11,13,21",
+    "result": "7/9, 7/10, 7/8 passes – still occasional collisions or timeouts"
+   },
+   {
+    "family": "speed scaling by min mover distance",
+    "turns": "15",
+    "result": "8/10 passes – collisions reduced but still a timeout"
+   },
+   {
+    "family": "velocity‑obstacle candidate filtering",
+    "turns": "6",
+    "result": "7/8 passes – collision reduced, but runtime increased"
+   },
+   {
+    "family": "reverse‑state backing away",
+    "turns": "19,20,21",
+    "result": "7/8 passes – improved safety but added complexity"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Add a proximity‑based stop and speed‑scaling using the minimum distance to any mover (new _min_mover_dist function) and trigger stop when d_min < _STOP_D, combine its scaling with the existing front‑gap factor",
+    "new_family": true,
+    "for": "captures side movers that are close but outside the ±30° front cone, preventing collisions like in run c51t22_s288052211",
+    "risk": "may increase stop frequency and raise total run time, risking the 600 s budget"
+   },
+   {
+    "idea": "Increase TTC horizon _TTC_H to 2 s and raise _SAFE_GO to 0.8 m to give more margin before resuming motion",
+    "new_family": false,
+    "for": "provides longer prediction window for fast side movers",
+    "risk": "could cause excessive stopping, further inflating execution time"
+   },
+   {
+    "idea": "Implement a simple dynamic waypoint offset when a mover is within a safety zone, steering around it without stopping",
+    "new_family": false,
+    "for": "avoids stopping altogether, keeping average time low",
+    "risk": "adds path‑planning complexity and may conflict with static obstacles"
+   }
+  ],
+  "chosen": "Add a proximity‑based stop and speed‑scaling using the nearest mover distance to catch side‑approaching objects and reduce unnecessary waiting.",
+  "target": "controller",
+  "direction": "1. Define new constants _PROX_STOP = 1.5 and _PROX_SCALE_MAX = 1.5 near the other safety constants. 2. Add a helper function `_min_mover_dist(pose, movers)` that returns the smallest Euclidean distance from the robot (pose[0],pose[1]) to any mover in the list, or a large value (e.g., 99.0) if the list is empty. 3. In `controller()`, after `movers = _movers(t, pose)`, compute `d_min = _min_mover_dist(pose, movers)`. 4. Replace the stop condition `if gap < _STOP_D:` with `if gap < _STOP_D or d_min < _STOP_D:` so side movers within the stop distance also trigger the stop state. 5. Compute a side‑distance scaling factor `f_dist = _clamp((d_min - _PROX_STOP) / _PROX_SCALE_MAX, 0.15, 1.0)` and combine it with the existing front‑gap factor as `f = min(f, f_dist)`. 6. Use this combined `f` when forming candidate commands in the go block (`cmd = (v_nom * f * k, w_nom)`) and in the resume check, leaving the rest of the state‑machine logic unchanged.",
+  "confidence": "medium",
+  "last_direction_ok": "no – 줄인 정지·우회 대기시간으로 충돌이 새로 발생했고 전체 시뮬 시간도 예산을 초과했습니다.",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "Candidate A – add proximity‑based stop and speed scaling, because it directly addresses side‑approaching movers that caused the observed collision while keeping the existing state‑machine structure.",
+   "target": "controller logic (add _min_mover_dist, adjust stop condition and speed scaling)",
+   "direction": "1. Define constants _PROX_STOP = 1.0 and _PROX_SCALE_MAX = 1.5 near the other safety constants. 2. Add a helper function `_min_mover_dist(pose, movers)` that returns the smallest Euclidean distance from the robot to any mover (or a large value if none). 3. In `controller()`, after `movers = _movers(t, pose)`, compute `d_min = _min_mover_dist(pose, movers)`. 4. Replace the stop trigger `if gap < _STOP_D:` with `if gap < _STOP_D or d_min < _STOP_D:` to also stop for close side movers. 5. Compute a side‑distance scaling factor `f_dist = _clamp((d_min - _PROX_STOP) / _PROX_SCALE_MAX, 0.15, 1.0)` and combine it with the existing front‑gap factor `f` as `scale = min(f, f_dist)`. 6. Apply `scale` to the nominal speed in the candidate loop (`cmd = (v_nom * scale * k, w_nom)`) and in the resume condition, keeping all other state‑machine logic unchanged."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"run c51t22_s288052211: collision at t=52.1 s with mover_03 while robot speed 0.29 m/s; first detection of mover at t=47.12 s bearing -105° (outside front‑gap angle) and later at bearing -49° still not triggering stop\",\n    \"run c51t22_s1475949886: time limit abort at t=50.5 s (budget exhausted) with robot still 8 m from goal; many stop/turn episodes indicate frequent stopping without progress\",\n    \"pass runs (e.g., c51t22_s76695582) show first_not_on_map at t≈52 s while robot continues at >1 m/s, indicating side movers are not causing stop\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D lidar reliably detects moving objects within 8 m\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map timestamps show detections at 2‑5 m in all runs\"\n    },\n    {\n      \"assumption\": \"Front‑gap detection (±30°) is sufficient to catch obstacles that can cause collision\",\n      \"holds\": false,\n      \"why\": \"collision run shows mover at bearing -49° and -33° never entered front‑gap, yet caused collision\"\n    },\n    {\n      \"assumption\": \"TTC horizon _TTC_H = 1 s provides enough reaction time for moving objects\",\n      \"holds\": false,\n      \"why\": \"collision occurred despite mover being visible >5 s earlier; TTC check missed the future intersection\"\n    },\n    {\n      \"assumption\": \"Stop distance _STOP_D = 1.5 m and stop‑wait 1 s guarantee safety\",\n      \"holds\": false,\n      \"why\": \"collision happened when mover was <1 m but not in front‑gap, so stop condition never triggered\"\n    },\n    {\n      \"assumption\": \"Reducing _STOP_WAIT to 1 s speeds up runs without harming safety\",\n      \"holds\": false,\n      \"why\": \"turn 22 shows both a new collision and a time‑limit failure after the reduction\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"basic front‑gap stop/detour (no side checks)\",\n      \"turns\": \"0,1,3,4,8,10,22\",\n      \"result\": \"turn 8: 9/9 pass (slow); other turns: mixed passes with collisions or stalls\"\n    },\n    {\n      \"family\": \"danger‑close side detection\",\n      \"turns\": \"11,13,21\",\n      \"result\": \"7/9, 7/10, 7/8 passes – still occasional collisions or timeouts\"\n    },\n    {\n      \"family\": \"speed scaling by min mover distance\",\n      \"turns\": \"15\",\n      \"result\": \"8/10 passes – collisions reduced but still a timeout\"\n    },\n    {\n      \"family\": \"velocity‑obstacle candidate filtering\",\n      \"turns\": \"6\",\n      \"result\": \"7/8 passes – collision reduced, but runtime increased\"\n    },\n    {\n      \"family\": \"reverse‑state backing away\",\n      \"turns\": \"19,20,21\",\n      \"result\": \"7/8 passes – improved safety but added complexity\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Add a proximity‑based stop and speed‑scaling using the minimum distance to any mover (new _min_mover_dist function) and trigger stop when d_min < _STOP_D, combine its scaling with the existing front‑gap factor\",\n      \"new_family\": true,\n      \"for\": \"captures side movers that are close but outside the ±30° front cone, preventing collisions like in run c51t22_s288052211\",\n      \"risk\": \"may increase stop frequency and raise total run time, risking the 600 s budget\"\n    },\n    {\n      \"idea\": \"Increase TTC horizon _TTC_H to 2 s and raise _SAFE_GO to 0.8 m to give more margin before resuming motion\",\n      \"new_family\": false,\n      \"for\": \"provides longer prediction window for fast side movers\",\n      \"risk\": \"could cause excessive stopping, further inflating execution time\"\n    },\n    {\n      \"idea\": \"Implement a simple dynamic waypoint offset when a mover is within a safety zone, steering around it without stopping\",\n      \"new_family\": false,\n      \"for\": \"avoids stopping altogether, keeping average time low\",\n      \"risk\": \"adds path‑planning complexity and may conflict with static obstacles\"\n    }\n  ],\n  \"chosen\": \"Candidate A – add proximity‑based stop and speed scaling, because it directly addresses side‑approaching movers that caused the observed collision while keeping the existing state‑machine structure.\",\n  \"target\": \"controller logic (add _min_mover_dist, adjust stop condition and speed scaling)\",\n  \"direction\": \"1. Define constants _PROX_STOP = 1.0 and _PROX_SCALE_MAX = 1.5 near the other safety constants. 2. Add a helper function `_min_mover_dist(pose, movers)` that returns the smallest Euclidean distance from the robot to any mover (or a large value if none). 3. In `controller()`, after `movers = _movers(t, pose)`, compute `d_min = _min_mover_dist(pose, movers)`. 4. Replace the stop trigger `if gap < _STOP_D:` with `if gap < _STOP_D or d_min < _STOP_D:` to also stop for close side movers. 5. Compute a side‑distance scaling factor `f_dist = _clamp((d_min - _PROX_STOP) / _PROX_SCALE_MAX, 0.15, 1.0)` and combine it with the existing front‑gap factor `f` as `scale = min(f, f_dist)`. 6. Apply `scale` to the nominal speed in the candidate loop (`cmd = (v_nom * scale * k, w_nom)`) and in the resume condition, keeping all other state‑machine logic unchanged.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no – 줄인 정지·우회 대기시간으로 충돌이 새로 발생했고 전체 시뮬 시간도 예산을 초과했습니다.\",\n  \"base_turn\": 8\n}",
+ "table": [
+  {
+   "run": "c51t22_s76695582",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 58.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 52.12,
+   "goal_dist_m": 0.1992,
+   "time_to_goal_s": 54.083
+  },
+  {
+   "run": "c51t22_s1117617070",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 542.0,
+   "sim_time_s": 58.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 52.52,
+   "goal_dist_m": 0.2051,
+   "time_to_goal_s": 54.65
+  },
+  {
+   "run": "c51t22_s288052211",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 483.5,
+   "sim_time_s": 58.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 52.1,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.29m/s",
+   "partner_rel_xy": [
+    0.53,
+    -0.23
+   ],
+   "closing_m_s": -0.15,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 49.85,
+   "goal_dist_m": 3.1006,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t22_s2126581791",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 425.4,
+   "sim_time_s": 59.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 53.02,
+   "goal_dist_m": 0.2035,
+   "time_to_goal_s": 54.883
+  },
+  {
+   "run": "c51t22_s1322086571",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 366.4,
+   "sim_time_s": 62.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 56.52,
+   "goal_dist_m": 0.2263,
+   "time_to_goal_s": 58.567
+  },
+  {
+   "run": "c51t22_s1315872687",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 303.8,
+   "sim_time_s": 59.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 53.25,
+   "goal_dist_m": 0.2294,
+   "time_to_goal_s": 55.267
+  },
+  {
+   "run": "c51t22_s297215310",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 244.6,
+   "sim_time_s": 58.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 52.45,
+   "goal_dist_m": 0.2519,
+   "time_to_goal_s": 54.65
+  },
+  {
+   "run": "c51t22_s1631698974",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 186.2,
+   "sim_time_s": 59.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 53.75,
+   "goal_dist_m": 0.226,
+   "time_to_goal_s": 55.733
+  },
+  {
+   "run": "c51t22_s1158677924",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 126.5,
+   "sim_time_s": 76.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 27,
+   "first_seen_within_2m_t": 70.02,
+   "goal_dist_m": 0.2296,
+   "time_to_goal_s": 72.067
+  },
+  {
+   "run": "c51t22_s1475949886",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 50.5,
+   "sim_time_s": 51.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 8.0001,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

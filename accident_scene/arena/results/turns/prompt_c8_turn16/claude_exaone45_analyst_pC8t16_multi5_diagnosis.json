@@ -1,0 +1,162 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실패 실행에서 sim_time_s (53.7s) > time_limit_s (52.7s), 목표 도달 실패",
+   "마지막 5초 기록에서 로봇이 제자리 회전 및 정지 반복하며 진행 없음 (예: t=50.0~52.7s)",
+   "다른 실행에서도 stop_turn_episodes 수가 높음 (27~63회)으로 반복적 정지 발생 증거"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 종료 조건이 거리 증가 1.0초만 요구하므로, 물체가 옆으로 움직일 때 회피가 끝나지 않아 정체 발생",
+    "holds": false,
+    "why": "실패 실행에서 물체가 로봇과 평행 이동 시 거리 변화 없음에도 회피 지속됨 (last_5s 데이터)"
+   },
+   {
+    "assumption": "TTC_TRIG=1.0s로 조기 회피 트리거되나, 접근 속도가 빠를 경우 실제 충돌 위험",
+    "holds": false,
+    "why": "물체가 3m 거리에서 TTC 19.5s로 트리거되지 않아 회피 지연 발생 (실패 실행 first_not_on_map 증거)"
+   },
+   {
+    "assumption": "_EVADE_MAX=4.0s로 설정되었으나 코드에서 강제 종료 로직 미비",
+    "holds": false,
+    "why": "실행 기록에서 회피가 최대 시간 초과 후 종료되는 패턴 없음 (시간 한도 초과로 종료)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 종료 조건 강화",
+    "turns": "이전 시도에서 TTC_TRIG, 거리 증가 조건 반복 조정",
+    "result": "일부 통과 있으나 stall 지속 (턴 6,8,9,10)"
+   },
+   {
+    "family": "최대 회피 시간 도입",
+    "turns": "턴 5,9,10에서 _EVADE_HOLD, _EVADE_MAX 조정",
+    "result": "시간 초과 감소하나 stall 재발 (턴 16 실패)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체 속도 벡터 기반 회피 종료 조건 추가",
+    "new_family": true,
+    "for": "물체가 로봇에서 멀어지는 속도 성분이 있을 경우 조기 종료 가능",
+    "risk": "물체 속도 추정 오차로 조기 종료 시 재충돌 가능성"
+   },
+   {
+    "idea": "_EVADE_MAX를 3.0s로 단축하고 강제 적용",
+    "new_family": false,
+    "for": "장시간 정체 방지",
+    "risk": "복잡한 상황에서 회피 완료 전 강제 종료로 충돌"
+   },
+   {
+    "idea": "_EV_INC_S를 0.5s로 축소하고 거리 증가 허용 오차 축소",
+    "new_family": false,
+    "for": "더 엄격한 회피 종료로 정체 감소",
+    "risk": "센서 노이즈로 인한 오진 시 회피 조기 종료"
+   }
+  ],
+  "chosen": "물체 속도 벡터를 고려한 회피 종료 조건과 _EVADE_MAX 강제 적용 조합",
+  "target": "controller 내 evasion 종료 로직 수정 (evade_until 갱신 및 종료 조건 추가)",
+  "direction": "1. _EVADE_MAX를 3.0s로 단축하고 evade_until을 min(evade_until, t + _EVADE_MAX)로 강제 설정\n2. 회피 종료 시 물체 속도 성분(vx, vy)이 로봇에서 멀어지는 방향인지 확인 (속도 내적 > 0)\n3. _EV_INC_S를 0.5s로 축소하고 허용 오차 0.01m로 엄격화\n4. 정지 시 _EV_STILL_KP를 5단계로 축소해 빠른 재진행 유도\n5. _choose에서 물체 속도 벡터 반영해 측면 이동 우선 선택 (lateral 보너스 가중치 2.0 추가)\n6. 정적 안전도(st_n)가 0.1m 미만 구역 회피 트리거 비활성화"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실패 실행에서 sim_time_s (53.7s) > time_limit_s (52.7s), 목표 도달 실패\", \"마지막 5초 기록에서 로봇이 제자리 회전 및 정지 반복하며 진행 없음 (예: t=50.0~52.7s)\", \"다른 실행에서도 stop_turn_episodes 수가 높음 (27~63회)으로 반복적 정지 발생 증거\"], \"assumptions\": [{\"assumption\": \"회피 종료 조건이 거리 증가 1.0초만 요구하므로, 물체가 옆으로 움직일 때 회피가 끝나지 않아 정체 발생\", \"holds\": false, \"why\": \"실패 실행에서 물체가 로봇과 평행 이동 시 거리 변화 없음에도 회피 지속됨 (last_5s 데이터)\"}, {\"assumption\": \"TTC_TRIG=1.0s로 조기 회피 트리거되나, 접근 속도가 빠를 경우 실제 충돌 위험\", \"holds\": false, \"why\": \"물체가 3m 거리에서 TTC 19.5s로 트리거되지 않아 회피 지연 발생 (실패 실행 first_not_on_map 증거)\"}, {\"assumption\": \"_EVADE_MAX=4.0s로 설정되었으나 코드에서 강제 종료 로직 미비\", \"holds\": false, \"why\": \"실행 기록에서 회피가 최대 시간 초과 후 종료되는 패턴 없음 (시간 한도 초과로 종료)\"}], \"approach_families\": [{\"family\": \"회피 종료 조건 강화\", \"turns\": \"이전 시도에서 TTC_TRIG, 거리 증가 조건 반복 조정\", \"result\": \"일부 통과 있으나 stall 지속 (턴 6,8,9,10)\"}, {\"family\": \"최대 회피 시간 도입\", \"turns\": \"턴 5,9,10에서 _EVADE_HOLD, _EVADE_MAX 조정\", \"result\": \"시간 초과 감소하나 stall 재발 (턴 16 실패)\"}], \"candidates\": [{\"idea\": \"물체 속도 벡터 기반 회피 종료 조건 추가\", \"new_family\": true, \"for\": \"물체가 로봇에서 멀어지는 속도 성분이 있을 경우 조기 종료 가능\", \"risk\": \"물체 속도 추정 오차로 조기 종료 시 재충돌 가능성\"}, {\"idea\": \"_EVADE_MAX를 3.0s로 단축하고 강제 적용\", \"new_family\": false, \"for\": \"장시간 정체 방지\", \"risk\": \"복잡한 상황에서 회피 완료 전 강제 종료로 충돌\"}, {\"idea\": \"_EV_INC_S를 0.5s로 축소하고 거리 증가 허용 오차 축소\", \"new_family\": false, \"for\": \"더 엄격한 회피 종료로 정체 감소\", \"risk\": \"센서 노이즈로 인한 오진 시 회피 조기 종료\"}], \"chosen\": \"물체 속도 벡터를 고려한 회피 종료 조건과 _EVADE_MAX 강제 적용 조합\", \"target\": \"controller 내 evasion 종료 로직 수정 (evade_until 갱신 및 종료 조건 추가)\", \"direction\": \"1. _EVADE_MAX를 3.0s로 단축하고 evade_until을 min(evade_until, t + _EVADE_MAX)로 강제 설정\\n2. 회피 종료 시 물체 속도 성분(vx, vy)이 로봇에서 멀어지는 방향인지 확인 (속도 내적 > 0)\\n3. _EV_INC_S를 0.5s로 축소하고 허용 오차 0.01m로 엄격화\\n4. 정지 시 _EV_STILL_KP를 5단계로 축소해 빠른 재진행 유도\\n5. _choose에서 물체 속도 벡터 반영해 측면 이동 우선 선택 (lateral 보너스 가중치 2.0 추가)\\n6. 정적 안전도(st_n)가 0.1m 미만 구역 회피 트리거 비활성화\"}",
+ "table": [
+  {
+   "run": "c8t16_s388665005",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 108.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 27,
+   "first_seen_within_2m_t": 102.15,
+   "goal_dist_m": 0.1976,
+   "time_to_goal_s": 104.067
+  },
+  {
+   "run": "c8t16_s1291124942",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 491.9,
+   "sim_time_s": 81.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 75.05,
+   "goal_dist_m": 0.2281,
+   "time_to_goal_s": 77.0
+  },
+  {
+   "run": "c8t16_s1420283294",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 410.9,
+   "sim_time_s": 84.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 78.75,
+   "goal_dist_m": 0.2011,
+   "time_to_goal_s": 80.75
+  },
+  {
+   "run": "c8t16_s265463836",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 326.2,
+   "sim_time_s": 273.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 63,
+   "first_seen_within_2m_t": 267.55,
+   "goal_dist_m": 0.2253,
+   "time_to_goal_s": 269.667
+  },
+  {
+   "run": "c8t16_s1167134713",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 52.7,
+   "sim_time_s": 53.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 12.7215,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

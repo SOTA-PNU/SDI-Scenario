@@ -1,0 +1,196 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t14_s1573887700: 로봇이 138.4 s에 정지 후 139.9 s에 0.23 m/s 로 재가동했지만, 1 m 거리 물체가 여전히 존재해 143.367 s에 0.36 m 거리에서 mover_03와 충돌 (closing speed 0.39 m/s).",
+   "c51t14_s1159591719: 물체가 34.18 s에 3.79 m, 35.48 s에 2.8 m, 36.18 s에 1.89 m에 접근했지만 로봇은 감속 후 39.083 s에 0.99 m 거리에서 mover_01와 충돌 (closing speed 0.47 m/s).",
+   "c51t14_s1555578011: 첫 물체 감지 138.08 s에 1.4 m 거리였으며 로봇은 138.6 s에 0.17 m/s 로 이동을 재개, 이후 속도를 증가시켜 143.05 s에 0.44 m 거리에서 mover_03와 충돌 (closing speed 0.41 m/s)."
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 2D 라이다 ±30° 구역만 사용하면 모든 충돌 위험 물체를 감지할 수 있다.",
+    "holds": false,
+    "why": "회전 후 물체가 시야 밖에 있어도 충돌이 발생함 (예: 3개의 충돌 실행)."
+   },
+   {
+    "assumption": "TTC를 0~_TTC_H 로 클램프하면 충분히 위험을 판단할 수 있다.",
+    "holds": false,
+    "why": "클램프 때문에 tc가 1 s 이상이면 speed_factor가 1이 되어 감속이 없고 충돌이 일어남."
+   },
+   {
+    "assumption": "gap < _STOP_D 로 정지하고 _STOP_WAIT 후 detour 하면 물체를 안전히 회피할 수 있다.",
+    "holds": false,
+    "why": "detour 후 gap이 커져 속도가 급증해 물체가 남아있을 때 충돌이 발생함."
+   },
+   {
+    "assumption": "c.vm 로 추정한 현재 속도가 TTC 계산에 충분히 정확하다.",
+    "holds": true,
+    "why": "속도 추정값이 1.4~1.5 m/s 정도로 실제 주행 속도와 일치해 주요 원인은 아니다."
+   },
+   {
+    "assumption": "정적 장애물 회피와 동적 물체 회피를 별도로 처리해도 충돌을 방지할 수 있다.",
+    "holds": false,
+    "why": "동적 물체와 정적 회피가 서로 충돌 시점에 맞물려 충돌이 발생한다."
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "front-gap stop/detour state machine",
+    "turns": "1",
+    "result": "9/10 pass, 1 collision"
+   },
+   {
+    "family": "candidate rollout with static/mover clearance scoring",
+    "turns": "2,3,5,6",
+    "result": "25/38 pass (~66%)"
+   },
+   {
+    "family": "danger zone detection (danger_close/danger_side)",
+    "turns": "4,11,12,13",
+    "result": "13/30 pass (~43%)"
+   },
+   {
+    "family": "TTC window extension",
+    "turns": "7",
+    "result": "8/10 pass"
+   },
+   {
+    "family": "increase STOP_D",
+    "turns": "8",
+    "result": "9/9 pass"
+   },
+   {
+    "family": "short STOP_WAIT & immediate detour",
+    "turns": "10",
+    "result": "7/9 pass"
+   },
+   {
+    "family": "global TTC scaling integration",
+    "turns": "14",
+    "result": "1/4 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "매 step마다 _evade 로 모든 후보(v,w)를 평가해 가장 큰 clearance·진행 점수를 가진 명령을 기본으로 사용한다(즉, nominal 스케일링을 포기하고 연속 후보 선택).",
+    "new_family": true,
+    "for": "전방 gap·TTC 스케일링이 회전 후 무시되는 상황을 방지하고, 전체 mover clearance를 지속적으로 고려해 안전한 진행을 유지한다.",
+    "risk": "후보 점수가 낮으면 지나치게 정지하거나 비효율적인 회전이 늘어나 시간 제한 초과가 발생할 수 있다."
+   },
+   {
+    "idea": "예측 지평선(_HORIZON)을 5 s 로 늘리고 _mover_clear 를 해당 기간 전체에 대해 평가한다.",
+    "new_family": false,
+    "for": "충돌이 최초 감지 후 5 s 정도 뒤에 발생하는 경우를 미리 포착해 미리 감속·회피한다.",
+    "risk": "예측 불확실성이 커져 과도한 보수적 행동이 늘어나 전체 소요 시간이 증가한다."
+   },
+   {
+    "idea": "위험 거리(_DANGER_DIST) 내에 mover가 있으면 state를 \"stop\" 으로 고정하고, 모든 mover가 안전 거리 밖으로 나갈 때까지 재시작을 허용하지 않는다.",
+    "new_family": true,
+    "for": "현재 stop/detour 재시작 조건이 gap 기반이라 물체가 옆으로 이동해도 재시작해 충돌하는 문제를 해결한다.",
+    "risk": "정지 시간이 길어져 배치당 평균 실행 시간이 60 s를 초과할 위험이 있다."
+   }
+  ],
+  "chosen": "전방 갭 외에 가장 가까운 움직이는 물체 거리까지 고려해 속도 스케일을 추가하면 측면 접근 물체로 인한 충돌을 예방할 수 있다.",
+  "target": "controller, _min_mover_dist (새 함수)",
+  "direction": "새 함수 `_min_mover_dist(pose, movers)` 를 추가해 movers 리스트가 비어 있으면 큰 값(예: 99.0)을 반환하고, 그렇지 않으면 로봇 중심과 각 mover 중심 사이의 유클리드 거리를 계산해 최소값을 반환한다. controller() 내부에서 `gap = _front_gap(pose)` 와 `f` 계산 뒤에 `d_min = _min_mover_dist(pose, movers)` 를 호출하고, `g = _clamp((d_min - 0.5) / 1.5, 0.15, 1.0)` 로 거리 기반 스케일을 만든다. `scale = f * g` 로 정의하고, 후보 명령 생성 루프에서 `cmd = (v_nom * scale * k, w_nom)` 로 사용한다. 정지 전환 조건을 `if gap < _STOP_D or d_min < _STOP_D:` 로 수정해 전방뿐 아니라 측면에 가까운 물체가 있으면 즉시 stop 상태로 전환한다. 나머지 상태 머신 로직과 _is_safe 검사는 기존과 동일하게 유지한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no: _ttc_min 과 speed_factor 도입이 오히려 충돌을 증가시켰으며 1/4 통과율은 이전 turn 8(9/9)보다 크게 악화되었다.",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "candidate 1 (연속 후보 평가 기반 제어) 을 선택한다. 이는 모든 후보를 매 순간 평가해 가장 안전하고 목표에 가까운 명령을 선택함으로써 회전 후에도 움직이는 물체를 지속적으로 회피하게 한다.",
+   "target": "controller",
+   "direction": "controller() 내부에서 v_nom, w_nom, done, target 를 얻은 뒤 바로 _evade(pose, movers, target, True) 로 후보 명령을 구한다. 반환된 (v,w) 가 _is_safe(pose,(v,w),movers,_SAFE) 를 만족하면 그대로 반환하고, 만족하지 않으면 (0,0) 로 정지한다. 기존 for‑k 스케일링 루프와 speed_factor 계산을 삭제한다. stop/detour 상태는 정적 장애물 회피에만 사용하고, go 상태에서는 항상 후보 기반 명령을 사용한다. 목표 근접 시 기존 goal 정렬 로직을 유지한다. 필요 시 후보 집합에 후진·제자리 회전 옵션을 포함해 회피 가능성을 높인다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t14_s1573887700: 로봇이 138.4 s에 정지 후 139.9 s에 0.23 m/s 로 재가동했지만, 1 m 거리 물체가 여전히 존재해 143.367 s에 0.36 m 거리에서 mover_03와 충돌 (closing speed 0.39 m/s).\",\n    \"c51t14_s1159591719: 물체가 34.18 s에 3.79 m, 35.48 s에 2.8 m, 36.18 s에 1.89 m에 접근했지만 로봇은 감속 후 39.083 s에 0.99 m 거리에서 mover_01와 충돌 (closing speed 0.47 m/s).\",\n    \"c51t14_s1555578011: 첫 물체 감지 138.08 s에 1.4 m 거리였으며 로봇은 138.6 s에 0.17 m/s 로 이동을 재개, 이후 속도를 증가시켜 143.05 s에 0.44 m 거리에서 mover_03와 충돌 (closing speed 0.41 m/s).\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"전방 2D 라이다 ±30° 구역만 사용하면 모든 충돌 위험 물체를 감지할 수 있다.\",\n      \"holds\": false,\n      \"why\": \"회전 후 물체가 시야 밖에 있어도 충돌이 발생함 (예: 3개의 충돌 실행).\"\n    },\n    {\n      \"assumption\": \"TTC를 0~_TTC_H 로 클램프하면 충분히 위험을 판단할 수 있다.\",\n      \"holds\": false,\n      \"why\": \"클램프 때문에 tc가 1 s 이상이면 speed_factor가 1이 되어 감속이 없고 충돌이 일어남.\"\n    },\n    {\n      \"assumption\": \"gap < _STOP_D 로 정지하고 _STOP_WAIT 후 detour 하면 물체를 안전히 회피할 수 있다.\",\n      \"holds\": false,\n      \"why\": \"detour 후 gap이 커져 속도가 급증해 물체가 남아있을 때 충돌이 발생함.\"\n    },\n    {\n      \"assumption\": \"c.vm 로 추정한 현재 속도가 TTC 계산에 충분히 정확하다.\",\n      \"holds\": true,\n      \"why\": \"속도 추정값이 1.4~1.5 m/s 정도로 실제 주행 속도와 일치해 주요 원인은 아니다.\"\n    },\n    {\n      \"assumption\": \"정적 장애물 회피와 동적 물체 회피를 별도로 처리해도 충돌을 방지할 수 있다.\",\n      \"holds\": false,\n      \"why\": \"동적 물체와 정적 회피가 서로 충돌 시점에 맞물려 충돌이 발생한다.\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"front-gap stop/detour state machine\",\n      \"turns\": \"1\",\n      \"result\": \"9/10 pass, 1 collision\"\n    },\n    {\n      \"family\": \"candidate rollout with static/mover clearance scoring\",\n      \"turns\": \"2,3,5,6\",\n      \"result\": \"25/38 pass (~66%)\"\n    },\n    {\n      \"family\": \"danger zone detection (danger_close/danger_side)\",\n      \"turns\": \"4,11,12,13\",\n      \"result\": \"13/30 pass (~43%)\"\n    },\n    {\n      \"family\": \"TTC window extension\",\n      \"turns\": \"7\",\n      \"result\": \"8/10 pass\"\n    },\n    {\n      \"family\": \"increase STOP_D\",\n      \"turns\": \"8\",\n      \"result\": \"9/9 pass\"\n    },\n    {\n      \"family\": \"short STOP_WAIT & immediate detour\",\n      \"turns\": \"10\",\n      \"result\": \"7/9 pass\"\n    },\n    {\n      \"family\": \"global TTC scaling integration\",\n      \"turns\": \"14\",\n      \"result\": \"1/4 pass\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"매 step마다 _evade 로 모든 후보(v,w)를 평가해 가장 큰 clearance·진행 점수를 가진 명령을 기본으로 사용한다(즉, nominal 스케일링을 포기하고 연속 후보 선택).\",\n      \"new_family\": true,\n      \"for\": \"전방 gap·TTC 스케일링이 회전 후 무시되는 상황을 방지하고, 전체 mover clearance를 지속적으로 고려해 안전한 진행을 유지한다.\",\n      \"risk\": \"후보 점수가 낮으면 지나치게 정지하거나 비효율적인 회전이 늘어나 시간 제한 초과가 발생할 수 있다.\"\n    },\n    {\n      \"idea\": \"예측 지평선(_HORIZON)을 5 s 로 늘리고 _mover_clear 를 해당 기간 전체에 대해 평가한다.\",\n      \"new_family\": false,\n      \"for\": \"충돌이 최초 감지 후 5 s 정도 뒤에 발생하는 경우를 미리 포착해 미리 감속·회피한다.\",\n      \"risk\": \"예측 불확실성이 커져 과도한 보수적 행동이 늘어나 전체 소요 시간이 증가한다.\"\n    },\n    {\n      \"idea\": \"위험 거리(_DANGER_DIST) 내에 mover가 있으면 state를 \\\"stop\\\" 으로 고정하고, 모든 mover가 안전 거리 밖으로 나갈 때까지 재시작을 허용하지 않는다.\",\n      \"new_family\": true,\n      \"for\": \"현재 stop/detour 재시작 조건이 gap 기반이라 물체가 옆으로 이동해도 재시작해 충돌하는 문제를 해결한다.\",\n      \"risk\": \"정지 시간이 길어져 배치당 평균 실행 시간이 60 s를 초과할 위험이 있다.\"\n    }\n  ],\n  \"chosen\": \"candidate 1 (연속 후보 평가 기반 제어) 을 선택한다. 이는 모든 후보를 매 순간 평가해 가장 안전하고 목표에 가까운 명령을 선택함으로써 회전 후에도 움직이는 물체를 지속적으로 회피하게 한다.\",\n  \"target\": \"controller\",\n  \"direction\": \"controller() 내부에서 v_nom, w_nom, done, target 를 얻은 뒤 바로 _evade(pose, movers, target, True) 로 후보 명령을 구한다. 반환된 (v,w) 가 _is_safe(pose,(v,w),movers,_SAFE) 를 만족하면 그대로 반환하고, 만족하지 않으면 (0,0) 로 정지한다. 기존 for‑k 스케일링 루프와 speed_factor 계산을 삭제한다. stop/detour 상태는 정적 장애물 회피에만 사용하고, go 상태에서는 항상 후보 기반 명령을 사용한다. 목표 근접 시 기존 goal 정렬 로직을 유지한다. 필요 시 후보 집합에 후진·제자리 회전 옵션을 포함해 회피 가능성을 높인다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no: _ttc_min 과 speed_factor 도입이 오히려 충돌을 증가시켰으며 1/4 통과율은 이전 turn 8(9/9)보다 크게 악화되었다.\",\n  \"base_turn\": 8\n}",
+ "table": [
+  {
+   "run": "c51t14_s1573887700",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 149.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 143.367,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.47m/s",
+   "partner_rel_xy": [
+    -0.71,
+    -0.47
+   ],
+   "closing_m_s": 0.39,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 138.37,
+   "goal_dist_m": 1.7907,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t14_s1509613504",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 450.6,
+   "sim_time_s": 141.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2326,
+   "time_to_goal_s": 136.967
+  },
+  {
+   "run": "c51t14_s1159591719",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 309.3,
+   "sim_time_s": 45.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 39.083,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.50m/s",
+   "partner_rel_xy": [
+    -0.84,
+    -0.43
+   ],
+   "closing_m_s": 0.47,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 36.18,
+   "goal_dist_m": 20.015,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t14_s1555578011",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 264.2,
+   "sim_time_s": 149.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 143.05,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.47m/s",
+   "partner_rel_xy": [
+    -0.73,
+    -0.46
+   ],
+   "closing_m_s": 0.41,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 138.08,
+   "goal_dist_m": 1.9494,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

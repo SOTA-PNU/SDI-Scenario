@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1·2에 따라 `_STOP_WAIT` 를 2.0 s에서 1.0 s로, `_DETOUR_T` 를 6.0 s에서 4.0 s로 줄였습니다. 정지 후 우회로 넘어가는 시점과 우회 상태가 이어지는 시간을 짧게 해서, 8턴 코드의 실행당 평균 시간(587 s/9회)을 60 s 아래로 낮추려는 것입니다. 선택 항목인 direction 3도 반영해 `_DETOUR_ROT` 를 1.2 s에서 0.8 s로 줄였습니다. direction 4·6대로 상태 머신, `_is_safe`, `_static_ok` 는 바꾸지 않았습니다.\n\n```python\n_STOP_WAIT = 1.0       # 정지가 이 시간 이상이면 우회 [s] - 진단 지시 1 (2.0 -> 1.0)\n\n\n_DETOUR_T = 4.0        # 우회 상태 최대 지속 [s], 지나면 다시 정지·대기 - 진단 지시 2 (6.0 -> 4.0)\n\n\n_DETOUR_ROT = 0.8      # 우회 시작 시 제자리 회전(±0.5 rad/s) 시간 [s] - 진단 지시 3 (1.2 -> 0.8)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 33335,
+  "completion_tokens": 933
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 9042,
+  "total_cost_usd": 0.28533200000000003,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 933,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 33333,
+    "webSearchRequests": 0,
+    "costUSD": 0.28533200000000003,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 450,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 33333,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "6aa386f5-bdec-480c-b41d-3cde8221cdcf"
+ }
+}

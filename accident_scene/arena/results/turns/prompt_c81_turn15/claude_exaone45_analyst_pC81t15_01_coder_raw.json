@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단은 `_HOLD_ON` = 2.0 s 기준 때문에 정지 해제가 늦어지고 정지·재출발이 반복되어 진행이 막힌다(stall)고 보았습니다. 그래서 진단 지시 1·2·4·6에 따라, 정지 중 2 m 안의 물체가 모두 멀어지는(closing0 < 0) 상태를 `H[\"rec_t\"]` 로 재고, 이 상태가 `_RESUME_GO` = 0.5 s 이어지면 MTC 기준이나 `_HOLD_MIN` 과 상관없이 재출발하도록 `_hold_release` 를 고쳤습니다. 이 타이머는 물체가 다시 다가오면 0으로 돌아가고, 재출발해 정지 상태가 끝나도 사라집니다. 지시 3에 따라 정지를 풀 때 `_path_free` 확인을 빼고 곧바로 v_nom, w_nom 으로 달리며, `_ESC_CLOSE` = 0.05 m/s 와 마지막 `_rollout` 안전 검사는 그대로 두었습니다(지시 5).\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다로 지도에 없는 물체를 감지하고, MTC(충돌까지 남은 시간)로 감속/정지/회피합니다.\n    정지 해제: (a) 근접 물체가 모두 멀어지는(closing0 < 0) 상태가 _RESUME_GO 초 지속되면 MTC 와 무관하게 즉시 재출발,\n    (b) 최소 정지 시간(_HOLD_MIN) 뒤 MTC >= _HOLD_ON, (c) 물체 거리 증가 추세(_hold_trend).\n    재출발 시 _path_free 확인 없이 곧바로 경유점 추종 속도를 적용합니다. 정지 중 물체가 다가오면 즉시 회피합니다.\"\"\"\n    S = _ST\n    x, y, yaw = pose\n    if not S:\n        S.update(idx=0, prev_wp=(START[0], START[1]), rejoin=None, esc=None, esc_start=None,\n                 scan_obj={}, dyn={}, tracks=[], track_t=-1.0,\n                 P=np.zeros((0, 2)), U=np.zeros((0, 2)), seen=False,\n                 last=(t, x, y, yaw), speed=0.0, yawrate=0.0,\n                 hold=None, armed=True, rel_d=99.0)\n    t0, x0, y0, yaw0 = S[\"last\"]\n    dt = t - t0\n    if dt > 1e-4:                                       # 자기 이동 속도 (스캔 지연 여유 계산용)\n        S[\"speed\"] = 0.7 * S[\"speed\"] + 0.3 * math.hypot(x - x0, y - y0) / dt\n        S[\"yawrate\"] = 0.7 * S[\"yawrate\"] + 0.3 * abs(_wrap_angle(yaw - yaw0)) / dt\n    S[\"last\"] = (t, x, y, yaw)\n\n    _perceive(t, pose)\n    if not S[\"seen\"] and t < 2.0:                       # 첫 스캔이 들어올 때까지 출발하지 않음\n        return 0.0, 0.0, False\n    if S[\"esc\"] is not None:\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n    P, U = S[\"P\"], S[\"U\"]\n\n    d_thr, clr_min = 99.0, 99.0                         # d_thr: 최소 MTC [s]\n    approach = 0.0                                      # 정지한 로봇 쪽으로 다가오는 근접 물체의 최대 접근 속도 [m/s]\n    recede_max = -1.0                                   # 근접 물체 closing0 의 최댓값 (근접 물체 없으면 음수)\n    if len(P):\n        c, s = math.cos(yaw), math.sin(yaw)\n        dx, dy = P[:, 0] - x, P[:, 1] - y\n        rx, ry = c * dx + s * dy, -s * dx + c * dy\n        clr = _rect_clear(rx, ry)                       # 몸체 가장자리까지 거리\n        rng = np.maximum(np.hypot(dx, dy), 1e-6)\n        vrx, vry = v_nom * c, v_nom * s                 # 로봇 속도 벡터\n        closing = -((U[:, 0] - vrx) * dx + (U[:, 1] - vry) * dy) / rng   # 상대 접근 속도\n        closing0 = -(U[:, 0] * dx + U[:, 1] * dy) / rng  # 로봇 속도 0 (정지 중 실제 접근 속도)\n        rel = closing > _CLOSE_MIN\n        if rel.any():\n            mtc = clr[rel] / closing[rel]               # MTC = 거리 / 접근 속도\n            d_thr = float(mtc.min())\n        clr_min = float(clr.min())\n        near = clr < _ESC_NEAR\n        if near.any():\n            approach = float(closing0[near].max())\n            recede_max = approach\n    recede = recede_max < 0.0                           # 진단 지시 1: 근접 물체가 모두 멀어지는 중\n\n    # 정지 상태(H) 관리: 시작 MTC _HOLD_ON(2.0 s), 재출발 직후에는 0.8 s 이하이고 더 줄어들 때만 다시 정지\n    H = S[\"hold\"]\n    resume = False\n    if H is None:\n        S[\"rel_d\"] = max(S[\"rel_d\"], d_thr)\n        if d_thr >= _HOLD_ON:\n            S[\"armed\"] = True\n        thr = _HOLD_ON if S[\"armed\"] else min(_HOLD_REARM, S[\"rel_d\"] - _HOLD_GAIN)\n        if d_thr < thr:\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr, \"dmin\": clr_min, \"inc_t\": None, \"rec_t\": None}\n    else:\n        H[\"dmin\"] = min(H[\"dmin\"], clr_min)\n        if d_thr < min(_HOLD_REARM, H[\"d\"] - _HOLD_GAIN):\n            # MTC 가 더 줄어듦: 기준 재설정 (멀어짐 타이머는 물체가 다시 다가올 때만 초기화 - 지시 4)\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr, \"dmin\": clr_min, \"inc_t\": None,\n                         \"rec_t\": H.get(\"rec_t\") if recede else None}\n        elif _hold_release(H, d_thr, t, recede) or _hold_trend(H, clr_min, t):\n            S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, d_thr   # 재출발: 멀어짐 타이머도 함께 사라짐 (지시 4)\n            resume = True\n\n    # 정지 중 물체가 스스로 다가오면(closing0 > _ESC_CLOSE = 0.05 m/s) 정지 대신 즉시 회피 (지시 5: 유지)\n    if S[\"hold\"] is not None and approach > _ESC_CLOSE:\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)\n\n    if S[\"hold\"] is not None:\n        v, w = 0.0, 0.0                                 # 정지\n    elif resume:\n        v, w = v_nom, w_nom                             # 진단 지시 3: _path_free 확인 없이 즉시 경유점 추종 속도\n    elif d_thr < _SLOW_T:\n        k = (d_thr - _HOLD_ON) / (_SLOW_T - _HOLD_ON)\n        v = min(v_nom, max(_V_SLOW, 1.5 * k))\n        w = _clamp(w_nom, -1.0, 1.0)                    # 감속 구간 회전 제한 ±1.0 rad/s\n    else:\n        v, w = v_nom, w_nom\n    if clr_min < 0.45:\n        w = 0.0                                         # 바로 옆 물체가 있으면 회전 금지\n\n    if _rollout(P, U, x, y, yaw, yaw, v, 0.0) < 0.3:\n        if v > 0.0 and _rollout(P, U, x, y, yaw, yaw, 0.0, 0.0) >= 0.3:\n            return 0.0, 0.0, False\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)                    # 멈춰도 부딪힘: 비켜섬\n    return v, w, False\n\n\ndef _hold_release(H, d_now, t, recede):\n    \"\"\"정지 상태 H 를 풀어도 되면 True.\n    진단 지시 2: 근접 물체가 모두 멀어지는(closing0 < 0) 상태가 _RESUME_GO 초 이상 이어지면 MTC 와 무관하게 True.\n    진단 지시 4: 물체가 다시 다가오면(recede False) 그 지속 시간 H[\"rec_t\"] 를 초기화합니다.\n    그 밖에는 기존대로 최소 정지 시간(_HOLD_MIN)이 지났고 MTC 가 _HOLD_ON 이상일 때 True.\"\"\"\n    if recede:\n        if H.get(\"rec_t\") is None:\n            H[\"rec_t\"] = t\n    else:\n        H[\"rec_t\"] = None\n    if H[\"rec_t\"] is not None and t - H[\"rec_t\"] >= _RESUME_GO:\n        return True\n    if t - H[\"t0\"] < _HOLD_MIN:\n        return False\n    return d_now >= _HOLD_ON\n\n\n_RESUME_GO = 0.5     # 정지 중 근접 물체가 모두 멀어지는(closing0 < 0) 상태가 이만큼 이어지면 재출발 [s] (진단 지시 2·6: 0.8 -> 0.5)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 27580,
+  "completion_tokens": 7352
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 64963,
+  "total_cost_usd": 0.367672,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 7352,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 27578,
+    "webSearchRequests": 0,
+    "costUSD": 0.367672,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3823,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 27578,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "65e1cb8d-0ee5-4223-9cd5-2497e8c0318f"
+ }
+}

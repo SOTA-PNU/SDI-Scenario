@@ -1,0 +1,434 @@
+{
+ "turn": 3,
+ "started": "2026-11-23 04:38:32",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c51_turn1/claude_gptoss_analyst_pC51t1_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c51t2_s1366449175: stall_abort t=132.33, pose (0.178,3.059,1.867), 60 s 동안 이동 0.3 m",
+   "c51t2_s961431489: stall_abort t=67.12, pose (-6.251,-3.995,0.364), 60 s 동안 이동 0.287 m, 물체 최초 감지 t=62.15 거리 2.88 m",
+   "c51t2_s782625131: stall_abort t=79.0, pose (-0.325,5.657,-0.666), 60 s 동안 이동 0.297 m, 물체 최초 감지 t=74.02 거리 2.63 m"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 후 대기하면 물체가 지나가 충돌을 피한다",
+    "holds": false,
+    "why": "정지 후 60 s 이동이 없어 stall_abort 발생"
+   },
+   {
+    "assumption": "0 m/s 정지는 안전하며 실패를 일으키지 않는다",
+    "holds": false,
+    "why": "정지 상태에서 stall_abort가 발생해 실패"
+   },
+   {
+    "assumption": "후보 속도 집합에 안전한 전진이 존재한다",
+    "holds": false,
+    "why": "모든 후보가 여유 부족해 안전 후보가 없어 정지"
+   },
+   {
+    "assumption": "정적 지도와 여유 거리(_ST_CLEAR, _SAFE)로 정적 충돌을 방지한다",
+    "holds": true,
+    "why": "어떤 실행에서도 충돌이 없었음"
+   },
+   {
+    "assumption": "앞·뒤 라이다가 8 m 이내 움직이는 물체를 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 2.6~2.9 m 거리에서 물체 감지"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "no_control",
+    "turns": "0",
+    "result": "0/1"
+   },
+   {
+    "family": "stop_detour_state",
+    "turns": "1",
+    "result": "9/10"
+   },
+   {
+    "family": "candidate_DWA_safety",
+    "turns": "2",
+    "result": "0/3"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC 기반 긴급 정지 후 측면 회전 회피",
+    "new_family": true,
+    "for": "정지 시 스톨을 방지하고 빠른 회피 경로 제공",
+    "risk": "회전 중 정적 장애물에 충돌 가능"
+   },
+   {
+    "idea": "Velocity Obstacle(VO) 기반 연속 속도 계산",
+    "new_family": true,
+    "for": "동적 장애물에 대한 실시간 안전 속도 도출",
+    "risk": "예측 오차가 커지면 비안전 명령이 선택될 수 있음"
+   },
+   {
+    "idea": "하이브리드 상태 머신(대기·우회·재시도)과 짧은 대기 타이머",
+    "new_family": true,
+    "for": "물체가 지나갈 때 일정 시간만 대기하고 재시도",
+    "risk": "대기 시간이 부족하면 충돌 위험"
+   }
+  ],
+  "chosen": "정지 후 장시간 대기와 안전 후보 부재로 인한 스톨을 방지하기 위해 STOP_WAIT을 줄이고, 안전 후보가 없을 때 _evade 로 대체 이동을 수행한다.",
+  "target": "controller, _STOP_WAIT",
+  "direction": "1. _STOP_WAIT 값을 5.0에서 2.0 초로 줄여 정지 후 대기 시간을 단축한다. 2. controller 함수의 c.state == \"go\" 블록에서 현재 for‑k 루프가 끝난 뒤, 안전한 스케일 명령을 찾지 못했을 경우에만 _evade(pose, movers, target, False) 를 호출해 반환값을 사용한다. 3. 이 fallback 은 기존 안전 후보가 존재하면 기존 로직을 그대로 따르며, 안전 후보가 없을 때만 적용한다. 4. stop 및 detour 상태 로직은 기존대로 유지하되, 감소된 _STOP_WAIT 로 인해 detour 전환이 더 빨리 일어난다. 5. 새로운 함수나 변수는 추가하지 않고, 기존 _STOP_WAIT 상수와 controller 내부 코드를 수정한다. 6. 이렇게 하면 로봇이 안전 후보가 부족한 상황에서도 최소한의 전진/회피 동작을 수행해 60 s 동안 0.3 m 미만 이동하는 스톨을 방지한다.",
+  "confidence": "high",
+  "last_direction_ok": "no: turn 2에서 DWA 플래너로 교체해 0/10 통과로 성능이 크게 악화됨",
+  "base_turn": 1,
+  "stage1": {
+   "chosen": "TTC 기반 긴급 정지 후 측면 회전 회피를 선택, 정지만으로 스톨되는 상황을 회피하도록 함",
+   "target": "controller, 새 함수 _tTC와 _emergency_detour, 상태 변수 emergency, detour_timer",
+   "direction": "1) controller에 emergency=False, detour_timer=0을 초기화한다. 2) 매 호출마다 _tTC를 호출해 모든 트랙의 최소 TTC를 계산한다. 3) TTC가 1.0 s 미만이고 emergency가 False이면 emergency=True, detour_timer=0, 회전 방향을 물체 반대쪽으로 정한다(w=±0.5). 4) emergency 상태에서 detour_timer<2.0 s이면 회전 명령을 유지하고 detour_timer에 dt를 누적한다. 5) 회전이 끝나면 전진 속도 v=0.3 m/s로 전환하고, TTC가 2.0 s 이상이면 emergency=False로 리셋한다. 6) _plan에서 안전 후보가 없을 때도 위 emergency 흐름이 우선 적용돼 정지만으로 스톨되지 않는다."
+  }
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 지시 1에 따라 `_STOP_WAIT` 를 5.0 s 에서 2.0 s 로 줄였습니다. 정지가 길어지면 우회(detour)로 더 빨리 넘어가므로 오래 멈춰 있는 스톨과 시간 낭비가 줄어듭니다. 지시 2·3에 따라 `go` 상태의 for‑k 루프에서 안전한 감속 명령을 하나도 찾지 못했을 때만, 정지로 넘어가는 대신 `_evade(pose, movers, target, False)` 의 이동 명령을 돌려주도록 바꿨습니다. 안전 후보가 있을 때의 로직, 그리고 stop·detour 상태 로직(지시 4)은 그대로이고, 새 함수나 변수는 추가하지 않았습니다(지시 5).",
+   "changed": [
+    "_STOP_WAIT",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _STOP_WAIT 를 5.0 에서 2.0 초로 줄인다",
+      "implemented": true,
+      "note": "_STOP_WAIT = 2.0 으로 바뀜"
+     },
+     {
+      "instruction": "2. go 블록의 for-k 루프가 끝난 뒤 안전한 스케일 명령이 없으면 _evade(pose, movers, target, False) 를 호출해 그 반환값을 쓴다",
+      "implemented": true,
+      "note": "루프 뒤 'c.state, c.stop_t = \"stop\", t' 를 지우고 v, w = _evade(pose, movers, target, False) 의 결과를 반환함"
+     },
+     {
+      "instruction": "3. 안전 후보가 있으면 기존 로직을 그대로 따르고, 없을 때만 fallback 한다",
+      "implemented": true,
+      "note": "for-k 루프의 안전 후보 반환은 그대로임. gap < _STOP_D 일 때 stop 으로 가는 전환도 유지됨"
+     },
+     {
+      "instruction": "4. stop·detour 상태 로직은 기존대로 유지한다",
+      "implemented": true,
+      "note": "stop·detour 분기에서는 주석만 바뀌고 코드는 같음"
+     },
+     {
+      "instruction": "5. 새 함수나 변수를 추가하지 않고 _STOP_WAIT 와 controller 내부만 고친다",
+      "implemented": true,
+      "note": "diff 에 나온 변경은 controller 와 _STOP_WAIT 뿐임"
+     },
+     {
+      "instruction": "6. 안전 후보가 없어도 전진·회피 동작을 해서 스톨을 막는다",
+      "implemented": true,
+      "note": "go 상태의 fallback 이 정지 후보를 뺀 _CANDS_MOVE 로 이동 명령을 반환함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "evidence 와 assumptions 는 2턴 DWA 코드의 stall_abort 에서 나온 것이라, 9/10 이던 1턴 코드의 실패 원인과 같은지 확인되지 않음",
+     "go 상태에서 안전 후보가 없을 때 정지로 가지 않고 상태를 그대로 둔 채 매 프레임 _evade 를 부르므로, 멈추는 편이 안전한 경우에도 움직이거나 nominal 명령과 evade 명령 사이를 오갈 수 있음",
+     "_is_safe 는 'mc >= now - 0.02' 이면 True 를 주므로 안전 후보가 하나도 없는 경우가 드물어, 이 fallback 이 스톨 방지에 미치는 효과가 작을 수 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 1,
+ "diag_turn": 2,
+ "reason": "변경 이유: 진단 지시 1에 따라 `_STOP_WAIT` 를 5.0 s 에서 2.0 s 로 줄였습니다. 정지가 길어지면 우회(detour)로 더 빨리 넘어가므로 오래 멈춰 있는 스톨과 시간 낭비가 줄어듭니다. 지시 2·3에 따라 `go` 상태의 for‑k 루프에서 안전한 감속 명령을 하나도 찾지 못했을 때만, 정지로 넘어가는 대신 `_evade(pose, movers, target, False)` 의 이동 명령을 돌려주도록 바꿨습니다. 안전 후보가 있을 때의 로직, 그리고 stop·detour 상태 로직(지시 4)은 그대로이고, 새 함수나 변수는 추가하지 않았습니다(지시 5).",
+ "budget_s": 600.0,
+ "seeds": [
+  1850101296,
+  211699767,
+  1663544203,
+  1679968844,
+  1971701544,
+  845493342,
+  542734520,
+  1712226762,
+  1698536053,
+  1724777727
+ ],
+ "sim_used_s": 577.0,
+ "verdicts": {
+  "1850101296": "pass",
+  "211699767": "pass",
+  "1663544203": "pass",
+  "1679968844": "pass",
+  "1971701544": "fail",
+  "845493342": "pass",
+  "542734520": "pass",
+  "1712226762": "pass",
+  "1698536053": "pass",
+  "1724777727": "pass"
+ },
+ "passes": 9,
+ "prior_chars": 1281,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 10개를 실행했고, 0개는 실행하지 못했습니다.\n- 통과 9개, 실패 1개. 시뮬 시간 합계 577초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 62초 (가장 짧은 것 54초, 가장 긴 것 72초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) evidence 와 assumptions 는 2턴 DWA 코드의 stall_abort 에서 나온 것이라, 9/10 이던 1턴 코드의 실패 원인과 같은지 확인되지 않음\n- (검토 1회차, 판정 pass) go 상태에서 안전 후보가 없을 때 정지로 가지 않고 상태를 그대로 둔 채 매 프레임 _evade 를 부르므로, 멈추는 편이 안전한 경우에도 움직이거나 nominal 명령과 evade 명령 사이를 오갈 수 있음\n- (검토 1회차, 판정 pass) _is_safe 는 'mc >= now - 0.02' 이면 True 를 주므로 안전 후보가 하나도 없는 경우가 드물어, 이 fallback 이 스톨 방지에 미치는 효과가 작을 수 있음\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t3_s1971701544 실행에서 t=14.517 s에 mover_01과 충돌, 로봇 속도 1.19 m/s, 충돌 전 1 m 이내 물체가 13.55 s에 감지됨",
+   "first_not_on_map 기록에 mover_01이 11.55 s에 2 m, -9°에서 감지됐지만 _front_gap는 30° 각도 제한으로 인식 못함",
+   "go 상태에서 안전 후보가 존재해 _is_safe이 True를 반환했지만 예측 여유(_SAFE=0.25 m)은 실제 충돌을 방지하기에 부족함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±30° 영역만 물체를 감지하면 충분하다",
+    "holds": false,
+    "why": "이번 충돌은 -58° 측면에서 접근해 _front_gap가 트리거되지 않음"
+   },
+   {
+    "assumption": "_is_safe의 0.25 m 여유와 3 s 예측 horizon이 움직이는 물체를 안전하게 피할 수 있다",
+    "holds": false,
+    "why": "충돌 전 1 s 안에 물체가 0.66 m/s로 접근, 여유가 부족해 충돌 발생"
+   },
+   {
+    "assumption": "정지 후 2 s 대기(_STOP_WAIT) 후 회피하면 충분히 회피할 수 있다",
+    "holds": true,
+    "why": "정지·우회 로직은 대부분 정상 작동, 충돌은 정지 자체가 발생하지 않아 해당 가정은 적용되지 않음"
+   },
+   {
+    "assumption": "정적 지도와 로봇 몸체 사각형 검증(_static_ok)만으로 정적 충돌을 방지한다",
+    "holds": true,
+    "why": "정적 장애물 충돌은 없으며 정적 검증 정상 동작"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 거리 기반 정지·우회 (가족 A)",
+    "turns": "1",
+    "result": "9/10 통과, 1/10 시간 제한"
+   },
+   {
+    "family": "전체 DWA 후보 평가 (가족 B)",
+    "turns": "2",
+    "result": "0/3 통과, 3/3 스톨 중단"
+   },
+   {
+    "family": "하이브리드 상태머신 + DWA 회피 (가족 C)",
+    "turns": "3",
+    "result": "9/10 통과, 1/10 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방·측면을 포함한 동적 안전 영역을 계산하고 최소 여유 거리에 따라 속도를 비례 축소한다",
+    "new_family": true,
+    "for": "측면에서 접근하는 물체를 조기에 감지·감속해 충돌 방지",
+    "risk": "과도한 감속으로 전체 시간 초과 가능"
+   },
+   {
+    "idea": "각 물체에 대해 시간‑대‑충돌(TTC) < 2 s이면 즉시 정지하고 일정 시간 대기한다",
+    "new_family": true,
+    "for": "빠른 접근을 사전에 차단",
+    "risk": "잔여 물체가 많을 경우 과도한 정지·시간 초과"
+   },
+   {
+    "idea": "움직이는 물체가 경유점 경로와 교차하면 경유점을 좌우로 이동시켜 회피한다",
+    "new_family": true,
+    "for": "경유점 기반 경로를 동적으로 수정",
+    "risk": "정적 장애물과 충돌 위험 및 경로 복잡도 증가"
+   }
+  ],
+  "chosen": "Candidate 1 – 전방·측면을 포함한 동적 안전 영역을 이용해 최소 여유 거리 기반 속도 스케일링을 적용한다",
+  "target": "새 안전 검사 함수(_danger_zone_check)와 go‑상태에서 속도 스케일링 로직 추가",
+  "direction": "1) _danger_zone_check(pose,movers) 를 구현해 _rollout으로 예측된 궤적과 mover 위치를 비교해 최소 여유 거리를 반환한다. 2) 최소 여유 거리가 0.5 m 이하이면 speed_scale = max(0.1, min_dist/0.5) 로 계산한다. 3) controller의 go‑블록에서 v_nom = v_nom * speed_scale 적용한다. 4) _front_gap의 각도 조건을 ±45° 로 확대해 측면 물체도 정지 트리거에 포함한다. 5) 기존 _STOP_D, _SAFE 값은 유지하되 speed_scale 로 속도 조절을 추가한다. 6) 필요 시 _detour_side 로 회전 방향을 재평가한다.",
+  "confidence": "medium",
+  "last_direction_ok": "yes (turn 3에서 기존 하이브리드 로직이 0→9 통과로 크게 개선되었으나 충돌 하나가 발생, 전체 성공률은 여전히 높음)",
+  "base_turn": 3
+ },
+ "table": [
+  {
+   "run": "c51t3_s1850101296",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 66.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 60.25,
+   "goal_dist_m": 0.229,
+   "time_to_goal_s": 62.233
+  },
+  {
+   "run": "c51t3_s211699767",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 533.8,
+   "sim_time_s": 61.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 55.32,
+   "goal_dist_m": 0.23,
+   "time_to_goal_s": 57.283
+  },
+  {
+   "run": "c51t3_s1663544203",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 472.6,
+   "sim_time_s": 54.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 48.05,
+   "goal_dist_m": 0.1951,
+   "time_to_goal_s": 50.1
+  },
+  {
+   "run": "c51t3_s1679968844",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 418.6,
+   "sim_time_s": 60.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 54.72,
+   "goal_dist_m": 0.2206,
+   "time_to_goal_s": 56.767
+  },
+  {
+   "run": "c51t3_s1971701544",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 357.9,
+   "sim_time_s": 20.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.517,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.19m/s",
+   "partner_rel_xy": [
+    -0.28,
+    -0.6
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 11.55,
+   "goal_dist_m": 16.926,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t3_s845493342",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 337.3,
+   "sim_time_s": 71.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 65.72,
+   "goal_dist_m": 0.2282,
+   "time_to_goal_s": 67.75
+  },
+  {
+   "run": "c51t3_s542734520",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 265.7,
+   "sim_time_s": 65.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 59.45,
+   "goal_dist_m": 0.2267,
+   "time_to_goal_s": 61.417
+  },
+  {
+   "run": "c51t3_s1712226762",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 200.3,
+   "sim_time_s": 58.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 52.85,
+   "goal_dist_m": 0.1953,
+   "time_to_goal_s": 54.917
+  },
+  {
+   "run": "c51t3_s1698536053",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 141.4,
+   "sim_time_s": 54.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 48.55,
+   "goal_dist_m": 0.2252,
+   "time_to_goal_s": 50.6
+  },
+  {
+   "run": "c51t3_s1724777727",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 86.9,
+   "sim_time_s": 63.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 57.95,
+   "goal_dist_m": 0.2041,
+   "time_to_goal_s": 60.083
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 97 s / 한도 600 s)\n#1 이번 코드(진단 \"1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#2 이번 코드(진단 \"1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 282 s / 한도 600 s)\n#3 이번 코드(1턴 코드로 돌아가 시작, 진단 \"1. _STOP_WAIT 값을 5.0에서 2.0 초로 줄여 정지 후 대기 시간을 단축한다. 2. controller 함수의 c.state == \\\"go\\\" 블록에서 현재 for‑k 루프가 끝난 뒤, 안전한 스케일 명령을 찾지 못했을 경우에만 _evade(pose, movers, target, False) 를 호출해 반환값을 사용한다. 3. 이 fallback 은 기존 안전 후보가 존재하면 기존 로직을 그대로 따르며, 안전 후보가 없을 때만 적용한다. 4. stop 및 detour 상태 로직은 기존대로 유지하되, 감소된 _STOP_WAIT 로 인해 detour 전환이 더 빨리 일어난다. 5. 새로운 함수나 변수는 추가하지 않고, 기존 _STOP_WAIT 상수와 controller 내부 코드를 수정한다. 6. 이렇게 하면 로봇이 안전 후보가 부족한 상황에서도 최소한의 전진/회피 동작을 수행해 60 s 동안 0.3 m 미만 이동하는 스톨을 방지한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 577 s / 한도 600 s)",
+ "ended": "2026-11-23 04:53:14"
+}

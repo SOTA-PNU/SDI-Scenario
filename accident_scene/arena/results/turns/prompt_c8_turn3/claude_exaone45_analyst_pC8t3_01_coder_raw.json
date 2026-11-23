@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 이번 실패는 충돌이 아니라 정지와 재출발의 반복(19회)에 따른 시간 초과입니다. 그래서 `clr_n < _CLR_GO` 일 때 0.5 s 정지하던 방식을 바꿨습니다. 이제는 `s = clr_n/_CLR_GO` 를 `_nominal_cmd` 의 scale 인자로 넘겨, 감속한 속도로 기존 경로를 계속 따라갑니다(지시 1, 2, 5). 감속 명령의 예측 경로가 안전하지 않을 때만 멈추고, 멈춰 있어도 물체 여유가 `_CLR_STOP`(0.20 m) 미만일 때만 `_choose` 로 비킵니다(지시 3). 감속 모드를 끝내는 조건은 `clr_n >= 1.2·_CLR_GO` 로 하여 히스테리시스를 두었고(지시 4), 정지 에피소드의 시작·끝·합계를 출력하는 디버그 로그를 추가했습니다(지시 6).\n\n```python\ndef controller(t, pose, env):\n    \"\"\"Waypoint law + 2D-lidar mover handling (attempt 3):\n    - forward clearance below _CLR_GO no longer triggers a timed stop: the nominal law is scaled by\n      s = clr_n / _CLR_GO along the same path (diagnosis 1, 2, 5)\n    - stop only when even the scaled path is unsafe; _choose() is used while stopped only when standing still\n      is predicted below _CLR_STOP (diagnosis 3)\n    - slow mode ends when clr_n >= 1.2 * _CLR_GO (hysteresis, diagnosis 4)\n    - stop episodes are counted and printed (diagnosis 6).\"\"\"\n    S = _CS\n    if not S:\n        S.update(idx=0, tracks=[], mv={\"front\": np.zeros((0, 2)), \"back\": np.zeros((0, 2))},\n                 mt={\"front\": -99.0, \"back\": -99.0}, last={}, v=0.0, w=0.0,\n                 slow=False, stopped=False, n_stop=0, stop_t=0.0, stop_sum=0.0,\n                 started=False, reported=False)\n    x, y, yaw = pose\n    n = len(_WAYPOINTS)\n\n    # 1) sensing: both 2D lidars -> world points -> drop static map -> mover clusters/tracks\n    fresh = {}\n    for which in (\"front\", \"back\"):\n        p = lidar2d_points(which)\n        if p.shape[0] > 0 and p is not S[\"last\"].get(which):\n            S[\"last\"][which] = p\n            S[\"mv\"][which] = _ingest(p, pose, abs(S[\"w\"]))\n            S[\"mt\"][which] = t\n            fresh[which] = True\n    if fresh.get(\"front\") or (fresh.get(\"back\") and t - S[\"mt\"][\"front\"] > 0.25):\n        parts = [S[\"mv\"][k] for k in (\"front\", \"back\") if t - S[\"mt\"][k] < 0.25]\n        _update_tracks(np.concatenate(parts) if parts else np.zeros((0, 2)), t)\n\n    if not S[\"started\"]:   # look before the first move (a mover may be near START)\n        if not ((S[\"mt\"][\"front\"] > -1.0 and t >= 0.3) or t >= 2.0):\n            return 0.0, 0.0, False\n        S[\"started\"] = True\n\n    # 2) goal alignment / finish\n    if S[\"idx\"] >= n and math.hypot(GOAL[0] - x, GOAL[1] - y) > 0.5:\n        S[\"idx\"] = n - 1\n    if S[\"idx\"] >= n and abs(_wrap_angle(GOAL[2] - yaw)) < 0.05:\n        _log_stop(t, pose, False, 9.0)\n        if not S[\"reported\"]:\n            S[\"reported\"] = True\n            print(\"[C2 debug] done t=%.2f stop_episodes=%d stopped_total=%.2fs\"\n                  % (t, S[\"n_stop\"], S[\"stop_sum\"]), flush=True)\n        return 0.0, 0.0, True\n\n    # 3) nominal command (verified law) and its predicted safety\n    v_n, w_n, S[\"idx\"] = _nominal_cmd(x, y, yaw, S[\"idx\"], 1.0)\n    target = _WAYPOINTS[min(S[\"idx\"], n - 1)]\n    P, U = _movers_now(t)                    # all-around movers (front + back lidar)\n    Pf, Uf = _front_sector(P, U, pose)       # forward +-45 deg\n    traj_n = _rollout_nominal(pose, S[\"idx\"], S[\"v\"], 1.0)\n    st_n = _static_clearance(traj_n[None, :_KS + 1])[0]\n    clr_n = _mover_clearance(traj_n[None], Pf, Uf)[0]\n    clr_all = _mover_clearance(traj_n[None], P, U)[0]\n\n    # diagnosis 4: slow mode with hysteresis (enter < _CLR_GO, leave >= _HYST * _CLR_GO)\n    if S[\"slow\"]:\n        if st_n >= 0.0 and clr_n >= _CLR_GO * _HYST:\n            S[\"slow\"] = False\n    elif clr_n < _CLR_GO:\n        S[\"slow\"] = True\n\n    # 4) decide\n    stop = False\n    if st_n < 0.0:                                     # off the verified path: safe arc toward the waypoint\n        v, w, _ = _choose(pose, P, U, target)\n    elif not S[\"slow\"]:\n        if clr_all >= _CLR_STOP:\n            v, w = v_n, w_n\n        else:                                          # side/rear mover would touch the path -> evade\n            v, w, _ = _choose(pose, P, U, target)\n    else:\n        # diagnosis 1, 2, 5: proportional slow-down on the nominal path instead of a timed stop\n        v, w, stop = _slow_cmd(pose, S[\"idx\"], S[\"v\"], clr_n, P, U, Pf, Uf)\n        if stop:\n            # diagnosis 3: evade only if standing still would be hit\n            still = np.tile(np.array([x, y, yaw], dtype=np.float64), (_KP + 1, 1))[None]\n            if _mover_clearance(still, P, U)[0] < _CLR_STOP:\n                v, w, _ = _choose(pose, P, U, target)\n\n    _log_stop(t, pose, stop, clr_n)\n    S[\"v\"], S[\"w\"] = v, w\n    return v, w, False\n```\n\n```python\n_HYST = 1.2             # diagnosis 4: leave slow mode only when clr_n >= 1.2 * _CLR_GO\n\n\n_S_MIN = 0.12           # below this speed scale the robot stops instead of crawling\n\n\ndef _slow_cmd(pose, idx, v0, clr_n, P, U, Pf, Uf):\n    \"\"\"Diagnosis 1, 2, 5: follow the nominal path with the speed scaled by clr_n / _CLR_GO (0..1).\n    The scaled path (and a half-scaled fallback) must be static-safe and keep >= _CLR_STOP from movers;\n    otherwise returns a stop (0, 0, True).\"\"\"\n    x, y, yaw = pose\n    s = _clamp(clr_n / _CLR_GO, 0.0, 1.0)\n    for sc in (s, 0.5 * s):\n        if sc < _S_MIN:\n            break\n        traj = _rollout_nominal(pose, idx, v0, sc)\n        if (_static_clearance(traj[None, :_KS + 1])[0] >= 0.0\n                and _mover_clearance(traj[None], Pf, Uf)[0] >= _CLR_STOP\n                and _mover_clearance(traj[None], P, U)[0] >= _CLR_STOP):\n            v, w, _ = _nominal_cmd(x, y, yaw, idx, sc)\n            return v, w, False\n    return 0.0, 0.0, True\n\n\ndef _log_stop(t, pose, stop, clr_n):\n    \"\"\"Diagnosis 6: count and print stop episodes (edges only) for time-budget analysis.\"\"\"\n    S = _CS\n    if stop and not S[\"stopped\"]:\n        S[\"n_stop\"] += 1\n        S[\"stop_t\"] = t\n        print(\"[C2 debug] stop #%d start t=%.2f pos=(%.2f, %.2f) clr_n=%.2f\"\n              % (S[\"n_stop\"], t, pose[0], pose[1], clr_n), flush=True)\n    elif not stop and S[\"stopped\"]:\n        dur = t - S[\"stop_t\"]\n        S[\"stop_sum\"] += dur\n        print(\"[C2 debug] stop #%d end t=%.2f dur=%.2fs total=%.2fs\"\n              % (S[\"n_stop\"], t, dur, S[\"stop_sum\"]), flush=True)\n    S[\"stopped\"] = stop\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 20957,
+  "completion_tokens": 12945
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 120624,
+  "total_cost_usd": 0.42654800000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 12945,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 20955,
+    "webSearchRequests": 0,
+    "costUSD": 0.42654800000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 9880,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 20955,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "475e86f7-49fc-4d86-b538-069be68f9c23"
+ }
+}

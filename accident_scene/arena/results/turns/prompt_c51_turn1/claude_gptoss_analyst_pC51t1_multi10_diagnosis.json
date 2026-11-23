@@ -1,0 +1,265 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "run c51t1_s1339831266: time_limit 35.8 s, sim_time 36.8 s, final_goal_dist 9.03 m, stop_turn_episodes 4 → 목표 미달성으로 시간 초과",
+   "run c51t1_s2084900639: stop_turn_episodes 17, sim_time 73.3 s → 평균 60 s 이하 목표 초과",
+   "run c51t1_s1928439320: first_not_on_map t=48.85 s, dist=1.54 m, 로봇 속도 1.52 m/s → 정지·우회 반복으로 전체 시간 증가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 앞 ±30° 안에서 충분히 빨리 감지된다",
+    "holds": false,
+    "why": "물체가 ≈‑90°(오른쪽)에서 나타나며, 감지 시점이 1.5‑2 m로 너무 가까워 정지·대기만으로는 충분히 회피 못함"
+   },
+   {
+    "assumption": "정지 5 s 후 물체가 지나가면 다시 진행 가능하다",
+    "holds": false,
+    "why": "많은 실행에서 정지 후에도 우회(detour) 단계가 필요해 시간 손실이 크게 증가"
+   },
+   {
+    "assumption": "이동 물체는 속도가 낮아 멈추고 기다리면 안전하다",
+    "holds": true,
+    "why": "물체 속도 추정이 2 m/s 이하로 대부분 맞으며 충돌 없이 회피 가능하지만 시간 효율은 낮음"
+   },
+   {
+    "assumption": "단일 정적 경유점 경로는 움직이는 물체가 있더라도 충분히 빠르게 목표에 도달한다",
+    "holds": false,
+    "why": "정지·우회 로직으로 인해 평균 시뮬 시간 60 s 이상, 전체 예산 600 s 초과"
+   },
+   {
+    "assumption": "라이다 2D 점만으로 정적 장애물을 배제하고 움직이는 물체만 식별한다",
+    "holds": true,
+    "why": "_is_static 함수가 지도 점을 정확히 제외해 움직이는 물체만 추적함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static baseline (센서 미사용)",
+    "turns": "0",
+    "result": "0/3 통과 (충돌 3회)"
+   },
+   {
+    "family": "stop/detour 상태 머신 (전방 거리 기반 정지·우회)",
+    "turns": "1",
+    "result": "9/10 통과, 1개 시간 제한 초과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방·전체 2D 라이다를 이용해 매 프레임 후보 속도(v,w)를 평가하고, 안전 거리와 목표 진행도를 동시에 최적화하는 연속 로컬 플래너(DWA 스타일) 적용",
+    "new_family": true,
+    "for": "불필요한 정지·우회 사이클 감소, 모든 방향의 물체 회피 가능",
+    "risk": "예측 시간·거리 설정이 부적절하면 안전 여유 부족, 연산량 증가"
+   },
+   {
+    "idea": "시간‑충돌(TTC) 기반 예측 감속: TTC < 2 s이면 속도를 비례적으로 감소시켜 정지 없이 회피",
+    "new_family": true,
+    "for": "진행 속도 유지, 정지 대기 시간 감소",
+    "risk": "속도 추정 오차가 클 경우 충돌 위험"
+   },
+   {
+    "idea": "동적 경유점 삽입: 움직이는 물체가 현재 경유점을 차단하면 임시 우회 점을 생성해 우회 후 원래 경로 복귀",
+    "new_family": true,
+    "for": "경유점 기반 진행 유지, 물체 회피 시 경로 재계획",
+    "risk": "경유점 관리 복잡, 반복 삽입 시 경로 진동 가능"
+   }
+  ],
+  "chosen": "전방·전체 라이다 기반 연속 로컬 플래너(DWA) 후보를 선택, 정지·우회 대신 매 순간 안전한 속도 명령을 선택하도록 함",
+  "target": "controller (go/stop/detour 로직 전체 교체, _evade 기반 연속 후보 선택 적용)",
+  "direction": "1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.",
+  "confidence": "medium",
+  "last_direction_ok": "yes, 전방 정지·우회 로직 덕분에 0→9 통과로 크게 개선됐지만 시간 초과가 발생해 추가 개선 필요",
+  "base_turn": 1
+ },
+ "raw": "{\n  \"failure_mode\": \"timeout\",\n  \"evidence\": [\n    \"run c51t1_s1339831266: time_limit 35.8 s, sim_time 36.8 s, final_goal_dist 9.03 m, stop_turn_episodes 4 → 목표 미달성으로 시간 초과\",\n    \"run c51t1_s2084900639: stop_turn_episodes 17, sim_time 73.3 s → 평균 60 s 이하 목표 초과\",\n    \"run c51t1_s1928439320: first_not_on_map t=48.85 s, dist=1.54 m, 로봇 속도 1.52 m/s → 정지·우회 반복으로 전체 시간 증가\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 앞 ±30° 안에서 충분히 빨리 감지된다\",\n      \"holds\": false,\n      \"why\": \"물체가 ≈‑90°(오른쪽)에서 나타나며, 감지 시점이 1.5‑2 m로 너무 가까워 정지·대기만으로는 충분히 회피 못함\"\n    },\n    {\n      \"assumption\": \"정지 5 s 후 물체가 지나가면 다시 진행 가능하다\",\n      \"holds\": false,\n      \"why\": \"많은 실행에서 정지 후에도 우회(detour) 단계가 필요해 시간 손실이 크게 증가\"\n    },\n    {\n      \"assumption\": \"이동 물체는 속도가 낮아 멈추고 기다리면 안전하다\",\n      \"holds\": true,\n      \"why\": \"물체 속도 추정이 2 m/s 이하로 대부분 맞으며 충돌 없이 회피 가능하지만 시간 효율은 낮음\"\n    },\n    {\n      \"assumption\": \"단일 정적 경유점 경로는 움직이는 물체가 있더라도 충분히 빠르게 목표에 도달한다\",\n      \"holds\": false,\n      \"why\": \"정지·우회 로직으로 인해 평균 시뮬 시간 60 s 이상, 전체 예산 600 s 초과\"\n    },\n    {\n      \"assumption\": \"라이다 2D 점만으로 정적 장애물을 배제하고 움직이는 물체만 식별한다\",\n      \"holds\": true,\n      \"why\": \"_is_static 함수가 지도 점을 정확히 제외해 움직이는 물체만 추적함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"static baseline (센서 미사용)\",\n      \"turns\": \"0\",\n      \"result\": \"0/3 통과 (충돌 3회)\"\n    },\n    {\n      \"family\": \"stop/detour 상태 머신 (전방 거리 기반 정지·우회)\",\n      \"turns\": \"1\",\n      \"result\": \"9/10 통과, 1개 시간 제한 초과\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"전방·전체 2D 라이다를 이용해 매 프레임 후보 속도(v,w)를 평가하고, 안전 거리와 목표 진행도를 동시에 최적화하는 연속 로컬 플래너(DWA 스타일) 적용\",\n      \"new_family\": true,\n      \"for\": \"불필요한 정지·우회 사이클 감소, 모든 방향의 물체 회피 가능\",\n      \"risk\": \"예측 시간·거리 설정이 부적절하면 안전 여유 부족, 연산량 증가\"\n    },\n    {\n      \"idea\": \"시간‑충돌(TTC) 기반 예측 감속: TTC < 2 s이면 속도를 비례적으로 감소시켜 정지 없이 회피\",\n      \"new_family\": true,\n      \"for\": \"진행 속도 유지, 정지 대기 시간 감소\",\n      \"risk\": \"속도 추정 오차가 클 경우 충돌 위험\"\n    },\n    {\n      \"idea\": \"동적 경유점 삽입: 움직이는 물체가 현재 경유점을 차단하면 임시 우회 점을 생성해 우회 후 원래 경로 복귀\",\n      \"new_family\": true,\n      \"for\": \"경유점 기반 진행 유지, 물체 회피 시 경로 재계획\",\n      \"risk\": \"경유점 관리 복잡, 반복 삽입 시 경로 진동 가능\"\n    }\n  ],\n  \"chosen\": \"전방·전체 라이다 기반 연속 로컬 플래너(DWA) 후보를 선택, 정지·우회 대신 매 순간 안전한 속도 명령을 선택하도록 함\",\n  \"target\": \"controller (go/stop/detour 로직 전체 교체, _evade 기반 연속 후보 선택 적용)\",\n  \"direction\": \"1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"yes, 전방 정지·우회 로직 덕분에 0→9 통과로 크게 개선됐지만 시간 초과가 발생해 추가 개선 필요\",\n  \"base_turn\": 1\n}",
+ "table": [
+  {
+   "run": "c51t1_s2084900639",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 73.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 67.33,
+   "goal_dist_m": 0.2247,
+   "time_to_goal_s": 69.333
+  },
+  {
+   "run": "c51t1_s1928439320",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 526.7,
+   "sim_time_s": 54.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 48.85,
+   "goal_dist_m": 0.1949,
+   "time_to_goal_s": 50.867
+  },
+  {
+   "run": "c51t1_s305387405",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 471.9,
+   "sim_time_s": 73.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 67.55,
+   "goal_dist_m": 0.2195,
+   "time_to_goal_s": 69.617
+  },
+  {
+   "run": "c51t1_s450455218",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 398.4,
+   "sim_time_s": 56.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 50.52,
+   "goal_dist_m": 0.221,
+   "time_to_goal_s": 52.55
+  },
+  {
+   "run": "c51t1_s1372224215",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 341.9,
+   "sim_time_s": 61.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 55.72,
+   "goal_dist_m": 0.2195,
+   "time_to_goal_s": 57.683
+  },
+  {
+   "run": "c51t1_s246308248",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 280.3,
+   "sim_time_s": 69.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 63.72,
+   "goal_dist_m": 0.2279,
+   "time_to_goal_s": 65.833
+  },
+  {
+   "run": "c51t1_s694236717",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 210.6,
+   "sim_time_s": 53.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 47.12,
+   "goal_dist_m": 0.2029,
+   "time_to_goal_s": 49.183
+  },
+  {
+   "run": "c51t1_s1486436744",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 157.5,
+   "sim_time_s": 59.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 53.55,
+   "goal_dist_m": 0.2244,
+   "time_to_goal_s": 55.6
+  },
+  {
+   "run": "c51t1_s2026299861",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 98.0,
+   "sim_time_s": 62.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 56.32,
+   "goal_dist_m": 0.2044,
+   "time_to_goal_s": 58.267
+  },
+  {
+   "run": "c51t1_s1339831266",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 35.8,
+   "sim_time_s": 36.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 9.0307,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

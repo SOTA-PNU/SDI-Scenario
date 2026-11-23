@@ -1,0 +1,164 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision|stall",
+  "evidence": [
+   "실행 c8t9_s1639540656에서 정적 장애물 arena_box_03과 충돌 (t=100.033s, 로봇 위치 x=-2.17, y=4.93)",
+   "실행 c8t9_s1094128880에서 90초간 진행 없이 정지 (최종 위치 목표까지 6.71m, 정지 에피소드 35회)",
+   "실행 c8t9_s931153178에서 시간 한도 초과 (143.6s 사용, 한도 142.6s)",
+   "다수 실행에서 first_not_on_map이 2m 이내로 접근 시 정적 여유(st_n)가 0.3m 미만인 구역에서 회피 종료 조건 미충족 (예: 시작 지점 정적 여유 ~0.28m)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 종료 시 정적 여유가 0.3m 이상이어야 한다는 조건이 창고 내 좁은 통로에서는 항상 충족될 수 없음",
+    "holds": false,
+    "why": "실행 c8t9_s1639540656에서 정적 장애물과의 충돌이 발생했으며, 로봇 위치 x=-2.17, y=4.93에서 정적 여유가 0.3m 미만임이 추정됨 (박스 03의 경계 근처)"
+   },
+   {
+    "assumption": "TTC 회복과 정적 여유 회복이 0.5초 내에 동시 발생할 것이라는 가정",
+    "holds": false,
+    "why": "실행 c8t9_s1094128880에서 90초간 진행 없이 정지했으며, 마지막 5s 기록에서 mover 거리 감소(3.21m→1.93m)와 로봇 속도 저하(0.4m/s)가 지속됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC 기반 조기 회피 트리거 조정",
+    "turns": "6, 7, 8, 9",
+    "result": "통과 수 증가했으나 시간 한도 초과 및 정적 장애물 충돌 잔존 (예: 턴 6 7/8 통과 but 1 time_limit, 턴 9 2/5 통과)"
+   },
+   {
+    "family": "회피 종료 조건 완화 (정적 여유 기준 하향)",
+    "turns": "4, 5",
+    "result": "통과 수 증가했으나 충돌 유형 다변화 (턴 4: 6/9 통과 but 3 collision_driving)"
+   },
+   {
+    "family": "정적 장애물 회피 강화를 위한 경로 재설계",
+    "turns": "2, 3",
+    "result": "초기 통과 1/1 but 후속 시도에서 실패 증가 (턴 3: 4/7 통과 but 3 collision_driving)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 종료 시 정적 여유 조건을 지역별로 유연하게 조정 (좁은 통로에서는 기준 완화)",
+    "new_family": true,
+    "for": "실행 c8t9_s1639540656에서 정적 장애물 충돌이 발생한 구역과 c8t9_s1094128880에서 장시간 정지한 구역의 공통점은 정적 여유가 0.3m 미만인 지역",
+    "risk": "기준 완화로 회피 종료가 조기 발생해 mover와의 충돌 위험 증가"
+   },
+   {
+    "idea": "회피 중 정적 장애물과의 거리 예측을 _choose 함수에 반영하여 회피 경로가 정적 장애물을 피하도록 유도",
+    "new_family": true,
+    "for": "현재 _choose는 mover 기반 점수만 고려하며 정적 장애물 회피가 2차적임 (코드 내 _static_clearance는 하드 제약이지만 회피 중 우선순위 낮음)",
+    "risk": "정적 장애물 회피 강조로 mover 회피 효과가 약화될 수 있음"
+   },
+   {
+    "idea": "회피 종료 조건에서 정적 여유 대신 동적 여유(clr_all)를 주 기준으로 사용하고 정적 여유는 보조 조건으로 설정",
+    "new_family": true,
+    "for": "실행 c8t9_s931153178에서 clr_all이 1.93m로 충분히 멀었음에도 시간 한도 초과 발생 (정적 여유 조건 미충족으로 회피 지속 추정)",
+    "risk": "정적 장애물과의 접촉 위험 증가"
+   }
+  ],
+  "chosen": "회피 종료 시 정적 여유 조건을 지역별로 유연하게 조정하고, 회피 중 정적 장애물 회피를 점수에 반영하는 후보를 선택. 이유: 기존 0.3m 고정 기준으로 인해 좁은 통로에서 회피가 장기화되며, 이로 인해 시간 한도 초과 및 정적 장애물 충돌이 발생함.",
+  "target": "controller 함수 내 회피 종료 조건(_resume_st)과 _choose 함수의 점수 계산 로직",
+  "direction": "1. 회피 종료 조건인 _RESUME_ST를 0.3m에서 0.2m로 완화하되, 정적 여유가 0.15m 미만인 구역에서는 회피 종료를 _EVADE_MAX(8s) 내에서도 강제로 종료하도록 수정.\n2. _choose 함수에서 회피 모드(evading=True) 시 정적 여유(stc)가 0.2m 이상인 경우에만 보너스 점수(_ST_W)를 부여하고, stc < 0인 후보는 절대 선택되지 않도록 하드 제약 강화.\n3. 회피 중 _mover_clearance 대신 _static_clearance를 2차 평가 지표로 추가해, mover와의 거리와 정적 여유를 균형 있게 고려하도록 점수 식 조정.\n4. _EVADE_MAX를 6s로 단축하여 장시간 회피로 인한 시간 한도 초과 방지.\n5. 회피 시작 시 현재 정적 여유가 0.25m 미만이면 즉시 _choose를 호출해 정적 장애물 회피 우선 동작 수행.\n6. 정지 후 재개 시 closing_speed 음수인 경우에도 정적 여유가 0.15m 이상이면 즉시 회피 종료 검토 (시간 낭비 방지).",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision|stall\", \"evidence\": [\"실행 c8t9_s1639540656에서 정적 장애물 arena_box_03과 충돌 (t=100.033s, 로봇 위치 x=-2.17, y=4.93)\", \"실행 c8t9_s1094128880에서 90초간 진행 없이 정지 (최종 위치 목표까지 6.71m, 정지 에피소드 35회)\", \"실행 c8t9_s931153178에서 시간 한도 초과 (143.6s 사용, 한도 142.6s)\", \"다수 실행에서 first_not_on_map이 2m 이내로 접근 시 정적 여유(st_n)가 0.3m 미만인 구역에서 회피 종료 조건 미충족 (예: 시작 지점 정적 여유 ~0.28m)\"], \"assumptions\": [{\"assumption\": \"회피 종료 시 정적 여유가 0.3m 이상이어야 한다는 조건이 창고 내 좁은 통로에서는 항상 충족될 수 없음\", \"holds\": false, \"why\": \"실행 c8t9_s1639540656에서 정적 장애물과의 충돌이 발생했으며, 로봇 위치 x=-2.17, y=4.93에서 정적 여유가 0.3m 미만임이 추정됨 (박스 03의 경계 근처)\"}, {\"assumption\": \"TTC 회복과 정적 여유 회복이 0.5초 내에 동시 발생할 것이라는 가정\", \"holds\": false, \"why\": \"실행 c8t9_s1094128880에서 90초간 진행 없이 정지했으며, 마지막 5s 기록에서 mover 거리 감소(3.21m→1.93m)와 로봇 속도 저하(0.4m/s)가 지속됨\"}], \"approach_families\": [{\"family\": \"TTC 기반 조기 회피 트리거 조정\", \"turns\": \"6, 7, 8, 9\", \"result\": \"통과 수 증가했으나 시간 한도 초과 및 정적 장애물 충돌 잔존 (예: 턴 6 7/8 통과 but 1 time_limit, 턴 9 2/5 통과)\"}, {\"family\": \"회피 종료 조건 완화 (정적 여유 기준 하향)\", \"turns\": \"4, 5\", \"result\": \"통과 수 증가했으나 충돌 유형 다변화 (턴 4: 6/9 통과 but 3 collision_driving)\"}, {\"family\": \"정적 장애물 회피 강화를 위한 경로 재설계\", \"turns\": \"2, 3\", \"result\": \"초기 통과 1/1 but 후속 시도에서 실패 증가 (턴 3: 4/7 통과 but 3 collision_driving)\"}], \"candidates\": [{\"idea\": \"회피 종료 시 정적 여유 조건을 지역별로 유연하게 조정 (좁은 통로에서는 기준 완화)\", \"new_family\": true, \"for\": \"실행 c8t9_s1639540656에서 정적 장애물 충돌이 발생한 구역과 c8t9_s1094128880에서 장시간 정지한 구역의 공통점은 정적 여유가 0.3m 미만인 지역\", \"risk\": \"기준 완화로 회피 종료가 조기 발생해 mover와의 충돌 위험 증가\"}, {\"idea\": \"회피 중 정적 장애물과의 거리 예측을 _choose 함수에 반영하여 회피 경로가 정적 장애물을 피하도록 유도\", \"new_family\": true, \"for\": \"현재 _choose는 mover 기반 점수만 고려하며 정적 장애물 회피가 2차적임 (코드 내 _static_clearance는 하드 제약이지만 회피 중 우선순위 낮음)\", \"risk\": \"정적 장애물 회피 강조로 mover 회피 효과가 약화될 수 있음\"}, {\"idea\": \"회피 종료 조건에서 정적 여유 대신 동적 여유(clr_all)를 주 기준으로 사용하고 정적 여유는 보조 조건으로 설정\", \"new_family\": true, \"for\": \"실행 c8t9_s931153178에서 clr_all이 1.93m로 충분히 멀었음에도 시간 한도 초과 발생 (정적 여유 조건 미충족으로 회피 지속 추정)\", \"risk\": \"정적 장애물과의 접촉 위험 증가\"}], \"chosen\": \"회피 종료 시 정적 여유 조건을 지역별로 유연하게 조정하고, 회피 중 정적 장애물 회피를 점수에 반영하는 후보를 선택. 이유: 기존 0.3m 고정 기준으로 인해 좁은 통로에서 회피가 장기화되며, 이로 인해 시간 한도 초과 및 정적 장애물 충돌이 발생함.\", \"target\": \"controller 함수 내 회피 종료 조건(_resume_st)과 _choose 함수의 점수 계산 로직\", \"direction\": \"1. 회피 종료 조건인 _RESUME_ST를 0.3m에서 0.2m로 완화하되, 정적 여유가 0.15m 미만인 구역에서는 회피 종료를 _EVADE_MAX(8s) 내에서도 강제로 종료하도록 수정.\\n2. _choose 함수에서 회피 모드(evading=True) 시 정적 여유(stc)가 0.2m 이상인 경우에만 보너스 점수(_ST_W)를 부여하고, stc < 0인 후보는 절대 선택되지 않도록 하드 제약 강화.\\n3. 회피 중 _mover_clearance 대신 _static_clearance를 2차 평가 지표로 추가해, mover와의 거리와 정적 여유를 균형 있게 고려하도록 점수 식 조정.\\n4. _EVADE_MAX를 6s로 단축하여 장시간 회피로 인한 시간 한도 초과 방지.\\n5. 회피 시작 시 현재 정적 여유가 0.25m 미만이면 즉시 _choose를 호출해 정적 장애물 회피 우선 동작 수행.\\n6. 정지 후 재개 시 closing_speed 음수인 경우에도 정적 여유가 0.15m 이상이면 즉시 회피 종료 검토 (시간 낭비 방지).\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t9_s2052104611",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 74.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 68.92,
+   "goal_dist_m": 0.2231,
+   "time_to_goal_s": 71.05
+  },
+  {
+   "run": "c8t9_s1639540656",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 525.1,
+   "sim_time_s": 106.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 100.033,
+   "partner": "static:arena_box_03",
+   "robot_at_collision": "주행 0.61m/s 회전 +0.6",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 13.1224,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t9_s374780922",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 419.1,
+   "sim_time_s": 97.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 91.75,
+   "goal_dist_m": 0.2268,
+   "time_to_goal_s": 93.75
+  },
+  {
+   "run": "c8t9_s1094128880",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 321.4,
+   "sim_time_s": 178.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 177.8,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 6.7193,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t9_s931153178",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 142.6,
+   "sim_time_s": 143.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 138.17,
+   "goal_dist_m": 6.7376,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

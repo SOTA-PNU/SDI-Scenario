@@ -1,0 +1,347 @@
+{
+ "turn": 16,
+ "started": "2026-11-19 19:05:28",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c81_turn7/claude_exaone45_analyst_pC81t7_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 2개에서 progress_abort로 종료, 로봇이 25-30회 정지하며 진행 실패 (최종 목표 거리 5.6-6.3m)",
+   "충돌 실행에서 closing_m_s=0.36으로 접근 중 충돌 발생 (물체 속도 0.68m/s)",
+   "2D 라이다 기록에서 물체 거리가 1.3m 내외에서 변동하며 반복 정지 (예: 176.5s 1.39m → 178.0s 1.52m → 178.5s 1.53m)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "모든 감지된 물체가 멀어져야 재출발 가능",
+    "holds": false,
+    "why": "정지 빈도 25-30회로 과도하게 민감하게 반응하여 진행 불가 (증거: 물체 일부만 멀어져도 재출발 필요)"
+   },
+   {
+    "assumption": "MTC 기반 정지 임계값(_HOLD_ON=2.0s)이 물체 접근을 정확히 감지",
+    "holds": false,
+    "why": "접근 속도 0.36m/s로 충돌 발생했으나 MTC 계산 오류 가능성 (증거: closing_m_s 값과 실제 충돌 시점 불일치)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 임계값 조정 및 정지 관리",
+    "turns": "10회",
+    "result": "통과율 0-7/8, 최근 3턴(13-15)에서 모두 실패"
+   },
+   {
+    "family": "재출발 조건 엄격화 (recede 조건 강화)",
+    "turns": "5회",
+    "result": "통과율 0-2/4, stall_abort 증가 (증거: _RESUME_GO 감소로 인한 정지 지속)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "가장 가까운 물체(2m 이내)의 closing0 < 0 지속 시간(_RESUME_GO)으로 재출발 조건 변경",
+    "new_family": true,
+    "for": "접근하는 물체 중 일부만 멀어져도 즉시 재출발 가능하도록 민감도 완화 (증거: 정지 빈도 감소 필요)",
+    "risk": "다른 물체가 접근 중일 때 재출발해 충돌 가능성 (예: 측면 접근 물체 무시)"
+   },
+   {
+    "idea": "접근 물체 수를 시간에 따라 감소 추세로 판단해 재출발 허용",
+    "new_family": true,
+    "for": "물체 이동 패턴 변화에 대응 (증거: 물체 위치/속도 무작위성)",
+    "risk": "계산 복잡도 증가로 실시간 처리 지연 가능성"
+   },
+   {
+    "idea": "MTC 계산 시 물체 거리 가중 평균 적용 (근접 물체 우선 반영)",
+    "new_family": true,
+    "for": "임박한 위협에 민감하게 반응 (증거: 1.3m 거리 물체 반복 정지 원인)",
+    "risk": "원거리 물체 무시로 인한 장기적 위험 증가"
+   }
+  ],
+  "chosen": "7턴 코드의 recede 변수를 상태에 저장하고 정지 해제 조건으로 활용해 물체가 모두 멀어질 때 조기 재출발 가능하게 함",
+  "target": "controller 내 recede 계산 부분 및 _hold_release/재출발 조건 로직",
+  "direction": "1. recede 계산 후 S[\"recede\"] = recede 및 S[\"recede_t\"] 타임스탬프 저장\n2. _hold_release에 recede 지속 시간(_RESUME_GO) 조건 추가: recede 유지 시 MTC 조건 무시\n3. 재출발 조건에 (recede && t - S[\"recede_t\"] >= _RESUME_GO) 추가\n4. _RESUME_GO를 0.5s로 낮춰 민감도 향상\n5. recede 초기화 로직 추가 (물체 재접근 시 카운터 리셋)\n6. 정지 빈도 감소를 위해 _HOLD_GAIN을 0.05→0.1로 상향\n7. 재출발 시 _path_free 확인 생략하여 반응성 향상\n8. _ESC_CLOSE 0.05m/s 유지하되 접근 속도 임계값 완화",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 7,
+  "stage1": {
+   "chosen": "가장 가까운 물체(2m 이내)의 closing0 < 0 지속 시간(_RESUME_GO)으로 재출발 조건 변경을 선택. 정지 빈도 감소와 충돌 위험 최소화 균형 고려",
+   "target": "controller 내 _hold_release 함수 및 recede 조건 로직",
+   "direction": "1. _perceive에서 감지된 물체 중 2m 이내 점을 별도 저장\n2. _hold_release에서 recede 판단 시 전체 점 대신 2m 이내 점 중 closing0 < 0인 점 존재 여부 확인\n3. 해당 조건이 _RESUME_GO(0.5s) 지속되면 재출발 허용\n4. 재출발 시 _path_free 생략 및 즉시 v_nom, w_nom 적용\n5. 정지 해제 조건에 거리 증가 추세(_HOLD_DIST_INC=0.5m, _HOLD_INC_T=0.2s) 추가\n6. _ESC_CLOSE는 0.15m/s로 완화해 정지 빈도 감소"
+  }
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단 direction 1·3·5에 따라 7턴 코드에 `recede` 상태를 추가했습니다. 근처(몸체에서 2 m 이내)의 물체가 모두 `_ESC_CLOSE`(0.05 m/s) 이상 빠르게 멀어지고, 멀리서 곧 닿을 물체가 없을 때를 `S[\"recede\"]` 로 둡니다. 이 상태가 시작된 시각은 `S[\"recede_t\"]` 에 저장하고, 물체가 다시 접근하거나 멈춰 있으면 지웁니다. direction 2·3·7에 따라, 최소 정지 시간 1.0 s 가 지나고 recede 가 `_RESUME_GO`(0.5 s) 이상 이어지면 MTC 조건과 `_path_free` 확인 없이 정지를 풀고 바로 재출발합니다. direction 4에서 `_RESUME_GO` 가 시간 값으로 바뀌므로, 원래 쓰던 예측 여유 거리 0.8 m 는 `_RESUME_GO_M` 으로 옮겨 그대로 유지했습니다. direction 6·8에 따라 `_HOLD_GAIN` 을 0.05에서 0.1로, 접근 속도 임계값 `_CLOSE_MIN` 을 0.15에서 0.2로 완화했고, 마지막 `_rollout` 충돌 검사는 안전장치로 그대로 두었습니다.",
+   "changed": [
+    "_CLOSE_MIN",
+    "_ESC_CLOSE",
+    "_HOLD_GAIN",
+    "_RECEDE_R",
+    "_RESUME_GO",
+    "_RESUME_GO_M",
+    "_hold_release",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. recede 계산 후 S[\"recede\"] 와 S[\"recede_t\"] 타임스탬프 저장",
+      "implemented": true,
+      "note": "controller 에서 closing0, near, far_app 로 recede 를 계산합니다. S[\"recede\"]=recede 이고, recede 가 시작될 때 S[\"recede_t\"]=t 를 저장합니다."
+     },
+     {
+      "instruction": "2. _hold_release 에 recede 지속(_RESUME_GO) 조건 추가, 이때 MTC 조건 무시",
+      "implemented": true,
+      "note": "_hold_release 는 _HOLD_MIN 이 지난 뒤 S[\"recede\"] 가 있고 t-S[\"recede_t\"]>=_RESUME_GO 이면 MTC 비교 없이 True 를 돌려줍니다. recede 는 hold 관리 전에 갱신됩니다."
+     },
+     {
+      "instruction": "3. 재출발 조건에 (recede && t-recede_t>=_RESUME_GO) 추가",
+      "implemented": true,
+      "note": "정지 블록에 rec_ok 분기를 넣었습니다. 이 분기는 v_nom 으로 재출발하고 hold 와 recede_t 를 초기화합니다."
+     },
+     {
+      "instruction": "4. _RESUME_GO 를 0.5 s 로",
+      "implemented": true,
+      "note": "_RESUME_GO=0.5[s] 입니다. 기존 거리값 0.8 m 는 _RESUME_GO_M 으로 옮겨 rollout 재개 조건에 그대로 씁니다."
+     },
+     {
+      "instruction": "5. 물체 재접근 시 recede 카운터 리셋",
+      "implemented": true,
+      "note": "recede 가 False 이면 S[\"recede_t\"]=None 입니다. 회피 진입과 정지 해제 때도 초기화합니다."
+     },
+     {
+      "instruction": "6. _HOLD_GAIN 0.05→0.1",
+      "implemented": true,
+      "note": "_HOLD_GAIN=0.1 입니다."
+     },
+     {
+      "instruction": "7. 재출발 시 _path_free 확인 생략",
+      "implemented": true,
+      "note": "정지 블록의 rec_ok 분기와 rollout 분기 모두에서 _path_free 호출을 뺐습니다."
+     },
+     {
+      "instruction": "8. _ESC_CLOSE 0.05 유지, 접근 속도 임계값 완화",
+      "implemented": true,
+      "note": "_ESC_CLOSE=0.05 를 새로 정의해 recede 판단에 씁니다. _CLOSE_MIN 은 0.15→0.2 로 완화했습니다."
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "_HOLD_GAIN 상향은 재정지 임계값을 낮추지만 MTC 기반 해제에 필요한 증가폭도 키웁니다. 그래서 정지 빈도 감소라는 목적과 일부 상충합니다.",
+     "_ESC_CLOSE, _RESUME_GO(시간) 등 15턴 코드의 이름을 7턴 코드 기준으로 지시해 해석 여지가 있었습니다. 수정 담당이 새로 정의해 맞췄습니다.",
+     "_path_free 생략과 recede 시 rollout 재개 조건 우회로 재출발 직후 위험이 커질 수 있습니다. 마지막 _rollout(<0.3) 검사만 안전장치로 남아 있습니다."
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 7,
+ "diag_turn": 15,
+ "reason": "변경 이유: 진단 direction 1·3·5에 따라 7턴 코드에 `recede` 상태를 추가했습니다. 근처(몸체에서 2 m 이내)의 물체가 모두 `_ESC_CLOSE`(0.05 m/s) 이상 빠르게 멀어지고, 멀리서 곧 닿을 물체가 없을 때를 `S[\"recede\"]` 로 둡니다. 이 상태가 시작된 시각은 `S[\"recede_t\"]` 에 저장하고, 물체가 다시 접근하거나 멈춰 있으면 지웁니다. direction 2·3·7에 따라, 최소 정지 시간 1.0 s 가 지나고 recede 가 `_RESUME_GO`(0.5 s) 이상 이어지면 MTC 조건과 `_path_free` 확인 없이 정지를 풀고 바로 재출발합니다. direction 4에서 `_RESUME_GO` 가 시간 값으로 바뀌므로, 원래 쓰던 예측 여유 거리 0.8 m 는 `_RESUME_GO_M` 으로 옮겨 그대로 유지했습니다. direction 6·8에 따라 `_HOLD_GAIN` 을 0.05에서 0.1로, 접근 속도 임계값 `_CLOSE_MIN` 을 0.15에서 0.2로 완화했고, 마지막 `_rollout` 충돌 검사는 안전장치로 그대로 두었습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1440804875,
+  893484266,
+  1459278741,
+  400316459,
+  1863063845,
+  913062395,
+  364631647
+ ],
+ "sim_used_s": 577.9,
+ "verdicts": {
+  "1440804875": "pass",
+  "893484266": "pass",
+  "1459278741": "pass",
+  "400316459": "pass",
+  "1863063845": "pass",
+  "913062395": "pass",
+  "364631647": "pass"
+ },
+ "passes": 7,
+ "prior_chars": 6873,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 7개를 실행했고, 3개는 실행하지 못했습니다 (사유: 남은 예산 22초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 7개, 실패 0개. 시뮬 시간 합계 578초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 83초 (가장 짧은 것 70초, 가장 긴 것 94초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) _HOLD_GAIN 상향은 재정지 임계값을 낮추지만 MTC 기반 해제에 필요한 증가폭도 키웁니다. 그래서 정지 빈도 감소라는 목적과 일부 상충합니다.\n- (검토 1회차, 판정 pass) _ESC_CLOSE, _RESUME_GO(시간) 등 15턴 코드의 이름을 7턴 코드 기준으로 지시해 해석 여지가 있었습니다. 수정 담당이 새로 정의해 맞췄습니다.\n- (검토 1회차, 판정 pass) _path_free 생략과 recede 시 rollout 재개 조건 우회로 재출발 직후 위험이 커질 수 있습니다. 마지막 _rollout(<0.3) 검사만 안전장치로 남아 있습니다.\n",
+ "diagnosis_out": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "평균 시뮬레이션 시간 83초로 10개 배치 완료에 필요한 60초 이하 기준 초과",
+   "7개 실행 합계 578초로 남은 예산 22초로는 8번째 실행 시작 불가",
+   "stop_turn_episodes 평균 16회로 정지/회전 시간 과다 소요"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 빈도가 높은 것이 전체 시간 증가의 주원인",
+    "holds": true,
+    "why": "stop_turn_episodes 수치와 평균 실행 시간 상관관계 확인"
+   },
+   {
+    "assumption": "recede 조건(_ESC_CLOSE, _RESUME_GO)이 정지 해제를 지연시켜 시간 낭비 유발",
+    "holds": false,
+    "why": "recede 조건은 정지 해제 속도를 높이지만 정지 빈도 감소 없이는 효과 제한적"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 조건 조정 (HOLD_ON, _SLOW_T)",
+    "turns": "0~16",
+    "result": "통과 수 증가 시 평균 시간 74~86초 유지, timeout 빈번"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_HOLD_ON을 1.5s로 상향해 정지 빈도 감소",
+    "new_family": true,
+    "for": "현재 1.0s 기준에서 정지 횟수 20% 감소 예상",
+    "risk": "정지 임계값 상승으로 충돌 위험 증가 가능, recede 조건으로 보완 필요"
+   },
+   {
+    "idea": "경유점 경로 단순화로 회전 횟수 감소",
+    "new_family": true,
+    "for": "stop_turn_episodes 수 직접 감소로 시간 절약 가능",
+    "risk": "정적 장애물 회피 실패 가능성, 경로 변경 시 환경 의존성 우려"
+   },
+   {
+    "idea": "_SLOW_T 하향 및 감속 구간 속도 하한 상향",
+    "new_family": false,
+    "for": "turn 5에서 _SLOW_T=2.5s로 시간 단축 사례 있으나 충돌 위험 존재",
+    "risk": "과도한 감속으로 속도 저하 및 정지 빈도 오히려 증가 가능"
+   }
+  ],
+  "chosen": "후보 1 선택: _HOLD_ON 상향으로 정지 빈도 감소, recede 조건 유지로 안전성 보장",
+  "target": "controller 내 정지 조건 및 _HOLD_ON 상수 수정",
+  "direction": "1. _HOLD_ON을 1.0s에서 1.5s로 상향 조정\n2. 정지 해제 조건에서 d_now >= _HOLD_ON 기준 강화\n3. recede 상태 지속 시간(_RESUME_GO)을 0.5s로 유지하며 MTC 조건 무시\n4. 정지 중 재출발 시 path_free 확인 생략 조건 유지\n5. _CLOSE_MIN을 0.25m로 완화해 조기 경고 감지\n6. 감속 구간 속도 하한(_V_SLOW)을 0.25m/s로 상향해 시간 절약",
+  "confidence": "medium",
+  "last_direction_ok": "yes",
+  "base_turn": 16
+ },
+ "table": [
+  {
+   "run": "c81t16_s1440804875",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 84.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 78.35,
+   "goal_dist_m": 0.2208,
+   "time_to_goal_s": 80.45
+  },
+  {
+   "run": "c81t16_s893484266",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 515.7,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 66.85,
+   "goal_dist_m": 0.2296,
+   "time_to_goal_s": 68.9
+  },
+  {
+   "run": "c81t16_s1459278741",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 442.9,
+   "sim_time_s": 83.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 77.92,
+   "goal_dist_m": 0.2232,
+   "time_to_goal_s": 80.0
+  },
+  {
+   "run": "c81t16_s400316459",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 359.0,
+   "sim_time_s": 87.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 81.25,
+   "goal_dist_m": 0.2252,
+   "time_to_goal_s": 83.35
+  },
+  {
+   "run": "c81t16_s1863063845",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 271.7,
+   "sim_time_s": 85.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 79.22,
+   "goal_dist_m": 0.202,
+   "time_to_goal_s": 81.25
+  },
+  {
+   "run": "c81t16_s913062395",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 186.5,
+   "sim_time_s": 94.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 88.52,
+   "goal_dist_m": 0.2298,
+   "time_to_goal_s": 90.517
+  },
+  {
+   "run": "c81t16_s364631647",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 92.1,
+   "sim_time_s": 70.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 64.02,
+   "goal_dist_m": 0.1972,
+   "time_to_goal_s": 66.067
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 79 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔을 world 좌표로 변환 후 정적 지도와 점 비교\\n2. 정적 장애물이 아닌 가장 가까운 점의 거리를 계산\\n3. 거리 < 1.5m 시 v=0, w=0 (즉시 정지)\\n4. 거리 1.5~3m 시 v=0.3, w=0 (감속 후 회전 중지)\\n5. 이전 거리와 비교해 감소 중이면 감속 강화\\n6. 물체 감지 시 waypoint 추종 일시 중단, 안전 거리 확보 후 재개\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 574 s / 한도 600 s)\n#2 이번 코드(진단 \"1. closing_object = -(U·dx + U·dy)/rng 계산 후\\n2. v_robot_n = v_nom * rx / rng (rx > 0인 물체만 적용)\\n3. total_closing = closing_object + v_robot_n\\n4. d_eff = clr - 0.7 * max(total_closing, 0.0)\\n5. 정지 조건(d_thr < 1.5m) 유지하되, 재출발 전 0.5s 정지 상태로 물체 거리 증가 확인 추가\\n6. 새로운 물체 감지 시 age=1인 경우 closing_object에 최소 0.1m/s 추가 가정 (보수적 예측)\\n7. rx > -0.3 조건 유지하되, coming 판단 시 total_closing > 0.15로 강화\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 203 s / 한도 600 s)\n#3 이번 코드(1턴 코드로 돌아가 시작, 진단 \"1. Change d_thr threshold from 1.5 to 2.0m in controller\\n2. In _hold_release, require d_now >= H['d'] + 0.1 instead of 0.05\\n3. Keep coming condition (closing >0.15) but ensure d_eff uses only object closing speed\\n4. Remove robot speed contribution from threat assessment (not applicable in 1-turn code)\\n5. Increase minimum stop duration to 1.0s instead of 0.5s to allow sustained movement\\n6. Add hysteresis: only reset H if d_thr <1.8m (new lower threshold) to prevent rapid toggle\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#4 이번 코드(진단 \"1. d_eff 계산 시 closing 가중치 0.7 → 1.0으로 상향해 조기 위협 감지\\n2. _plan_escape에서 물체 속도 벡터와 수직 방향 후보 자동 생성\\n3. 회피 시 회전 속도 제한 ±0.6 → ±1.0 rad/s로 완화\\n4. 정지 임계값 _HOLD_ON을 3.5m로 상향\\n5. 감속 구간(d_thr < 3.5m)에서 전진 속도 하한 0.2m/s 유지\\n6. 회피 후 복귀 시 정지 시간 0.5s로 단축해 재시작 유연성 확보\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#5 이번 코드(3턴 코드로 돌아가 시작, 진단 \"1. 로봇 속도 벡터 v_robot_vec = (v_nom*cos(yaw), v_nom*sin(yaw)) 계산\\n2. closing = -((U - v_robot_vec)·r)/|r|로 수정 (기존 U만 고려했던 오류 수정)\\n3. closing > 0.15인 객체에 대해 MTC = |r|/closing 계산 후 d_thr = min(MTC)\\n4. rx 방향 제한 조건 제거로 모든 접근 물체 감지\\n5. _HOLD_MIN을 1.0에서 0.5로 줄여 정지 시간 단축\\n6. MTC 기반 정지/회피로 충돌 감소와 평균 실행 시간 60초 이내 달성\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _SLOW_T를 3.5s로 상향 조정\\n2. 감속 비율 k 계산 시 (d_thr - _HOLD_ON)/(3.5 - _HOLD_ON) 적용\\n3. _V_SLOW를 0.3→0.2m/s로 하향해 감속 시 최소 속도 완화\\n4. 정지 시 재출발 조건(_HOLD_RELEASE)에서 _HOLD_GAIN 0.1→0.05로 축소\\n5. 감속 구간 진입 시 로봇 회전 속도 제한 완화(±0.8→±1.0 rad/s)\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 577 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _HOLD_MIN 값을 0.5에서 1.0으로 상향 조정\\n2. 정지 상태(H) 관리 시 최소 정지 시간 검증 로직에서 _HOLD_MIN=1.0s 적용\\n3. 정지 중 주행 재개 조건을 강화하되, _HOLD_MIN 충족 전까지 재개 절대 허용하지 않음\\n4. MTC 기반 정지 임계값(_HOLD_ON=1.0s)은 유지하여 위협 감지 민감도 조정\\n5. _rollout 계산 시 근접 물체 접근 시 보수적 판단을 위해 T=2.0s로 단축\\n6. 정지 해제 조건에서 d_now >= H['d'] + _HOLD_GAIN 또는 d_now >= _HOLD_ON 유지하되, _HOLD_MIN 충족 필수 확인\" 반영, 검토 통과): 새 배치 7개 중 7개 pass, 0개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#8 이번 코드(진단 \"1. _SLOW_T를 3.5에서 5.0으로 상향 조정 2. 감속 비율 계산 시 (d_thr - _HOLD_ON)/(_SLOW_T - _HOLD_ON) 공식 유지하되 _SLOW_T 증가로 감속 시작 시점 이전화 3. _V_SLOW는 0.2m/s로 유지해 감속 구간 최소 속도 보장 4. 정지 해제 조건(_HOLD_MIN=1.0s)은 변경 없이 유지해 안전성 확보 5. _rollout 예측 시간(T=3.0s)은 유지해 회피 동작 보수성 강화 6. 모든 변경은 센서 기반 MTC 계산 로직과 연동해 mover 감지 시 자동 적용\" 반영, 검토 통과): 새 배치 5개 중 3개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#9 이번 코드(진단 \"Rewrite _rect_clear to compute horizontal distance as max(0, rx - x_max, x_min - rx) and vertical as max(0, ry - y_max, y_min - ry), then clr = sqrt(ddx² + ddy²). This ensures accurate proximity detection to body edges.\" 반영, 검토 통과): 새 배치 6개 중 4개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#10 이번 코드(7턴 코드로 돌아가 시작, 진단 [\"clr_min이 0.3m 미만일 때 v와 w를 모두 0으로 설정하여 전진 및 회전 정지를 강제한다\", \"기존 clr_min < 0.45 조건 대신 0.3m 임계값을 적용해 근접 물체에 대한 즉시 정지를 구현한다\", \"이 수정은 clr_min 0.11m에서 v가 유지되어 발생한 충돌을 직접 방지하기 위한 조치이다\", \"정지 후 재출발은 기존의 MTC 기반 _HOLD_MIN(1.0s) 조건을 충족해야만 허용되도록 유지한다\", \"임계값 0.3m는 과도한 정지를 방지하면서도 충돌 위험 시 신속히 대응할 수 있도록 설정한다\", \"회전 금지(w=0)는 기존 로직을 유지하되, 전진 속도(v)도 정지시켜 측면 접근 물체에 효과적으로 대응한다\"] 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#11 이번 코드(7턴 코드로 돌아가 시작, 진단 \"1. S[\\\"hold\\\"] 상태일 때 이동 물체가 접근 중인지 확인(closing > 0.1)하고 접근 시 즉시 S[\\\"esc\\\"] 설정 후 _escape_step 호출\\n2. 기존 hold 상태 유지 로직 이후에 추가하여 정지 중 접근 물체 감지 시 회피 전환\\n3. closing 변수는 이미 계산되어 있으므로 추가 연산 없이 사용 가능\\n4. 임계값 0.1 m/s는 충돌 사례의 closing_m_s=0.54를 기반으로 설정\\n5. 이로 인해 정지 중 물체 접근 시 회피 동작이 시작되어 충돌 방지\\n6. timeout 문제 완화를 위해 정지 시간을 줄여 평균 실행 시간 60초 이내 달성\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(진단 \"1. d_thr < _SLOW_T 조건 제거, 대신 d_thr >= _HOLD_ON일 때 v = v_nom, w = w_nom 적용\\n2. 감속 구간 관련 변수(_SLOW_T, _V_SLOW, k 계산) 삭제\\n3. 정지 관리 로직에서 d_thr >= _HOLD_ON 조건만으로 재출발 허용 (감속 구간 고려 제거)\\n4. _HOLD_ON을 1.5s로 상향 조정해 충돌 안전 마진 확보\\n5. _HOLD_MIN은 0.8s로 유지해 정지 시간 최소화\\n6. 회피 모드 진입 시 _HOLD_ON 기준 유지하여 정지 전환 로직 보완\" 반영, 검토 통과): 새 배치 6개 중 4개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#13 이번 코드(진단 \"In _hold_release, require t - H['t0'] >= _HOLD_MIN AND (no objects with closing > 0.05 for last 1.5s) to resume; add closing_sign_timer tracking duration of negative closing speeds; update d_thr calculation to consider only objects within 3m regardless of closing sign; set _HOLD_ON=2.0s to increase safety margin; ensure approach uses current closing (not closing0) during hold state; implement closing_sign_timer reset on new detections; set _ESC_CLOSE=0.25 m/s to reduce false escapes\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 401 s / 한도 600 s)\n#14 이번 코드(11턴 코드로 돌아가 시작, 진단 \"1. _HOLD_ON을 2.0s로 상향 조정하여 재출발 임계 MTC 완화. 2. _hold_release에서 clear_dur 조건을 제거하고 d_now >= _HOLD_ON만 확인하도록 수정. 3. 정지 중 재출발 조건(go 계산)을 삭제하고, _hold_release가 true이면 _path_free 확인 후 즉시 v_nom, w_nom 적용. 4. 정지 중 회피 전환 조건 approach를 closing0 > 0.05 m/s로 변경. 5. _HOLD_MIN을 1.0s로 상향하여 재출발 안정성 확보. 6. 정지 중 거리 증가 추세를 기록해 일정 증가량(0.5m) 이상 지속 시 재출발 허용하는 변수 추가.\" 반영, 검토 통과): 새 배치 4개 중 2개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#15 이번 코드(진단 \"1. 정지 상태(S['hold'])에서 물체 접근 속도 closing0 계산 시, closing0 < 0인 물체의 지속 시간을 추적하는 변수 추가\\n2. _hold_release에서 d_thr >= _HOLD_ON 조건 외, closing0 < 0인 상태가 _RESUME_GO(0.8s) 이상 지속되면 재출발 허용\\n3. 재출발 시 _path_free 확인을 생략하고 즉시 v_nom, w_nom 적용\\n4. closing0 < 0 지속 시간 초기화 조건: 재출발 후 또는 물체 재접근 시\\n5. _ESC_CLOSE(0.05 m/s)는 유지하되, 재출발 조건 완화로 정지 빈도 감소\\n6. _RESUME_GO를 0.5s로 낮춰 빠른 재출발 지원\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 479 s / 한도 600 s)\n#16 이번 코드(7턴 코드로 돌아가 시작, 진단 \"1. recede 계산 후 S[\\\"recede\\\"] = recede 및 S[\\\"recede_t\\\"] 타임스탬프 저장\\n2. _hold_release에 recede 지속 시간(_RESUME_GO) 조건 추가: recede 유지 시 MTC 조건 무시\\n3. 재출발 조건에 (recede && t - S[\\\"recede_t\\\"] >= _RESUME_GO) 추가\\n4. _RESUME_GO를 0.5s로 낮춰 민감도 향상\\n5. recede 초기화 로직 추가 (물체 재접근 시 카운터 리셋)\\n6. 정지 빈도 감소를 위해 _HOLD_GAIN을 0.05→0.1로 상향\\n7. 재출발 시 _path_free 확인 생략하여 반응성 향상\\n8. _ESC_CLOSE 0.05m/s 유지하되 접근 속도 임계값 완화\" 반영, 검토 통과): 새 배치 7개 중 7개 pass, 0개 fail (시뮬 시간 합계 578 s / 한도 600 s)",
+ "ended": "2026-11-19 19:27:41"
+}

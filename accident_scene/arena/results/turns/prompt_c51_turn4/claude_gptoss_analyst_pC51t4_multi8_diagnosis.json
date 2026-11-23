@@ -1,0 +1,242 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t4_s146351196 충돌 시 로봇 앞 0.33 m, 좌측 0.5 m 위치( bearing -50°) 물체가 _front_gap 에 포함됐지만 속도 축소가 충분히 이루어지지 않아 충돌",
+   "first_not_on_map: t=69.75, distance 1.19 m, bearing -50° 로 물체를 5 s 전부터 감지했음에도 _danger_zone_check 의 min_dist/_DANGER_D 비율이 0.5 m 이하로 줄이지 못함",
+   "c51t4_s1921800068 실행이 60 s 제한에 도달해 목표에 도달하지 못하고 goal_dist 6.44 m, 평균 시뮬 시간 77 s → 전체 배치 예산 초과"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다 2D 스캔으로 6 m 이내 움직이는 물체를 모두 감지하고 추적할 수 있다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 모든 실행에서 물체가 5 m 안에 처음 보였음"
+   },
+   {
+    "assumption": "전방 ±45°와 _DZ_BACK 기준으로 앞·옆 위험 물체를 판단하면 충분히 안전하게 회피할 수 있다",
+    "holds": false,
+    "why": "충돌 물체가 bearing -50° 로 범위 밖에 있어 회피에 실패함"
+   },
+   {
+    "assumption": "예측 여유 0.5 m 이하이면 속도 비례 축소(min_dist/_DANGER_D) 로 충돌을 방지한다",
+    "holds": false,
+    "why": "collision 발생 시 min_dist 은 0.6 m 정도였지만 로봇은 여전히 0.71 m/s 로 주행해 충돌"
+   },
+   {
+    "assumption": "정지 후 2 s 대기(_STOP_WAIT) 하면 물체가 충분히 사라졌다고 가정한다",
+    "holds": false,
+    "why": "정지 후 재시작 직후 같은 물체와 충돌이 발생함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "basic front‑Lidar stop/wait/detour",
+    "turns": "1",
+    "result": "9/10 passes, avg 63 s, 1 time‑limit"
+   },
+   {
+    "family": "candidate roll‑out static/mover clear (no scaling)",
+    "turns": "2",
+    "result": "0/3 passes, all stall aborts"
+   },
+   {
+    "family": "reduced stop_wait (2 s) with same logic",
+    "turns": "3",
+    "result": "9/10 passes, avg 62 s, 1 collision"
+   },
+   {
+    "family": "danger zone check + speed scaling + widened front gap",
+    "turns": "4",
+    "result": "6/8 passes, avg 77 s, 1 collision, 1 timeout"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "시간‑대‑충돌(TTC) 기반 정지 판단: 각 물체에 대해 TTC<0.8 s이면 즉시 정지, TTC≥0.8 s이면 정상 주행",
+    "new_family": true,
+    "for": "측면 물체가 앞‑gap 검출을 놓칠 때도 조기에 멈출 수 있음",
+    "risk": "과도한 정지로 평균 실행 시간이 늘어날 수 있음"
+   },
+   {
+    "idea": "Velocity‑Obstacle(VO) 기반 후보 명령 필터링: 후보 (v,w) 가 어떤 mover 의 VO 안에 있으면 제외하고, 안전한 후보 중 진행도가 가장 큰 것을 선택",
+    "new_family": true,
+    "for": "현재 _danger_zone_check 과 속도 축소보다 기하학적으로 확실히 충돌을 피할 수 있음",
+    "risk": "계산량 증가와 보수적 필터링으로 일부 상황에서 정체(stall) 가능"
+   },
+   {
+    "idea": "동적 경유점 오프셋: 물체가 앞·옆에 감지되면 현재 경로를 좌·우 1 m 오프셋한 임시 waypoint 로 우회 후 원래 경유점 복귀",
+    "new_family": true,
+    "for": "측면 물체와 직접 회피하여 정지·재시작을 최소화",
+    "risk": "오프셋 경로가 정적 장애물에 부딪히면 추가 정체가 발생할 수 있음"
+   }
+  ],
+  "chosen": "현재 _is_safe 를 시간‑대‑충돌(TTC) 기반 검사로 교체해, 명령이 향후 1 s 이내에 움직이는 물체와 충돌하지 않도록 보장한다.",
+  "target": "_is_safe",
+  "direction": "1. _is_safe 내부에서 cmd 로부터 로봇의 세계 속도(vx,vy) 를 pose 와 (v,w) 로 변환한다. 2. 각 mover 에 대해 현재 상대 위치와 상대 속도(vx‑mx, vy‑my)를 구하고, 최소 접근 시간 t_c = - (dx·dv) / |dv|² 를 계산한다( t_c<0이면 현재 거리만 고려). 3. t_c 가 0~1 s 사이이면 해당 시점의 거리 d_c = sqrt(|dx+dv·t_c|²) 를 구하고, d_c < _MOVER_R + _SAFE (또는 _SAFE_GO) 이면 False 를 반환한다. 4. 모든 mover 에 대해 위 조건을 통과하면 True 를 반환하도록 _is_safe 를 수정한다. 5. 컨트롤러의 go, stop, detour 블록에서 기존 _is_safe 호출을 그대로 유지해 새 로직을 적용한다. 6. 필요 시 _SAFE_GO 를 0.6 m 로 증가시켜 재시작 시 여유를 더 확보한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no (Turn 4의 위험 영역 검사와 속도 축소는 정지·재시작을 늘려 평균 실행 시간이 77 s로 증가시켰으며, -50° 측면 물체를 여전히 회피하지 못해 충돌이 발생했다)",
+  "base_turn": 3,
+  "stage1": {
+   "chosen": "Velocity‑Obstacle 기반 후보 필터링을 적용해 안전한 명령만 선택한다.",
+   "target": "controller, 새 _vo_clear 함수와 go‑블록 후보 선택 로직",
+   "direction": "1. _vo_clear(pose, cmd, movers) 함수를 추가해 로봇의 세계 속도와 각 mover 의 속도를 이용해 Velocity‑Obstacle 를 계산한다. 2. cmd 가 VO 안에 있으면 False, 밖이면 True 를 반환한다. 3. go 상태에서 기존 _evade 대신 후보 리스트 _CANDS 를 순회하며 _vo_clear 로 안전성을 검사한다. 4. 안전한 후보 중 목표 진행도(거리 감소)와 속도 점수를 결합해 최적 명령을 선택한다. 5. 모든 후보가 unsafe이면 0 m/s 정지하고 기존 stop/detour 로직을 유지한다. 6. _danger_zone_check 와 속도 스케일링 코드를 비활성화하고, _STOP_WAIT 은 기존 2 s 로 유지한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t4_s146351196 충돌 시 로봇 앞 0.33 m, 좌측 0.5 m 위치( bearing -50°) 물체가 _front_gap 에 포함됐지만 속도 축소가 충분히 이루어지지 않아 충돌\",\n    \"first_not_on_map: t=69.75, distance 1.19 m, bearing -50° 로 물체를 5 s 전부터 감지했음에도 _danger_zone_check 의 min_dist/_DANGER_D 비율이 0.5 m 이하로 줄이지 못함\",\n    \"c51t4_s1921800068 실행이 60 s 제한에 도달해 목표에 도달하지 못하고 goal_dist 6.44 m, 평균 시뮬 시간 77 s → 전체 배치 예산 초과\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다 2D 스캔으로 6 m 이내 움직이는 물체를 모두 감지하고 추적할 수 있다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 모든 실행에서 물체가 5 m 안에 처음 보였음\"\n    },\n    {\n      \"assumption\": \"전방 ±45°와 _DZ_BACK 기준으로 앞·옆 위험 물체를 판단하면 충분히 안전하게 회피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"충돌 물체가 bearing -50° 로 범위 밖에 있어 회피에 실패함\"\n    },\n    {\n      \"assumption\": \"예측 여유 0.5 m 이하이면 속도 비례 축소(min_dist/_DANGER_D) 로 충돌을 방지한다\",\n      \"holds\": false,\n      \"why\": \"collision 발생 시 min_dist 은 0.6 m 정도였지만 로봇은 여전히 0.71 m/s 로 주행해 충돌\"\n    },\n    {\n      \"assumption\": \"정지 후 2 s 대기(_STOP_WAIT) 하면 물체가 충분히 사라졌다고 가정한다\",\n      \"holds\": false,\n      \"why\": \"정지 후 재시작 직후 같은 물체와 충돌이 발생함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"basic front‑Lidar stop/wait/detour\",\n      \"turns\": \"1\",\n      \"result\": \"9/10 passes, avg 63 s, 1 time‑limit\"\n    },\n    {\n      \"family\": \"candidate roll‑out static/mover clear (no scaling)\",\n      \"turns\": \"2\",\n      \"result\": \"0/3 passes, all stall aborts\"\n    },\n    {\n      \"family\": \"reduced stop_wait (2 s) with same logic\",\n      \"turns\": \"3\",\n      \"result\": \"9/10 passes, avg 62 s, 1 collision\"\n    },\n    {\n      \"family\": \"danger zone check + speed scaling + widened front gap\",\n      \"turns\": \"4\",\n      \"result\": \"6/8 passes, avg 77 s, 1 collision, 1 timeout\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"시간‑대‑충돌(TTC) 기반 정지 판단: 각 물체에 대해 TTC<0.8 s이면 즉시 정지, TTC≥0.8 s이면 정상 주행\",\n      \"new_family\": true,\n      \"for\": \"측면 물체가 앞‑gap 검출을 놓칠 때도 조기에 멈출 수 있음\",\n      \"risk\": \"과도한 정지로 평균 실행 시간이 늘어날 수 있음\"\n    },\n    {\n      \"idea\": \"Velocity‑Obstacle(VO) 기반 후보 명령 필터링: 후보 (v,w) 가 어떤 mover 의 VO 안에 있으면 제외하고, 안전한 후보 중 진행도가 가장 큰 것을 선택\",\n      \"new_family\": true,\n      \"for\": \"현재 _danger_zone_check 과 속도 축소보다 기하학적으로 확실히 충돌을 피할 수 있음\",\n      \"risk\": \"계산량 증가와 보수적 필터링으로 일부 상황에서 정체(stall) 가능\"\n    },\n    {\n      \"idea\": \"동적 경유점 오프셋: 물체가 앞·옆에 감지되면 현재 경로를 좌·우 1 m 오프셋한 임시 waypoint 로 우회 후 원래 경유점 복귀\",\n      \"new_family\": true,\n      \"for\": \"측면 물체와 직접 회피하여 정지·재시작을 최소화\",\n      \"risk\": \"오프셋 경로가 정적 장애물에 부딪히면 추가 정체가 발생할 수 있음\"\n    }\n  ],\n  \"chosen\": \"Velocity‑Obstacle 기반 후보 필터링을 적용해 안전한 명령만 선택한다.\",\n  \"target\": \"controller, 새 _vo_clear 함수와 go‑블록 후보 선택 로직\",\n  \"direction\": \"1. _vo_clear(pose, cmd, movers) 함수를 추가해 로봇의 세계 속도와 각 mover 의 속도를 이용해 Velocity‑Obstacle 를 계산한다. 2. cmd 가 VO 안에 있으면 False, 밖이면 True 를 반환한다. 3. go 상태에서 기존 _evade 대신 후보 리스트 _CANDS 를 순회하며 _vo_clear 로 안전성을 검사한다. 4. 안전한 후보 중 목표 진행도(거리 감소)와 속도 점수를 결합해 최적 명령을 선택한다. 5. 모든 후보가 unsafe이면 0 m/s 정지하고 기존 stop/detour 로직을 유지한다. 6. _danger_zone_check 와 속도 스케일링 코드를 비활성화하고, _STOP_WAIT 은 기존 2 s 로 유지한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no (Turn 4의 위험 영역 검사와 속도 축소는 정지·재시작을 늘려 평균 실행 시간이 77 s로 증가시켰으며, -50° 측면 물체를 여전히 회피하지 못해 충돌이 발생했다)\",\n  \"base_turn\": 3\n}",
+ "table": [
+  {
+   "run": "c51t4_s123453585",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 64.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 58.55,
+   "goal_dist_m": 0.2031,
+   "time_to_goal_s": 60.617
+  },
+  {
+   "run": "c51t4_s206918499",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 535.5,
+   "sim_time_s": 85.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 79.22,
+   "goal_dist_m": 0.2308,
+   "time_to_goal_s": 81.3
+  },
+  {
+   "run": "c51t4_s1284375211",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 450.3,
+   "sim_time_s": 83.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 77.42,
+   "goal_dist_m": 0.2049,
+   "time_to_goal_s": 79.467
+  },
+  {
+   "run": "c51t4_s1781615135",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 366.9,
+   "sim_time_s": 81.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 75.05,
+   "goal_dist_m": 0.2245,
+   "time_to_goal_s": 77.017
+  },
+  {
+   "run": "c51t4_s1137230677",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 285.9,
+   "sim_time_s": 78.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 72.52,
+   "goal_dist_m": 0.1987,
+   "time_to_goal_s": 74.867
+  },
+  {
+   "run": "c51t4_s146351196",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 207.4,
+   "sim_time_s": 80.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 74.717,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.71m/s 회전 -0.3",
+   "partner_rel_xy": [
+    0.33,
+    -0.5
+   ],
+   "closing_m_s": -0.2,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 69.75,
+   "goal_dist_m": 0.1993,
+   "time_to_goal_s": 79.433
+  },
+  {
+   "run": "c51t4_s1798406950",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 126.7,
+   "sim_time_s": 67.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 61.72,
+   "goal_dist_m": 0.2285,
+   "time_to_goal_s": 63.867
+  },
+  {
+   "run": "c51t4_s1921800068",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 59.0,
+   "sim_time_s": 60.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 6.4367,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

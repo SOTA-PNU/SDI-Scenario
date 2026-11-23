@@ -1,0 +1,182 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c81t1_s1938476799에서 충돌 발생: 로봇 속도 0.98m/s 주행 중 mover_03과 충돌 (상대 접근 속도 0.41m/s)",
+   "정지 조건(1.5m 이하) 충족 후 재출발 시 로봇 속도 기여도 미반영으로 실제 접근 속도 과소평가 (c81t1_s1938476799: 정지 후 1.87m→0.72m로 0.1s 내 1.15m 접근)",
+   "다른 실행(c81t1_s683948676, c81t1_s871525550 등)에서도 1.5m 정지 후 재출발 시 물체 거리 감소 속도(0.7~1.3m/s) 기록, 로봇 속도 기여도 미반영으로 조기 회피 실패 가능성 확인"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 코드는 closing speed 계산 시 로봇 자체의 속도 기여도(v_robot · 물체 방향 단위벡터)를 반영하지 않음",
+    "holds": false,
+    "why": "c81t1_s1938476799에서 정지 후 재출발 시 로봇이 물체 방향으로 이동하지만 closing_object만 반영해 실제 접근 속도(로봇+물체) 과소평가"
+   },
+   {
+    "assumption": "새로운 물체 감지 시 속도 추정 누락으로 보수적 가정 필요",
+    "holds": false,
+    "why": "c81t1_s1938476799에서 first_seen 시점(79.82s) 물체 속도 추정 미반영, 실제 closing_m_s(0.41)보다 낮은 추정값 사용 가능성"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정적 거리 임계값 기반 제어 (1.5m 정지, 1.5~3m 감속)",
+    "turns": 1,
+    "result": "통과 5/6, 1회 충돌 (로봇 속도 기여도 미반영으로 인한 재출발 시 충돌)"
+   },
+   {
+    "family": "동적 접근 속도 반영 (로봇 속도 + 물체 속도 합산) 기반 제어",
+    "turns": 1,
+    "result": "제안된 수정으로 충돌 방지 가능성, 평균 실행 시간 60s 이하 유지 예상"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "closing speed 계산에 로봇 속도 기여도(v_nom * rx/rng) 추가 후 d_eff 재계산",
+    "new_family": true,
+    "for": "로봇이 물체 방향으로 이동 시 실제 접근 속도 정확히 반영해 조기 정지 유도 (c81t1_s1938476799 재출발 전 거리 감소 속도 과소평가 문제 해결)",
+    "risk": "로봇 방향 오차 시 rx/rng 계산 오류로 과도한 정지 유발 가능 (rx > 0 조건 필터링 필요)"
+   },
+   {
+    "idea": "새로운 물체 감지 시 최소 closing speed(0.2m/s) 가정 적용",
+    "new_family": true,
+    "for": "속도 추정 누락 시 보수적 회피 동작 보장 (c81t1_s1938476799에서 age=1인 물체에 대한 속도 추정 보완)",
+    "risk": "과도한 정지로 경로 이탈 가능성"
+   }
+  ],
+  "chosen": "closing speed 계산에 로봇 속도 기여도(v_nom * rx/rng) 추가. d_eff = clr - 0.7 * max(total_closing, 0)로 수정해 실제 접근 속도 반영",
+  "target": "controller 함수 내 d_eff 계산 부분 (closing_object 계산 직후)",
+  "direction": "1. closing_object = -(U·dx + U·dy)/rng 계산 후\n2. v_robot_n = v_nom * rx / rng (rx > 0인 물체만 적용)\n3. total_closing = closing_object + v_robot_n\n4. d_eff = clr - 0.7 * max(total_closing, 0.0)\n5. 정지 조건(d_thr < 1.5m) 유지하되, 재출발 전 0.5s 정지 상태로 물체 거리 증가 확인 추가\n6. 새로운 물체 감지 시 age=1인 경우 closing_object에 최소 0.1m/s 추가 가정 (보수적 예측)\n7. rx > -0.3 조건 유지하되, coming 판단 시 total_closing > 0.15로 강화",
+  "confidence": "medium",
+  "last_direction_ok": "yes, 직전 지시(센서 기반 거리 감지 추가)로 통과율 25%→83% 개선되었으나 1회 충돌은 남은 문제로, 방향 자체는 옳았으나 세부 계산 미흡",
+  "base_turn": 1
+ },
+ "raw": "\n\n{\"failure_mode\":\"collision\",\"evidence\":[\"실행 c81t1_s1938476799에서 충돌 발생: 로봇 속도 0.98m/s 주행 중 mover_03과 충돌 (상대 접근 속도 0.41m/s)\",\"정지 조건(1.5m 이하) 충족 후 재출발 시 로봇 속도 기여도 미반영으로 실제 접근 속도 과소평가 (c81t1_s1938476799: 정지 후 1.87m→0.72m로 0.1s 내 1.15m 접근)\",\"다른 실행(c81t1_s683948676, c81t1_s871525550 등)에서도 1.5m 정지 후 재출발 시 물체 거리 감소 속도(0.7~1.3m/s) 기록, 로봇 속도 기여도 미반영으로 조기 회피 실패 가능성 확인\"], \"assumptions\":[{\"assumption\":\"현재 코드는 closing speed 계산 시 로봇 자체의 속도 기여도(v_robot · 물체 방향 단위벡터)를 반영하지 않음\", \"holds\":false, \"why\":\"c81t1_s1938476799에서 정지 후 재출발 시 로봇이 물체 방향으로 이동하지만 closing_object만 반영해 실제 접근 속도(로봇+물체) 과소평가\"}, {\"assumption\":\"새로운 물체 감지 시 속도 추정 누락으로 보수적 가정 필요\", \"holds\":false, \"why\":\"c81t1_s1938476799에서 first_seen 시점(79.82s) 물체 속도 추정 미반영, 실제 closing_m_s(0.41)보다 낮은 추정값 사용 가능성\"}], \"approach_families\":[{\"family\":\"정적 거리 임계값 기반 제어 (1.5m 정지, 1.5~3m 감속)\", \"turns\":1, \"result\":\"통과 5/6, 1회 충돌 (로봇 속도 기여도 미반영으로 인한 재출발 시 충돌)\"}, {\"family\":\"동적 접근 속도 반영 (로봇 속도 + 물체 속도 합산) 기반 제어\", \"turns\":1, \"result\":\"제안된 수정으로 충돌 방지 가능성, 평균 실행 시간 60s 이하 유지 예상\"}], \"candidates\":[{\"idea\":\"closing speed 계산에 로봇 속도 기여도(v_nom * rx/rng) 추가 후 d_eff 재계산\", \"new_family\":true, \"for\":\"로봇이 물체 방향으로 이동 시 실제 접근 속도 정확히 반영해 조기 정지 유도 (c81t1_s1938476799 재출발 전 거리 감소 속도 과소평가 문제 해결)\", \"risk\":\"로봇 방향 오차 시 rx/rng 계산 오류로 과도한 정지 유발 가능 (rx > 0 조건 필터링 필요)\"}, {\"idea\":\"새로운 물체 감지 시 최소 closing speed(0.2m/s) 가정 적용\", \"new_family\":true, \"for\":\"속도 추정 누락 시 보수적 회피 동작 보장 (c81t1_s1938476799에서 age=1인 물체에 대한 속도 추정 보완)\", \"risk\":\"과도한 정지로 경로 이탈 가능성\"}], \"chosen\":\"closing speed 계산에 로봇 속도 기여도(v_nom * rx/rng) 추가. d_eff = clr - 0.7 * max(total_closing, 0)로 수정해 실제 접근 속도 반영\", \"target\":\"controller 함수 내 d_eff 계산 부분 (closing_object 계산 직후)\", \"direction\":\"1. closing_object = -(U·dx + U·dy)/rng 계산 후\\n2. v_robot_n = v_nom * rx / rng (rx > 0인 물체만 적용)\\n3. total_closing = closing_object + v_robot_n\\n4. d_eff = clr - 0.7 * max(total_closing, 0.0)\\n5. 정지 조건(d_thr < 1.5m) 유지하되, 재출발 전 0.5s 정지 상태로 물체 거리 증가 확인 추가\\n6. 새로운 물체 감지 시 age=1인 경우 closing_object에 최소 0.1m/s 추가 가정 (보수적 예측)\\n7. rx > -0.3 조건 유지하되, coming 판단 시 total_closing > 0.15로 강화\", \"confidence\":\"medium\",\"last_direction_ok\":\"yes, 직전 지시(센서 기반 거리 감지 추가)로 통과율 25%→83% 개선되었으나 1회 충돌은 남은 문제로, 방향 자체는 옳았으나 세부 계산 미흡\", \"base_turn\":1}",
+ "table": [
+  {
+   "run": "c81t1_s683948676",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 84.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 78.55,
+   "goal_dist_m": 0.2227,
+   "time_to_goal_s": 80.633
+  },
+  {
+   "run": "c81t1_s871525550",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 515.5,
+   "sim_time_s": 85.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 79.22,
+   "goal_dist_m": 0.2308,
+   "time_to_goal_s": 81.317
+  },
+  {
+   "run": "c81t1_s113780062",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 430.3,
+   "sim_time_s": 97.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 91.25,
+   "goal_dist_m": 0.2244,
+   "time_to_goal_s": 93.35
+  },
+  {
+   "run": "c81t1_s1938476799",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 333.1,
+   "sim_time_s": 90.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 84.8,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    -0.76,
+    -0.47
+   ],
+   "closing_m_s": 0.41,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 79.82,
+   "goal_dist_m": 0.2018,
+   "time_to_goal_s": 87.017
+  },
+  {
+   "run": "c81t1_s170995471",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 242.3,
+   "sim_time_s": 87.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 81.22,
+   "goal_dist_m": 0.2043,
+   "time_to_goal_s": 83.25
+  },
+  {
+   "run": "c81t1_s2002545363",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 155.1,
+   "sim_time_s": 129.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1339,
+   "time_to_goal_s": 125.317
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1. 이번 코드에서 이어 가려면 1 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

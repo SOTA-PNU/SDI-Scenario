@@ -1,0 +1,476 @@
+{
+ "turn": 13,
+ "started": "2026-11-23 07:11:11",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c51_turn11/claude_gptoss_analyst_pC51t11_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t12_s1716325252: t=5.3, robot rotating +0.5 rad/s, collided with mover_00 (rel [0.42,0.38]), closing speed 0.76 m/s, side detection triggered at t=0.35 (bearing -51°)",
+   "c51t12_s1101275531: t=17.617, robot rotating +0.5 rad/s, collided with mover_00 (rel [0.44,0.46]), closing speed 0.32 m/s, first side detection at t=12.62 (bearing 41°)",
+   "c51t12_s1467757177: t=38.7, robot rotating +1.3 rad/s, collided with static arena_box_02 while in detour rotation after many stop‑turn episodes"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회전만 하면 측면·후방 물체를 피할 수 있다",
+    "holds": false,
+    "why": "충돌이 회전 중에 발생해 회전만으로는 거리 확보가 안 됨"
+   },
+   {
+    "assumption": "거리 2 m, 방위 >45° 인 물체는 위험하므로 즉시 회전한다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 0.35 s·12.62 s 등에서 2 m 안에 감지됨"
+   },
+   {
+    "assumption": "detour_t 를 매 틱 재설정해도 충분히 회전·이동을 진행한다",
+    "holds": false,
+    "why": "detour_t 가 매 호출마다 초기화돼 _DETOUR_T 로 전환되지 않아 회전만 지속"
+   },
+   {
+    "assumption": "_is_safe 와 _static_ok 검사는 회전 중에도 정적·동적 충돌을 방지한다",
+    "holds": true,
+    "why": "회전 상태에서도 _is_safe 호출이 존재하지만 회전만으로 물체와 거리 감소를 막지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Simple stop/detour state machine (front gap)",
+    "turns": "1,3,10",
+    "result": "9/10 pass, 1 collision"
+   },
+   {
+    "family": "Candidate rollout with safety scoring",
+    "turns": "2,5,6,7,9",
+    "result": "7/14 pass, 여러 stall·collision"
+   },
+   {
+    "family": "Speed scaling via danger zone",
+    "turns": "4",
+    "result": "6/8 pass, 2 failures"
+   },
+   {
+    "family": "Improved _is_safe with velocity TTC",
+    "turns": "5",
+    "result": "9/10 pass"
+   },
+   {
+    "family": "VO safety check",
+    "turns": "6",
+    "result": "7/8 pass"
+   },
+   {
+    "family": "Extended TTC horizon",
+    "turns": "7",
+    "result": "8/10 pass"
+   },
+   {
+    "family": "Increased STOP_D",
+    "turns": "8",
+    "result": "9/9 pass"
+   },
+   {
+    "family": "Danger_close detection (evade)",
+    "turns": "11",
+    "result": "7/9 pass"
+   },
+   {
+    "family": "Danger_side rotation (current)",
+    "turns": "12",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 감지 시 회전만 하지 않고 _evade 로 이동 명령을 얻어 전진·후진 회피를 수행한다",
+    "new_family": true,
+    "for": "충돌 증거가 회전만으로 물체를 피하지 못함을 보여줌",
+    "risk": "경로에서 이탈해 재정렬 필요, 정적 장애물에 근접할 위험"
+   },
+   {
+    "idea": "각 mover 에 대해 반발 속도 벡터를 계산해 nominal 명령에 합산하는 잠재장 접근법을 도입한다",
+    "new_family": true,
+    "for": "연속적인 측면·후방 회피를 상태머신 없이 구현",
+    "risk": "파라미터 튜닝 필요, 진동·과다 회전 발생 가능"
+   },
+   {
+    "idea": "물체가 1 m 이내에 있고 닫히는 속도가 빠르면 후진(v<0) 명령을 내리도록 새 후진 상태를 만든다",
+    "new_family": true,
+    "for": "가까운 측면 물체를 물리적으로 뒤로 빼내어 충돌 방지",
+    "risk": "뒤쪽 정적 장애물과 충돌 위험, 응답 지연 보정 필요"
+   }
+  ],
+  "chosen": "충돌이 발생하는 이유는 _danger_close 에서 바로 _evade 를 호출해 안전 검증 없이 명령을 반환하기 때문이므로, evasion 결과를 _is_safe 로 검증하고 unsafe 시 정지·우회 로 전환하도록 수정한다.",
+  "target": "controller 함수 내 _danger_close 처리 블록",
+  "direction": "1. `if _danger_close(pose, movers):` 내부에서 `_evade(pose, movers, target, False)` 로 (v, w) 를 얻는다. 2. 바로 `if _is_safe(pose, (v, w), movers, _SAFE):` 로 안전성을 검사한다. 3. 안전하면 `return v, w, False` 로 그대로 반환한다. 4. 안전하지 않으면 `c.state = \"stop\"; c.stop_t = t;` 로 상태를 정지로 전환하고 `return 0.0, 0.0, False` 를 반환한다. 5. 기존 stop → detour 흐름이 그대로 작동해 일정 시간 후 회피 회전이 진행되도록 유지한다. 6. 다른 부분은 그대로 두고, 이 블록만 위와 같이 수정한다.",
+  "confidence": "high",
+  "last_direction_ok": "no|danger_side 회전만 적용한 직전 지시가 0/3 통과로 충돌을 야기함",
+  "base_turn": 11,
+  "stage1": {
+   "chosen": "첫 번째 후보를 선택해 측면 물체 감지 시 회전 대신 _evade 로 이동 회피를 수행한다",
+   "target": "controller",
+   "direction": "controller 안에서 _danger_side 결과가 있으면 기존 회전 반환을 삭제한다. 대신 _evade(pose, movers, target, False) 를 호출해 v, w 를 얻고, w 에 side_dir*0.3 정도의 회전 보정을 더한다. c.state 를 \"detour\" 로 유지하고 c.detour_t = t 로 기록하지만 c.detour_w 를 사용하지 않는다. 반환값을 `return v, w, False` 로 바꾸어 회전과 전진(또는 후진) 동시 회피를 구현한다. 기존 _is_safe 와 _static_ok 검사는 그대로 적용한다. 필요 시 detour 종료 조건은 기존 _DETOUR_T 로 유지한다."
+  }
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 `direction` 1~4에 따라 `_danger_close` 블록을 고쳤습니다. 이제 `_evade` 결과를 `_is_safe(pose, (v, w), movers, _SAFE)` 로 검증한 뒤, 안전할 때만 반환합니다. 안전하지 않으면 `c.state = \"stop\"`, `c.stop_t = t` 로 정지 상태로 바꾸고 `(0.0, 0.0, False)` 를 돌려줍니다. 이미 stop 상태일 때는 `stop_t` 를 다시 쓰지 않습니다. 매 틱 재설정하면 `direction` 5의 stop → detour 전환이 막히기 때문이며(12턴 assumption 의 매 틱 재설정 문제와 같은 원인), 이 블록 밖의 코드는 바꾸지 않았습니다(`direction` 6).",
+   "changed": [
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _danger_close 블록 안에서 _evade(pose, movers, target, False) 로 (v, w) 를 얻는다",
+      "implemented": true,
+      "note": "v, w = _evade(pose, movers, target, False) 로 구현함"
+     },
+     {
+      "instruction": "2. 바로 _is_safe(pose, (v, w), movers, _SAFE) 로 안전성을 검사한다",
+      "implemented": true,
+      "note": "if _is_safe(pose, (v, w), movers, _SAFE): 로 구현함"
+     },
+     {
+      "instruction": "3. 안전하면 return v, w, False",
+      "implemented": true,
+      "note": "그대로 반환함"
+     },
+     {
+      "instruction": "4. 안전하지 않으면 c.state=\"stop\"; c.stop_t=t 로 바꾸고 0, 0 을 반환한다",
+      "implemented": true,
+      "note": "이미 stop 이면 stop_t 를 다시 쓰지 않는다는 점만 지시와 다름. 매 틱 재설정을 막아 지시 5의 대기 경과를 지키려는 것이라 지시 취지에 맞음"
+     },
+     {
+      "instruction": "5. 기존 stop → detour 흐름이 그대로 작동하도록 유지한다",
+      "implemented": true,
+      "note": "stop/detour 코드는 바뀌지 않음. 다만 _danger_close 가 참인 동안에는 앞에서 먼저 return 해서 detour 로 넘어가지 않음. 물체가 2 m 밖으로 나간 뒤에야 흐름이 이어짐"
+     },
+     {
+      "instruction": "6. 다른 부분은 그대로 두고 이 블록만 수정한다",
+      "implemented": true,
+      "note": "diff 상 docstring 과 _danger_close 블록만 바뀜"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "evidence 는 12턴의 회전만 하는 코드에서 나온 것인데, chosen 은 11턴 코드의 _evade 미검증을 충돌 원인으로 본다. 원인과 증거가 직접 이어지지 않는다",
+     "_is_safe 가 거짓이면 정지 자체가 안전한지 보지 않고 0, 0 을 반환한다. 기존 stop 블록은 정지가 안전하지 않으면 _evade(allow_stop=True) 로 비켰는데, 이 경로에는 그 처리가 없어 멈춘 채 물체에 맞을 수 있다",
+     "물체 중심이 몸체에서 0.67 m 안에 있으면 _is_safe 의 d_now 검사로 모든 명령이 거절돼 항상 정지한다. 가장 가까울 때 회피를 포기하는 구조다",
+     "_danger_close 가 참인 동안에는 stop 상태의 시간 경과와 detour 전환이 전혀 처리되지 않아, 지시 5의 흐름은 2 m 안에 물체가 있는 동안 작동하지 않는다",
+     "detour 중 위험이 생기면 상태가 stop 으로 바뀌어 detour 진행이 초기화된다"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 11,
+ "diag_turn": 12,
+ "reason": "변경 이유: 진단의 `direction` 1~4에 따라 `_danger_close` 블록을 고쳤습니다. 이제 `_evade` 결과를 `_is_safe(pose, (v, w), movers, _SAFE)` 로 검증한 뒤, 안전할 때만 반환합니다. 안전하지 않으면 `c.state = \"stop\"`, `c.stop_t = t` 로 정지 상태로 바꾸고 `(0.0, 0.0, False)` 를 돌려줍니다. 이미 stop 상태일 때는 `stop_t` 를 다시 쓰지 않습니다. 매 틱 재설정하면 `direction` 5의 stop → detour 전환이 막히기 때문이며(12턴 assumption 의 매 틱 재설정 문제와 같은 원인), 이 블록 밖의 코드는 바꾸지 않았습니다(`direction` 6).",
+ "budget_s": 600.0,
+ "seeds": [
+  1674864201,
+  1099450109,
+  1848760261,
+  2026340889,
+  1794661816,
+  1668410031,
+  1116161245,
+  1933254696,
+  1230465047,
+  1912768939
+ ],
+ "sim_used_s": 594.9,
+ "verdicts": {
+  "1674864201": "fail",
+  "1099450109": "pass",
+  "1848760261": "pass",
+  "2026340889": "pass",
+  "1794661816": "pass",
+  "1668410031": "pass",
+  "1116161245": "fail",
+  "1933254696": "pass",
+  "1230465047": "pass",
+  "1912768939": "fail"
+ },
+ "passes": 7,
+ "prior_chars": 6785,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 10개를 실행했고, 0개는 실행하지 못했습니다.\n- 통과 7개, 실패 3개. 시뮬 시간 합계 595초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 70초 (가장 짧은 것 57초, 가장 긴 것 81초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) evidence 는 12턴의 회전만 하는 코드에서 나온 것인데, chosen 은 11턴 코드의 _evade 미검증을 충돌 원인으로 본다. 원인과 증거가 직접 이어지지 않는다\n- (검토 1회차, 판정 pass) _is_safe 가 거짓이면 정지 자체가 안전한지 보지 않고 0, 0 을 반환한다. 기존 stop 블록은 정지가 안전하지 않으면 _evade(allow_stop=True) 로 비켰는데, 이 경로에는 그 처리가 없어 멈춘 채 물체에 맞을 수 있다\n- (검토 1회차, 판정 pass) 물체 중심이 몸체에서 0.67 m 안에 있으면 _is_safe 의 d_now 검사로 모든 명령이 거절돼 항상 정지한다. 가장 가까울 때 회피를 포기하는 구조다\n- (검토 1회차, 판정 pass) _danger_close 가 참인 동안에는 stop 상태의 시간 경과와 detour 전환이 전혀 처리되지 않아, 지시 5의 흐름은 2 m 안에 물체가 있는 동안 작동하지 않는다\n- (검토 1회차, 판정 pass) detour 중 위험이 생기면 상태가 stop 으로 바뀌어 detour 진행이 초기화된다\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c51t13_s1674864201: t=5.7 s, robot 0.08 m/s, mover 0.55 m ahead, closing 0.67 m/s, first_seen 0.72 s within 2 m → 충돌 직전 감지했으나 감속·회피 부족",
+   "run c51t13_s1116161245: t=9.733 s, robot 정지, mover 0.54 m 거리, closing 0.32 m/s, first_seen 4.75 s → 정지 상태에서 회피 미실시",
+   "run c51t13_s1912768939: t=74.233 s, robot 정지, mover 0.56 m 뒤, closing 0.56 m/s, first_seen 72.05 s → 장시간 정지 후 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D 라이다가 8 m 이내 이동 물체를 모두 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 1.6 m 거리에서 물체가 최초 관측됨"
+   },
+   {
+    "assumption": "정지 후 물체가 통과하면 충돌 없이 재시작 가능",
+    "holds": false,
+    "why": "정지 중 충돌 사례 2,3에서 보임"
+   },
+   {
+    "assumption": "_DANGER_DIST=2 m 로 충분히 앞·옆·뒤 물체를 조기에 탐지한다",
+    "holds": true,
+    "why": "danger_close 가 0.72 s~4.75 s에 물체를 인지함"
+   },
+   {
+    "assumption": "stop/detour 상태 전환이 언제든지 가능해야 한다",
+    "holds": false,
+    "why": "danger_close 블록이 반환을 조기에 막아 stop→detour 흐름이 차단됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "stop/detour 상태 머신",
+    "turns": "1,3,4,5,6,7,8,10,11",
+    "result": "최근 7/10 통과, 평균 62 s, 과거 9/10 통과 (turn 8) 하지만 일부 정지‑충돌 발생"
+   },
+   {
+    "family": "후보 기반 로컬 플래너",
+    "turns": "2,5,6,9",
+    "result": "총 7/13 통과, 정지·스톨 문제 다수"
+   },
+   {
+    "family": "TTC 윈도우 조정",
+    "turns": "7,9",
+    "result": "12/17 통과, 충돌 감소 효과 제한적"
+   },
+   {
+    "family": "danger zone 속도 스케일링",
+    "turns": "4",
+    "result": "6/8 통과, 일부 시간 제한 초과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "TTC 기반 연속 속도 스케일링을 추가해 v_nom을 점진적으로 감소시킨다",
+    "new_family": true,
+    "for": "충돌 전 조기 감속으로 정지·충돌을 방지하고 평균 주행 시간을 단축",
+    "risk": "과도한 감속 시 전체 시간 초과 가능"
+   },
+   {
+    "idea": "VO 검사(_vo_safe_velocities) 를 go‑branch에 통합해 후보 명령을 사전 필터링한다",
+    "new_family": true,
+    "for": "정확한 충돌 예측으로 안전한 명령만 선택",
+    "risk": "모든 후보가 차단되면 정체·시간 제한 발생"
+   },
+   {
+    "idea": "라이다 점들로 자유 공간 통로를 샘플링해 로컬 재경로를 수행한다",
+    "new_family": true,
+    "for": "동적 물체 주변을 회피 경로로 즉시 전환",
+    "risk": "복잡도 증가 및 좁은 통로에서 교착 가능"
+   }
+  ],
+  "chosen": "전방 갭 기반 속도 스케일링에 TTC‑기반 최소 접근 시간 스케일링을 추가해, 움직이는 물체가 가까워질수록 속도를 연속적으로 감소시키고, 위험 감지 시 즉시 정지·우회 흐름을 차단하지 않도록 한다.",
+  "target": "controller (속도 스케일링 로직) 및 새 헬퍼 _ttc_min(pose, movers)",
+  "direction": "1. 코드 상단에 `_ttc_min(pose, movers)` 함수를 정의한다: `_is_safe`와 동일한 TTC 계산을 사용해 각 mover에 대해 tc = -(dx·dv)/|dv|² 를 구하고, 0~_TTC_H 로 클램프한 뒤 최소값을 반환한다; mover가 없으면 _TTC_H 를 반환한다. 2. `controller()` 안에서 `v_nom, w_nom, done, target = _nominal(pose)` 뒤에 `tc_min = _ttc_min(pose, movers)` 를 호출한다. 3. `speed_factor = max(0.15, min(tc_min / _TTC_H, 1.0))` 를 계산하고, 기존 `f` 계산식과 결합해 최종 전진 속도 스케일을 `scale = f * speed_factor` 로 만든다. 4. `if c.state == \"go\":` 블록의 후보 루프에서 `cmd = (v_nom * scale * k, w_nom)` 로 명령을 생성하고 `_is_safe` 로 검증한다; 안전한 후보가 없을 경우 기존 `_evade` 로 회피한다. 5. `resume` 조건을 `gap >= _GO_D and _is_safe(pose, (v_nom * scale, w_nom), movers, _SAFE_GO)` 로 업데이트해 정지‑재시작 시에도 TTC 스케일을 반영한다. 6. 기존 `_danger_close` 관련 코드는 8턴에 없으므로 추가하지 않으며, 기존 상태 머신 로직은 그대로 유지한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no - turn 13의 danger_close 검사가 stop/detour 전이를 차단해 정지 중 충돌이 늘어나며 통과 수가 감소했다",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "TTC 기반 연속 속도 스케일링을 적용한다 – 충돌 전 감속을 부드럽게 하여 정지·충돌을 줄이고 평균 시간도 감소시킬 수 있다.",
+   "target": "controller (속도 스케일링 로직 및 새로운 _ttc_scale 함수)",
+   "direction": "1. 새 함수 _ttc_scale(pose, movers) 를 정의해 각 mover에 대해 TTC를 구하고 최소값을 반환한다. 2. controller 내 v_nom 계산 후 f 스케일에 앞서 speed_factor = max(0.15, min((_ttc_scale/ _TTC_H), 1.0)) 를 구한다. 3. 최종 전진 속도 v = v_nom * f * speed_factor 로 설정한다. 4. 기존 _danger_close 검사는 유지하되, _danger_close 가 True일 때도 위 스케일링을 적용하고 안전하면 바로 반환한다. 5. _is_safe 호출은 기존대로 유지해 최종 명령을 검증한다. 6. 필요 상수 _TTC_H 는 기존 1.0 유지, 새 상수 _TTc_MIN_SPEED_FACTOR = 0.15 를 추가한다."
+  }
+ },
+ "table": [
+  {
+   "run": "c51t13_s1674864201",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 11.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.7,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.08m/s",
+   "partner_rel_xy": [
+    0.0,
+    0.55
+   ],
+   "closing_m_s": 0.67,
+   "stop_turns": 0,
+   "first_seen_within_2m_t": 0.72,
+   "goal_dist_m": 31.5116,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t13_s1099450109",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 588.3,
+   "sim_time_s": 80.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 74.55,
+   "goal_dist_m": 0.2256,
+   "time_to_goal_s": 76.6
+  },
+  {
+   "run": "c51t13_s1848760261",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 507.8,
+   "sim_time_s": 65.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 59.32,
+   "goal_dist_m": 0.2011,
+   "time_to_goal_s": 61.85
+  },
+  {
+   "run": "c51t13_s2026340889",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 442.4,
+   "sim_time_s": 76.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 70.85,
+   "goal_dist_m": 0.2033,
+   "time_to_goal_s": 72.917
+  },
+  {
+   "run": "c51t13_s1794661816",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 365.6,
+   "sim_time_s": 73.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2054,
+   "time_to_goal_s": 69.65
+  },
+  {
+   "run": "c51t13_s1668410031",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 291.8,
+   "sim_time_s": 56.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2223,
+   "time_to_goal_s": 52.5
+  },
+  {
+   "run": "c51t13_s1116161245",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 235.2,
+   "sim_time_s": 15.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.733,
+   "partner": "mover_00",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.22,
+    0.54
+   ],
+   "closing_m_s": 0.32,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 4.75,
+   "goal_dist_m": 32.2352,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t13_s1933254696",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 219.5,
+   "sim_time_s": 69.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 63.22,
+   "goal_dist_m": 0.2023,
+   "time_to_goal_s": 65.6
+  },
+  {
+   "run": "c51t13_s1230465047",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 150.3,
+   "sim_time_s": 65.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 59.12,
+   "goal_dist_m": 0.2285,
+   "time_to_goal_s": 61.017
+  },
+  {
+   "run": "c51t13_s1912768939",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 85.3,
+   "sim_time_s": 80.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 74.233,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.08,
+    -0.56
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 72.05,
+   "goal_dist_m": 4.2412,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 97 s / 한도 600 s)\n#1 이번 코드(진단 \"1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#2 이번 코드(진단 \"1) 기존 state, stop_t, detour_t 변수를 삭제하고 매 호출마다 현재 목표 waypoint를 구한다. 2) _CANDS 후보 집합을 사용해 _rollout 으로 각 후보를 시뮬레이션한다. 3) _mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다. 4) 후보 점수를 목표 진행도와 여유 거리(≤1 m)로 평가하고, 안전 기준을 만족하지 못하면 0 m/s 로 정지한다. 5) 점수가 가장 높은 후보의 (v,w)를 반환한다. 6) _nominal 은 waypoint 진행을 위한 목표 좌표만 제공하고, 속도 명령은 위 로컬 플래너가 결정한다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 282 s / 한도 600 s)\n#3 이번 코드(1턴 코드로 돌아가 시작, 진단 \"1. _STOP_WAIT 값을 5.0에서 2.0 초로 줄여 정지 후 대기 시간을 단축한다. 2. controller 함수의 c.state == \\\"go\\\" 블록에서 현재 for‑k 루프가 끝난 뒤, 안전한 스케일 명령을 찾지 못했을 경우에만 _evade(pose, movers, target, False) 를 호출해 반환값을 사용한다. 3. 이 fallback 은 기존 안전 후보가 존재하면 기존 로직을 그대로 따르며, 안전 후보가 없을 때만 적용한다. 4. stop 및 detour 상태 로직은 기존대로 유지하되, 감소된 _STOP_WAIT 로 인해 detour 전환이 더 빨리 일어난다. 5. 새로운 함수나 변수는 추가하지 않고, 기존 _STOP_WAIT 상수와 controller 내부 코드를 수정한다. 6. 이렇게 하면 로봇이 안전 후보가 부족한 상황에서도 최소한의 전진/회피 동작을 수행해 60 s 동안 0.3 m 미만 이동하는 스톨을 방지한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 577 s / 한도 600 s)\n#4 이번 코드(진단 \"1) _danger_zone_check(pose,movers) 를 구현해 _rollout으로 예측된 궤적과 mover 위치를 비교해 최소 여유 거리를 반환한다. 2) 최소 여유 거리가 0.5 m 이하이면 speed_scale = max(0.1, min_dist/0.5) 로 계산한다. 3) controller의 go‑블록에서 v_nom = v_nom * speed_scale 적용한다. 4) _front_gap의 각도 조건을 ±45° 로 확대해 측면 물체도 정지 트리거에 포함한다. 5) 기존 _STOP_D, _SAFE 값은 유지하되 speed_scale 로 속도 조절을 추가한다. 6) 필요 시 _detour_side 로 회전 방향을 재평가한다.\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#5 이번 코드(3턴 코드로 돌아가 시작, 진단 \"1. _is_safe 내부에서 cmd 로부터 로봇의 세계 속도(vx,vy) 를 pose 와 (v,w) 로 변환한다. 2. 각 mover 에 대해 현재 상대 위치와 상대 속도(vx‑mx, vy‑my)를 구하고, 최소 접근 시간 t_c = - (dx·dv) / |dv|² 를 계산한다( t_c<0이면 현재 거리만 고려). 3. t_c 가 0~1 s 사이이면 해당 시점의 거리 d_c = sqrt(|dx+dv·t_c|²) 를 구하고, d_c < _MOVER_R + _SAFE (또는 _SAFE_GO) 이면 False 를 반환한다. 4. 모든 mover 에 대해 위 조건을 통과하면 True 를 반환하도록 _is_safe 를 수정한다. 5. 컨트롤러의 go, stop, detour 블록에서 기존 _is_safe 호출을 그대로 유지해 새 로직을 적용한다. 6. 필요 시 _SAFE_GO 를 0.6 m 로 증가시켜 재시작 시 여유를 더 확보한다.\" 반영, 검토 통과): 새 배치 10개 중 9개 pass, 1개 fail (시뮬 시간 합계 580 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _vo_safe_velocities(pose, movers, cands)를 추가해 각 후보 (v,w)의 세계 속도를 구한다. 2. 후보가 mover와 형성하는 velocity‑obstacle을 검사해 _SAFE와 MOVER_R을 합한 반경을 사용한다. 3. _TTC_H(또는 2 s) 내에 VO가 존재하면 해당 후보를 unsafe 로 표시한다. 4. controller에서 기존 _is_safe 호출 대신 _vo_safe_velocities 로 후보를 필터링하고, 남은 후보 중 목표 진행도가 가장 큰 것을 선택한다. 5. 안전 후보가 없으면 정지 명령을 내리고 기존 stop/detour 상태 머신을 유지한다. 6. 다른 상수는 변경하지 않는다.\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#7 이번 코드(5턴 코드로 돌아가 시작, 진단 \"Locate the constant _TTC_H defined near the end of the file. Change its value from 1.0 to 2.0. This will extend the time window used by _is_safe for TTC calculations. No other code modifications are required because _is_safe already respects _TTC_H. The existing speed‑scaling logic will now react earlier to slower‑approaching objects. Verify that the change does not cause excessive stopping by running the batch again.\" 반영, 검토 통과): 새 배치 10개 중 8개 pass, 2개 fail (시뮬 시간 합계 555 s / 한도 600 s)\n#8 이번 코드(5턴 코드로 돌아가 시작, 진단 \"1. 파일 맨 아래 _STOP_D 정의를 `_STOP_D = 1.5` 로 바꾼다. 2. 기존 f 계산식 `f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)` 은 그대로 두어, 더 큰 _STOP_D 로 인해 gap 가 작아질 때 속도 스케일링이 더 강하게 적용되도록 한다. 3. 나머지 로직은 그대로 유지한다; stop/detour 상태 전환은 기존 _STOP_D 기준에 따라 동작한다. 4. 코드 내 다른 상수와 함수는 수정하지 않는다. 5. 변경 후 실행 시 물체가 1.5 m 이내에 들어오면 즉시 state='stop' 로 전환돼 정지·우회 절차가 시작된다. 6. 이 변경은 기존 통과 실행 시간에 큰 영향을 주지 않으며, 앞서 충돌이 발생한 경우를 예방한다.\" 반영, 검토 통과): 새 배치 9개 중 9개 pass, 0개 fail (시뮬 시간 합계 587 s / 한도 600 s)\n#9 이번 코드(5턴 코드로 돌아가 시작, 진단 \"1. _tcc_scale(pose, movers) 함수를 정의해 각 mover에 대해 dx·dv와 dv² 로 TTC를 구하고 0~_TTC_H 로 클램프한 최소값을 반환한다. 2. controller 내부에서 기존 c.state, c.stop_t, c.detour_t, c.detour_w 관련 분기를 모두 삭제하고 항상 \\\"go\\\" 로 동작한다. 3. _perceive와 _movers 호출 후 v_nom, w_nom, done, target 를 얻고, ttc = _tcc_scale(pose, movers) 를 계산한다. 4. speed_factor = max(min(ttc / _TTC_H, 1.0), 0.15) 로 정의하고 scaled_cmd = (v_nom * speed_factor, w_nom) 를 만든다. 5. _is_safe(pose, scaled_cmd, movers, _SAFE) 가 True이면 scaled_cmd 를 반환하고, False이면 _evade(pose, movers, target, False) 로 회피 명령을 반환한다. 6. 기존 c.vm, c.wm 의 속도 추정 로직은 그대로 유지하고, 필요 시 _is_safe 내부의 응답 지연(_TAU) 보정을 그대로 사용한다.\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 310 s / 한도 600 s)\n#10 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. _STOP_WAIT 값을 0.5 로 줄여 정지 대기 시간을 최소화한다. 2. controller 내부에서 `if c.state == \\\"go\\\":` 블록을 수정한다: `if gap < _STOP_D:` 에서 `c.state, c.detour_t = \\\"detour\\\", t` 로 바꾸고 `c.detour_w = _detour_side(pose)` 를 설정한다. 3. 위 조건에서 바로 회전 명령 `cmd = (0.0, c.detour_w)` 를 안전 검사 `_is_safe` 와 `_static_ok` 로 확인하고 안전하면 `return cmd[0], cmd[1], False` 로 반환한다. 4. 기존 `c.state = \\\"stop\\\"` 로 전환하는 코드를 삭제하거나 주석 처리해 정지 상태가 발생하지 않도록 한다. 5. 이후 `if c.state == \\\"stop\\\":` 블록은 그대로 두되, 실제로는 호출되지 않으므로 무시된다. 6. 나머지 로직(resume 조건, detour 진행, _evade 호출)은 그대로 유지해 기존 안전 검증과 회피 행동을 보존한다.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 579 s / 한도 600 s)\n#11 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. Define a new constant `_DANGER_DIST = 2.0` near the other safety constants. 2. Add a helper `def _danger_close(pose, movers):` that iterates over `movers` and returns True if `math.hypot(mx - pose[0], my - pose[1]) < _DANGER_DIST`. 3. In `controller()`, after `movers = _movers(t, pose)` and before computing `gap = _front_gap(pose)`, insert `if _danger_close(pose, movers): v,w = _evade(pose, movers, target, False); return v,w,False`. 4. Keep the existing `gap`‑based stop/detour logic unchanged for forward obstacles. 5. Place the new function after `_movers` (or any other helper) so it is available to the controller. 6. No other code changes are required.\" 반영, 검토 통과): 새 배치 9개 중 7개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(8턴 코드로 돌아가 시작, 진단 \"1. Define `_DANGER_DIST = 2.0` and `_SIDE_ANGLE = math.radians(45)` after the other safety constants. 2. Add a helper `_danger_side(pose, movers)` that converts each mover to robot coordinates, checks if its distance < _DANGER_DIST and |bearing| > _SIDE_ANGLE, and returns +1 for left (bearing>0) or -1 for right (bearing<0) or None. 3. In `controller()`, after `movers = _movers(t, pose)`, call `side_dir = _danger_side(pose, movers)`. 4. If `side_dir` is not None, set `c.state = \\\"detour\\\"`, `c.detour_w = 0.5 * side_dir`, `c.detour_t = t`, and immediately `return 0.0, c.detour_w, False`. 5. Preserve the existing front‑gap stop/detour logic for frontal obstacles. 6. No other code changes are needed.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 80 s / 한도 600 s)\n#13 이번 코드(11턴 코드로 돌아가 시작, 진단 \"1. `if _danger_close(pose, movers):` 내부에서 `_evade(pose, movers, target, False)` 로 (v, w) 를 얻는다. 2. 바로 `if _is_safe(pose, (v, w), movers, _SAFE):` 로 안전성을 검사한다. 3. 안전하면 `return v, w, False` 로 그대로 반환한다. 4. 안전하지 않으면 `c.state = \\\"stop\\\"; c.stop_t = t;` 로 상태를 정지로 전환하고 `return 0.0, 0.0, False` 를 반환한다. 5. 기존 stop → detour 흐름이 그대로 작동해 일정 시간 후 회피 회전이 진행되도록 유지한다. 6. 다른 부분은 그대로 두고, 이 블록만 위와 같이 수정한다.\" 반영, 검토 통과): 새 배치 10개 중 7개 pass, 3개 fail (시뮬 시간 합계 595 s / 한도 600 s)",
+ "ended": "2026-11-23 07:26:33"
+}

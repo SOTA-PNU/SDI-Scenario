@@ -27,7 +27,8 @@ def say(s):
 
 SERIES = "c2"                 # --series c3: the all-Claude series (2026-11-16); c4: gpt-oss coder, Claude others
 MODEL_TAGS = {"c3": "claude_opus_5_5", "c4": "gptoss_coder_claude", "c5": "claude_gptoss_analyst", "c6": "claude_qwen36_analyst", "c7": "claude_gemma4_analyst", "c71": "claude_gemma4_analyst",
-              "c8": "claude_exaone45_analyst"}
+              "c8": "claude_exaone45_analyst", "c81": "claude_exaone45_analyst", "c72": "claude_gemma4_analyst", "c51": "claude_gptoss_analyst"}
+REVERT_SERIES = ("c81", "c72", "c51")      # the analyst's diagnosis names the turn whose code the next coder starts from (base_turn)
 
 
 def turn_files(n):
@@ -57,7 +58,7 @@ def main():
     ap.add_argument("--wait-pid", type=int, default=None, help="a turn still running: wait for it first")
     ap.add_argument("--max-turn", type=int, default=30)
     ap.add_argument("--goal-runs", type=int, default=10)
-    ap.add_argument("--series", default="c2", choices=["c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8"])
+    ap.add_argument("--series", default="c2", choices=["c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8", "c81", "c72", "c51"])
     a = ap.parse_args()
     global SERIES
     SERIES = a.series
@@ -80,9 +81,19 @@ def main():
         return 0
     for n in range(a.start, a.max_turn + 1):
         src = turn_files(last_good)
-        say(f"turn {n} 시작 (입력: turn {last_good} 코드·진단·기록)")
-        cmd = ["python3", "c1_cycle.py", "--series", SERIES, "--turn", str(n), "--code", str(src["block"]),
+        code_turn = last_good
+        if SERIES in REVERT_SERIES:
+            bt = (json.loads(src["diag"].read_text()).get("diagnosis") or {}).get("base_turn")
+            if isinstance(bt, int) and 0 <= bt <= last_good and turn_files(bt)["block"].exists():
+                code_turn = bt
+            elif bt is not None:
+                say(f"base_turn {bt!r} 의 코드가 없음 - turn {last_good} 코드로 진행")
+        say(f"turn {n} 시작 (입력: turn {code_turn} 코드, turn {last_good} 진단·기록)" if code_turn != last_good
+            else f"turn {n} 시작 (입력: turn {last_good} 코드·진단·기록)")
+        cmd = ["python3", "c1_cycle.py", "--series", SERIES, "--turn", str(n), "--code", str(turn_files(code_turn)["block"]),
                "--diagnosis", str(src["diag"]), "--history-file", str(src["history"])]
+        if SERIES in REVERT_SERIES:
+            cmd += ["--base-turn", str(code_turn), "--diag-turn", str(last_good)]
         with open(LOG / f"{SERIES}_turn{n}.log", "w") as fh:
             rc = subprocess.run(cmd, cwd=HERE, stdout=fh, stderr=subprocess.STDOUT,
                                 env={**os.environ, "ROS_DOMAIN_ID": os.environ.get("ROS_DOMAIN_ID", "37")}).returncode

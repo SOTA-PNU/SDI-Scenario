@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 chosen(후보 3)에 따라 `controller` 의 stop/detour 상태 머신과 그 타이머 변수(state, stop_t, detour_t, detour_w)를 모두 없앴습니다(지시 1, 6). 이제 매 스텝 새 함수 `_choose` 가 `_CANDS` 전체(정지 (0,0) 포함)와 f 로 줄인 경유점 추종 명령을 후보로 삼습니다. 그중 `_is_safe` 와 `_static_ok` 를 통과한 후보만 남기고, 물체 여유(`_mover_clear`)와 목표 진행도로 점수를 매겨 가장 높은 후보를 고릅니다(지시 2, 3). 물체 문제가 없으면 기존 경로를 그대로 따르도록 경유점 추종 후보에 가산점을 줍니다. 여유 0.25 m 로 안전한 후보가 없으면 여유 0.05 m 로 한 번 더 찾고, 그래도 없으면 (0,0) 으로 멈춥니다(지시 4). 전방 gap 스케일 f 는 경유점 추종 후보의 속도에 그대로 곱합니다(지시 5).\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 연속 후보 기반 회피(진단 chosen: 후보 3).\n    stop/detour 상태 머신 없이 매 스텝 후보 (v, w) 를 안전 검사(_is_safe, _static_ok)로 거르고,\n    물체 여유 + 목표 진행도 + 경유점 추종 가산점으로 가장 좋은 명령을 고른다. 안전 후보가 없을 때만 정지.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(_is_safe 의 지연 보정과 예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    # 진단 지시 5: 전방 gap 스케일 f 유지(경유점 추종 후보의 속도에 적용)\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n\n    # 진단 지시 1~4: 단일 go 분기, 후보 평가 후 최고 점수 명령(안전 후보 없으면 정지)\n    v, w = _choose(pose, movers, v_nom, w_nom, f, target)\n    return v, w, False\n\n\n_NOM_BONUS = 3.0       # 경유점 추종 후보 가산점(물체 여유가 충분하면 기존 경로를 그대로 따름)\n\n\n_CLEAR_CAP = 0.8       # 점수에 반영하는 물체 여유 상한 [m]\n\n\n_NEED_LEVELS = (0.25, 0.05)   # _is_safe 여유 요구: 먼저 _SAFE(0.25), 없으면 0.05 로 한 번 더\n\n\ndef _choose(pose, movers, v_nom, w_nom, f, target):\n    \"\"\"진단 지시 2~4: 경유점 추종 후보(f 적용)와 _CANDS 전체(정지 포함)를 _is_safe·_static_ok 로 거르고,\n    10*min(물체 여유, _CLEAR_CAP) + 목표 진행도 - 후진 벌점 + 경유점 추종 가산점 이 가장 큰 (v, w) 를 돌려준다.\n    안전한 후보가 하나도 없으면 (0.0, 0.0).\"\"\"\n    nom = [(v_nom * f * k, w_nom) for k in (1.0, 0.7, 0.45, 0.25, 0.0)]\n    cands = np.concatenate([np.array(nom, dtype=np.float64), _CANDS], axis=0)\n    is_nom = np.zeros(len(cands), dtype=bool)\n    is_nom[:len(nom)] = True\n\n    keep = []\n    for need in _NEED_LEVELS:\n        keep = [i for i in range(len(cands))\n                if _is_safe(pose, (float(cands[i, 0]), float(cands[i, 1])), movers, need)\n                and _static_ok(pose, (float(cands[i, 0]), float(cands[i, 1])))]\n        if keep:\n            break\n    if not keep:\n        return 0.0, 0.0                              # 진단 지시 4: 안전 후보 없음 -> 정지\n\n    sel = cands[keep]\n    ro = _rollout(pose, sel, controller.vm, controller.wm)\n    mc, _ = _mover_clear(ro, movers)\n    _, x, y, _ = ro\n    tx, ty = target\n    prog = np.clip(math.hypot(tx - pose[0], ty - pose[1]) - np.hypot(tx - x[:, -1], ty - y[:, -1]), -2.0, 2.0)\n    score = (10.0 * np.minimum(mc, _CLEAR_CAP) + prog\n             - 0.3 * (sel[:, 0] < 0.0) + _NOM_BONUS * is_nom[keep])\n    i = int(np.argmax(score))\n    return float(sel[i, 0]), float(sel[i, 1])\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 29747,
+  "completion_tokens": 7541
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 70202,
+  "total_cost_usd": 0.388788,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 7541,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 29745,
+    "webSearchRequests": 0,
+    "costUSD": 0.388788,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 5367,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 29745,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "a5074338-e6f4-4d48-a31a-ebc1f14a2cc3"
+ }
+}

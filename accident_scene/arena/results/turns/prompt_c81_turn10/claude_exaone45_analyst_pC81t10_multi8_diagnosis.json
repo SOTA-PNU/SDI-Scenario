@@ -1,0 +1,238 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c81t10_s38895446에서 로봇이 정지 상태일 때 물체(mover_03)와 충돌, 충돌 직전 clearance_min < _STOP_CLR(0.3m)로 즉시 정지했으나 접근하는 물체(closing_m_s=0.54 m/s)로 거리 감소 지속",
+   "여러 실행에서 time_limit 실패는 정지/회전 반복으로 평균 실행 시간 72~84초 발생, 예산(600초) 내 10개 배치 완료 불가",
+   "여러 실행에서 first_seen_within_2m_t가 62~78초로 늦게 감지되며, 정지 후 재출발 조건(_HOLD_MIN=1.0s) 미충족으로 계속 정지 상태 유지"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 설계는 '근접 강제 정지(_STOP_CLR=0.3m)'로 충돌 방지를 가정하지만, 접근하는 물체의 경우 정지만으로는 거리 감소를 막을 수 없음",
+    "holds": false,
+    "why": "충돌 증거에서 정지 상태에서도 물체가 0.54 m/s로 접근하며 거리 감소, _STOP_CLR 임계값에서 정지 후 재출발 조건이 충족되지 않아 계속 정지 상태 유지"
+   },
+   {
+    "assumption": "MTC 기반 정지/회피는 물체 속도 벡터와 로봇 속도 벡터 상대 접근 속도를 정확히 반영함",
+    "holds": false,
+    "why": "실행 요약에서 closing_m_s > 0인 물체에 대한 MTC 계산이 로봇 회전 속도(v_nom*cos(yaw))를 고려하지 않아 실제 접근 속도 과대평가 가능"
+   },
+   {
+    "assumption": "정지 상태에서의 재출발 조건(_HOLD_MIN=1.0s)이 물체 이동을 고려한 안전한 거리 확보를 보장함",
+    "holds": false,
+    "why": "정지 중 물체가 접근하면 d_thr 계속 감소해 재출발 조건 미충족, 충돌 실행에서 정지 후 1초 이상 지속되며 물체와 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": "10",
+    "result": "통과 6/8, 실패 2 (collision 1, time_limit 1)"
+   },
+   {
+    "family": "MTC 기반 정지/회피 로직 개선 계열",
+    "turns": "5-9",
+    "result": "통과 5-7/8, 실패 1-3 (time_limit 및 collision 혼합)"
+   },
+   {
+    "family": "정지-회피 전환 로직 재설계 계열",
+    "turns": "4",
+    "result": "통과 6/8, 실패 2 (time_limit 1, collision 1)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "MTC 임계값(_HOLD_ON) 이하 시 정지 대신 즉시 회피 모드 진입",
+    "new_family": true,
+    "for": "d_thr < _HOLD_ON일 때 S[\"esc\"] 설정해 회피 동작 실행, 정지 상태에서의 재출발 대기 대신 능동적 회피 유도",
+    "risk": "과도한 회피 전환으로 불필요한 정지/회전 증가, 정적 장애물과의 충돌 가능성"
+   },
+   {
+    "idea": "회피 동작 시 전진 속도(v) 비제로 강제 (후진/측면 이동 우선)",
+    "new_family": true,
+    "for": "정지 상태에서의 회전만으로는 거리 증가 불가, v != 0인 동작 선택으로 물체 회피 효과 향상",
+    "risk": "정적 장애물과 충돌 위험 증가, 경로 계획 오류 가능성"
+   },
+   {
+    "idea": "_SLOW_T(감속 시작 MTC) 하향 조정 + _V_SLOW 최소 속도 완화",
+    "new_family": false,
+    "for": "물체 감지 시 더 일찍 감속 시작, 0.2m/s 이하 속도 유지로 충돌 여유 확보",
+    "risk": "과도한 감속으로 시간 초과 위험 증가, 평균 실행 시간 60초 이내 달성 어려움"
+   }
+  ],
+  "chosen": "hold 상태에서 이동 물체 접근 감지 시 즉시 회피 모드로 전환",
+  "target": "controller 함수의 S[\"hold\"] 처리 블록",
+  "direction": "1. S[\"hold\"] 상태일 때 이동 물체가 접근 중인지 확인(closing > 0.1)하고 접근 시 즉시 S[\"esc\"] 설정 후 _escape_step 호출\n2. 기존 hold 상태 유지 로직 이후에 추가하여 정지 중 접근 물체 감지 시 회피 전환\n3. closing 변수는 이미 계산되어 있으므로 추가 연산 없이 사용 가능\n4. 임계값 0.1 m/s는 충돌 사례의 closing_m_s=0.54를 기반으로 설정\n5. 이로 인해 정지 중 물체 접근 시 회피 동작이 시작되어 충돌 방지\n6. timeout 문제 완화를 위해 정지 시간을 줄여 평균 실행 시간 60초 이내 달성",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 7,
+  "stage1": {
+   "chosen": "MTC 임계값 이하 시 정지 대신 즉시 회피 모드 진입 (d_thr < _HOLD_ON일 때 S[\"esc\"] 설정)",
+   "target": "controller 함수 내 d_thr < thr 조건 처리 블록",
+   "direction": "1. d_thr < thr 조건 시 S[\"esc\"] 설정해 회피 모드 진입\n2. _escape_step에서 정지 시 v != 0 동작 우선 선택\n3. _plan_escape에서 접근 속도에 비례한 회피 동작 가중치 부여\n4. _hold_release에서 d_thr 증가 대신 물체 속도 감소 확인 추가\n5. _clearance_min에 회전 시 측면 길이 동적 보정 적용\n6. _rollout 예측 시간 T를 1.5s로 단축"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\":\"collision\",\"evidence\":[\"실행 c81t10_s38895446에서 로봇이 정지 상태일 때 물체(mover_03)와 충돌, 충돌 직전 clearance_min < _STOP_CLR(0.3m)로 즉시 정지했으나 접근하는 물체(closing_m_s=0.54 m/s)로 거리 감소 지속\",\"여러 실행에서 time_limit 실패는 정지/회전 반복으로 평균 실행 시간 72~84초 발생, 예산(600초) 내 10개 배치 완료 불가\",\"여러 실행에서 first_seen_within_2m_t가 62~78초로 늦게 감지되며, 정지 후 재출발 조건(_HOLD_MIN=1.0s) 미충족으로 계속 정지 상태 유지\"], \"assumptions\":[{\"assumption\":\"현재 설계는 '근접 강제 정지(_STOP_CLR=0.3m)'로 충돌 방지를 가정하지만, 접근하는 물체의 경우 정지만으로는 거리 감소를 막을 수 없음\",\"holds\":false,\"why\":\"충돌 증거에서 정지 상태에서도 물체가 0.54 m/s로 접근하며 거리 감소, _STOP_CLR 임계값에서 정지 후 재출발 조건이 충족되지 않아 계속 정지 상태 유지\"},{\"assumption\":\"MTC 기반 정지/회피는 물체 속도 벡터와 로봇 속도 벡터 상대 접근 속도를 정확히 반영함\",\"holds\":false,\"why\":\"실행 요약에서 closing_m_s > 0인 물체에 대한 MTC 계산이 로봇 회전 속도(v_nom*cos(yaw))를 고려하지 않아 실제 접근 속도 과대평가 가능\"},{\"assumption\":\"정지 상태에서의 재출발 조건(_HOLD_MIN=1.0s)이 물체 이동을 고려한 안전한 거리 확보를 보장함\",\"holds\":false,\"why\":\"정지 중 물체가 접근하면 d_thr 계속 감소해 재출발 조건 미충족, 충돌 실행에서 정지 후 1초 이상 지속되며 물체와 충돌\"}], \"approach_families\":[{\"family\":\"임계값 조정 계열\",\"turns\":\"10\",\"result\":\"통과 6/8, 실패 2 (collision 1, time_limit 1)\"},{\"family\":\"MTC 기반 정지/회피 로직 개선 계열\",\"turns\":\"5-9\",\"result\":\"통과 5-7/8, 실패 1-3 (time_limit 및 collision 혼합)\"},{\"family\":\"정지-회피 전환 로직 재설계 계열\",\"turns\":\"4\",\"result\":\"통과 6/8, 실패 2 (time_limit 1, collision 1)\"}], \"candidates\":[{\"idea\":\"MTC 임계값(_HOLD_ON) 이하 시 정지 대신 즉시 회피 모드 진입\",\"new_family\":true,\"for\":\"d_thr < _HOLD_ON일 때 S[\\\"esc\\\"] 설정해 회피 동작 실행, 정지 상태에서의 재출발 대기 대신 능동적 회피 유도\",\"risk\":\"과도한 회피 전환으로 불필요한 정지/회전 증가, 정적 장애물과의 충돌 가능성\"},{\"idea\":\"회피 동작 시 전진 속도(v) 비제로 강제 (후진/측면 이동 우선)\",\"new_family\":true,\"for\":\"정지 상태에서의 회전만으로는 거리 증가 불가, v != 0인 동작 선택으로 물체 회피 효과 향상\",\"risk\":\"정적 장애물과 충돌 위험 증가, 경로 계획 오류 가능성\"},{\"idea\":\"_SLOW_T(감속 시작 MTC) 하향 조정 + _V_SLOW 최소 속도 완화\",\"new_family\":false,\"for\":\"물체 감지 시 더 일찍 감속 시작, 0.2m/s 이하 속도 유지로 충돌 여유 확보\",\"risk\":\"과도한 감속으로 시간 초과 위험 증가, 평균 실행 시간 60초 이내 달성 어려움\"}], \"chosen\":\"MTC 임계값 이하 시 정지 대신 즉시 회피 모드 진입 (d_thr < _HOLD_ON일 때 S[\\\"esc\\\"] 설정)\", \"target\":\"controller 함수 내 d_thr < thr 조건 처리 블록\", \"direction\":\"1. d_thr < thr 조건 시 S[\\\"esc\\\"] 설정해 회피 모드 진입\\n2. _escape_step에서 정지 시 v != 0 동작 우선 선택\\n3. _plan_escape에서 접근 속도에 비례한 회피 동작 가중치 부여\\n4. _hold_release에서 d_thr 증가 대신 물체 속도 감소 확인 추가\\n5. _clearance_min에 회전 시 측면 길이 동적 보정 적용\\n6. _rollout 예측 시간 T를 1.5s로 단축\", \"confidence\":\"medium\",\"last_direction_ok\":\"no\",\"base_turn\":7}",
+ "table": [
+  {
+   "run": "c81t10_s1659258569",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 78.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 72.35,
+   "goal_dist_m": 0.1977,
+   "time_to_goal_s": 74.433
+  },
+  {
+   "run": "c81t10_s700557849",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 521.7,
+   "sim_time_s": 84.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 78.32,
+   "goal_dist_m": 0.2064,
+   "time_to_goal_s": 80.333
+  },
+  {
+   "run": "c81t10_s38895446",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 437.4,
+   "sim_time_s": 73.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 67.4,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.5,
+    -0.47
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 62.45,
+   "goal_dist_m": 3.4531,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t10_s485032284",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 364.0,
+   "sim_time_s": 73.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 67.25,
+   "goal_dist_m": 0.2008,
+   "time_to_goal_s": 69.333
+  },
+  {
+   "run": "c81t10_s160320614",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 290.8,
+   "sim_time_s": 83.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 77.45,
+   "goal_dist_m": 0.1993,
+   "time_to_goal_s": 79.517
+  },
+  {
+   "run": "c81t10_s1204400617",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 207.3,
+   "sim_time_s": 72.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 66.02,
+   "goal_dist_m": 0.2211,
+   "time_to_goal_s": 68.117
+  },
+  {
+   "run": "c81t10_s1071285603",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 135.3,
+   "sim_time_s": 77.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 71.62,
+   "goal_dist_m": 0.2053,
+   "time_to_goal_s": 73.683
+  },
+  {
+   "run": "c81t10_s424821164",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 57.8,
+   "sim_time_s": 58.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 7.8796,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "답이 올바른 JSON 이 아니어서 읽지 못했습니다(Expecting ':' delimiter: line 1 column 642 (char 641)). 오류 근처: …체가 0.54 m/s로 접근하며 거리 감소, _STOP_CLR 임계값에서 정지 후 재출발 조건이 충족되지 않아 계속 정지 상태 유지\"},{\"{\"assumption\":\"MTC(충돌까지 남은 시간) 기반 정지/회피는 물… 괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

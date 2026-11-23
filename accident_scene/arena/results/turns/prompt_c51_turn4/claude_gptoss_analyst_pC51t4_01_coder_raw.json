@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 충돌 원인은 두 가지였습니다. 측면 -58°에서 다가온 물체를 전방 ±30° 검사가 놓쳤고, 0.25 m 예측 여유로는 1.19 m/s 주행 중 충돌을 막지 못했습니다. 지시 1~3에 따라 새 함수 `_danger_zone_check` 를 넣었습니다. 이 함수는 경유점 명령을 `_rollout` 으로 굴려 앞·옆 물체와의 예측 최소 여유를 구하고, 여유가 0.5 m 이하이면 go 상태의 `v_nom` 에 `speed_scale = max(0.1, min_dist/0.5)` 를 곱합니다. 지시 4에 따라 `_front_gap` 의 각도를 ±45° 로 넓혔고, 지시 5에 따라 `_STOP_D`, `_SAFE` 와 정지·우회 로직(지시 6의 `_detour_side` 포함)은 그대로 두었습니다. 뒤에서 오는 물체 때문에 감속하면 오히려 따라잡혀 부딪힐 수 있어서, 몸체 중간보다 뒤에 있는 물체는 감속 판단에서 뺐습니다.\n\n```python\n_DANGER_D = 0.5        # 이 예측 여유 이하이면 속도를 비례 축소 [m] - 진단 지시 2\n\n\n_SCALE_MIN = 0.1       # 속도 축소 하한 - 진단 지시 2\n\n\n_DZ_BACK = -0.35       # 로봇 기준 x 가 이 값 이상인 물체(앞·옆)만 위험 영역 검사에 넣는다 [m]\n\n\ndef _danger_zone_check(pose, movers, cmd=None):\n    \"\"\"진단 지시 1: 명령 cmd(없으면 현재 측정 속도)를 _rollout 으로 굴린 궤적과\n    앞·옆 물체(로봇 기준 x >= _DZ_BACK)의 예측 위치를 비교해 최소 여유 거리 [m] 를 돌려준다.\"\"\"\n    if not movers:\n        return 9.0\n    x, y, yaw = pose\n    c, s = math.cos(yaw), math.sin(yaw)\n    sel = [m for m in movers if c * (m[0] - x) + s * (m[1] - y) >= _DZ_BACK]\n    if not sel:\n        return 9.0\n    if cmd is None:\n        cmd = (controller.vm, controller.wm)\n    ro = _rollout(pose, [cmd], controller.vm, controller.wm)\n    mc, _ = _mover_clear(ro, sel)\n    return float(mc[0])\n\n\ndef _front_gap(pose):\n    \"\"\"진단 지시 4: 전방 ±45° (또는 차체 폭 통로) 안 물체 점까지 앞 범퍼로부터의 최소 거리.\"\"\"\n    p = _P[\"pts\"]\n    if len(p) == 0:\n        return 99.0\n    r = _to_robot(p, pose)\n    ahead = r[:, 0] > _BODY[1] - 0.05\n    ang = np.abs(np.arctan2(r[:, 1], r[:, 0]))\n    m = ahead & ((ang < math.radians(45.0)) | (np.abs(r[:, 1]) < 0.60))\n    if not m.any():\n        return 99.0\n    return float((r[m, 0] - _BODY[1]).min())\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 정지·대기·우회(go / stop / detour) + 다가오는 물체 회피.\n    go 상태에서는 앞·옆 동적 위험 영역의 예측 여유로 속도를 비례 축소하고(진단 지시 1~3),\n    안전한 감속 명령이 없으면 정지 대신 _evade 로 회피 이동한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n\n    # 경유점 추종은 go 일 때만(물체 예측으로 감속)\n    if c.state == \"go\":\n        if gap < _STOP_D:\n            c.state, c.stop_t = \"stop\", t\n        else:\n            # 진단 지시 1~3: 앞·옆 위험 영역의 예측 최소 여유로 v_nom 을 비례 축소\n            min_dist = _danger_zone_check(pose, movers, (v_nom * f, w_nom))\n            if min_dist <= _DANGER_D:\n                speed_scale = max(_SCALE_MIN, min_dist / _DANGER_D)\n                v_nom = v_nom * speed_scale\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (v_nom * f * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            # 안전한 스케일 명령이 하나도 없을 때만 정지 대신 회피 이동\n            v, w = _evade(pose, movers, target, False)\n            return v, w, False\n\n    resume = gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)\n\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * f, w_nom, False\n        if t - c.stop_t >= _STOP_WAIT:               # 대기 뒤 우회\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _evade(pose, movers, target, True)    # 멈춰 있어도 물체가 다가오면 비켜선다\n            return v, w, False\n\n    # detour\n    if resume:\n        c.state = \"go\"\n        return v_nom * f, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 23285,
+  "completion_tokens": 4789
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 39578,
+  "total_cost_usd": 0.282052,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4789,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 23283,
+    "webSearchRequests": 0,
+    "costUSD": 0.282052,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1985,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 23283,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "057725e7-588c-4951-8126-43757c4240c5"
+ }
+}

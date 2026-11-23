@@ -1,0 +1,180 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t12_s1716325252: t=5.3, robot rotating +0.5 rad/s, collided with mover_00 (rel [0.42,0.38]), closing speed 0.76 m/s, side detection triggered at t=0.35 (bearing -51°)",
+   "c51t12_s1101275531: t=17.617, robot rotating +0.5 rad/s, collided with mover_00 (rel [0.44,0.46]), closing speed 0.32 m/s, first side detection at t=12.62 (bearing 41°)",
+   "c51t12_s1467757177: t=38.7, robot rotating +1.3 rad/s, collided with static arena_box_02 while in detour rotation after many stop‑turn episodes"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회전만 하면 측면·후방 물체를 피할 수 있다",
+    "holds": false,
+    "why": "충돌이 회전 중에 발생해 회전만으로는 거리 확보가 안 됨"
+   },
+   {
+    "assumption": "거리 2 m, 방위 >45° 인 물체는 위험하므로 즉시 회전한다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 0.35 s·12.62 s 등에서 2 m 안에 감지됨"
+   },
+   {
+    "assumption": "detour_t 를 매 틱 재설정해도 충분히 회전·이동을 진행한다",
+    "holds": false,
+    "why": "detour_t 가 매 호출마다 초기화돼 _DETOUR_T 로 전환되지 않아 회전만 지속"
+   },
+   {
+    "assumption": "_is_safe 와 _static_ok 검사는 회전 중에도 정적·동적 충돌을 방지한다",
+    "holds": true,
+    "why": "회전 상태에서도 _is_safe 호출이 존재하지만 회전만으로 물체와 거리 감소를 막지 못함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Simple stop/detour state machine (front gap)",
+    "turns": "1,3,10",
+    "result": "9/10 pass, 1 collision"
+   },
+   {
+    "family": "Candidate rollout with safety scoring",
+    "turns": "2,5,6,7,9",
+    "result": "7/14 pass, 여러 stall·collision"
+   },
+   {
+    "family": "Speed scaling via danger zone",
+    "turns": "4",
+    "result": "6/8 pass, 2 failures"
+   },
+   {
+    "family": "Improved _is_safe with velocity TTC",
+    "turns": "5",
+    "result": "9/10 pass"
+   },
+   {
+    "family": "VO safety check",
+    "turns": "6",
+    "result": "7/8 pass"
+   },
+   {
+    "family": "Extended TTC horizon",
+    "turns": "7",
+    "result": "8/10 pass"
+   },
+   {
+    "family": "Increased STOP_D",
+    "turns": "8",
+    "result": "9/9 pass"
+   },
+   {
+    "family": "Danger_close detection (evade)",
+    "turns": "11",
+    "result": "7/9 pass"
+   },
+   {
+    "family": "Danger_side rotation (current)",
+    "turns": "12",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 감지 시 회전만 하지 않고 _evade 로 이동 명령을 얻어 전진·후진 회피를 수행한다",
+    "new_family": true,
+    "for": "충돌 증거가 회전만으로 물체를 피하지 못함을 보여줌",
+    "risk": "경로에서 이탈해 재정렬 필요, 정적 장애물에 근접할 위험"
+   },
+   {
+    "idea": "각 mover 에 대해 반발 속도 벡터를 계산해 nominal 명령에 합산하는 잠재장 접근법을 도입한다",
+    "new_family": true,
+    "for": "연속적인 측면·후방 회피를 상태머신 없이 구현",
+    "risk": "파라미터 튜닝 필요, 진동·과다 회전 발생 가능"
+   },
+   {
+    "idea": "물체가 1 m 이내에 있고 닫히는 속도가 빠르면 후진(v<0) 명령을 내리도록 새 후진 상태를 만든다",
+    "new_family": true,
+    "for": "가까운 측면 물체를 물리적으로 뒤로 빼내어 충돌 방지",
+    "risk": "뒤쪽 정적 장애물과 충돌 위험, 응답 지연 보정 필요"
+   }
+  ],
+  "chosen": "충돌이 발생하는 이유는 _danger_close 에서 바로 _evade 를 호출해 안전 검증 없이 명령을 반환하기 때문이므로, evasion 결과를 _is_safe 로 검증하고 unsafe 시 정지·우회 로 전환하도록 수정한다.",
+  "target": "controller 함수 내 _danger_close 처리 블록",
+  "direction": "1. `if _danger_close(pose, movers):` 내부에서 `_evade(pose, movers, target, False)` 로 (v, w) 를 얻는다. 2. 바로 `if _is_safe(pose, (v, w), movers, _SAFE):` 로 안전성을 검사한다. 3. 안전하면 `return v, w, False` 로 그대로 반환한다. 4. 안전하지 않으면 `c.state = \"stop\"; c.stop_t = t;` 로 상태를 정지로 전환하고 `return 0.0, 0.0, False` 를 반환한다. 5. 기존 stop → detour 흐름이 그대로 작동해 일정 시간 후 회피 회전이 진행되도록 유지한다. 6. 다른 부분은 그대로 두고, 이 블록만 위와 같이 수정한다.",
+  "confidence": "high",
+  "last_direction_ok": "no|danger_side 회전만 적용한 직전 지시가 0/3 통과로 충돌을 야기함",
+  "base_turn": 11,
+  "stage1": {
+   "chosen": "첫 번째 후보를 선택해 측면 물체 감지 시 회전 대신 _evade 로 이동 회피를 수행한다",
+   "target": "controller",
+   "direction": "controller 안에서 _danger_side 결과가 있으면 기존 회전 반환을 삭제한다. 대신 _evade(pose, movers, target, False) 를 호출해 v, w 를 얻고, w 에 side_dir*0.3 정도의 회전 보정을 더한다. c.state 를 \"detour\" 로 유지하고 c.detour_t = t 로 기록하지만 c.detour_w 를 사용하지 않는다. 반환값을 `return v, w, False` 로 바꾸어 회전과 전진(또는 후진) 동시 회피를 구현한다. 기존 _is_safe 와 _static_ok 검사는 그대로 적용한다. 필요 시 detour 종료 조건은 기존 _DETOUR_T 로 유지한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t12_s1716325252: t=5.3, robot rotating +0.5 rad/s, collided with mover_00 (rel [0.42,0.38]), closing speed 0.76 m/s, side detection triggered at t=0.35 (bearing -51°)\",\n    \"c51t12_s1101275531: t=17.617, robot rotating +0.5 rad/s, collided with mover_00 (rel [0.44,0.46]), closing speed 0.32 m/s, first side detection at t=12.62 (bearing 41°)\",\n    \"c51t12_s1467757177: t=38.7, robot rotating +1.3 rad/s, collided with static arena_box_02 while in detour rotation after many stop‑turn episodes\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"회전만 하면 측면·후방 물체를 피할 수 있다\",\n      \"holds\": false,\n      \"why\": \"충돌이 회전 중에 발생해 회전만으로는 거리 확보가 안 됨\"\n    },\n    {\n      \"assumption\": \"거리 2 m, 방위 >45° 인 물체는 위험하므로 즉시 회전한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록이 0.35 s·12.62 s 등에서 2 m 안에 감지됨\"\n    },\n    {\n      \"assumption\": \"detour_t 를 매 틱 재설정해도 충분히 회전·이동을 진행한다\",\n      \"holds\": false,\n      \"why\": \"detour_t 가 매 호출마다 초기화돼 _DETOUR_T 로 전환되지 않아 회전만 지속\"\n    },\n    {\n      \"assumption\": \"_is_safe 와 _static_ok 검사는 회전 중에도 정적·동적 충돌을 방지한다\",\n      \"holds\": true,\n      \"why\": \"회전 상태에서도 _is_safe 호출이 존재하지만 회전만으로 물체와 거리 감소를 막지 못함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"Simple stop/detour state machine (front gap)\",\n      \"turns\": \"1,3,10\",\n      \"result\": \"9/10 pass, 1 collision\"\n    },\n    {\n      \"family\": \"Candidate rollout with safety scoring\",\n      \"turns\": \"2,5,6,7,9\",\n      \"result\": \"7/14 pass, 여러 stall·collision\"\n    },\n    {\n      \"family\": \"Speed scaling via danger zone\",\n      \"turns\": \"4\",\n      \"result\": \"6/8 pass, 2 failures\"\n    },\n    {\n      \"family\": \"Improved _is_safe with velocity TTC\",\n      \"turns\": \"5\",\n      \"result\": \"9/10 pass\"\n    },\n    {\n      \"family\": \"VO safety check\",\n      \"turns\": \"6\",\n      \"result\": \"7/8 pass\"\n    },\n    {\n      \"family\": \"Extended TTC horizon\",\n      \"turns\": \"7\",\n      \"result\": \"8/10 pass\"\n    },\n    {\n      \"family\": \"Increased STOP_D\",\n      \"turns\": \"8\",\n      \"result\": \"9/9 pass\"\n    },\n    {\n      \"family\": \"Danger_close detection (evade)\",\n      \"turns\": \"11\",\n      \"result\": \"7/9 pass\"\n    },\n    {\n      \"family\": \"Danger_side rotation (current)\",\n      \"turns\": \"12\",\n      \"result\": \"0/3 pass\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"측면 감지 시 회전만 하지 않고 _evade 로 이동 명령을 얻어 전진·후진 회피를 수행한다\",\n      \"new_family\": true,\n      \"for\": \"충돌 증거가 회전만으로 물체를 피하지 못함을 보여줌\",\n      \"risk\": \"경로에서 이탈해 재정렬 필요, 정적 장애물에 근접할 위험\"\n    },\n    {\n      \"idea\": \"각 mover 에 대해 반발 속도 벡터를 계산해 nominal 명령에 합산하는 잠재장 접근법을 도입한다\",\n      \"new_family\": true,\n      \"for\": \"연속적인 측면·후방 회피를 상태머신 없이 구현\",\n      \"risk\": \"파라미터 튜닝 필요, 진동·과다 회전 발생 가능\"\n    },\n    {\n      \"idea\": \"물체가 1 m 이내에 있고 닫히는 속도가 빠르면 후진(v<0) 명령을 내리도록 새 후진 상태를 만든다\",\n      \"new_family\": true,\n      \"for\": \"가까운 측면 물체를 물리적으로 뒤로 빼내어 충돌 방지\",\n      \"risk\": \"뒤쪽 정적 장애물과 충돌 위험, 응답 지연 보정 필요\"\n    }\n  ],\n  \"chosen\": \"첫 번째 후보를 선택해 측면 물체 감지 시 회전 대신 _evade 로 이동 회피를 수행한다\",\n  \"target\": \"controller\",\n  \"direction\": \"controller 안에서 _danger_side 결과가 있으면 기존 회전 반환을 삭제한다. 대신 _evade(pose, movers, target, False) 를 호출해 v, w 를 얻고, w 에 side_dir*0.3 정도의 회전 보정을 더한다. c.state 를 \\\"detour\\\" 로 유지하고 c.detour_t = t 로 기록하지만 c.detour_w 를 사용하지 않는다. 반환값을 `return v, w, False` 로 바꾸어 회전과 전진(또는 후진) 동시 회피를 구현한다. 기존 _is_safe 와 _static_ok 검사는 그대로 적용한다. 필요 시 detour 종료 조건은 기존 _DETOUR_T 로 유지한다.\",\n  \"confidence\": \"high\",\n  \"last_direction_ok\": \"no|danger_side 회전만 적용한 직전 지시가 0/3 통과로 충돌을 야기함\",\n  \"base_turn\": 11\n}",
+ "table": [
+  {
+   "run": "c51t12_s1716325252",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 11.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.3,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +0.5rad/s",
+   "partner_rel_xy": [
+    0.42,
+    0.38
+   ],
+   "closing_m_s": 0.76,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.35,
+   "goal_dist_m": null,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t12_s1467757177",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 588.7,
+   "sim_time_s": 44.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 38.7,
+   "partner": "static:arena_box_02",
+   "robot_at_collision": "주행 0.42m/s 회전 +1.3",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 33.75,
+   "goal_dist_m": 16.709,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t12_s1101275531",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 544.0,
+   "sim_time_s": 23.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.617,
+   "partner": "mover_00",
+   "robot_at_collision": "제자리 회전 +0.5rad/s",
+   "partner_rel_xy": [
+    0.44,
+    0.46
+   ],
+   "closing_m_s": 0.32,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 12.62,
+   "goal_dist_m": 30.8782,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

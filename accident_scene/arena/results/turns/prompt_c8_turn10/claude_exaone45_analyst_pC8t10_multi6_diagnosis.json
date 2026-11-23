@@ -1,0 +1,176 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c8t10_s1400614285에서 t=79.767s에 static:arena_box_00과 충돌, 로봇 위치 (-6.09, -6.23)은 박스_00 내부 영역 (x: -7.46~-5.96, y: -7.77~-5.77)에 속함",
+   "충돌 직전 5s 데이터에서 로봇은 주행 중 회전 (-0.4 rad/s)하며 장애물 회피 시도했으나 정적 장애물과 충돌",
+   "여러 실행 중 1개에서 충돌 발생, 나머지 5개는 통과했으나 정적 장애물 충돌 원인이 회피 경로 선택 시 정적 여유 미고려로 추정"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 중 정적 장애물 여유(stc)를 충분히 고려해야 한다고 가정하지만, 현재 코드는 mover 감지 우선 순위로 정적 여유 위반 경로 선택 가능",
+    "holds": false,
+    "why": "충돌 위치가 정적 박스 내부이며, _choose 함수에서 evading=True 시 stc < 0인 후보도 선택 가능 (안전 후보 없을 시 최소 위험 후보 선택)"
+   },
+   {
+    "assumption": "회피 종료 조건(st_n >= _RESUME_ST)이 정적 장애물 회피를 보장한다고 가정",
+    "holds": false,
+    "why": "정적 여유 0.2m 미만 구역(_NARROW_ST=0.15m)에서 회피 종료 조건이 mover 조건만으로 완화되나, 이는 정적 장애물과의 충돌 위험 증가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 종료 조건 및 정적 여유 임계값 조정",
+    "turns": "10",
+    "result": "통과 5/6 실행, 정적 장애물 충돌 지속 (예: 박스_00 충돌)"
+   },
+   {
+    "family": "센서 감지 범위 및 TTC 트리거 민감도 조정",
+    "turns": "8",
+    "result": "시간 초과 또는 불필요한 정지 증가, 정적 장애물 회피 미해결"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 정적 여유(stc) 최소 임계값 강제 적용 (예: 0.15m) 및 미달 시 정지",
+    "new_family": true,
+    "for": "정적 장애물 충돌이 회피 경로 선택 시 정적 여유 검증 부재로 발생",
+    "risk": "정적 장애물 밀집 구역에서 회피 실패 가능성 증가, 정지로 인한 시간 초과 위험"
+   },
+   {
+    "idea": "_choose 함수에서 회피 시 앵커 근처 정적 장애물 밀도 반영 패널티 추가",
+    "new_family": true,
+    "for": "앵커 기반 회피 경로가 정적 장애물 근처를 지날 때 충돌 위험 증가",
+    "risk": "정적 지도 정확도에 의존, 센서 노이즈로 인한 오탐 가능성"
+   },
+   {
+    "idea": "회피 시작 전 현재 위치의 정적 여유 검증 및 미달 시 정지 후 재감지",
+    "new_family": true,
+    "for": "정적 장애물 근접 구역에서 회피 기동 자체로 인한 충돌 방지",
+    "risk": "회피 지연으로 mover와의 충돌 위험 증가, 정지 반복으로 시간 소모"
+   }
+  ],
+  "chosen": "회피 중 정적 여유(stc) 최소 임계값 강제 적용 (0.15m) 및 미달 시 정지로, 정적 장애물 충돌 원인인 회피 경로 선택 시 정적 안전 검증 부재를 구조적 수정으로 해결",
+  "target": "_choose 함수 내 evading=True 조건에서의 정적 여유 필터링 로직",
+  "direction": "1. evading=True 시 후보 경로 중 stc >= 0.15m인 것만 허용하는 필터 추가\n2. 허용 후보 없을 시 즉시 정지(v=0, w=0) 명령 반환\n3. 회피 중 정적 여유 보너스 가중치(_ST_W)를 2.5로 상향 조정\n4. 회피 경로 예측 시 정적 장애물과의 최소 거리 검증을 0.15m로 강화\n5. 정적 여유가 0.15m 미만인 구역 진입 시 회피 트리거 자체를 비활성화\n6. 회피 종료 조건에 정적 여유 지속 검증(0.15m 이상 0.5s 유지) 추가",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"실행 c8t10_s1400614285에서 t=79.767s에 static:arena_box_00과 충돌, 로봇 위치 (-6.09, -6.23)은 박스_00 내부 영역 (x: -7.46~-5.96, y: -7.77~-5.77)에 속함\",\n    \"충돌 직전 5s 데이터에서 로봇은 주행 중 회전 (-0.4 rad/s)하며 장애물 회피 시도했으나 정적 장애물과 충돌\",\n    \"여러 실행 중 1개에서 충돌 발생, 나머지 5개는 통과했으나 정적 장애물 충돌 원인이 회피 경로 선택 시 정적 여유 미고려로 추정\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"회피 중 정적 장애물 여유(stc)를 충분히 고려해야 한다고 가정하지만, 현재 코드는 mover 감지 우선 순위로 정적 여유 위반 경로 선택 가능\",\n      \"holds\": false,\n      \"why\": \"충돌 위치가 정적 박스 내부이며, _choose 함수에서 evading=True 시 stc < 0인 후보도 선택 가능 (안전 후보 없을 시 최소 위험 후보 선택)\"\n    },\n    {\n      \"assumption\": \"회피 종료 조건(st_n >= _RESUME_ST)이 정적 장애물 회피를 보장한다고 가정\",\n      \"holds\": false,\n      \"why\": \"정적 여유 0.2m 미만 구역(_NARROW_ST=0.15m)에서 회피 종료 조건이 mover 조건만으로 완화되나, 이는 정적 장애물과의 충돌 위험 증가\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"회피 종료 조건 및 정적 여유 임계값 조정\",\n      \"turns\": \"10\",\n      \"result\": \"통과 5/6 실행, 정적 장애물 충돌 지속 (예: 박스_00 충돌)\"\n    },\n    {\n      \"family\": \"센서 감지 범위 및 TTC 트리거 민감도 조정\",\n      \"turns\": \"8\",\n      \"result\": \"시간 초과 또는 불필요한 정지 증가, 정적 장애물 회피 미해결\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"회피 중 정적 여유(stc) 최소 임계값 강제 적용 (예: 0.15m) 및 미달 시 정지\",\n      \"new_family\": true,\n      \"for\": \"정적 장애물 충돌이 회피 경로 선택 시 정적 여유 검증 부재로 발생\",\n      \"risk\": \"정적 장애물 밀집 구역에서 회피 실패 가능성 증가, 정지로 인한 시간 초과 위험\"\n    },\n    {\n      \"idea\": \"_choose 함수에서 회피 시 앵커 근처 정적 장애물 밀도 반영 패널티 추가\",\n      \"new_family\": true,\n      \"for\": \"앵커 기반 회피 경로가 정적 장애물 근처를 지날 때 충돌 위험 증가\",\n      \"risk\": \"정적 지도 정확도에 의존, 센서 노이즈로 인한 오탐 가능성\"\n    },\n    {\n      \"idea\": \"회피 시작 전 현재 위치의 정적 여유 검증 및 미달 시 정지 후 재감지\",\n      \"new_family\": true,\n      \"for\": \"정적 장애물 근접 구역에서 회피 기동 자체로 인한 충돌 방지\",\n      \"risk\": \"회피 지연으로 mover와의 충돌 위험 증가, 정지 반복으로 시간 소모\"\n    }\n  ],\n  \"chosen\": \"회피 중 정적 여유(stc) 최소 임계값 강제 적용 (0.15m) 및 미달 시 정지로, 정적 장애물 충돌 원인인 회피 경로 선택 시 정적 안전 검증 부재를 구조적 수정으로 해결\",\n  \"target\": \"_choose 함수 내 evading=True 조건에서의 정적 여유 필터링 로직\",\n  \"direction\": \"1. evading=True 시 후보 경로 중 stc >= 0.15m인 것만 허용하는 필터 추가\\n2. 허용 후보 없을 시 즉시 정지(v=0, w=0) 명령 반환\\n3. 회피 중 정적 여유 보너스 가중치(_ST_W)를 2.5로 상향 조정\\n4. 회피 경로 예측 시 정적 장애물과의 최소 거리 검증을 0.15m로 강화\\n5. 정적 여유가 0.15m 미만인 구역 진입 시 회피 트리거 자체를 비활성화\\n6. 회피 종료 조건에 정적 여유 지속 검증(0.15m 이상 0.5s 유지) 추가\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c8t10_s1502678424",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 87.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 81.85,
+   "goal_dist_m": 0.2302,
+   "time_to_goal_s": 83.817
+  },
+  {
+   "run": "c8t10_s678372427",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 512.2,
+   "sim_time_s": 142.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": 136.45,
+   "goal_dist_m": 0.1982,
+   "time_to_goal_s": 138.383
+  },
+  {
+   "run": "c8t10_s1638561953",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 369.9,
+   "sim_time_s": 125.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": 119.13,
+   "goal_dist_m": 0.223,
+   "time_to_goal_s": 121.183
+  },
+  {
+   "run": "c8t10_s1400614285",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 244.8,
+   "sim_time_s": 85.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 79.767,
+   "partner": "static:arena_box_00",
+   "robot_at_collision": "주행 0.49m/s 회전 -0.4",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 26.5428,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t10_s2022551386",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 159.0,
+   "sim_time_s": 67.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 61.93,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 63.967
+  },
+  {
+   "run": "c8t10_s1475847026",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 91.1,
+   "sim_time_s": 91.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 85.45,
+   "goal_dist_m": 0.1996,
+   "time_to_goal_s": 87.5
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,292 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "배치 10개 중 9개만 실행됐으며, 남은 예산 18초가 최소 실행 시간 30초보다 작아 1개 실행을 못함",
+   "평균 시뮬 시간 65초(최장 72초)로 목표 평균 ≤60초를 초과",
+   "각 실행에 14~19번의 정지·제자리 회전 구간이 발생, 정지·우회 로직이 전체 시간에 큰 비중을 차지함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체는 앞·뒤 2D 라이다로 충분히 감지된다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 1.2~1.9m 거리에서 물체가 감지된 점이 있음"
+   },
+   {
+    "assumption": "전방 ±30° 구역만으로 충돌을 판단하면 충분하다",
+    "holds": false,
+    "why": "측면 물체가 90° 방향에서 접근해 많은 정지·우회가 발생, 시간 초과 원인"
+   },
+   {
+    "assumption": "측면 물체는 재시작(resume) 조건에만 영향을 주어야 한다",
+    "holds": false,
+    "why": "측면 물체가 가까워도 정지·우회가 반복돼 실행 시간이 늘어남"
+   },
+   {
+    "assumption": "정지 후 대기 시간 _STOP_WAIT=2.0s는 충분히 짧다",
+    "holds": true,
+    "why": "정지·우회 로직에서 충돌이 없으며, 대기 시간 때문에 시간 초과가 발생하지 않음"
+   },
+   {
+    "assumption": "전방 gap 기반 속도 스케일링만으로 속도 조절이 충분하다",
+    "holds": false,
+    "why": "측면 물체가 가까울 때 급정지가 발생해 여러 stop‑detour 사이클이 늘어남"
+   },
+   {
+    "assumption": "로봇의 속도·회전 추정(c.vm, c.wm)이 안전 검증에 충분히 정확하다",
+    "holds": true,
+    "why": "collision 기록이 없으며, _is_safe 검증이 올바르게 작동함"
+   },
+   {
+    "assumption": "예측 수평선(_HORIZON=3.0s)과 정적 장애물 검사(K_STATIC=14)로 충분히 안전을 보장한다",
+    "holds": true,
+    "why": "정적 충돌이 없고, 움직이는 물체도 3초 내 예측으로 회피함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "basic stop/detour (front gap only)",
+    "turns": "1,3,4,5,6,7",
+    "result": "통과 9/10~8/10, 평균 62‑77s, 충돌 1‑2건"
+   },
+   {
+    "family": "timing tweaks (STOP_WAIT, DETOUR_T)",
+    "turns": "10,22",
+    "result": "통과 7/9‑8/10, 평균 61‑66s, 충돌 1‑2건"
+   },
+   {
+    "family": "side‑distance scaling",
+    "turns": "15,23",
+    "result": "통과 8/10‑5/7, 평균 64‑85s, 충돌 0‑1건"
+   },
+   {
+    "family": "danger_close detection",
+    "turns": "11,13",
+    "result": "통과 7/9‑7/10, 평균 70‑79s, 충돌 1‑2건"
+   },
+   {
+    "family": "TTC‑based scaling",
+    "turns": "14",
+    "result": "통과 1/4, 평균 141s, 충돌 0건"
+   },
+   {
+    "family": "single‑go branch (no stop/detour)",
+    "turns": "16",
+    "result": "통과 0/3, 스톨 3건"
+   },
+   {
+    "family": "reverse state for 뒤 물체",
+    "turns": "19,21",
+    "result": "통과 7/8, 평균 79‑81s, 충돌 1건"
+   },
+   {
+    "family": "front angle 확대",
+    "turns": "18",
+    "result": "통과 6/7, 평균 88s, 충돌 1건"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 거리(d_min)를 정지 조건에 포함하고, 별도 side‑scale f_side 를 계산해 앞‑gap 스케일 f와 결합해 속도를 조절한다",
+    "new_family": true,
+    "for": "많은 정지·우회 사이클이 시간 초과의 주 원인임을 해결",
+    "risk": "측면 물체가 지속적으로 근처에 있으면 정지 횟수가 늘어나 전체 시간이 더 길어질 수 있음"
+   },
+   {
+    "idea": "모든 mover에 대해 최소 TTC를 구하고, tc_min/_TTC_H 로 속도 스케일을 적용해 앞‑gap 스케일과 곱한다",
+    "new_family": true,
+    "for": "접근 속도가 빠른 물체를 사전에 감속시켜 급정지를 방지",
+    "risk": "TTC 계산 오차가 있으면 과도하게 감속하거나 충돌 위험이 남을 수 있음"
+   },
+   {
+    "idea": "danger_close(반경 1.0m) 검사를 추가하고, 조건 만족 시 바로 _evade 로 회피 명령을 반환해 stop/detour 로직을 건너뛴다",
+    "new_family": true,
+    "for": "측면 물체가 급접근할 때 정지‑우회 사이클을 최소화",
+    "risk": "불필요한 회피가 빈번해 경로가 늘어나고 시간 초과가 발생할 가능성"
+   }
+  ],
+  "chosen": "전방 gap 외에 가장 가까운 움직이는 물체 거리(d_min)를 이용해 정지와 속도 스케일링을 추가해 측면 충돌을 방지하고 불필요한 stop‑detour 사이클을 줄인다.",
+  "target": "_min_mover_dist 함수, controller() 내부의 gap/d_min 처리, 속도 스케일 f 계산, stop 조건, resume 조건",
+  "direction": "1. _movers 정의 뒤에 `_min_mover_dist(pose, movers)` 함수를 추가하여 movers가 비었을 때 99.0을 반환하고, 그렇지 않으면 로봇 중심과 각 mover 중심 사이 최소 유클리드 거리를 반환한다. 2. controller()에서 `movers = _movers(t, pose)` 직후 `d_min = _min_mover_dist(pose, movers)` 를 계산한다. 3. 기존 `f` 계산을 `f_front = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)` 로 유지하고, `f_side = _clamp((d_min - _STOP_D) / 1.5, 0.15, 1.0)` 를 만든 뒤 `f = min(f_front, f_side)` 로 결합한다. 4. go 상태에서 `if gap < _STOP_D:` 를 `if gap < _STOP_D or d_min < _STOP_D:` 로 바꾸어 측면 물체가 가까울 때도 정지하도록 한다. 5. `resume` 조건을 `resume = gap >= _GO_D and d_min >= _STOP_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)` 로 수정한다. 6. 나머지 로직은 그대로 두어 새로운 스케일링과 정지 조건이 자동으로 속도를 감소시키고 충돌을 예방하도록 한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no: 이번 지시(turn 24)로 평균 실행 시간이 65 s로 증가했고 10번째 실행을 못해 전체 예산을 초과했음 (turn 22 평균 61 s, 비록 통과 수는 적었지만 시간 효율은 더 좋음)",
+  "base_turn": 22,
+  "stage1": {
+   "chosen": "candidate 1: 측면 거리 기반 정지·속도 스케일링을 추가한다. 이는 정지·우회가 과도하게 발생하는 근본 원인을 직접 해결하므로 가장 합리적이다.",
+   "target": "controller 내부의 stop 조건과 속도 스케일링(f 계산) 로직",
+   "direction": "1. _perceive 이후 gap 와 d_min 을 구한 뒤, 기존 f_front 계산을 유지한다. 2. 새 변수 f_side = _clamp((d_min - _STOP_D) / 1.5, 0.15, 1.0) 를 추가한다. 3. f = min(f_front, f_side) 로 결합해 후보 명령 생성 루프에서 v_nom * f * k 를 사용한다. 4. 정지 전환 조건을 \"if gap < _STOP_D or d_min < _STOP_D:\" 로 바꿔 측면 물체가 가까울 때도 즉시 stop 상태로 전환한다. 5. resume 조건은 기존대로 gap >= _GO_D and d_min >= _STOP_D and _is_safe(...) 로 유지한다. 6. 다른 로직은 그대로 두어 기존 안전 검증을 그대로 활용한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"timeout\",\n  \"evidence\": [\n    \"배치 10개 중 9개만 실행됐으며, 남은 예산 18초가 최소 실행 시간 30초보다 작아 1개 실행을 못함\",\n    \"평균 시뮬 시간 65초(최장 72초)로 목표 평균 ≤60초를 초과\",\n    \"각 실행에 14~19번의 정지·제자리 회전 구간이 발생, 정지·우회 로직이 전체 시간에 큰 비중을 차지함\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체는 앞·뒤 2D 라이다로 충분히 감지된다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 1.2~1.9m 거리에서 물체가 감지된 점이 있음\"\n    },\n    {\n      \"assumption\": \"전방 ±30° 구역만으로 충돌을 판단하면 충분하다\",\n      \"holds\": false,\n      \"why\": \"측면 물체가 90° 방향에서 접근해 많은 정지·우회가 발생, 시간 초과 원인\"\n    },\n    {\n      \"assumption\": \"측면 물체는 재시작(resume) 조건에만 영향을 주어야 한다\",\n      \"holds\": false,\n      \"why\": \"측면 물체가 가까워도 정지·우회가 반복돼 실행 시간이 늘어남\"\n    },\n    {\n      \"assumption\": \"정지 후 대기 시간 _STOP_WAIT=2.0s는 충분히 짧다\",\n      \"holds\": true,\n      \"why\": \"정지·우회 로직에서 충돌이 없으며, 대기 시간 때문에 시간 초과가 발생하지 않음\"\n    },\n    {\n      \"assumption\": \"전방 gap 기반 속도 스케일링만으로 속도 조절이 충분하다\",\n      \"holds\": false,\n      \"why\": \"측면 물체가 가까울 때 급정지가 발생해 여러 stop‑detour 사이클이 늘어남\"\n    },\n    {\n      \"assumption\": \"로봇의 속도·회전 추정(c.vm, c.wm)이 안전 검증에 충분히 정확하다\",\n      \"holds\": true,\n      \"why\": \"collision 기록이 없으며, _is_safe 검증이 올바르게 작동함\"\n    },\n    {\n      \"assumption\": \"예측 수평선(_HORIZON=3.0s)과 정적 장애물 검사(K_STATIC=14)로 충분히 안전을 보장한다\",\n      \"holds\": true,\n      \"why\": \"정적 충돌이 없고, 움직이는 물체도 3초 내 예측으로 회피함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"basic stop/detour (front gap only)\",\n      \"turns\": \"1,3,4,5,6,7\",\n      \"result\": \"통과 9/10~8/10, 평균 62‑77s, 충돌 1‑2건\"\n    },\n    {\n      \"family\": \"timing tweaks (STOP_WAIT, DETOUR_T)\",\n      \"turns\": \"10,22\",\n      \"result\": \"통과 7/9‑8/10, 평균 61‑66s, 충돌 1‑2건\"\n    },\n    {\n      \"family\": \"side‑distance scaling\",\n      \"turns\": \"15,23\",\n      \"result\": \"통과 8/10‑5/7, 평균 64‑85s, 충돌 0‑1건\"\n    },\n    {\n      \"family\": \"danger_close detection\",\n      \"turns\": \"11,13\",\n      \"result\": \"통과 7/9‑7/10, 평균 70‑79s, 충돌 1‑2건\"\n    },\n    {\n      \"family\": \"TTC‑based scaling\",\n      \"turns\": \"14\",\n      \"result\": \"통과 1/4, 평균 141s, 충돌 0건\"\n    },\n    {\n      \"family\": \"single‑go branch (no stop/detour)\",\n      \"turns\": \"16\",\n      \"result\": \"통과 0/3, 스톨 3건\"\n    },\n    {\n      \"family\": \"reverse state for 뒤 물체\",\n      \"turns\": \"19,21\",\n      \"result\": \"통과 7/8, 평균 79‑81s, 충돌 1건\"\n    },\n    {\n      \"family\": \"front angle 확대\",\n      \"turns\": \"18\",\n      \"result\": \"통과 6/7, 평균 88s, 충돌 1건\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"측면 거리(d_min)를 정지 조건에 포함하고, 별도 side‑scale f_side 를 계산해 앞‑gap 스케일 f와 결합해 속도를 조절한다\",\n      \"new_family\": true,\n      \"for\": \"많은 정지·우회 사이클이 시간 초과의 주 원인임을 해결\",\n      \"risk\": \"측면 물체가 지속적으로 근처에 있으면 정지 횟수가 늘어나 전체 시간이 더 길어질 수 있음\"\n    },\n    {\n      \"idea\": \"모든 mover에 대해 최소 TTC를 구하고, tc_min/_TTC_H 로 속도 스케일을 적용해 앞‑gap 스케일과 곱한다\",\n      \"new_family\": true,\n      \"for\": \"접근 속도가 빠른 물체를 사전에 감속시켜 급정지를 방지\",\n      \"risk\": \"TTC 계산 오차가 있으면 과도하게 감속하거나 충돌 위험이 남을 수 있음\"\n    },\n    {\n      \"idea\": \"danger_close(반경 1.0m) 검사를 추가하고, 조건 만족 시 바로 _evade 로 회피 명령을 반환해 stop/detour 로직을 건너뛴다\",\n      \"new_family\": true,\n      \"for\": \"측면 물체가 급접근할 때 정지‑우회 사이클을 최소화\",\n      \"risk\": \"불필요한 회피가 빈번해 경로가 늘어나고 시간 초과가 발생할 가능성\"\n    }\n  ],\n  \"chosen\": \"candidate 1: 측면 거리 기반 정지·속도 스케일링을 추가한다. 이는 정지·우회가 과도하게 발생하는 근본 원인을 직접 해결하므로 가장 합리적이다.\",\n  \"target\": \"controller 내부의 stop 조건과 속도 스케일링(f 계산) 로직\",\n  \"direction\": \"1. _perceive 이후 gap 와 d_min 을 구한 뒤, 기존 f_front 계산을 유지한다. 2. 새 변수 f_side = _clamp((d_min - _STOP_D) / 1.5, 0.15, 1.0) 를 추가한다. 3. f = min(f_front, f_side) 로 결합해 후보 명령 생성 루프에서 v_nom * f * k 를 사용한다. 4. 정지 전환 조건을 \\\"if gap < _STOP_D or d_min < _STOP_D:\\\" 로 바꿔 측면 물체가 가까울 때도 즉시 stop 상태로 전환한다. 5. resume 조건은 기존대로 gap >= _GO_D and d_min >= _STOP_D and _is_safe(...) 로 유지한다. 6. 다른 로직은 그대로 두어 기존 안전 검증을 그대로 활용한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no: 이번 지시(turn 24)로 평균 실행 시간이 65 s로 증가했고 10번째 실행을 못해 전체 예산을 초과했음 (turn 22 평균 61 s, 비록 통과 수는 적었지만 시간 효율은 더 좋음)\",\n  \"base_turn\": 22\n}",
+ "table": [
+  {
+   "run": "c51t24_s520802008",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 72.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 66.22,
+   "goal_dist_m": 0.2256,
+   "time_to_goal_s": 68.2
+  },
+  {
+   "run": "c51t24_s1218879816",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 527.9,
+   "sim_time_s": 69.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 63.02,
+   "goal_dist_m": 0.1978,
+   "time_to_goal_s": 65.017
+  },
+  {
+   "run": "c51t24_s614830903",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 458.9,
+   "sim_time_s": 62.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 56.62,
+   "goal_dist_m": 0.2056,
+   "time_to_goal_s": 58.583
+  },
+  {
+   "run": "c51t24_s1362192964",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 396.3,
+   "sim_time_s": 72.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 66.32,
+   "goal_dist_m": 0.2251,
+   "time_to_goal_s": 68.1
+  },
+  {
+   "run": "c51t24_s906403349",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 324.0,
+   "sim_time_s": 68.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 62.72,
+   "goal_dist_m": 0.2002,
+   "time_to_goal_s": 64.733
+  },
+  {
+   "run": "c51t24_s480693566",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 255.3,
+   "sim_time_s": 65.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 59.32,
+   "goal_dist_m": 0.2259,
+   "time_to_goal_s": 61.35
+  },
+  {
+   "run": "c51t24_s111460825",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 190.1,
+   "sim_time_s": 58.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 52.55,
+   "goal_dist_m": 0.2046,
+   "time_to_goal_s": 54.483
+  },
+  {
+   "run": "c51t24_s783629778",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 131.6,
+   "sim_time_s": 58.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 52.65,
+   "goal_dist_m": 0.2298,
+   "time_to_goal_s": 54.6
+  },
+  {
+   "run": "c51t24_s1507668454",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 73.0,
+   "sim_time_s": 54.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 48.72,
+   "goal_dist_m": 0.221,
+   "time_to_goal_s": 50.767
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

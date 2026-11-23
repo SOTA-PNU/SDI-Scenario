@@ -1,0 +1,276 @@
+{
+ "turn": 27,
+ "started": "2026-11-19 06:29:38",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn26/claude_exaone45_analyst_pC8t26_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision|stall",
+  "evidence": [
+   "collision run: mover first seen at 1.87m (t=26.22s) but evasion not triggered; robot continued moving and collided at 0.36m (t=31.15s) with closing_speed 0.56m/s",
+   "progress‑abort runs show robot repeatedly stopped/spinning (35‑54 episodes) without reaching goal, indicating evasion‑induced stalls",
+   "last 5s data: in collision run robot approached mover while turning; in abort runs robot remained stopped while mover remained within 2‑4m distance",
+   "evasion end conditions (static clearance ≥0.15m for 0.5s) likely too strict for narrow passages, causing prolonged stalls",
+   "proximity trigger (d_near <2.0m and app_rel>0.1) should have activated evasion in collision run but did not, suggesting missed detection or condition mismatch"
+  ],
+  "assumptions": [
+   {
+    "assumption": "evasion triggers (prox or TTC) activate before collision",
+    "holds": false,
+    "why": "collision occurred despite mover within 2.0m and closing_speed>0.1; evasion not started"
+   },
+   {
+    "assumption": "evasion end conditions allow timely resumption when mover is receding",
+    "holds": false,
+    "why": "progress‑abort runs show robot stalls long after mover distance stops decreasing, indicating resumption conditions too strict"
+   },
+   {
+    "assumption": "detour points provide viable paths during evasion",
+    "holds": false,
+    "why": "repeated stops suggest no safe path found meeting current static‑clearance requirements"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "proximity‑and‑TTC‑based evasion trigger",
+    "turns": "multiple",
+    "result": "mixed – collision still occurs when mover approaches from non‑frontal angle"
+   },
+   {
+    "family": "strict static‑clearance filtering in _choose during evasion",
+    "turns": "multiple",
+    "result": "causes stalls in narrow passages when no candidate meets stc≥0.15m"
+   },
+   {
+    "family": "time‑based evasion end conditions (e.g., hold static clearance for 0.5s)",
+    "turns": "multiple",
+    "result": "prolongs evasion unnecessarily when mover is stationary or slow"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "lower static‑clearance requirement during evasion and increase weight on distance‑increase metric",
+    "new_family": true,
+    "for": "reduces stalls by allowing evasion termination even when mover is near but receding slightly; encourages lateral movement away from mover",
+    "risk": "may allow robot to resume movement too close to a mover that is not truly receding"
+   },
+   {
+    "idea": "add velocity‑vector‑based path prediction in _make_detour (e.g., aim perpendicular and ahead of mover’s velocity)",
+    "new_family": true,
+    "for": "creates detour points that proactively move away from mover’s future position, improving avoidance success",
+    "risk": "requires accurate mover velocity estimation; noisy data could cause erratic detours"
+   },
+   {
+    "idea": "fallback to slow forward motion (v=0.2m/s, w=0) when _choose returns no candidate during evasion",
+    "new_family": true,
+    "for": "prevents total stalls by allowing minimal progress while continuing to monitor movers",
+    "risk": "may increase collision risk if mover suddenly closes in"
+   }
+  ],
+  "chosen": "lower static‑clearance requirement during evasion and increase weight on distance‑increase metric",
+  "target": "_choose and evasion end‑condition logic",
+  "direction": "1. In _choose during evasion, relax static‑clearance filter from stc≥0.15m to stc≥0.05m\n2. Add distance‑increase bonus: score candidates by expected distance‑to‑nearest‑mover increase over next 2 seconds\n3. Modify evasion end condition: allow termination if mover distance is increasing (closing_speed < -0.05) for 1.0s, regardless of static clearance\n4. Increase weight on lateral‑movement bonus when mover is approaching (app_rel > 0.1)\n5. Reduce evade_max to 8.0s to prevent indefinite stalls; if exceeded, force evasion end and retry nominal path\n6. Log evasion trigger times (prox, TTC, danger) to debug missed detections",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 1·2·4번에 따라 `_choose` 를 고쳤습니다. 회피 중 후보의 정적 여유 기준을 0.1 m에서 0.05 m(`_EV_CH_ST`)로 낮췄고, 2초 뒤 가장 가까운 움직이는 물체와의 거리 증가량에 점수(`_cand_dinc`)를 줍니다. app_rel > 0.1 로 물체가 다가올 때는 측면 이동 가중치를 1.5배로 올렸고, 이 두 가지는 `_narrow_lateral` 에도 넣었습니다. 3번에 따라, 움직이는 물체와의 거리가 1.0초 동안 계속 늘면(근처 점이 모두 0.05 m/s 이상으로 멀어지거나 3 m 밖) 정적 여유와 상관없이 회피를 끝냅니다(`end_inc`). 5번은 그대로 따르지 않았습니다. 한 번의 회피 상한 `_EVADE_MAX` 는 이미 3.0 s 라서 8.0 s 로 바꾸면 오히려 늘어나므로 3.0 s 를 유지했습니다. 대신 경로 진행이 8.0 s 동안 0.5 m 미만이면 회피를 강제로 끝내고 2 s 동안 기존 안전 검사를 거치며 경유점 경로를 다시 시도하는 감시(watchdog)를 넣었고, 6번에 따라 트리거 종류, 쿨다운에 막힌 트리거, 근접했는데 트리거되지 않은 경우를 상태가 바뀔 때만 로그로 남깁니다.",
+   "changed": [
+    "_DINC_K",
+    "_DINC_REF",
+    "_DINC_W",
+    "_EVADE_MAX_TOTAL",
+    "_EV_CH_ST",
+    "_INC_END_S",
+    "_INC_END_V",
+    "_LAT_APP_F",
+    "_WD_NOM_S",
+    "_WD_PROG",
+    "_cand_dinc",
+    "_choose",
+    "_evade_reset",
+    "_narrow_lateral",
+    "_path_left",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. 회피 중 _choose 의 정적 여유 기준을 0.05 m 로 완화",
+      "implemented": true,
+      "note": "_EV_CH_ST=0.05 를 회피 tier 의 st_ok 와 _no_spin(st_min) 에 적용함. 실제 이전 값은 0.15 가 아니라 _EV_ST_HARD 0.1 이었음. _narrow_lateral 은 0.1 을 유지하지만 지시 범위가 _choose 라서 문제 없음"
+     },
+     {
+      "instruction": "2. 2초 동안 가장 가까운 움직이는 물체와의 거리 증가량으로 후보 점수",
+      "implemented": true,
+      "note": "_cand_dinc 가 _DINC_K=20(2.0 s, _KP=30 이내)에서 dk-d0 를 계산하고, _choose 회피 분기와 _narrow_lateral 에서 _DINC_W*clip(dic/_DINC_REF) 를 더함"
+     },
+     {
+      "instruction": "3. 거리가 늘어나는 상태(closing_speed<-0.05)가 1.0 s 지속되면 정적 여유와 무관하게 회피 종료",
+      "implemented": true,
+      "note": "rec_rel>_INC_END_V(0.05) 이거나 d_near>=3 m 인 상태가 _INC_END_S=1.0 s 지속되면 end_inc 로 끝냄. st_hold 조건이 없고 normal 종료로 처리됨. 부호도 맞음(rec_rel>0 이 멀어짐)"
+     },
+     {
+      "instruction": "4. app_rel>0.1 일 때 측면 이동 가중치 증가",
+      "implemented": true,
+      "note": "lat_f=_LAT_APP_F(1.5) 를 _choose 의 _VEL_LAT_W, 접근 시 _LAT_PRIO_W 항과 _narrow_lateral 의 측면 보너스에 곱함. 모든 호출에 lat_f 를 넘김"
+     },
+     {
+      "instruction": "5. evade_max 를 8.0 s 로 줄이고, 넘으면 회피를 강제 종료한 뒤 기존 경로 재시도",
+      "implemented": true,
+      "note": "값은 그대로 따르지 않음. _EVADE_MAX 3.0 s 는 유지하고, 경로 진행이 8.0 s 동안 0.5 m 미만이면 _evade_reset 후 cool_until=t+2 로 기존 경로를 재시도하는 watchdog 을 추가함. 지시의 의도(무한 정체 방지, 강제 종료 후 재시도)는 구현됨"
+     },
+     {
+      "instruction": "6. 회피 트리거 시각과 종류(prox, TTC, danger) 로그",
+      "implemented": true,
+      "note": "evade trigger 로그에 kind=ttc/prox/near/hard 와 danger 를 남기고, 쿨다운에 막힌 트리거와 근접인데 트리거가 없는 경우를 상승 에지에서만 출력함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 5: 현재 _EVADE_MAX 는 3.0 s 이므로 8.0 s 로 바꾸면 줄이는 것이 아니라 늘리는 것임. 방향이 거꾸로 된 값",
+     "지시 1: 기준값을 0.15 m 로 적었으나 실제 _choose 회피 tier 는 0.1 m(_EV_ST_HARD) 였음. _EV_ST_MIN 0.15 는 쓰이지 않는 상수임",
+     "근거 1의 충돌(1.87 m 에서 보였는데 트리거 안 됨)에 대해 지시는 로그 추가뿐이고, 트리거 누락 자체를 고치는 지시는 없음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단의 1·2·4번에 따라 `_choose` 를 고쳤습니다. 회피 중 후보의 정적 여유 기준을 0.1 m에서 0.05 m(`_EV_CH_ST`)로 낮췄고, 2초 뒤 가장 가까운 움직이는 물체와의 거리 증가량에 점수(`_cand_dinc`)를 줍니다. app_rel > 0.1 로 물체가 다가올 때는 측면 이동 가중치를 1.5배로 올렸고, 이 두 가지는 `_narrow_lateral` 에도 넣었습니다. 3번에 따라, 움직이는 물체와의 거리가 1.0초 동안 계속 늘면(근처 점이 모두 0.05 m/s 이상으로 멀어지거나 3 m 밖) 정적 여유와 상관없이 회피를 끝냅니다(`end_inc`). 5번은 그대로 따르지 않았습니다. 한 번의 회피 상한 `_EVADE_MAX` 는 이미 3.0 s 라서 8.0 s 로 바꾸면 오히려 늘어나므로 3.0 s 를 유지했습니다. 대신 경로 진행이 8.0 s 동안 0.5 m 미만이면 회피를 강제로 끝내고 2 s 동안 기존 안전 검사를 거치며 경유점 경로를 다시 시도하는 감시(watchdog)를 넣었고, 6번에 따라 트리거 종류, 쿨다운에 막힌 트리거, 근접했는데 트리거되지 않은 경우를 상태가 바뀔 때만 로그로 남깁니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  386643393,
+  1888011052,
+  2133402299
+ ],
+ "sim_used_s": 601.0,
+ "verdicts": {
+  "386643393": "pass",
+  "1888011052": "fail",
+  "2133402299": "fail"
+ },
+ "passes": 1,
+ "prior_chars": 30486,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 남은 예산 0초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 1개, 실패 2개. 시뮬 시간 합계 601초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 188초 (가장 짧은 것 188초, 가장 긴 것 188초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 5: 현재 _EVADE_MAX 는 3.0 s 이므로 8.0 s 로 바꾸면 줄이는 것이 아니라 늘리는 것임. 방향이 거꾸로 된 값\n- (검토 1회차, 판정 pass) 지시 1: 기준값을 0.15 m 로 적었으나 실제 _choose 회피 tier 는 0.1 m(_EV_ST_HARD) 였음. _EV_ST_MIN 0.15 는 쓰이지 않는 상수임\n- (검토 1회차, 판정 pass) 근거 1의 충돌(1.87 m 에서 보였는데 트리거 안 됨)에 대해 지시는 로그 추가뿐이고, 트리거 누락 자체를 고치는 지시는 없음\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "c8t27_s1888011052 실행에서 로봇이 목표에서 멀리 떨어진 시작점 근처(-4.548, -10.435)에서 40회 정지-회전 반복하며 진행 중단",
+   "c8t27_s2133402299 실행에서 로봇이 목표까지 6.75m 떨어진 위치에서 85회 정지-회전, 마지막 5초 동안 제자리 회전만 지속",
+   "두 실패 실행 모두 정지 횟수가 많고 회피 상태(early)에서 거리 변화 없이 정체, 회피 종료 조건 미충족으로 무한 회피 루프 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 종료 조건이 거리 증가 또는 정적 여유 유지로 작동하여 진행 재개를 보장한다",
+    "holds": false,
+    "why": "실패 실행에서 물체 거리 변화 없이 회피 상태 지속, 거리 증가 없음"
+   },
+   {
+    "assumption": "회피 중 후보 경로 선택 시 물체 멀어지는 방향(d_dot > 0)을 충분히 우선시한다",
+    "holds": false,
+    "why": "정적 여유(stc) 기준만 강조해 거리 변화 없는 경로도 선택, 진행 정체 유발"
+   },
+   {
+    "assumption": "회피 트리거가 위험 상황을 정확히 식별하고 불필요한 회피를 방지한다",
+    "holds": false,
+    "why": "물체 거리 1.5~2.6m에서 트리거 발생, 정지 후 재진행 조건 충족 안 되어 정체"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": "12",
+    "result": "TTC, 거리, 속도 임계값 조정 시도했으나 배치 변화에 민감, 정체 현상 지속"
+   },
+   {
+    "family": "회피 상태 관리 계열",
+    "turns": "10",
+    "result": "감시(watchdog) 및 종료 조건 추가 시도했으나 거리 변화 없는 정체에는 효과 없음"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 후보 경로 선택 시 거리 변화율(d_dot) 점수 가중치 대폭 상향",
+    "new_family": true,
+    "for": "실패 실행에서 물체 거리 변화 없이 회피 상태 정체, d_dot 점수 강화로 멀어지는 경로 우선 선택",
+    "risk": "안전 여유(stc) 무시 시 충돌 위험, 특히 예측 불확실한 물체 배치에서 위험"
+   },
+   {
+    "idea": "회피 종료 조건에 '거리 변화율 지속성' 추가 (d_dot > 0.1m/s 지속 1.0s)",
+    "new_family": true,
+    "for": "무한 회피 루프 방지, 거리 변화 없는 정체 상태에서 강제 종료로 진행 재개 기회 제공",
+    "risk": "물체가 일시적으로 멀어지다가 다시 접근할 때 조기 종료로 충돌 가능성"
+   },
+   {
+    "idea": "회피 트리거에 거리와 속도 조건 결합 (d_near < 1.5m AND closing_speed > 0.1m/s)",
+    "new_family": true,
+    "for": "불필요한 회피 트리거 감소, 특히 물체 멀리 있을 때 조기 회피로 인한 정지 방지",
+    "risk": "빠른 접근 물체 감지 지연 가능성, TTC 단독 트리거보다 위험 증가"
+   }
+  ],
+  "chosen": "회피 중 후보 경로 선택 시 거리 변화율(d_dot) 점수 가중치 대폭 상향, 거리 변화 없는 정체 상태에서 진행 유도로 회피 루프 방지",
+  "target": "_choose 함수 (회피 모드(evading=True) 분기)",
+  "direction": "1. 회피 모드에서 후보 경로의 d_dot(거리 변화율) 계산 강화 및 점수 반영 가중치 증가\n2. d_dot이 양수(물체 멀어짐)인 후보를 우선 선택하고, 음수(가까워짐) 후보 배제\n3. 정적 여유(stc) 체크는 최소 기준(0.0)으로 유지하되, d_dot 기준 강화로 안전과 진행 균형\n4. 회피 종료 조건으로 d_dot > 0.1m/s 지속 1.0s 추가 (기존 거리 증가 조건 보완)\n5. 회피 시작 시 현재 물체 방향과 수직으로 회전 유도해 거리 증가율 향상\n6. _EV_INC_S(1.0s) 유지하되, d_dot 기반 종료 조건으로 민감도 조정",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c8t27_s386643393",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 187.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 61,
+   "first_seen_within_2m_t": 181.65,
+   "goal_dist_m": 0.206,
+   "time_to_goal_s": 183.8
+  },
+  {
+   "run": "c8t27_s1888011052",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 412.4,
+   "sim_time_s": 127.6,
+   "stall_abort_t": null,
+   "progress_abort_t": 126.6,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 40,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.258,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t27_s2133402299",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 284.7,
+   "sim_time_s": 285.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 85,
+   "first_seen_within_2m_t": 279.75,
+   "goal_dist_m": 6.7546,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔에서 지도에 없는 점(움직이는 물체) 식별\\n2. 정적 장애물(MISSION boxes, WALLS, FIXED_OBSTACLES) 범위 외 점만 필터링\\n3. 가장 가까운 비정적 점까지의 거리 계산\\n4. 거리가 2m 미만이면 v=0, w=0으로 설정해 정지\\n5. 정지 후 1초간 재감지하여 물체 이동 확인 후 진행\\n6. 정지 없이 경유점 주행 시 기존 제어법 유지\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 229 s / 한도 600 s)\n#2 이번 코드(진단 \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\" 반영, 검토 통과): 새 배치 1개 중 1개 pass, 0개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#3 이번 코드(진단 \"1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 300 s / 한도 600 s)\n#4 이번 코드(진단 \"1. controller에서 slow 모드 진입 조건을 clr_n < _CLR_GO에서 clr_all < _CLR_GO로 변경\\n2. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO로 수정 (0~1 범위 유지)\\n3. 정지 결정 시 _CLR_STOP을 clr_all 기준으로 유지하되, 감속 궤적 검증 시 clr_all >= _CLR_STOP 조건 강화\\n4. 정지 후 재개 시 물체 접근 속도(closing_m_s) 음수일 경우 즉시 회피 동작 유도\\n5. clr_all 계산 시 전방 섹터 외 물체도 포함되도록 _front_sector 호출 제거\\n6. 히스테리시스 값 _HYST를 1.5로 증가시켜 감속 모드 해제 조건 완화\" 반영, 검토 통과): 새 배치 9개 중 6개 pass, 3개 fail (시뮬 시간 합계 466 s / 한도 600 s)\n#5 이번 코드(진단 \"1. _movers_now 호출 직후 partner 클로즈드 포인트(P, U)를 기반으로 _closing_speed 계산\\n2. 결과가 -0.15 미만이고 가장 가까운 물체 거리가 3m 이내일 때, 즉시 _choose(pose, P, U, target) 호출로 회피 동작 실행\\n3. 정지 모드 진입 전에도 동일 조건으로 조기 회피 유도\\n4. _slow_cmd 내 stop 조건 검사와 별도로 주행 중 검사 로직 분리\\n5. _CLOSE_V 값을 -0.15로 강화해 민감도 조정\\n6. 정지 후 재개 시 검사와 병행해 모든 상태에서 접근 물체 감지 보장\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 72 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _movers_now 직후 가장 가까운 물체의 거리(d_near)와 상대 속도(U)로 TTC 계산 (TTC = d_near / max(closing_speed, 0.01))\\n2. TTC < 1.0s 일 때 조기 회피 트리거 활성화\\n3. _choose 호출 시 현재 가장 가까운 물체 위치를 앵커로 전달\\n4. 앵커 기반 패널티로 물체 근처 경로 선택 억제 (예: da - _EVADE_R > 0 시 -20 점수)\\n5. _EVADE_HOLD를 0.5s로 유지하되, TTC 기반 트리거로 회피 시작 시점 앞당김\\n6. _CLOSE_R을 1.5m로 완화해 더 넓은 범위에서 접근 속도 계산\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _HYST 값을 1.5에서 1.0으로 감소시켜 slow 모드 해제 조건을 완화한다. 2. _TTC_TRIG을 1.0s에서 2.0s로 상향해 TTC 기반 회피 트리거 시점을 앞당긴다. 3. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO 계산 시, mover 접근 속도(U)와 로봇 속도(v) 차이를 고려해 동적 임계값을 적용한다. 4. _choose 호출 시 앵커 기반 패널티 계산 범위를 1.0s에서 1.5s로 확장해 더 긴 예측 구간에서 mover 경로 회피를 유도한다. 5. 정지 후 재진행 조건(_mover_clearance >= _CLR_STOP)을 _CLR_STOP = 0.25m로 완화해 불필요한 정지 감소한다. 6. _closing_speed 계산 시 _CLOSE_R을 1.5m에서 2.0m로 확대해 접근 감지 범위를 넓혀 조기 경고 가능성을 높인다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 248 s / 한도 600 s)\n#8 이번 코드(진단 \"When TTC triggers evasion, set evade_until to t + _EVADE_HOLD but also extend it if TTC remains < 2.0s; recalculate TTC every frame during evasion; prioritize lateral evasion candidates with larger angular deviation from mover bearing; incorporate mover velocity vectors into _choose scoring via relative motion prediction; reduce _ANCHOR_R to 0.8m for tighter evasion around closest mover; validate evasion effectiveness via lidar clearance metrics before resuming motion\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#9 이번 코드(진단 \"1. Set _TTC_TRIG = 1.0s to trigger evasion earlier when TTC drops below 1.0s\\n2. Increase _EVADE_HOLD to 1.0s so evasion extends at least 1.0s after TTC recovery\\n3. Revert _ANCHOR_R to 1.2m for better velocity estimation around movers\\n4. Adjust _EVADE_MAX to 8.0s to prevent premature evasion end in complex scenarios\\n5. In _choose, add static clearance bonus for paths maintaining >0.4m from static obstacles during evasion\\n6. Ensure evasion ends only when both TTC ≥ 1.0s and static clearance ≥ 0.3m for 0.5s\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#10 이번 코드(진단 \"1. 회피 종료 조건인 _RESUME_ST를 0.3m에서 0.2m로 완화하되, 정적 여유가 0.15m 미만인 구역에서는 회피 종료를 _EVADE_MAX(8s) 내에서도 강제로 종료하도록 수정.\\n2. _choose 함수에서 회피 모드(evading=True) 시 정적 여유(stc)가 0.2m 이상인 경우에만 보너스 점수(_ST_W)를 부여하고, stc < 0인 후보는 절대 선택되지 않도록 하드 제약 강화.\\n3. 회피 중 _mover_clearance 대신 _static_clearance를 2차 평가 지표로 추가해, mover와의 거리와 정적 여유를 균형 있게 고려하도록 점수 식 조정.\\n4. _EVADE_MAX를 6s로 단축하여 장시간 회피로 인한 시간 한도 초과 방지.\\n5. 회피 시작 시 현재 정적 여유가 0.25m 미만이면 즉시 _choose를 호출해 정적 장애물 회피 우선 동작 수행.\\n6. 정지 후 재개 시 closing_speed 음수인 경우에도 정적 여유가 0.15m 이상이면 즉시 회피 종료 검토 (시간 낭비 방지).\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#11 이번 코드(진단 \"1. evading=True 시 후보 경로 중 stc >= 0.15m인 것만 허용하는 필터 추가\\n2. 허용 후보 없을 시 즉시 정지(v=0, w=0) 명령 반환\\n3. 회피 중 정적 여유 보너스 가중치(_ST_W)를 2.5로 상향 조정\\n4. 회피 경로 예측 시 정적 장애물과의 최소 거리 검증을 0.15m로 강화\\n5. 정적 여유가 0.15m 미만인 구역 진입 시 회피 트리거 자체를 비활성화\\n6. 회피 종료 조건에 정적 여유 지속 검증(0.15m 이상 0.5s 유지) 추가\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 98 s / 한도 600 s)\n#12 이번 코드(진단 \"1. evasion 트리거 조건에서 st0 >= _EV_ST_MIN 조건 제거 (ttc < _TTC_TRIG만으로 트리거). 2. _choose 함수의 evading=True 분기에서 mover_clearance(clr) 점수에 가중치 2.0 추가 및 static_clearance(stc) 점수 가중치 0.5로 감소. 3. evasion 중 허용 후보 필터링 시 stc >= _EV_ST_MIN 대신 clr >= _CLR_GO * 0.8 조건 적용. 4. evasion 종료 조건에서 static_clearance(st_n >= _RESUME_ST) 요건을 clr_all >= _CLR_GO * 1.1로 대체. 5. evasion 시작 시 현재 static_clearance가 낮은 경우 lateral movement(가속도 w) 보너스 점수 3.0 부여. 6. _EVADE_MAX 상한은 6s로 유지하되, mover_clearance가 지속적으로 개선되지 않을 경우 강제 종료 로직 추가.\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 517 s / 한도 600 s)\n#13 이번 코드(진단 \"1. 회피 후보 필터링에서 stc >= 0.2m를 강제 조건 추가 (기존 stc >= 0.0 대체)\\n2. mover_clearance(clr) 필터를 _CLR_GO * 0.9로 상향 조정\\n3. 회피 종료 조건으로 clr_all >= _CLR_GO * 1.2 AND stc >= 0.2m 유지 0.5s 요구\\n4. 정적 충돌 위험 시 즉시 정지(v=0, w=0) 대신 _choose 재호출로 측면 이동 유도\\n5. _EV_NOIMP_S(2.0s) 개선 조건에 stc 개선 포함\\n6. _LAT_PRIO_W 보너스를 정적 안전 거리와 연동해 측면 이동 유도\" 반영, 검토 통과): 새 배치 4개 중 3개 pass, 1개 fail (시뮬 시간 합계 570 s / 한도 600 s)\n#14 이번 코드(진단 \"1. evading=True 시 stc >= 0.2m 강제 조건 제거, stc >= 0.0만 허용. 2. 회피 종료 조건으로 (ttc >= _TTC_TRIG and clr_all >= _CLR_GO * _RESUME_CLR_F)만 요구. 3. 회피 중 st_n < 0.15m인 구역 진입 시 _choose 재호출 대신 속도 유지하며 lateral 이동 유도. 4. slow_mode 진입 시 _CLR_STOP 기준을 0.35로 상향해 과도한 감속 방지. 5. 제자리 회전 시 w=0.05 rad/s 미만이면 전진 속도 0.5m/s 유지하도록 _choose 수정. 6. 회피 종료 후 0.2s 이내 재진입 방지 위해 _cool_until을 0.2s로 단축\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#15 이번 코드(진단 \"1. Increase track retention from 0.4s to 2.0s in _update_tracks to keep mover tracks longer for accurate velocity estimation.\\n2. In _choose during evasion, compute desired heading perpendicular to mover velocity vector (v: vx, vy) → desired heading = atan2(vx, -vy).\\n3. Add score bonus for commands whose yaw change aligns with this desired heading (e.g., bonus = _LAT_PRIO_W * cos(desired_heading - w)).\\n4. Ensure static clearance (stc) ≥ 0.0 remains required but prioritize lateral movement when mover is approaching (closing speed > 0).\\n5. Reduce _EVADE_MAX to 4.0s to limit prolonged ineffective evasion.\\n6. Increase _LAT_PRIO_W to 4.0 to strengthen lateral movement incentive during evasion.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 449 s / 한도 600 s)\n#16 이번 코드(진단 \"During evasion, if nearest mover distance <1.0m, immediately set v=0, w=0. For 1.0m ≤ distance <2.0m, increase lateral yaw rates to [-2.0, -1.0, 0.0, 1.0, 2.0] rad/s. End evasion only if mover distance increases for 1.0s without TTC trigger. This ensures stopping when too close, stronger lateral movement, and prevents repeated evasion from stalling.\" 반영, 검토 통과): 새 배치 5개 중 4개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#17 이번 코드(진단 \"1. _EVADE_MAX를 3.0s로 단축하고 evade_until을 min(evade_until, t + _EVADE_MAX)로 강제 설정\\n2. 회피 종료 시 물체 속도 성분(vx, vy)이 로봇에서 멀어지는 방향인지 확인 (속도 내적 > 0)\\n3. _EV_INC_S를 0.5s로 축소하고 허용 오차 0.01m로 엄격화\\n4. 정지 시 _EV_STILL_KP를 5단계로 축소해 빠른 재진행 유도\\n5. _choose에서 물체 속도 벡터 반영해 측면 이동 우선 선택 (lateral 보너스 가중치 2.0 추가)\\n6. 정적 안전도(st_n)가 0.1m 미만 구역 회피 트리거 비활성화\" 반영, 검토 통과): 새 배치 8개 중 5개 pass, 3개 fail (시뮬 시간 합계 485 s / 한도 600 s)\n#18 이번 코드(진단 \"Remove the static clearance check (st_n >= _EV_TRIG_ST) from the evasion trigger condition. This activates evasion based solely on TTC < 1.0s, ensuring mover avoidance in narrow passages. The _choose function already filters candidates with sufficient static clearance (stc ≥ 0), so evasion remains safe. Adjust evasion end conditions to prioritize distance increase over static clearance when st_n is low. Increase mover detection radius to 3.0m for earlier TTC calculation. Cap evasion duration at t + 1.0s instead of _EVADE_MAX when st_n < 0.1m. Prioritize lateral movement when movers are within 1.0m–2.0m during evasion.\" 반영, 검토 통과): 새 배치 6개 중 3개 pass, 3개 fail (시뮬 시간 합계 497 s / 한도 600 s)\n#19 이번 코드(진단 \"1. In evasion trigger block, after setting S[\\\"evade_on\\\"] = True, add S[\\\"evading\\\"] = True.\\n2. Ensure S[\\\"evading\\\"] is reset to False when evasion ends (after cool_down or force end).\\n3. Verify 'early' condition now correctly activates evasion-specific logic like distance-prioritized stopping.\\n4. Remove redundant checks that rely on S[\\\"evading\\\"] being pre-set.\\n5. Maintain all existing evasion parameters; fix only state flag propagation.\\n6. This ensures robot enters evasion behavior when trigger fires, addressing all collision cases where evade_on was True but robot kept moving.\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 351 s / 한도 600 s)\n#20 이번 코드(진단 \"1. Compute nearest mover distance (d_near) and closing speed early in controller using lidar data\\n2. Modify evasion trigger to include: (d_near < 2.0 and closing_speed > 0.1) OR existing TTC/clearance conditions\\n3. Ensure trigger activates before TTC<1.0s by lowering effective danger threshold\\n4. Keep existing evasion logic but add this proximity-approach condition\\n5. Set _EV_STOP_D to 1.5m (higher) to allow more reaction time, but maintain stop at <1.0m\\n6. Use _SENSE_R (6.0m) for detection radius to cover 2.0m threshold\" 반영, 검토 통과): 새 배치 4개 중 2개 pass, 2개 fail (시뮬 시간 합계 594 s / 한도 600 s)\n#21 이번 코드(진단 \"1. d_near < _EV_STOP_HARD 시 _mover_clearance(still_tr)로 정지 안전도 계산\\n2. 안전도 < _EV_STILL_CLR(0.05)이면 _choose 호출해 측면 이동 강제 실행\\n3. 안전도 >= _EV_STILL_CLR이면 정지 유지\\n4. 정지 중 _closing_speed < _CLOSE_V(-0.15) 시 즉시 회피 모드 전환\\n5. _EV_STILL_CLR을 0.03으로 강화해 정지 안전성 기준 엄격화\\n6. 정지 후 1.0초 내 거리 증가 없을 시 강제 회피 재시도\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 558 s / 한도 600 s)\n#22 이번 코드(진단 \"1. 회피 중 _choose에서 각 후보 경로의 d_dot(거리 변화율) 계산 추가\\n2. d_dot이 양수(거리 증가)이고 최대인 후보에 보너스 점수 부여\\n3. 정적 안전도(stc) ≥ 0.0 조건 유지하되, d_dot 기준 강화로 진동 억제\\n4. 회피 종료 조건을 d_dot > 0.1 m/s 지속 0.5초로 변경\\n5. _EV_INC_TOL을 0.05m로 완화해 거리 미세 증가도 종료 조건으로 인정\\n6. 측면 이동 후보(w) 선택 시 d_dot 증가 방향과 일치하는지 검증\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 447 s / 한도 600 s)\n#23 이번 코드(진단 \"1. _DDOT_END를 0.05로 수정해 0.5초 기준 거리 변화율 기준 완화\\n2. _EV_INC_S를 1.0으로 확장해 1.0초 평균 변화율 계산\\n3. _EV_INC_TOL을 0.02로 완화해 미세 거리 증가도 rising으로 인식\\n4. _AWAY_V를 0.01로 낮춰 물체 후퇴 감지 민감도 향상\\n5. end_rise 조건에서 ddot_win > _DDOT_END 대신 ddot_win > 0.02로 완화\\n6. end_away 조건에서 _AWAY_S를 0.5로 늘려 물체 멀어짐 지속 시간 기준 완화\" 반영, 검토 통과): 새 배치 4개 중 2개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#24 이번 코드(진단 \"1. evasion 트리거 조건에 d_near < 1.5m 추가 (기존 TTC/근접 조건과 OR 결합). 2. _choose의 evading=True 분기에서 stc >= 0.1m를 필수 조건으로 설정. 3. 회피 중 정적 안전 거리 미달 시 mover 회피보다 정적 장애물 회피 우선 적용. 4. TTC_TRIG를 0.5s로 완화해 느린 접근 물체 감지 강화. 5. evasion 종료 조건에 정적 안전 거리 지속 유지(0.1m 이상 0.5s) 추가. 6. 회피 경로 선택 시 mover clearance와 static clearance 가중치를 1:2로 조정해 정적 안전도 우선 고려.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 448 s / 한도 600 s)\n#25 이번 코드(진단 \"1. _movers_now에서 속도 크기 계산, _STILL_V 미만이면 정지 물체로 식별\\n2. evasion 종료 조건에 정지 물체 + 전방 여유 ≥ _EV_END_ST 추가\\n3. _choose에서 정지 물체 감지 시 progress 점수에 _EV_ST_SAFE 배 보너스 부여\\n4. 정지 물체 식별 시 lateral 후보 대신 forward 후보 선택 우선\\n5. _EV_END_ST_HOLD 시간을 0.5s에서 1.0s로 완화해 정지 물체 확인 시간 확보\\n6. 회피 종료 후 nominal command 재개 시 정지 물체 방향 회피 패널티 완화\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 382 s / 한도 600 s)\n#26 이번 코드(진단 \"1. _front_sector 호출을 _ttc 및 _nearest_mover 계산에서 제거하고 360도 라이다 데이터를 직접 사용\\n2. 회피 중 _choose에서 물체 속도 벡터를 계산해 로봇이 물체 이동 방향과 수직인 경로를 선택하도록 점수 부여\\n3. 물체 감지 시 즉시 현재 목표 경유점을 일시 보류하고, 물체 위치 기반으로 우회 경유점 생성 (예: 물체 위치 반대편 1m 이격)\\n4. 회피 종료 조건으로 물체 거리 증가율(d_dot > 0.2 m/s)을 0.5초 이상 지속 시 강제 종료\\n5. 정지 시 물체와의 상대 속도(closure speed)가 음수(멀어짐)일 경우 즉시 회피 모드 해제\\n6. 모든 센서 데이터에서 물체 감지 시 후방 라이다 데이터 포함해 감지 범위 확대\" 반영, 검토 통과): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 560 s / 한도 600 s)\n#27 이번 코드(진단 \"1. In _choose during evasion, relax static‑clearance filter from stc≥0.15m to stc≥0.05m\\n2. Add distance‑increase bonus: score candidates by expected distance‑to‑nearest‑mover increase over next 2 seconds\\n3. Modify evasion end condition: allow termination if mover distance is increasing (closing_speed < -0.05) for 1.0s, regardless of static clearance\\n4. Increase weight on lateral‑movement bonus when mover is approaching (app_rel > 0.1)\\n5. Reduce evade_max to 8.0s to prevent indefinite stalls; if exceeded, force evasion end and retry nominal path\\n6. Log evasion trigger times (prox, TTC, danger) to debug missed detections\" 반영, 검토 통과): 새 배치 3개 중 1개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)",
+ "ended": "2026-11-19 06:53:16"
+}

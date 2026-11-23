@@ -1,0 +1,117 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c72t0_s468415092: 13.617s에 mover_01과 충돌, 로봇 속도 1.52m/s, 물체는 8.65s부터 감지됨",
+   "c72t0_s926699543: 3.25s에 mover_00과 충돌, 로봇 속도 0.99m/s, 물체는 0.75s부터 감지됨",
+   "c72t0_s1402809471: 3.9s에 mover_00과 충돌, 로봇 속도 1.47m/s, 물체는 0.78s부터 감지됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "경로 상에 움직이는 물체가 없거나 로봇의 주행 시점과 겹치지 않는다",
+    "holds": false,
+    "why": "모든 실행에서 주행 중 움직이는 물체와 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 경유점 추종 (센서 미사용)",
+    "turns": "1",
+    "result": "0/3 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방 라이다로 지도 외 물체 감지 시 정지/감속",
+    "new_family": true,
+    "for": "라이다 기록상 충돌 수 초 전부터 물체가 충분히 감지되었으므로, 감지 시 정지만 해도 충돌을 피할 수 있음",
+    "risk": "물체가 경로를 완전히 막고 멈춰있을 경우 목적지 도달 불가(stall)"
+   },
+   {
+    "idea": "물체 방향을 고려한 동적 회피 주행",
+    "new_family": true,
+    "for": "정지보다 빠르게 목적지에 도달할 수 있음",
+    "risk": "회피 기동 중 정적 장애물(벽, 박스)과 충돌할 위험이 큼"
+   }
+  ],
+  "chosen": "전방 라이다로 지도 외 물체 감지 시 정지/감속. 현재 로봇 속도가 매우 빠르므로 우선 안전하게 멈추는 로직이 가장 시급함.",
+  "target": "controller 및 새 감지 함수",
+  "direction": "1. `lidar2d_points('front')`를 호출하여 주변 점들을 가져옵니다. 2. 가져온 점들이 `WALLS`, `MISSION['boxes']`, `FIXED_OBSTACLES` 영역에 포함되는지 확인하여 지도에 없는 점만 필터링합니다. 3. 로봇 정면 기준 일정 각도(예: ±45도) 내에 2.0m 이내의 지도 외 점이 있는지 확인합니다. 4. 물체가 감지되면 전진 속도 `v`를 0으로 설정하여 정지합니다. 5. 물체가 감지 범위 밖으로 벗어나면 다시 경유점 추종 속도로 주행합니다. 6. 정지 중에도 회전 `w`는 유지하여 경유점 방향 정렬을 계속합니다.",
+  "confidence": "high",
+  "last_direction_ok": "unclear (첫 턴이므로 이전 지시 없음)",
+  "base_turn": 0
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c72t0_s468415092: 13.617s에 mover_01과 충돌, 로봇 속도 1.52m/s, 물체는 8.65s부터 감지됨\",\n  \"c72t0_s926699543: 3.25s에 mover_00과 충돌, 로봇 속도 0.99m/s, 물체는 0.75s부터 감지됨\",\n  \"c72t0_s1402809471: 3.9s에 mover_00과 충돌, 로봇 속도 1.47m/s, 물체는 0.78s부터 감지됨\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"경로 상에 움직이는 물체가 없거나 로봇의 주행 시점과 겹치지 않는다\",\n   \"holds\": false,\n   \"why\": \"모든 실행에서 주행 중 움직이는 물체와 충돌함\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"단순 경유점 추종 (센서 미사용)\",\n   \"turns\": \"1\",\n   \"result\": \"0/3 통과\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"전방 라이다로 지도 외 물체 감지 시 정지/감속\",\n   \"new_family\": true,\n   \"for\": \"라이다 기록상 충돌 수 초 전부터 물체가 충분히 감지되었으므로, 감지 시 정지만 해도 충돌을 피할 수 있음\",\n   \"risk\": \"물체가 경로를 완전히 막고 멈춰있을 경우 목적지 도달 불가(stall)\"\n  },\n  {\n   \"idea\": \"물체 방향을 고려한 동적 회피 주행\",\n   \"new_family\": true,\n   \"for\": \"정지보다 빠르게 목적지에 도달할 수 있음\",\n   \"risk\": \"회피 기동 중 정적 장애물(벽, 박스)과 충돌할 위험이 큼\"\n  }\n ],\n \"chosen\": \"전방 라이다로 지도 외 물체 감지 시 정지/감속. 현재 로봇 속도가 매우 빠르므로 우선 안전하게 멈추는 로직이 가장 시급함.\",\n \"target\": \"controller 및 새 감지 함수\",\n \"direction\": \"1. `lidar2d_points('front')`를 호출하여 주변 점들을 가져옵니다. 2. 가져온 점들이 `WALLS`, `MISSION['boxes']`, `FIXED_OBSTACLES` 영역에 포함되는지 확인하여 지도에 없는 점만 필터링합니다. 3. 로봇 정면 기준 일정 각도(예: ±45도) 내에 2.0m 이내의 지도 외 점이 있는지 확인합니다. 4. 물체가 감지되면 전진 속도 `v`를 0으로 설정하여 정지합니다. 5. 물체가 감지 범위 밖으로 벗어나면 다시 경유점 추종 속도로 주행합니다. 6. 정지 중에도 회전 `w`는 유지하여 경유점 방향 정렬을 계속합니다.\",\n \"confidence\": \"high\",\n \"last_direction_ok\": \"unclear (첫 턴이므로 이전 지시 없음)\",\n \"base_turn\": 0\n}\n```",
+ "table": [
+  {
+   "run": "c72t0_s468415092",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 19.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.617,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.52m/s",
+   "partner_rel_xy": [
+    0.13,
+    0.55
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 12.35,
+   "goal_dist_m": 17.4735,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c72t0_s926699543",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 580.4,
+   "sim_time_s": 9.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.25,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.99m/s 회전 +0.5",
+   "partner_rel_xy": [
+    0.44,
+    0.25
+   ],
+   "closing_m_s": 0.18,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.75,
+   "goal_dist_m": 31.3577,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c72t0_s1402809471",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 571.1,
+   "sim_time_s": 9.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.9,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.47m/s 회전 +0.6",
+   "partner_rel_xy": [
+    -0.39,
+    -0.58
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.78,
+   "goal_dist_m": 26.753,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"_movers_now 직후 가장 가까운 물체 거리와 상대 속도로 TTC 계산 (TTC = d_near / max(closing_speed, 0.01))\", \"implemented\": true, \"note\": \"_movers_now 직후 _ttc() 를 호출합니다. 다만 d_near 하나를 최대 접근 속도로 나누지 않고, 3 m 안에서 접근 중인 점마다 gap/max(-rate, 0.01) 을 구해 그 최소값을 씁니다. 의도에 맞는 변형입니다.\"},\n  {\"instruction\": \"TTC < 1.0 s 이면 조기 회피 트리거 활성화\", \"implemented\": true, \"note\": \"_TTC_TRIG=1.0 입니다. ttc < _TTC_TRIG 이면 evade_until 을 갱신하고 early 경로에서 _choose 를 호출합니다.\"},\n  {\"instruction\": \"_choose 호출 시 가장 가까운 물체 위치를 앵커로 전달\", \"implemented\": true, \"note\": \"_nearest_anchor() 가 (x, y, vx, vy) 를 돌려주고, _choose 호출 4곳에 모두 anchor 를 넘깁니다. 3 m 밖이면 None 입니다.\"},\n  {\"instruction\": \"앵커 기반 패널티로 물체 근처 경로 선택 억제 (예: da - _EVADE_R > 0 시 -20)\", \"implemented\": true, \"note\": \"예시 식은 물체에서 멀어지는 후보를 감점하므로 끌어당기는 방향입니다. 그래서 예측 물체 위치와 1초 안에 1.2 m 미만으로 가까워지는 후보를 -20*(R-da) 로 감점하는 반발형으로 구현했습니다. 의도에는 맞지만 예시 식과는 다릅니다.\"},\n  {\"instruction\": \"_EVADE_HOLD 0.5 s 유지, TTC 트리거로 회피 시작 시점 앞당김\", \"implemented\": true, \"note\": \"현재 코드 값이 0.3 이었는데 0.5 로 바꿨습니다. TTC 트리거로 교체한 것도 반영돼 있습니다.\"},\n  {\"instruction\": \"_CLOSE_R 을 1.5 m 로 완화\", \"implemented\": true, \"note\": \"_CLOSE_R=1.5 입니다. 정지/재출발 접근 검사의 _closing_speed 호출에 반영됩니다.\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"근거에 '1.0 m 안에서만 접근 속도 검사'라고 했지만, 현재 코드는 이미 _EARLY_R=3 m 상시 검사를 하고 있었습니다. 진단이 코드를 잘못 읽은 것으로 보입니다.\",\n  \"TTC<1.0 s 는 기존 트리거(3 m 안에서 접근 속도 < -0.15)보다 늦게 발동합니다. 예를 들어 접근 0.6 m/s 이면 gap 0.6 m 에서야 트리거됩니다. '회피 시점 앞당김'이라는 목표와 반대이므로 임계값을 더 크게(예: 2~3 s) 잡아야 할 수 있습니다.\",\n  \"지시 4의 예시 식(da - _EVADE_R > 0 감점)은 물체 쪽으로 끌어당기는 방향이라 의도와 거꾸로입니다.\",\n  \"_EVADE_HOLD 를 0.5 로 '유지'하라고 했지만 현재 값은 0.3 이었습니다.\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 39240,
+  "completion_tokens": 2793
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 26986,
+  "total_cost_usd": 0.369772,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2793,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 39238,
+    "webSearchRequests": 0,
+    "costUSD": 0.369772,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1477,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 39238,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "a101d1cf-7d00-4950-b846-dcb26b70322b"
+ }
+}

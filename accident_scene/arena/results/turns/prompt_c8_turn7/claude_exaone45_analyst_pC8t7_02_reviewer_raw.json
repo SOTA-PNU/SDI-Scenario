@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _HYST 를 1.5에서 1.0으로 낮춘다\", \"implemented\": true, \"note\": \"_HYST = 1.0 이고 slow 해제 조건 clr_all >= _CLR_GO * _HYST 에 그대로 쓰임\"},\n  {\"instruction\": \"2. _TTC_TRIG 를 1.0s에서 2.0s로 올린다\", \"implemented\": true, \"note\": \"_TTC_TRIG = 2.0 이고 controller 의 ttc < _TTC_TRIG 판정에 쓰임\"},\n  {\"instruction\": \"3. _slow_cmd 의 s = clr_all/_CLR_GO 에 물체 접근 속도(U)와 로봇 속도(v) 차이로 정한 동적 임계값을 적용한다\", \"implemented\": true, \"note\": \"_closing_speed(P, U, pose, v0, _EARLY_R) 로 상대 접근 속도를 구함. 계수 f 를 0.75~1.5 로 정해 go = _CLR_GO*f, s = clr/go 로 계산함\"},\n  {\"instruction\": \"4. _choose 의 앵커 패널티 예측 구간을 1.0s에서 1.5s로 늘린다\", \"implemented\": true, \"note\": \"_ANCHOR_K = 15, _DTP = 0.1 이므로 1.5 s. trajc 길이가 31 이라 min() 에서 잘리지 않음\"},\n  {\"instruction\": \"5. _CLR_STOP 을 0.25m 로 정한다\", \"implemented\": true, \"note\": \"_CLR_STOP = 0.25. _slow_cmd 검사, 정지 상태 hit_still, 비 slow 분기에 모두 반영됨\"},\n  {\"instruction\": \"6. _CLOSE_R 을 1.5m에서 2.0m로 넓힌다\", \"implemented\": true, \"note\": \"_CLOSE_R = 2.0. 정의가 _closing_speed 보다 앞이라 기본 인자에도 반영되고, controller 도 명시적으로 넘김\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 5는 '완화'라고 했지만 _CLR_STOP 을 0.20에서 0.25로 올리면 정지 조건이 더 엄격해짐. 정지와 _choose 회피가 늘어 시간 단축 목표와 반대 방향일 수 있음\",\n  \"지시 2(TTC 2.0s)와 지시 6(_CLOSE_R 2.0m)은 회피가 걸리는 범위를 넓힘. 회피 빈도가 늘어 타임아웃 원인을 키울 수 있음\",\n  \"지시 3의 동적 임계값은 접근 시 go 를 최대 1.5배로 올려 감속을 늘림. 시간 단축 효과는 접근 물체가 없을 때만 있음\",\n  \"근거의 'mover 거리 2m 이상'은 현재 거리이고, slow 진입은 3 s 예측 최소 간격(clr_all) 기준이라 근거와 가정이 정확히 맞물리지 않음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 38713,
+  "completion_tokens": 2390
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 23075,
+  "total_cost_usd": 0.35749600000000004,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2390,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 38711,
+    "webSearchRequests": 0,
+    "costUSD": 0.35749600000000004,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1253,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 38711,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "ecee78ab-4434-458a-ad55-7bc224eecdf5"
+ }
+}

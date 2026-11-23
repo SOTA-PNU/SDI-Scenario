@@ -1,0 +1,134 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "3/3 runs ended in stall_abort with robot stuck near start (goal distance ~32m)",
+   "first_not_on_map detected within 2m (1.3-1.9m) triggering repeated stops",
+   "last_5s data shows robot stopped for >60s despite increasing distance (1.3m→2.33m) due to d_thr <1.5m condition"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Current design assumes d_thr (clr - 0.7*total_closing) <1.5m triggers stop, but total_closing includes robot's own speed contribution (v_robot_n)",
+    "holds": false,
+    "why": "Robot stops for receding objects (e.g., 1.3m→2.33m distance increase) due to v_robot_n inflating total_closing"
+   },
+   {
+    "assumption": "_hold_release allows resuming if distance increases, but frequent stops prevent sustained movement",
+    "holds": true,
+    "why": "Data shows distance increases after stops but robot remains stalled due to repeated object detections"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Distance-based stopping with speed-adjusted threshold",
+    "turns": 3,
+    "result": "0/3 passes"
+   },
+   {
+    "family": "Static threshold (1.5m) with hold release",
+    "turns": 2,
+    "result": "5/6 passes"
+   },
+   {
+    "family": "Motion-based filtering (only stop for approaching objects)",
+    "turns": 0,
+    "result": "untested"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Use only object's closing speed (closing_obj) for threat assessment, exclude robot's speed contribution",
+    "new_family": true,
+    "for": "Stops only triggered by approaching objects (threat_closing >0), not robot's own motion",
+    "risk": "May miss close passes if threshold too high; requires tuning"
+   },
+   {
+    "idea": "Replace d_thr with time-to-collision (TTC) threshold",
+    "new_family": true,
+    "for": "Focuses on collision timing rather than static distance",
+    "risk": "Sensitive to speed estimation errors; may need conservative tuning"
+   },
+   {
+    "idea": "Increase d_thr threshold to 2.0m and add hysteresis",
+    "new_family": false,
+    "for": "Reduces false stops for transient objects within 1.5-2.0m",
+    "risk": "Doesn't address root cause (robot speed contribution)"
+   }
+  ],
+  "chosen": "Candidate 1: Increase d_thr to 2.0m and modify hold release to require 0.1m distance increase (not 0.05m) to prevent repeated H reset stalls",
+  "target": "controller (d_thr calculation and _hold_release logic)",
+  "direction": "1. Change d_thr threshold from 1.5 to 2.0m in controller\n2. In _hold_release, require d_now >= H['d'] + 0.1 instead of 0.05\n3. Keep coming condition (closing >0.15) but ensure d_eff uses only object closing speed\n4. Remove robot speed contribution from threat assessment (not applicable in 1-turn code)\n5. Increase minimum stop duration to 1.0s instead of 0.5s to allow sustained movement\n6. Add hysteresis: only reset H if d_thr <1.8m (new lower threshold) to prevent rapid toggle",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 1,
+  "stage1": {
+   "chosen": "Candidate 1: Exclude robot's speed contribution from threat assessment to only stop for approaching objects",
+   "target": "controller (closing_obj calculation and total_closing logic)",
+   "direction": "1. Compute threat_closing = closing_obj (remove v_robot_n addition). 2. Set coming = (threat_closing > 0.15). 3. Recalculate d_eff = clr - 0.7 * max(threat_closing, 0.0). 4. Increase d_thr threshold from 1.5m to 2.0m. 5. Adjust _hold_release to resume when d_now >= 2.5m. 6. Ensure receding objects (threat_closing <=0) only trigger stop if clr <2.0m."
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"3/3 runs ended in stall_abort with robot stuck near start (goal distance ~32m)\", \"first_not_on_map detected within 2m (1.3-1.9m) triggering repeated stops\", \"last_5s data shows robot stopped for >60s despite increasing distance (1.3m→2.33m) due to d_thr <1.5m condition\"], \"assumptions\": [{\"assumption\": \"Current design assumes d_thr (clr - 0.7*total_closing) <1.5m triggers stop, but total_closing includes robot's own speed contribution (v_robot_n)\", \"holds\": false, \"why\": \"Robot stops for receding objects (e.g., 1.3m→2.33m distance increase) due to v_robot_n inflating total_closing\"}, {\"assumption\": \"_hold_release allows resuming if distance increases, but frequent stops prevent sustained movement\", \"holds\": true, \"why\": \"Data shows distance increases after stops but robot remains stalled due to repeated object detections\"}], \"approach_families\": [{\"family\": \"Distance-based stopping with speed-adjusted threshold\", \"turns\": 3, \"result\": \"0/3 passes\"}, {\"family\": \"Static threshold (1.5m) with hold release\", \"turns\": 2, \"result\": \"5/6 passes\"}, {\"family\": \"Motion-based filtering (only stop for approaching objects)\", \"turns\": 0, \"result\": \"untested\"}], \"candidates\": [{\"idea\": \"Use only object's closing speed (closing_obj) for threat assessment, exclude robot's speed contribution\", \"new_family\": true, \"for\": \"Stops only triggered by approaching objects (threat_closing >0), not robot's own motion\", \"risk\": \"May miss close passes if threshold too high; requires tuning\"}, {\"idea\": \"Replace d_thr with time-to-collision (TTC) threshold\", \"new_family\": true, \"for\": \"Focuses on collision timing rather than static distance\", \"risk\": \"Sensitive to speed estimation errors; may need conservative tuning\"}, {\"idea\": \"Increase d_thr threshold to 2.0m and add hysteresis\", \"new_family\": false, \"for\": \"Reduces false stops for transient objects within 1.5-2.0m\", \"risk\": \"Doesn't address root cause (robot speed contribution)\"}], \"chosen\": \"Candidate 1: Exclude robot's speed contribution from threat assessment to only stop for approaching objects\", \"target\": \"controller (closing_obj calculation and total_closing logic)\", \"direction\": \"1. Compute threat_closing = closing_obj (remove v_robot_n addition). 2. Set coming = (threat_closing > 0.15). 3. Recalculate d_eff = clr - 0.7 * max(threat_closing, 0.0). 4. Increase d_thr threshold from 1.5m to 2.0m. 5. Adjust _hold_release to resume when d_now >= 2.5m. 6. Ensure receding objects (threat_closing <=0) only trigger stop if clr <2.0m.\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 1}",
+ "table": [
+  {
+   "run": "c81t2_s410265940",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 77.2,
+   "stall_abort_t": 76.15,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 71.25,
+   "goal_dist_m": 32.0179,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t2_s1321514581",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 522.8,
+   "sim_time_s": 64.9,
+   "stall_abort_t": 63.92,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 58.95,
+   "goal_dist_m": 32.0342,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t2_s1556192652",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 457.9,
+   "sim_time_s": 61.0,
+   "stall_abort_t": 60.0,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 55.05,
+   "goal_dist_m": 32.0966,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

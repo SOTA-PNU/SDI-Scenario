@@ -1,0 +1,135 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall|progress_abort",
+  "evidence": [
+   "실행 c8t20_s128657114: 정지 후 94.82초에 stall_abort 발생, 마지막 5초 기록에서 물체 거리 0.77m까지 접근하며 로봇이 정지 상태 유지",
+   "실행 c8t20_s1935335667: 0.72m 거리에서 정지 후 진행 없음, 진행 중단(progress_abort) 발생, 로봇 위치가 -7.83, -10.194에서 거의 변화 없음",
+   "두 실패 실행 모두 first_not_on_map이 86-90초대에 0.72-1.24m로 매우 가깝게 감지되었으나, d_near < _EV_STOP_HARD(1.0m) 시 무조건 정지(v=0,w=0)하여 안전 검증 없이 진행 불가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "d_near < _EV_STOP_HARD(1.0m)일 때 로봇이 무조건 정지하는 것은 '정지가 항상 안전하다'고 전제함",
+    "holds": false,
+    "why": "실패 실행에서 정지 중 물체 거리 감소(0.72m→0.53m) 및 접근 속도 존재 시 충돌 위험 있으나 코드는 여전히 정지 유지"
+   },
+   {
+    "assumption": "근접 트리거(d_near < _PROX_D=2.0m + app_rel > _PROX_V)만으로 충분한 조기 회피가 가능하다고 가정",
+    "holds": false,
+    "why": "물체가 1.0m 미만으로 접근 시 근접 트리거 활성화되나, _EV_STOP_HARD 조건으로 인해 회피 로직 대신 무조건 정지로 이어짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC 기반 회피 트리거 및 정지 거리 조정 시도",
+    "turns": "6,7,8,9,10,11,12,13,14,15,16,17,18,19,20",
+    "result": "TTC 임계값 변경(1.0s→2.0s), 정지 거리 확장(1.0m→1.5m) 등 시도했으나, 1.0m 미만 근접 시 정지로 이어지는 구조로 인해 stall_abort 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "d_near < _EV_STOP_HARD 시 정지 대신 안전도 검증 후 결정: 정지 안전 시 정지, 위험 시 회피 동작 강제 실행",
+    "new_family": true,
+    "for": "실패 실행에서 1.0m 미만 거리에서 정지 중 물체 접근(거리 감소) 관찰, 정지 안전 검증(_mover_clearance) 미반영으로 인한 stall 유발",
+    "risk": "정지 안전도 계산이 센서 노이즈에 민감해 오탐 시 불필요한 회피 유발 가능"
+   },
+   {
+    "idea": "d_near < 1.0m 시 정지 대신 측면 이동(_choose 호출) 강제 적용",
+    "new_family": true,
+    "for": "물체 근접 시 정지가 오히려 충돌 위험 증가시키는 상황(실패 실행의 distance 감소 패턴), 정지 대신 회피 동작으로 즉시 전환 필요",
+    "risk": "과도한 회피 동작으로 경로 이탈 또는 시간 초과 유발 가능"
+   },
+   {
+    "idea": "_PROX_D를 1.5m로 축소해 1.0m-1.5m 구간에서도 회피 트리거 강화",
+    "new_family": false,
+    "for": "현재 _PROX_D=2.0m로 인해 1.0-1.5m 접근 시 회피가 지연되는 문제, 더 조기 회피 유도 가능",
+    "risk": "센서 노이즈로 인한 오탐 증가 및 불필요한 회피 동작 유발"
+   }
+  ],
+  "chosen": "d_near < _EV_STOP_HARD 시 정지 안전도(_mover_clearance) 검증 후 결정: 안전 시 정지, 위험 시 측면 이동(_choose) 강제 실행",
+  "target": "_EV_STOP_HARD 이하 거리 처리 블록 (controller 내 elif d_near < _EV_STOP_HARD:)",
+  "direction": "1. d_near < _EV_STOP_HARD 시 _mover_clearance(still_tr)로 정지 안전도 계산\n2. 안전도 < _EV_STILL_CLR(0.05)이면 _choose 호출해 측면 이동 강제 실행\n3. 안전도 >= _EV_STILL_CLR이면 정지 유지\n4. 정지 중 _closing_speed < _CLOSE_V(-0.15) 시 즉시 회피 모드 전환\n5. _EV_STILL_CLR을 0.03으로 강화해 정지 안전성 기준 엄격화\n6. 정지 후 1.0초 내 거리 증가 없을 시 강제 회피 재시도",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall|progress_abort\", \"evidence\": [\"실행 c8t20_s128657114: 정지 후 94.82초에 stall_abort 발생, 마지막 5초 기록에서 물체 거리 0.77m까지 접근하며 로봇이 정지 상태 유지\", \"실행 c8t20_s1935335667: 0.72m 거리에서 정지 후 진행 없음, 진행 중단(progress_abort) 발생, 로봇 위치가 -7.83, -10.194에서 거의 변화 없음\", \"두 실패 실행 모두 first_not_on_map이 86-90초대에 0.72-1.24m로 매우 가깝게 감지되었으나, d_near < _EV_STOP_HARD(1.0m) 시 무조건 정지(v=0,w=0)하여 안전 검증 없이 진행 불가\"], \"assumptions\": [{\"assumption\": \"d_near < _EV_STOP_HARD(1.0m)일 때 로봇이 무조건 정지하는 것은 '정지가 항상 안전하다'고 전제함\", \"holds\": false, \"why\": \"실패 실행에서 정지 중 물체 거리 감소(0.72m→0.53m) 및 접근 속도 존재 시 충돌 위험 있으나 코드는 여전히 정지 유지\"}, {\"assumption\": \"근접 트리거(d_near < _PROX_D=2.0m + app_rel > _PROX_V)만으로 충분한 조기 회피가 가능하다고 가정\", \"holds\": false, \"why\": \"물체가 1.0m 미만으로 접근 시 근접 트리거 활성화되나, _EV_STOP_HARD 조건으로 인해 회피 로직 대신 무조건 정지로 이어짐\"}], \"approach_families\": [{\"family\": \"TTC 기반 회피 트리거 및 정지 거리 조정 시도\", \"turns\": \"6,7,8,9,10,11,12,13,14,15,16,17,18,19,20\", \"result\": \"TTC 임계값 변경(1.0s→2.0s), 정지 거리 확장(1.0m→1.5m) 등 시도했으나, 1.0m 미만 근접 시 정지로 이어지는 구조로 인해 stall_abort 지속\"}], \"candidates\": [{\"idea\": \"d_near < _EV_STOP_HARD 시 정지 대신 안전도 검증 후 결정: 정지 안전 시 정지, 위험 시 회피 동작 강제 실행\", \"new_family\": true, \"for\": \"실패 실행에서 1.0m 미만 거리에서 정지 중 물체 접근(거리 감소) 관찰, 정지 안전 검증(_mover_clearance) 미반영으로 인한 stall 유발\", \"risk\": \"정지 안전도 계산이 센서 노이즈에 민감해 오탐 시 불필요한 회피 유발 가능\"}, {\"idea\": \"d_near < 1.0m 시 정지 대신 측면 이동(_choose 호출) 강제 적용\", \"new_family\": true, \"for\": \"물체 근접 시 정지가 오히려 충돌 위험 증가시키는 상황(실패 실행의 distance 감소 패턴), 정지 대신 회피 동작으로 즉시 전환 필요\", \"risk\": \"과도한 회피 동작으로 경로 이탈 또는 시간 초과 유발 가능\"}, {\"idea\": \"_PROX_D를 1.5m로 축소해 1.0m-1.5m 구간에서도 회피 트리거 강화\", \"new_family\": false, \"for\": \"현재 _PROX_D=2.0m로 인해 1.0-1.5m 접근 시 회피가 지연되는 문제, 더 조기 회피 유도 가능\", \"risk\": \"센서 노이즈로 인한 오탐 증가 및 불필요한 회피 동작 유발\"}], \"chosen\": \"d_near < _EV_STOP_HARD 시 정지 안전도(_mover_clearance) 검증 후 결정: 안전 시 정지, 위험 시 측면 이동(_choose) 강제 실행\", \"target\": \"_EV_STOP_HARD 이하 거리 처리 블록 (controller 내 elif d_near < _EV_STOP_HARD:)\", \"direction\": \"1. d_near < _EV_STOP_HARD 시 _mover_clearance(still_tr)로 정지 안전도 계산\\n2. 안전도 < _EV_STILL_CLR(0.05)이면 _choose 호출해 측면 이동 강제 실행\\n3. 안전도 >= _EV_STILL_CLR이면 정지 유지\\n4. 정지 중 _closing_speed < _CLOSE_V(-0.15) 시 즉시 회피 모드 전환\\n5. _EV_STILL_CLR을 0.03으로 강화해 정지 안전성 기준 엄격화\\n6. 정지 후 1.0초 내 거리 증가 없을 시 강제 회피 재시도\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t20_s1421775228",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 131.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 37,
+   "first_seen_within_2m_t": 125.95,
+   "goal_dist_m": 0.2003,
+   "time_to_goal_s": 128.1
+  },
+  {
+   "run": "c8t20_s128657114",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 468.1,
+   "sim_time_s": 95.8,
+   "stall_abort_t": 94.82,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 89.92,
+   "goal_dist_m": 30.9968,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t20_s1994606265",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 372.3,
+   "sim_time_s": 273.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 77,
+   "first_seen_within_2m_t": 267.95,
+   "goal_dist_m": 0.1989,
+   "time_to_goal_s": 269.9
+  },
+  {
+   "run": "c8t20_s1935335667",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 98.4,
+   "sim_time_s": 92.2,
+   "stall_abort_t": null,
+   "progress_abort_t": 91.18,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 86.22,
+   "goal_dist_m": 31.0345,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

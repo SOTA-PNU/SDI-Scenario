@@ -1,0 +1,206 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 실행(c81t30_s1989264626)에서 정지 해제 시 closing_m_s=0.75m/s(접근 중)임에도 재출발 허용, 67.0s 0.97m → 67.967s 충돌",
+   "통과 실행은 대부분 정지 중 closing_m_s<0(멀어짐) 상태에서 재출발, 접근 중 재출발 시 충돌 발생 패턴 확인",
+   "last_5s 데이터에서 충돌 직전 0.37m 거리에서 주행 재개, 접근 속도 양수 유지"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 재출발 로직은 MTC만 고려하고 물체 접근 방향(속도 부호)을 무시",
+    "holds": true,
+    "why": "충돌 실행에서 closing_m_s>0임에도 재출발 허용, 통과 실행은 접근 시 정지 유지"
+   },
+   {
+    "assumption": "재출발 전 접근 중인 물체 존재 시 절대 재출발 불가해야 안전",
+    "holds": true,
+    "why": "접근 중 재출발이 충돌 직접 원인, 다른 실행은 접근 시 정지로 통과"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "재출발 조건 완화(_RESUME_GO 감소, _HOLD_MIN 단축)",
+    "turns": "15,19,23,25,26,29,30",
+    "result": "통과 6~8/8, 실패 시 충돌 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "재출발 시 접근 중인 물체(closing>0) 존재 여부 체크 추가",
+    "new_family": true,
+    "for": "충돌 실행에서 접근 속도 양수임에도 재출발 허용된 직접적 원인 해결",
+    "risk": "과도한 정지로 정체 시간 증가 가능성"
+   },
+   {
+    "idea": "재출발 전 _rollout 기반 예측 시뮬레이션 강화(T=1.5s, 최소 여유 0.6m)",
+    "new_family": true,
+    "for": "로봇 이동 경로와의 충돌 가능성 사전 검증",
+    "risk": "계산 부하 증가, 실시간 성능 저하"
+   },
+   {
+    "idea": "접근 속도 임계값 _CLOSE_MIN을 0.05m/s로 낮추고, 양수 시 강제 정지 유지",
+    "new_family": false,
+    "for": "저속 접근 물체도 즉시 대응",
+    "risk": "의도치 않은 정지 증가, 정체 구간 확대"
+   }
+  ],
+  "chosen": "이 코드에 '접근 중인 물체(closing > 0) 존재 시 재출발 금지' 조건을 추가하여, MTC 기준 외에 물체 접근 방향을 실시간 검증하도록 수정합니다",
+  "target": "controller 함수 내 S[\"hold\"] is not None 블록의 재출발 판단 조건",
+  "direction": "1. 재출발 조건 체크 전, 감지된 물체(P, U)와 로봇 상태(x, y, yaw, v_nom)를 사용해 closing 속도 재계산\n2. closing > 0인 물체(접근 중)가 존재하면 재출발 차단 (v, w 유지 또는 _escape_step 호출)\n3. _rollout 기반 여유 거리 검증 이전에 접근 물체 존재 여부를 필수 조건으로 삼음\n4. 계산 시 _CLOSE_MIN(0.15 m/s) 대신 0.0 기준 적용해 미세한 접근도 차단\n5. S[\"P\"], S[\"U\"]가 비어있을 경우 접근 물체 없음으로 처리\n6. 재출발 시도 시 '접근 중 물체 존재' 로그 출력으로 디버깅 지원 (DBG 출력 허용 시)",
+  "confidence": "high",
+  "last_direction_ok": "no, turn 30's result (6/7 passes) is worse than turn 7's original 7/7 passes, showing the direction to lower _RESUME_GO was counterproductive",
+  "base_turn": 7,
+  "stage1": {
+   "chosen": "접근 중인 물체(closing>0) 존재 시 재출발 불가하도록 _hold_release 로직 수정, MTC 조건 외 물체 접근 방향 검증 추가",
+   "target": "_hold_release 함수",
+   "direction": "1. _perceive에서 감지된 물체별 closing 속도를 S['closing_speeds']에 기록 (양수=접근, 음수=멀어짐). 2. _hold_release에서 정지 해제 전, 3m 이내 물체 중 closing>0인 객체 존재 시 재출발 금지. 3. 접근 중 물체 없을 때만 MTC 조건(_HOLD_ON 등) 검증. 4. S['closing_speeds']는 매 스캔 갱신, _static_mask 범위 내 점만 대상으로 함. 5. 재출발 시 마지막 0.5s 내 closing>0 기록 있으면 즉시 재정지. 6. _ESC_CLOSE(0.05m/s)는 유지하되 접근 속도 임계값 대신 방향 부호 직접 활용"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"충돌 실행(c81t30_s1989264626)에서 정지 해제 시 closing_m_s=0.75m/s(접근 중)임에도 재출발 허용, 67.0s 0.97m → 67.967s 충돌\", \"통과 실행은 대부분 정지 중 closing_m_s<0(멀어짐) 상태에서 재출발, 접근 중 재출발 시 충돌 발생 패턴 확인\", \"last_5s 데이터에서 충돌 직전 0.37m 거리에서 주행 재개, 접근 속도 양수 유지\"], \"assumptions\": [{\"assumption\": \"현재 재출발 로직은 MTC만 고려하고 물체 접근 방향(속도 부호)을 무시\", \"holds\": true, \"why\": \"충돌 실행에서 closing_m_s>0임에도 재출발 허용, 통과 실행은 접근 시 정지 유지\"}, {\"assumption\": \"재출발 전 접근 중인 물체 존재 시 절대 재출발 불가해야 안전\", \"holds\": true, \"why\": \"접근 중 재출발이 충돌 직접 원인, 다른 실행은 접근 시 정지로 통과\"}], \"approach_families\": [{\"family\": \"재출발 조건 완화(_RESUME_GO 감소, _HOLD_MIN 단축)\", \"turns\": \"15,19,23,25,26,29,30\", \"result\": \"통과 6~8/8, 실패 시 충돌 지속\"}], \"candidates\": [{\"idea\": \"재출발 시 접근 중인 물체(closing>0) 존재 여부 체크 추가\", \"new_family\": true, \"for\": \"충돌 실행에서 접근 속도 양수임에도 재출발 허용된 직접적 원인 해결\", \"risk\": \"과도한 정지로 정체 시간 증가 가능성\"}, {\"idea\": \"재출발 전 _rollout 기반 예측 시뮬레이션 강화(T=1.5s, 최소 여유 0.6m)\", \"new_family\": true, \"for\": \"로봇 이동 경로와의 충돌 가능성 사전 검증\", \"risk\": \"계산 부하 증가, 실시간 성능 저하\"}, {\"idea\": \"접근 속도 임계값 _CLOSE_MIN을 0.05m/s로 낮추고, 양수 시 강제 정지 유지\", \"new_family\": false, \"for\": \"저속 접근 물체도 즉시 대응\", \"risk\": \"의도치 않은 정지 증가, 정체 구간 확대\"}], \"chosen\": \"접근 중인 물체(closing>0) 존재 시 재출발 불가하도록 _hold_release 로직 수정, MTC 조건 외 물체 접근 방향 검증 추가\", \"target\": \"_hold_release 함수\", \"direction\": \"1. _perceive에서 감지된 물체별 closing 속도를 S['closing_speeds']에 기록 (양수=접근, 음수=멀어짐). 2. _hold_release에서 정지 해제 전, 3m 이내 물체 중 closing>0인 객체 존재 시 재출발 금지. 3. 접근 중 물체 없을 때만 MTC 조건(_HOLD_ON 등) 검증. 4. S['closing_speeds']는 매 스캔 갱신, _static_mask 범위 내 점만 대상으로 함. 5. 재출발 시 마지막 0.5s 내 closing>0 기록 있으면 즉시 재정지. 6. _ESC_CLOSE(0.05m/s)는 유지하되 접근 속도 임계값 대신 방향 부호 직접 활용\", \"confidence\": \"high\", \"last_direction_ok\": \"no, turn 30's result (6/7 passes) is worse than turn 7's original 7/7 passes, showing the direction to lower _RESUME_GO was counterproductive\", \"base_turn\": 7}",
+ "table": [
+  {
+   "run": "c81t30_s1989264626",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 74.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 67.967,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.86m/s 회전 +0.4",
+   "partner_rel_xy": [
+    -0.11,
+    -0.54
+   ],
+   "closing_m_s": 0.75,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 65.85,
+   "goal_dist_m": 2.8904,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t30_s326558876",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 526.0,
+   "sim_time_s": 104.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 97.95,
+   "goal_dist_m": 0.2013,
+   "time_to_goal_s": 100.033
+  },
+  {
+   "run": "c81t30_s2096019270",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 422.1,
+   "sim_time_s": 72.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 66.42,
+   "goal_dist_m": 0.2217,
+   "time_to_goal_s": 68.517
+  },
+  {
+   "run": "c81t30_s288243647",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 349.7,
+   "sim_time_s": 97.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 91.85,
+   "goal_dist_m": 0.2282,
+   "time_to_goal_s": 93.917
+  },
+  {
+   "run": "c81t30_s383686821",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 251.9,
+   "sim_time_s": 87.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 81.85,
+   "goal_dist_m": 0.2228,
+   "time_to_goal_s": 83.883
+  },
+  {
+   "run": "c81t30_s1068992324",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 164.1,
+   "sim_time_s": 83.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 77.32,
+   "goal_dist_m": 0.2271,
+   "time_to_goal_s": 79.4
+  },
+  {
+   "run": "c81t30_s1989438043",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 80.8,
+   "sim_time_s": 81.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 75.82,
+   "goal_dist_m": 0.1982,
+   "time_to_goal_s": 78.583
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30. 이번 코드에서 이어 가려면 30 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,217 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실패 실행(c81t6_s2084698433)에서 MTC가 1.0s 미만으로 떨어졌음에도 정지 시작이 지연됨",
+   "충돌 직전 로봇은 0.37m/s 주행 중 물체와의 거리 0.36m에서 closing_speed 0.73m/s로 급격히 접근",
+   "정지 상태(H)에서 _rollout 기반 주행 재개 판단이 근접 물체 접근 시 안전하다고 오판하여 충돌 발생",
+   "여러 실행에서 정지 후 0.5초 이내 조기 재개 사례 다수 관찰 (예: c81t6_s2084698433 정지 후 0.45초 만에 재개)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 _HOLD_MIN=0.5s가 너무 짧아 정지 후 조기 재개가 허용됨",
+    "holds": true,
+    "why": "실패 실행에서 정지 후 0.45초 만에 주행 재개해 충돌 발생"
+   },
+   {
+    "assumption": "정지 중 주행 재개 조건이 _rollout 기반 안전 판단에 의존해 근접 물체 접근 시 오류 발생",
+    "holds": true,
+    "why": "물체가 빠르게 접근하는 상황에서 주행 재개가 허용됨"
+   },
+   {
+    "assumption": "_HOLD_ON=1.0s 임계값이 충돌 회피에 부족함",
+    "holds": true,
+    "why": "MTC가 1.0s 미만일 때도 정지가 지연되어 충돌 기회 증가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 임계값 및 지속 시간 조정",
+    "turns": "4,5,6",
+    "result": "통과 수 증가 but 충돌 지속 (4턴: 6/8, 5턴: 7/8, 6턴: 6/7)"
+   },
+   {
+    "family": "감속/회전 제한 완화",
+    "turns": "4,6",
+    "result": "평균 시간 감소 but 충돌 방지 미흡"
+   },
+   {
+    "family": "MTC 계산 방식 개선",
+    "turns": "2,5",
+    "result": "속도 벡터 반영으로 정확도 향상 but 충돌 완전 방지 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_HOLD_MIN을 0.5s → 1.0s로 상향하여 정지 지속 시간 확보",
+    "new_family": true,
+    "for": "실패 실행에서 정지 후 0.45초 만에 재개된 것처럼, 짧은 정지 시간이 조기 충돌 유발",
+    "risk": "정지 시간 증가로 전체 실행 시간 상승, 시간 한도 초과 위험 증가"
+   },
+   {
+    "idea": "정지 중 주행 재개 조건 강화 (예: go ≥ 0.8 and stay > go + 0.5)",
+    "new_family": true,
+    "for": "근접 물체 접근 시 주행 재개를 엄격히 제한하여 충돌 방지",
+    "risk": "과도한 정지로 평균 시간 증가, 배치 통과율 하락 가능성"
+   },
+   {
+    "idea": "_HOLD_ON을 1.0s → 0.5s로 하향하여 조기 정지 유도",
+    "new_family": false,
+    "for": "MTC가 0.5s 미만일 때 즉시 정지해 충돌 회피 기회 확대",
+    "risk": "불필요한 정지 증가로 평균 시간 상승, 시간 한도 미달 위험"
+   }
+  ],
+  "chosen": "후보 1 선택: _HOLD_MIN을 1.0s로 상향해 정지 지속 시간을 확보하고, _HOLD_ON=1.0s 유지로 위협 감지 임계값 조정. 이는 정지 후 조기 재개를 방지해 근접 충돌 위험을 줄이면서도, 이전 턴(5) 대비 시간 증가를 최소화할 수 있음",
+  "target": "_HOLD_MIN 상수 값 변경 (현재 0.5 → 1.0)",
+  "direction": "1. _HOLD_MIN 값을 0.5에서 1.0으로 상향 조정\n2. 정지 상태(H) 관리 시 최소 정지 시간 검증 로직에서 _HOLD_MIN=1.0s 적용\n3. 정지 중 주행 재개 조건을 강화하되, _HOLD_MIN 충족 전까지 재개 절대 허용하지 않음\n4. MTC 기반 정지 임계값(_HOLD_ON=1.0s)은 유지하여 위협 감지 민감도 조정\n5. _rollout 계산 시 근접 물체 접근 시 보수적 판단을 위해 T=2.0s로 단축\n6. 정지 해제 조건에서 d_now >= H['d'] + _HOLD_GAIN 또는 d_now >= _HOLD_ON 유지하되, _HOLD_MIN 충족 필수 확인",
+  "confidence": "medium",
+  "last_direction_ok": "no, 충돌 1회 발생하고 평균 실행 시간이 74초에서 83초로 증가하여 시간 효율성 저하",
+  "base_turn": 6
+ },
+ "raw": "\n\n{\"failure_mode\":\"collision\",\"evidence\":[\"실패 실행(c81t6_s2084698433)에서 MTC가 1.0s 미만으로 떨어졌음에도 정지 시작이 지연됨\",\"충돌 직전 로봇은 0.37m/s 주행 중 물체와의 거리 0.36m에서 closing_speed 0.73m/s로 급격히 접근\",\"정지 상태(H)에서 _rollout 기반 주행 재개 판단이 근접 물체 접근 시 안전하다고 오판하여 충돌 발생\",\"여러 실행에서 정지 후 0.5초 이내 조기 재개 사례 다수 관찰 (예: c81t6_s2084698433 정지 후 0.45초 만에 재개)\"], \"assumptions\":[{\"assumption\":\"현재 _HOLD_MIN=0.5s가 너무 짧아 정지 후 조기 재개가 허용됨\",\"holds\":true,\"why\":\"실패 실행에서 정지 후 0.45초 만에 주행 재개해 충돌 발생\"},{\"assumption\":\"정지 중 주행 재개 조건이 _rollout 기반 안전 판단에 의존해 근접 물체 접근 시 오류 발생\",\"holds\":true,\"why\":\"물체가 빠르게 접근하는 상황에서 주행 재개가 허용됨\"},{\"assumption\":\"_HOLD_ON=1.0s 임계값이 충돌 회피에 부족함\",\"holds\":true,\"why\":\"MTC가 1.0s 미만일 때도 정지가 지연되어 충돌 기회 증가\"}], \"approach_families\":[{\"family\":\"정지 임계값 및 지속 시간 조정\",\"turns\":\"4,5,6\",\"result\":\"통과 수 증가 but 충돌 지속 (4턴: 6/8, 5턴: 7/8, 6턴: 6/7)\"},{\"family\":\"감속/회전 제한 완화\",\"turns\":\"4,6\",\"result\":\"평균 시간 감소 but 충돌 방지 미흡\"},{\"family\":\"MTC 계산 방식 개선\",\"turns\":\"2,5\",\"result\":\"속도 벡터 반영으로 정확도 향상 but 충돌 완전 방지 실패\"}], \"candidates\":[{\"idea\":\"_HOLD_MIN을 0.5s → 1.0s로 상향하여 정지 지속 시간 확보\",\"new_family\":true,\"for\":\"실패 실행에서 정지 후 0.45초 만에 재개된 것처럼, 짧은 정지 시간이 조기 충돌 유발\",\"risk\":\"정지 시간 증가로 전체 실행 시간 상승, 시간 한도 초과 위험 증가\"},{\"idea\":\"정지 중 주행 재개 조건 강화 (예: go ≥ 0.8 and stay > go + 0.5)\",\"new_family\":true,\"for\":\"근접 물체 접근 시 주행 재개를 엄격히 제한하여 충돌 방지\",\"risk\":\"과도한 정지로 평균 시간 증가, 배치 통과율 하락 가능성\"},{\"idea\":\"_HOLD_ON을 1.0s → 0.5s로 하향하여 조기 정지 유도\",\"new_family\":false,\"for\":\"MTC가 0.5s 미만일 때 즉시 정지해 충돌 회피 기회 확대\",\"risk\":\"불필요한 정지 증가로 평균 시간 상승, 시간 한도 미달 위험\"}], \"chosen\":\"후보 1 선택: _HOLD_MIN을 1.0s로 상향해 정지 지속 시간을 확보하고, _HOLD_ON=1.0s 유지로 위협 감지 임계값 조정. 이는 정지 후 조기 재개를 방지해 근접 충돌 위험을 줄이면서도, 이전 턴(5) 대비 시간 증가를 최소화할 수 있음\",\"target\":\"_HOLD_MIN 상수 값 변경 (현재 0.5 → 1.0)\", \"direction\":\"1. _HOLD_MIN 값을 0.5에서 1.0으로 상향 조정\\n2. 정지 상태(H) 관리 시 최소 정지 시간 검증 로직에서 _HOLD_MIN=1.0s 적용\\n3. 정지 중 주행 재개 조건을 강화하되, _HOLD_MIN 충족 전까지 재개 절대 허용하지 않음\\n4. MTC 기반 정지 임계값(_HOLD_ON=1.0s)은 유지하여 위협 감지 민감도 조정\\n5. _rollout 계산 시 근접 물체 접근 시 보수적 판단을 위해 T=2.0s로 단축\\n6. 정지 해제 조건에서 d_now >= H['d'] + _HOLD_GAIN 또는 d_now >= _HOLD_ON 유지하되, _HOLD_MIN 충족 필수 확인\", \"confidence\":\"medium\",\"last_direction_ok\":\"no, 충돌 1회 발생하고 평균 실행 시간이 74초에서 83초로 증가하여 시간 효율성 저하\",\"base_turn\":6}",
+ "table": [
+  {
+   "run": "c81t6_s2137299708",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 72.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 66.05,
+   "goal_dist_m": 0.1964,
+   "time_to_goal_s": 68.1
+  },
+  {
+   "run": "c81t6_s2084698433",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 528.0,
+   "sim_time_s": 78.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 72.25,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.37m/s",
+   "partner_rel_xy": [
+    0.12,
+    -0.55
+   ],
+   "closing_m_s": 0.73,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 70.15,
+   "goal_dist_m": 4.1264,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t6_s1134731948",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 449.7,
+   "sim_time_s": 74.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 68.35,
+   "goal_dist_m": 0.2271,
+   "time_to_goal_s": 70.4
+  },
+  {
+   "run": "c81t6_s452405025",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 375.4,
+   "sim_time_s": 85.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 79.02,
+   "goal_dist_m": 0.2247,
+   "time_to_goal_s": 81.083
+  },
+  {
+   "run": "c81t6_s1970742171",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 290.4,
+   "sim_time_s": 79.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 73.45,
+   "goal_dist_m": 0.2041,
+   "time_to_goal_s": 75.5
+  },
+  {
+   "run": "c81t6_s637621342",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 211.0,
+   "sim_time_s": 101.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 95.22,
+   "goal_dist_m": 0.229,
+   "time_to_goal_s": 97.267
+  },
+  {
+   "run": "c81t6_s1929227847",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 109.8,
+   "sim_time_s": 87.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 81.15,
+   "goal_dist_m": 0.2305,
+   "time_to_goal_s": 83.183
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6. 이번 코드에서 이어 가려면 6 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 시도 1의 go/stop/detour 상태 머신은 정지 대기(5 s)와 우회 회전 때문에 시간을 많이 썼습니다. 그래서 진단의 chosen과 direction 1~6에 따라 `state`, `stop_t`, `detour_t`를 없애고 연속 로컬 플래너로 바꿨습니다. 매 호출마다 `_nominal`로 현재 경유점과 기준 명령만 구하고, 기준 명령(0.3~1.0배)과 `_CANDS` 후보를 `_rollout`으로 굴립니다. 기준 명령은 경유점 추종 법칙을 그대로 따라 굴리므로 모퉁이에서 회전하는 모습까지 예측합니다. 각 후보는 `_mover_clear`와 `_static_clear`로 안전을 판정하고, 안전한 후보 중 목표 진행도와 물체 여유(1 m까지)의 점수가 가장 높은 (v, w)를 고릅니다. 안전한 후보가 없으면 정지를 포함한 후보 중 물체 여유가 가장 큰 명령을 골라 정지하거나 비켜섭니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 목표 + 연속 로컬 플래너(DWA): 매 호출 후보 (v, w) 를 굴려 물체·정적 여유와 진행도로 고른다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):                       # 진단 지시 1: state/stop_t/detour_t 없음\n        c.idx = 0\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)      # 진단 지시 6: 목표 경유점·기준 명령만 제공\n    if done:\n        return 0.0, 0.0, True\n    v, w = _plan(pose, movers, v_nom, w_nom)          # 진단 지시 2~5\n    return v, w, False\n\n\n_NOM_KS = (1.0, 0.75, 0.5, 0.3)    # 기준(경유점 추종) 명령의 속도 배율 후보\n\n\n_NOM_BONUS = 1.0                   # 기준 경로를 따르는 후보의 가산점 (검증된 정적 경로 선호)\n\n\n_W_CLEAR = 1.0                     # 물체 여유(1 m 까지) 가중치\n\n\ndef _path_rem():\n    \"\"\"경유점 j 에서 GOAL 까지 남은 경로 길이.\"\"\"\n    n = len(_WAYPOINTS)\n    rem = [0.0] * n\n    for j in range(n - 2, -1, -1):\n        a, b = _WAYPOINTS[j], _WAYPOINTS[j + 1]\n        rem[j] = rem[j + 1] + math.hypot(b[0] - a[0], b[1] - a[1])\n    return rem\n\n\n_REM = _path_rem()\n\n\ndef _cost_to_go(px, py, idx):\n    \"\"\"점 (배열) 에서 남은 경로 길이 근사: 경유점 idx..idx+2 중 최소(직선 거리 + 그 뒤 경로).\"\"\"\n    n = len(_WAYPOINTS)\n    px = np.asarray(px, dtype=np.float64)\n    py = np.asarray(py, dtype=np.float64)\n    if idx >= n:\n        js = [n - 1]\n    else:\n        js = list(range(idx, min(idx + 2, n - 1) + 1))\n    best = None\n    for j in js:\n        cj = np.hypot(px - _WAYPOINTS[j][0], py - _WAYPOINTS[j][1]) + _REM[j]\n        best = cj if best is None else np.minimum(best, cj)\n    return best\n\n\ndef _nom_rollout(pose, ks, idx):\n    \"\"\"기준 경유점 추종 법칙(_nominal 과 같은 규칙)을 속도 배율 ks 별로 응답 지연을 넣어 _HORIZON 동안 굴린다.\"\"\"\n    ks = np.asarray(ks, dtype=np.float64)\n    C = ks.size\n    W = np.array(_WAYPOINTS, dtype=np.float64)\n    PV = np.vstack([np.array([[START[0], START[1]]], dtype=np.float64), W])   # PV[j] = 경유점 j 의 이전 점\n    n = len(_WAYPOINTS)\n    sub = 3\n    h = _DT / sub\n    K = int(round(_HORIZON / _DT))\n    a = 1.0 - math.exp(-h / _TAU)\n    x = np.full(C, float(pose[0]))\n    y = np.full(C, float(pose[1]))\n    yaw = np.full(C, float(pose[2]))\n    v = np.full(C, float(controller.vm))\n    w = np.full(C, float(controller.wm))\n    j = np.full(C, min(idx, n - 1), dtype=int)\n    fin = np.full(C, idx >= n, dtype=bool)\n    X, Y, A = [x.copy()], [y.copy()], [yaw.copy()]\n    for s in range(K * sub):\n        tx, ty = W[j, 0], W[j, 1]\n        d = np.hypot(tx - x, ty - y)\n        sx, sy = tx - PV[j, 0], ty - PV[j, 1]\n        L = np.maximum(np.hypot(sx, sy), 1e-6)\n        past = ((x - tx) * sx + (y - ty) * sy) / L > -0.1\n        adv = (j < n - 1) & ((d < 0.35) | (past & (d < 1.0)))\n        j = np.where(adv, j + 1, j)\n        tx, ty = W[j, 0], W[j, 1]\n        dx, dy = tx - x, ty - y\n        d = np.hypot(dx, dy)\n        fin = np.where(d > 0.4, False, fin | ((j == n - 1) & (d < 0.25)))\n        e = np.arctan2(dy, dx) - yaw\n        e = np.arctan2(np.sin(e), np.cos(e))\n        vc = np.where(np.abs(e) > 0.35, 0.0, ks * np.minimum(1.5, 2.5 * d + 0.5))\n        wc = np.clip(7.5 * e, -2.0, 2.0)\n        eg = GOAL[2] - yaw\n        eg = np.arctan2(np.sin(eg), np.cos(eg))\n        vc = np.where(fin, 0.0, vc)\n        wc = np.where(fin, np.clip(1.5 * eg, -0.6, 0.6), wc)\n        v = v + (vc - v) * a\n        w = w + (wc - w) * a\n        yaw = yaw + w * h\n        x = x + v * np.cos(yaw) * h\n        y = y + v * np.sin(yaw) * h\n        if (s + 1) % sub == 0:\n            X.append(x.copy())\n            Y.append(y.copy())\n            A.append(yaw.copy())\n    tau = np.arange(K + 1) * _DT\n    return tau, np.stack(X, axis=1), np.stack(Y, axis=1), np.stack(A, axis=1)\n\n\ndef _plan(pose, movers, v_nom, w_nom):\n    \"\"\"진단 지시 2~5: 기준 명령(배율별) + _CANDS 를 굴려 물체·정적 여유를 계산하고,\n    안전한 후보 중 진행도 + 여유 점수가 가장 높은 (v, w) 를 고른다. 안전한 후보가 없으면 물체 여유가 가장 큰\n    명령(정지 포함)을 고른다.\"\"\"\n    c = controller\n    ks = np.array(_NOM_KS, dtype=np.float64)\n    nom = np.stack([v_nom * ks, np.full(ks.size, w_nom)], axis=1)\n    cmds = np.vstack([nom, _CANDS])\n    is_nom = np.concatenate([np.ones(ks.size), np.zeros(len(_CANDS))])\n\n    tn, xn, yn, an = _nom_rollout(pose, ks, c.idx)\n    td, xd, yd, ad = _rollout(pose, _CANDS, c.vm, c.wm)\n    ro = (td, np.vstack([xn, xd]), np.vstack([yn, yd]), np.vstack([an, ad]))\n\n    mc, now = _mover_clear(ro, movers)                 # 진단 지시 3\n    sc, sc_now = _static_clear(ro, pose)\n    safe_m = (mc >= _SAFE) | (mc >= now - 0.02)\n    safe_s = sc >= min(_ST_CLEAR, sc_now - 0.01)\n    ok = safe_m & safe_s\n\n    c0 = float(_cost_to_go(np.array([pose[0]]), np.array([pose[1]]), c.idx)[0])\n    ce = _cost_to_go(ro[1][:, -1], ro[2][:, -1], c.idx)\n    prog = np.clip(c0 - ce, -3.0, 5.0)\n\n    score = (prog + _W_CLEAR * np.minimum(mc, 1.0) + _NOM_BONUS * is_nom   # 진단 지시 4\n             - 0.3 * (cmds[:, 0] < 0.0) - 0.1 * np.abs(cmds[:, 1]))\n    if ok.any():\n        i = int(np.argmax(np.where(ok, score, -1e9)))  # 진단 지시 5\n    else:\n        fb = np.where(safe_s, 10.0 * mc + 0.01 * prog, mc - 100.0 + 10.0 * sc)\n        i = int(np.argmax(fb))\n    return float(cmds[i, 0]), float(cmds[i, 1])\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 22479,
+  "completion_tokens": 22432
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 211308,
+  "total_cost_usd": 0.628464,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 22432,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 22477,
+    "webSearchRequests": 0,
+    "costUSD": 0.628464,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 18759,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 22477,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "eaf9eed6-3c59-4eaf-b23d-b5b3606d55e3"
+ }
+}

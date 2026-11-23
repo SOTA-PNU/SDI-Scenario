@@ -1,0 +1,167 @@
+{
+ "turn": 0,
+ "started": "2026-11-19 12:01:12",
+ "code_in": "results/turns/prompt_c81_turn0/start_block.py",
+ "diagnosis_in": {},
+ "coder": [],
+ "base_turn": null,
+ "diag_turn": null,
+ "reused_block": "results/turns/prompt_c81_turn0/start_block.py",
+ "reason": "출발점 코드: A-4 경유점 추종, 속도 5배, 센서 미사용",
+ "budget_s": 600.0,
+ "seeds": [
+  180329246,
+  30482753,
+  1282767073,
+  805235534
+ ],
+ "sim_used_s": 78.6,
+ "verdicts": {
+  "180329246": "fail",
+  "30482753": "fail",
+  "1282767073": "pass",
+  "805235534": "fail"
+ },
+ "passes": 1,
+ "prior_chars": 0,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 4개를 실행했고, 6개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 1개, 실패 3개. 시뮬 시간 합계 79초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 50초 (가장 짧은 것 50초, 가장 긴 것 50초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3개 실행에서 충돌 시 로봇은 물체(mover_00)가 0.3m 이내 접근 중 (partner_rel_xy 거리), 로봇 속도 1.3~1.5m/s로 직진",
+   "2D 라이다 기록에서 충돌 3초 전 '지도에 없는 물체' 거리 1.05m→0.38m 급감 (실행 c81t0_s180329246)",
+   "출발 직후 2m 이내 물체 존재에도 정지하지 않음 (first_not_on_map within_2m_t: -0.08, 0.15 등)",
+   "통과한 1개 실행은 물체가 44초 후 0.63m 거리에서 감지되어 경로 이탈 없음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇은 2D 라이다로 정적 지도(MISSION boxes, WALLS, FIXED_OBSTACLES)에 없는 점을 움직이는 물체로 식별해야 함",
+    "holds": true,
+    "why": "실행 요약의 'first_not_on_map' 데이터와 문제 설명에서 '지도에 없는 점이 움직이는 물체'라고 명시됨"
+   },
+   {
+    "assumption": "물체 감지 시 거리 기반 감속/정지 정책이 필요하며, 고정된 경유점만으로는 무작위 배치 대응 불가",
+    "holds": true,
+    "why": "4개 실행 중 3개에서 출발 직후 물체 충돌 발생, 물체 시작 위치/속도가 매 실행마다 달라짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정적 경유점 추종 (센서 미사용)",
+    "turns": "1",
+    "result": "4개 실행 중 1개 통과, 3개 충돌"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "2D 라이다로 지도에 없는 점 감지 후 거리 기반 정지 정책 추가",
+    "new_family": true,
+    "for": "모든 충돌 실행에서 물체 거리가 2m 미만일 때도 로봇이 정지하지 않음",
+    "risk": "정적 장애물(박스, 기둥)을 움직이는 물체로 오인해 불필요한 정지 발생 가능"
+   },
+   {
+    "idea": "거리 감소율(접근 속도)을 계산해 조기 경고 및 감속",
+    "new_family": true,
+    "for": "last_5s 기록에서 물체 거리 감소 패턴이 일관적임 (예: 1.7m→0.38m 3초 내)",
+    "risk": "센서 노이즈로 인한 가짜 접근 신호 발생 가능성"
+   },
+   {
+    "idea": "카메라로 물체 크기/형태 인식 후 경로 재계획",
+    "new_family": true,
+    "for": "시각적 정보가 물체 구분에 유리할 수 있으나 실시간 처리 부담 큼",
+    "risk": "렌즈 왜곡 보정 복잡성으로 인한 지연 가능성"
+   }
+  ],
+  "chosen": "2D 라이다로 지도에 없는 점 감지 후 거리 기반 정지 정책을 선택함. 충돌 직전 2m 이내 물체 접근 패턴이 일관적이며, 구현 단순성과 실시간성 측면에서 최적",
+  "target": "controller 함수 내에서 센서 기반 장애물 감지 로직 추가",
+  "direction": "1. front 2D 라이다 스캔을 world 좌표로 변환 후 정적 지도와 점 비교\n2. 정적 장애물이 아닌 가장 가까운 점의 거리를 계산\n3. 거리 < 1.5m 시 v=0, w=0 (즉시 정지)\n4. 거리 1.5~3m 시 v=0.3, w=0 (감속 후 회전 중지)\n5. 이전 거리와 비교해 감소 중이면 감속 강화\n6. 물체 감지 시 waypoint 추종 일시 중단, 안전 거리 확보 후 재개",
+  "last_direction_ok": "no, 이전 지시(정적 경유점 추종, 센서 미사용)가 4개 실행 중 3개에서 충돌로 실패해 동적 장애물 대응 불가능함을 입증함",
+  "base_turn": 0,
+  "confidence": "high"
+ },
+ "table": [
+  {
+   "run": "c81t0_s180329246",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 9.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.417,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.50m/s",
+   "partner_rel_xy": [
+    0.31,
+    -0.52
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 27.7571,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t0_s30482753",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 590.6,
+   "sim_time_s": 9.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.283,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.36m/s 회전 -1.5",
+   "partner_rel_xy": [
+    0.46,
+    -0.29
+   ],
+   "closing_m_s": 0.2,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": -0.08,
+   "goal_dist_m": 30.8315,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t0_s1282767073",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 581.3,
+   "sim_time_s": 50.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 44.15,
+   "goal_dist_m": 0.2026,
+   "time_to_goal_s": 46.15
+  },
+  {
+   "run": "c81t0_s805235534",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 531.2,
+   "sim_time_s": 9.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.767,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.40m/s 회전 -0.6",
+   "partner_rel_xy": [
+    0.52,
+    -0.36
+   ],
+   "closing_m_s": -0.4,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.15,
+   "goal_dist_m": 29.0771,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 79 s / 한도 600 s)",
+ "ended": "2026-11-19 12:10:25"
+}

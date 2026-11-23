@@ -1,0 +1,135 @@
+{
+ "turn": 0,
+ "started": "2026-11-19 10:46:21",
+ "code_in": "results/turns/prompt_c72_turn0/start_block.py",
+ "diagnosis_in": {},
+ "coder": [],
+ "base_turn": null,
+ "diag_turn": null,
+ "reused_block": "results/turns/prompt_c72_turn0/start_block.py",
+ "reason": "출발점 코드: A-4 경유점 추종, 속도 5배, 센서 미사용",
+ "budget_s": 600.0,
+ "seeds": [
+  468415092,
+  926699543,
+  1402809471
+ ],
+ "sim_used_s": 38.8,
+ "verdicts": {
+  "468415092": "fail",
+  "926699543": "fail",
+  "1402809471": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 0,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 0개, 실패 3개. 시뮬 시간 합계 39초 / 예산 600초.\n- 통과한 실행이 없습니다. 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c72t0_s468415092: 13.617s에 mover_01과 충돌, 로봇 속도 1.52m/s, 물체는 8.65s부터 감지됨",
+   "c72t0_s926699543: 3.25s에 mover_00과 충돌, 로봇 속도 0.99m/s, 물체는 0.75s부터 감지됨",
+   "c72t0_s1402809471: 3.9s에 mover_00과 충돌, 로봇 속도 1.47m/s, 물체는 0.78s부터 감지됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "경로 상에 움직이는 물체가 없거나 로봇의 주행 시점과 겹치지 않는다",
+    "holds": false,
+    "why": "모든 실행에서 주행 중 움직이는 물체와 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "단순 경유점 추종 (센서 미사용)",
+    "turns": "1",
+    "result": "0/3 통과"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방 라이다로 지도 외 물체 감지 시 정지/감속",
+    "new_family": true,
+    "for": "라이다 기록상 충돌 수 초 전부터 물체가 충분히 감지되었으므로, 감지 시 정지만 해도 충돌을 피할 수 있음",
+    "risk": "물체가 경로를 완전히 막고 멈춰있을 경우 목적지 도달 불가(stall)"
+   },
+   {
+    "idea": "물체 방향을 고려한 동적 회피 주행",
+    "new_family": true,
+    "for": "정지보다 빠르게 목적지에 도달할 수 있음",
+    "risk": "회피 기동 중 정적 장애물(벽, 박스)과 충돌할 위험이 큼"
+   }
+  ],
+  "chosen": "전방 라이다로 지도 외 물체 감지 시 정지/감속. 현재 로봇 속도가 매우 빠르므로 우선 안전하게 멈추는 로직이 가장 시급함.",
+  "target": "controller 및 새 감지 함수",
+  "direction": "1. `lidar2d_points('front')`를 호출하여 주변 점들을 가져옵니다. 2. 가져온 점들이 `WALLS`, `MISSION['boxes']`, `FIXED_OBSTACLES` 영역에 포함되는지 확인하여 지도에 없는 점만 필터링합니다. 3. 로봇 정면 기준 일정 각도(예: ±45도) 내에 2.0m 이내의 지도 외 점이 있는지 확인합니다. 4. 물체가 감지되면 전진 속도 `v`를 0으로 설정하여 정지합니다. 5. 물체가 감지 범위 밖으로 벗어나면 다시 경유점 추종 속도로 주행합니다. 6. 정지 중에도 회전 `w`는 유지하여 경유점 방향 정렬을 계속합니다.",
+  "confidence": "high",
+  "last_direction_ok": "unclear (첫 턴이므로 이전 지시 없음)",
+  "base_turn": 0
+ },
+ "table": [
+  {
+   "run": "c72t0_s468415092",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 19.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 13.617,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.52m/s",
+   "partner_rel_xy": [
+    0.13,
+    0.55
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 12.35,
+   "goal_dist_m": 17.4735,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c72t0_s926699543",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 580.4,
+   "sim_time_s": 9.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.25,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.99m/s 회전 +0.5",
+   "partner_rel_xy": [
+    0.44,
+    0.25
+   ],
+   "closing_m_s": 0.18,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 0.75,
+   "goal_dist_m": 31.3577,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c72t0_s1402809471",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 571.1,
+   "sim_time_s": 9.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.9,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.47m/s 회전 +0.6",
+   "partner_rel_xy": [
+    -0.39,
+    -0.58
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.78,
+   "goal_dist_m": 26.753,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 39 s / 한도 600 s)",
+ "ended": "2026-11-19 10:50:12"
+}

@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 direction 1–6을 따라 정지·우회 상태머신(`c.state`, `c.stop_t`, `c.detour_t`, `c.detour_w`)을 `controller` 에서 모두 지웠습니다. 로봇은 항상 go 로 달리고, 새 함수 `_tcc_scale` 이 구한 최소 TTC로 전진 속도만 연속해서 줄입니다(`speed_factor = max(min(ttc/_TTC_H, 1), 0.15)`). 이렇게 해서 평균 65 s의 원인으로 지목된 stop_turn_episodes를 없애려는 것입니다. `_tcc_scale` 은 각 물체에 대해 dx·dv 와 dv² 로 최소 접근 시각을 구해 0~`_TTC_H` 로 제한하고, 그 시각에 실제로 충돌 반경 안으로 들어오는 물체만 반영해 스쳐 지나가는 물체 때문에 불필요하게 감속하지 않게 했습니다. 스케일한 명령이 `_is_safe(…, _SAFE)` 를 통과하면 그대로 쓰고, 아니면 `_evade(…, False)` 로 회피하며, `c.vm`/`c.wm` 속도 추정과 `_is_safe` 의 응답 지연(`_TAU`) 보정은 그대로 둡니다(direction 5·6).\n\n```python\ndef _tcc_scale(pose, movers):\n    \"\"\"진단 지시 1: 각 물체와의 최소 접근 시간 t_c = -(d·dv)/|dv|^2 를 구해 [0, _TTC_H] 로 제한한 최소값.\n    로봇 속도는 추정한 실제 속도(controller.vm, controller.wm)를 쓴다. t_c 시점에 몸체 사각형과의 거리가\n    _MOVER_R + _SAFE 이상으로 벌어진 채 지나가는 물체는 위협이 아니므로 _TTC_H 로 둔다.\n    지금 이미 그 거리 안에 있는 물체는 0 을 돌려준다.\"\"\"\n    if not movers:\n        return _TTC_H\n    x, y, yaw = pose\n    c, s = math.cos(yaw), math.sin(yaw)\n    v0 = float(controller.vm)\n    w0 = float(controller.wm)\n    bxc = 0.5 * (_BODY[0] + _BODY[1])           # 몸체 중심 (로봇 기준 x)\n    cx0 = x + c * bxc\n    cy0 = y + s * bxc\n    rvx, rvy = v0 * c, v0 * s\n    lim = _MOVER_R + _SAFE\n    best = _TTC_H\n    for mx, my, mvx, mvy in movers:\n        d_now = float(_rect_dist(x, y, yaw, mx, my))\n        if d_now < lim:\n            return 0.0\n        dx, dy = cx0 - mx, cy0 - my\n        dvx, dvy = rvx - mvx, rvy - mvy\n        dv2 = dvx * dvx + dvy * dvy\n        if dv2 < 1e-9:\n            continue                             # 상대 운동 없음: 가까워지지 않는다\n        tc = -(dx * dvx + dy * dvy) / dv2\n        if tc <= 0.0:\n            continue                             # 멀어지는 중\n        tc = min(tc, _TTC_H)\n        rx = x + c * v0 * tc\n        ry = y + s * v0 * tc\n        ryaw = yaw + w0 * tc\n        d_c = float(_rect_dist(rx, ry, ryaw, mx + mvx * tc, my + mvy * tc))\n        if d_c >= lim:\n            continue                             # 충분히 떨어져 스쳐 지나감\n        best = min(best, tc)\n    return _clamp(best, 0.0, _TTC_H)\n\n\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + TTC 기반 연속 속도 스케일링(정지·우회 상태머신 없음, 항상 go).\n    스케일한 명령이 안전하지 않을 때만 _evade 로 회피한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 진단 지시 6: 실제 속도 추정(예측과 _is_safe 응답 지연 보정에 사용) - 그대로 유지\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    # 진단 지시 3: 인지 -> 물체 목록 -> 경유점 명령 -> TTC\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    ttc = _tcc_scale(pose, movers)\n\n    # 진단 지시 4: TTC 비례 속도 스케일\n    speed_factor = max(min(ttc / _TTC_H, 1.0), 0.15)\n    scaled_cmd = (v_nom * speed_factor, w_nom)\n\n    # 진단 지시 5: 안전하면 스케일 명령, 아니면 회피\n    if _is_safe(pose, scaled_cmd, movers, _SAFE):\n        return scaled_cmd[0], scaled_cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 27362,
+  "completion_tokens": 4441
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 38626,
+  "total_cost_usd": 0.307708,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4441,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 27360,
+    "webSearchRequests": 0,
+    "costUSD": 0.307708,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2289,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 27360,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "085a8ff4-3c65-4866-9306-10bc295e14dd"
+ }
+}

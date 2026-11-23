@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1·2·3·5에 따라 `_HOLD_ON`을 1.2 s, `_STOP_CLR`을 0.4 m, `_CLOSE_MIN`을 0.3 m/s, `_HOLD_MIN`을 0.5 s로 바꿨습니다. 지시 4(\"정지 시 최소 거리 기준 조정\")는 정지 중 최소 거리 대비 재출발 거리 `_RESUME_DIST`를 0.5→0.3 m로 낮추는 것으로, 지시 6(\"재출발 조건 완화\")은 rollout 기반 재개 기준 `_RESUME_MARGIN`을 0.5→0.3 m, `_RESUME_GO_M`을 0.8→0.6 m로 낮추는 것으로 해석해 정지 시간을 줄였습니다. 검토 시 주의할 점이 두 가지 있습니다. 첫째, 진단은 `_HOLD_ON`과 `_STOP_CLR` 상향을 \"완화\"라고 했지만, 실제로는 MTC 1.2 s 미만이나 0.4 m 이내에서 더 일찍 정지하게 되므로 정지 빈도가 늘 수 있습니다(지시 수치를 그대로 따랐습니다). 둘째, `_STOP_CLR`(0.4)이 `_NOROT_CLR`(0.35)보다 커져 `elif clr_min < _NOROT_CLR` 분기는 더 이상 실행되지 않습니다. 다만 회전 금지는 기존 `clr_min < 0.45` 줄이 계속 맡습니다.\n\n```python\n_HOLD_ON = 1.2       # 정지 시작 MTC [s] (C-2 27 지시 1: 0.8 -> 1.2)\n\n\n_STOP_CLR = 0.4      # 몸체 가장자리에서 이 거리 안에 물체가 있으면 즉시 정지 [m] (C-2 27 지시 2: 0.3 -> 0.4)\n\n\n_CLOSE_MIN = 0.3     # 위험으로 보는 최소 상대 접근 속도 [m/s] (C-2 27 지시 3: 0.2 -> 0.3)\n\n\n_RESUME_DIST = 0.3   # 정지 중 최소 거리 대비 이만큼 멀어지면 재출발 허용 [m] (C-2 27 지시 4: 0.5 -> 0.3)\n\n\n_HOLD_MIN = 0.5      # 최소 정지 시간 [s] (C-2 27 지시 5: 1.0 -> 0.5)\n\n\n_RESUME_MARGIN = 0.3 # 정지 중 주행 재개: 계속 갈 때의 여유가 멈출 때보다 이만큼 커야 함 [m] (C-2 27 지시 6: 0.5 -> 0.3)\n\n\n_RESUME_GO_M = 0.6   # 정지 중 rollout 기반 주행 재개에 필요한 최소 예측 여유 [m] (C-2 27 지시 6: 0.8 -> 0.6)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 32745,
+  "completion_tokens": 3573
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 31522,
+  "total_cost_usd": 0.333412,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3573,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 32743,
+    "webSearchRequests": 0,
+    "costUSD": 0.333412,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2495,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 32743,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "2af1e3f9-e402-4ca8-b3a7-a2a344abc4b5"
+ }
+}

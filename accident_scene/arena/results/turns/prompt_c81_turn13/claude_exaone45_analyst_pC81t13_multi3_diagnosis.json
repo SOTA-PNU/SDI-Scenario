@@ -1,0 +1,119 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "여러 실행에서 로봇이 움직이는 물체 감지 후 정지 상태로 5초 이상 지속(stall_abort), 최종 목표 거리 6.32~29.99m로 미도달",
+   "last_5s 기록에서 정지 중 물체 거리 증가(2.1m→2.52m 등)에도 재출발 조건 미충족",
+   "stop_turn_episodes 6~34회로 반복적 정지-회피 시도 실패",
+   "_hold_release 조건(clear_dur >= 1.5s) 충족 시에도 재출발 미발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇 정지 시 closing 계산이 정확하여 접근 물체 감지 시 위협(threat) 상태가 되고, 멀어질 때 위협 해제되어 clear_dur 증가",
+    "holds": false,
+    "why": "물체 거리 증가에도 정지 지속으로 보아 closing 계산 오류 또는 clear_dur 추적 문제 존재"
+   },
+   {
+    "assumption": "_CLEAR_T=1.5s로 충분히 긴 위협 해제 대기 시간 설정",
+    "holds": false,
+    "why": "5초 이상 정지 발생으로 1.5s 미만 clear_dur 유지 가능성 높음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 해제 조건 강화 (시간 기반)",
+    "turns": "11,12,13",
+    "result": "11턴: 7/8 통과 → 12턴: 4/6 실패 → 13턴: 0/3 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "clear_dur 계산 시 '접근 속도 음수 지속 시간'을 직접 추적 (거리 증가 추세 확인)",
+    "new_family": true,
+    "for": "물체 멀어질 때 closing < 0인 구간 지속 시간을 기반으로 재출발 조건 개선",
+    "risk": "센서 노이즈로 인한 일시적 거리 증가 오인 가능"
+   }
+  ],
+  "chosen": "정지 해제 조건을 MTC 2.0s 이상 거리 증가 추세 기반으로 단순화하고 정지 중 재출발 예측 계산을 생략하여 평균 실행 시간 단축과 통과율 향상",
+  "target": "_hold_release 함수 및 정지 중 재출발 로직 (controller 내 hold 상태 처리 부분)",
+  "direction": "1. _HOLD_ON을 2.0s로 상향 조정하여 재출발 임계 MTC 완화. 2. _hold_release에서 clear_dur 조건을 제거하고 d_now >= _HOLD_ON만 확인하도록 수정. 3. 정지 중 재출발 조건(go 계산)을 삭제하고, _hold_release가 true이면 _path_free 확인 후 즉시 v_nom, w_nom 적용. 4. 정지 중 회피 전환 조건 approach를 closing0 > 0.05 m/s로 변경. 5. _HOLD_MIN을 1.0s로 상향하여 재출발 안정성 확보. 6. 정지 중 거리 증가 추세를 기록해 일정 증가량(0.5m) 이상 지속 시 재출발 허용하는 변수 추가.",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 11,
+  "stage1": {
+   "chosen": "거리 증가 추세 직접 확인으로 정지 해제 조건 개선 (접근 속도 음수 지속 시간 추적), _CLEAR_T를 1.5s에서 3.0s로 상향해 센서 지연 고려",
+   "target": "_hold_release 함수 및 위협 추적 로직",
+   "direction": "1. _perceive에서 물체 거리 변화율 계산 (이전 스캔 대비 거리 변화)\n2. clear_dur를 '접근 속도 음수 지속 시간'으로 재정의 (거리 감소 없이 증가하는 구간 카운트)\n3. _HOLD_MIN=1.0s 유지하되, 거리 증가율 임계값(_DIST_INC_MIN=0.1m/s) 추가 적용\n4. _CLEAR_T=3.0s로 상향 조정 및 정지 중 거리 증가 추세 2회 연속 확인 시 재출발 허용\n5. _SLOW_T=5.0s 유지하되 감속 시작 조건 완화 (d_thr >= _HOLD_ON → d_thr >= _HOLD_ON - 0.5)\n6. 정지 해제 시 _RESUME_MARGIN=1.0m로 완화해 안전 거리 확보 시간 단축"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\":\"stall\",\"evidence\":[\"여러 실행에서 로봇이 움직이는 물체 감지 후 정지 상태로 5초 이상 지속(stall_abort), 최종 목표 거리 6.32~29.99m로 미도달\",\"last_5s 기록에서 정지 중 물체 거리 증가(2.1m→2.52m 등)에도 재출발 조건 미충족\",\"stop_turn_episodes 6~34회로 반복적 정지-회피 시도 실패\",\"_hold_release 조건(clear_dur >= 1.5s) 충족 시에도 재출발 미발생\"], \"assumptions\":[{\"assumption\":\"로봇 정지 시 closing 계산이 정확하여 접근 물체 감지 시 위협(threat) 상태가 되고, 멀어질 때 위협 해제되어 clear_dur 증가\",\"holds\":false,\"why\":\"물체 거리 증가에도 정지 지속으로 보아 closing 계산 오류 또는 clear_dur 추적 문제 존재\"},{\"assumption\":\"_CLEAR_T=1.5s로 충분히 긴 위협 해제 대기 시간 설정\",\"holds\":false,\"why\":\"5초 이상 정지 발생으로 1.5s 미만 clear_dur 유지 가능성 높음\"}], \"approach_families\":[{\"family\":\"정지 해제 조건 강화 (시간 기반)\",\"turns\":\"11,12,13\",\"result\":\"11턴: 7/8 통과 → 12턴: 4/6 실패 → 13턴: 0/3 실패\"}], \"candidates\":[{\"idea\":\"clear_dur 계산 시 '접근 속도 음수 지속 시간'을 직접 추적 (거리 증가 추세 확인)\",\"new_family\":true,\"for\":\"물체 멀어질 때 closing < 0인 구간 지속 시간을 기반으로 재출발 조건 개선\",\"risk\":\"센서 노이즈로 인한 일시적 거리 증가 오인 가능\"}], \"chosen\":\"거리 증가 추세 직접 확인으로 정지 해제 조건 개선 (접근 속도 음수 지속 시간 추적), _CLEAR_T를 1.5s에서 3.0s로 상향해 센서 지연 고려\",\"target\":\"_hold_release 함수 및 위협 추적 로직\",\"direction\":\"1. _perceive에서 물체 거리 변화율 계산 (이전 스캔 대비 거리 변화)\\n2. clear_dur를 '접근 속도 음수 지속 시간'으로 재정의 (거리 감소 없이 증가하는 구간 카운트)\\n3. _HOLD_MIN=1.0s 유지하되, 거리 증가율 임계값(_DIST_INC_MIN=0.1m/s) 추가 적용\\n4. _CLEAR_T=3.0s로 상향 조정 및 정지 중 거리 증가 추세 2회 연속 확인 시 재출발 허용\\n5. _SLOW_T=5.0s 유지하되 감속 시작 조건 완화 (d_thr >= _HOLD_ON → d_thr >= _HOLD_ON - 0.5)\\n6. 정지 해제 시 _RESUME_MARGIN=1.0m로 완화해 안전 거리 확보 시간 단축\",\"confidence\":\"medium\",\"last_direction_ok\":\"no\",\"base_turn\":11}",
+ "table": [
+  {
+   "run": "c81t13_s915122405",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 140.9,
+   "stall_abort_t": 139.93,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 34,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 6.32,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t13_s358303010",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 459.1,
+   "sim_time_s": 165.3,
+   "stall_abort_t": 164.28,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 13.1547,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t13_s315370432",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 293.8,
+   "sim_time_s": 95.0,
+   "stall_abort_t": 93.98,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 29.993,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "답이 올바른 JSON 이 아니어서 읽지 못했습니다(Extra data: line 1 column 1414 (char 1413)). 오류 근처: …→ d_thr >= _HOLD_ON - 0.5)\\n6. 정지 해제 시 _RESUME_MARGIN=1.0m로 완화해 안전 거리 확보 시간 단축\"},\"confidence\":\"medium\"}… 괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

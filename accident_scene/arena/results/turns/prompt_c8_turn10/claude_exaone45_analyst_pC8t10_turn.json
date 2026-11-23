@@ -1,0 +1,332 @@
+{
+ "turn": 10,
+ "started": "2026-11-19 00:30:52",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn9/claude_exaone45_analyst_pC8t9_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision|stall",
+  "evidence": [
+   "실행 c8t9_s1639540656에서 정적 장애물 arena_box_03과 충돌 (t=100.033s, 로봇 위치 x=-2.17, y=4.93)",
+   "실행 c8t9_s1094128880에서 90초간 진행 없이 정지 (최종 위치 목표까지 6.71m, 정지 에피소드 35회)",
+   "실행 c8t9_s931153178에서 시간 한도 초과 (143.6s 사용, 한도 142.6s)",
+   "다수 실행에서 first_not_on_map이 2m 이내로 접근 시 정적 여유(st_n)가 0.3m 미만인 구역에서 회피 종료 조건 미충족 (예: 시작 지점 정적 여유 ~0.28m)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 종료 시 정적 여유가 0.3m 이상이어야 한다는 조건이 창고 내 좁은 통로에서는 항상 충족될 수 없음",
+    "holds": false,
+    "why": "실행 c8t9_s1639540656에서 정적 장애물과의 충돌이 발생했으며, 로봇 위치 x=-2.17, y=4.93에서 정적 여유가 0.3m 미만임이 추정됨 (박스 03의 경계 근처)"
+   },
+   {
+    "assumption": "TTC 회복과 정적 여유 회복이 0.5초 내에 동시 발생할 것이라는 가정",
+    "holds": false,
+    "why": "실행 c8t9_s1094128880에서 90초간 진행 없이 정지했으며, 마지막 5s 기록에서 mover 거리 감소(3.21m→1.93m)와 로봇 속도 저하(0.4m/s)가 지속됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC 기반 조기 회피 트리거 조정",
+    "turns": "6, 7, 8, 9",
+    "result": "통과 수 증가했으나 시간 한도 초과 및 정적 장애물 충돌 잔존 (예: 턴 6 7/8 통과 but 1 time_limit, 턴 9 2/5 통과)"
+   },
+   {
+    "family": "회피 종료 조건 완화 (정적 여유 기준 하향)",
+    "turns": "4, 5",
+    "result": "통과 수 증가했으나 충돌 유형 다변화 (턴 4: 6/9 통과 but 3 collision_driving)"
+   },
+   {
+    "family": "정적 장애물 회피 강화를 위한 경로 재설계",
+    "turns": "2, 3",
+    "result": "초기 통과 1/1 but 후속 시도에서 실패 증가 (턴 3: 4/7 통과 but 3 collision_driving)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 종료 시 정적 여유 조건을 지역별로 유연하게 조정 (좁은 통로에서는 기준 완화)",
+    "new_family": true,
+    "for": "실행 c8t9_s1639540656에서 정적 장애물 충돌이 발생한 구역과 c8t9_s1094128880에서 장시간 정지한 구역의 공통점은 정적 여유가 0.3m 미만인 지역",
+    "risk": "기준 완화로 회피 종료가 조기 발생해 mover와의 충돌 위험 증가"
+   },
+   {
+    "idea": "회피 중 정적 장애물과의 거리 예측을 _choose 함수에 반영하여 회피 경로가 정적 장애물을 피하도록 유도",
+    "new_family": true,
+    "for": "현재 _choose는 mover 기반 점수만 고려하며 정적 장애물 회피가 2차적임 (코드 내 _static_clearance는 하드 제약이지만 회피 중 우선순위 낮음)",
+    "risk": "정적 장애물 회피 강조로 mover 회피 효과가 약화될 수 있음"
+   },
+   {
+    "idea": "회피 종료 조건에서 정적 여유 대신 동적 여유(clr_all)를 주 기준으로 사용하고 정적 여유는 보조 조건으로 설정",
+    "new_family": true,
+    "for": "실행 c8t9_s931153178에서 clr_all이 1.93m로 충분히 멀었음에도 시간 한도 초과 발생 (정적 여유 조건 미충족으로 회피 지속 추정)",
+    "risk": "정적 장애물과의 접촉 위험 증가"
+   }
+  ],
+  "chosen": "회피 종료 시 정적 여유 조건을 지역별로 유연하게 조정하고, 회피 중 정적 장애물 회피를 점수에 반영하는 후보를 선택. 이유: 기존 0.3m 고정 기준으로 인해 좁은 통로에서 회피가 장기화되며, 이로 인해 시간 한도 초과 및 정적 장애물 충돌이 발생함.",
+  "target": "controller 함수 내 회피 종료 조건(_resume_st)과 _choose 함수의 점수 계산 로직",
+  "direction": "1. 회피 종료 조건인 _RESUME_ST를 0.3m에서 0.2m로 완화하되, 정적 여유가 0.15m 미만인 구역에서는 회피 종료를 _EVADE_MAX(8s) 내에서도 강제로 종료하도록 수정.\n2. _choose 함수에서 회피 모드(evading=True) 시 정적 여유(stc)가 0.2m 이상인 경우에만 보너스 점수(_ST_W)를 부여하고, stc < 0인 후보는 절대 선택되지 않도록 하드 제약 강화.\n3. 회피 중 _mover_clearance 대신 _static_clearance를 2차 평가 지표로 추가해, mover와의 거리와 정적 여유를 균형 있게 고려하도록 점수 식 조정.\n4. _EVADE_MAX를 6s로 단축하여 장시간 회피로 인한 시간 한도 초과 방지.\n5. 회피 시작 시 현재 정적 여유가 0.25m 미만이면 즉시 _choose를 호출해 정적 장애물 회피 우선 동작 수행.\n6. 정지 후 재개 시 closing_speed 음수인 경우에도 정적 여유가 0.15m 이상이면 즉시 회피 종료 검토 (시간 낭비 방지).",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 지시 1~6을 그대로 반영했습니다. 회피 종료 조건은 정적 여유 0.2 m로 완화했고(`_RESUME_ST`), 정적 여유가 0.15 m 미만인 좁은 구역에서는 mover 조건만 맞으면 회피를 바로 끝냅니다. 회피 상한은 6 s로 줄였고(`_EVADE_MAX`), 정지 상태에서는 정적 여유가 0.15 m 이상이면 0.5 s 확인 없이 바로 종료를 검토합니다. 이렇게 해서 좁은 통로에서 회피가 길어져 생기던 정지와 시간 초과를 줄이려 했습니다. `_choose` 에서는 정적 여유가 음수인 후보를 마스크로 아예 빼서, 이미 상자 가까이 있을 때 더 다가가는 후보가 뽑히지 않게 했습니다(박스 03 충돌 대응). 그 밖에 회피 중 정적 여유를 연속 점수와 0.2 m 이상 보너스로 반영하고, 회피 시작 때 현재 정적 여유가 0.25 m 미만이면 정적 우선 점수를 켭니다.",
+   "changed": [
+    "_EVADE_MAX",
+    "_NARROW_ST",
+    "_RESUME_ST",
+    "_STILL_V",
+    "_STOP_RESUME_ST",
+    "_ST_BONUS_MIN",
+    "_ST_PRIO",
+    "_ST_PRIO_W",
+    "_ST_W2",
+    "_choose",
+    "_pose_static_clearance",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1a. _RESUME_ST 를 0.3 m 에서 0.2 m 로 완화",
+      "implemented": true,
+      "note": "_RESUME_ST = 0.2 이고, ok 조건이 st_n >= _RESUME_ST 를 씀"
+     },
+     {
+      "instruction": "1b. 정적 여유 0.15 m 미만 구역에서는 _EVADE_MAX 전이라도 회피를 강제 종료",
+      "implemented": true,
+      "note": "narrow 조건(0 <= st_n < _NARROW_ST, t >= evade_until)으로 종료함. 진단과 달리 mover_ok(TTC, clr_all) 조건을 추가로 요구하고, st_n < 0 이면 해당하지 않음. 안전 쪽으로 좁힌 차이로 봄"
+     },
+     {
+      "instruction": "2a. 회피 중 stc >= 0.2 m 인 후보에만 _ST_W 보너스",
+      "implemented": true,
+      "note": "_ST_W * sc * (stc >= _ST_BONUS_MIN), _ST_BONUS_MIN = 0.2"
+     },
+     {
+      "instruction": "2b. stc < 0 후보는 선택하지 않도록 하드 제약 강화",
+      "implemented": true,
+      "note": "allowed 마스크와 -inf 로 제외함. 모든 후보가 stc < 0 일 때만 현재보다 가까워지지 않는 후보 또는 argmax(stc)를 고름. stc 계산에서 현재 자세(인덱스 0)를 뺀 점도 바뀜"
+     },
+     {
+      "instruction": "3. 회피 중 정적 여유를 2차 평가 지표로 점수에 반영",
+      "implemented": true,
+      "note": "evading 일 때 _ST_W2 * sc 연속항을 추가함"
+     },
+     {
+      "instruction": "4. _EVADE_MAX 를 6 s 로 단축",
+      "implemented": true,
+      "note": "_EVADE_MAX = 6.0"
+     },
+     {
+      "instruction": "5. 회피 시작 때 현재 정적 여유가 0.25 m 미만이면 즉시 정적 우선 _choose",
+      "implemented": true,
+      "note": "st0 = _pose_static_clearance(pose) < _ST_PRIO 이면 st_prio 를 켬. 같은 프레임의 early 분기에서 _choose(..., S['st_prio'])를 호출함"
+     },
+     {
+      "instruction": "6. 정지 상태에서 closing 이 음수여도 정적 여유 0.15 m 이상이면 즉시 회피 종료 검토",
+      "implemented": true,
+      "note": "still = mover_ok and |S['v']| < 0.05 and st_n >= 0.15 이면 evade_until 과 hold 없이 종료함. 느리게 다가오는 경우(TTC >= 1.0 s)까지만 허용함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 1b 의 강제 종료를 mover 조건 없이 하면 좁은 구역에서 접근하는 물체를 무시하게 되어 위험함",
+     "지시 2 는 stc 0.2 m 미만 후보에 보너스를 주지 말라고 하는데, 지시 3 의 연속 정적항은 그 구간에도 점수를 줘서 두 지시가 일부 상충함",
+     "지시 6 은 회피 중 _choose 가 v=0 후보를 고르면 바로 종료 조건이 되어, _EVADE_HOLD 유지가 사실상 무력화될 수 있음",
+     "박스 03 충돌의 원인이 회피 종료 지연이라는 근거가 약함. 충돌 위치는 공칭 경로(y=5.8)에서 벗어난 회피 궤적에 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단의 지시 1~6을 그대로 반영했습니다. 회피 종료 조건은 정적 여유 0.2 m로 완화했고(`_RESUME_ST`), 정적 여유가 0.15 m 미만인 좁은 구역에서는 mover 조건만 맞으면 회피를 바로 끝냅니다. 회피 상한은 6 s로 줄였고(`_EVADE_MAX`), 정지 상태에서는 정적 여유가 0.15 m 이상이면 0.5 s 확인 없이 바로 종료를 검토합니다. 이렇게 해서 좁은 통로에서 회피가 길어져 생기던 정지와 시간 초과를 줄이려 했습니다. `_choose` 에서는 정적 여유가 음수인 후보를 마스크로 아예 빼서, 이미 상자 가까이 있을 때 더 다가가는 후보가 뽑히지 않게 했습니다(박스 03 충돌 대응). 그 밖에 회피 중 정적 여유를 연속 점수와 0.2 m 이상 보너스로 반영하고, 회피 시작 때 현재 정적 여유가 0.25 m 미만이면 정적 우선 점수를 켭니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1502678424,
+  678372427,
+  1638561953,
+  1400614285,
+  2022551386,
+  1475847026
+ ],
+ "sim_used_s": 600.4,
+ "verdicts": {
+  "1502678424": "pass",
+  "678372427": "pass",
+  "1638561953": "pass",
+  "1400614285": "fail",
+  "2022551386": "pass",
+  "1475847026": "pass"
+ },
+ "passes": 5,
+ "prior_chars": 5258,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 6개를 실행했고, 4개는 실행하지 못했습니다 (사유: 남은 예산 0초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 5개, 실패 1개. 시뮬 시간 합계 600초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 103초 (가장 짧은 것 68초, 가장 긴 것 142초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 1b 의 강제 종료를 mover 조건 없이 하면 좁은 구역에서 접근하는 물체를 무시하게 되어 위험함\n- (검토 1회차, 판정 pass) 지시 2 는 stc 0.2 m 미만 후보에 보너스를 주지 말라고 하는데, 지시 3 의 연속 정적항은 그 구간에도 점수를 줘서 두 지시가 일부 상충함\n- (검토 1회차, 판정 pass) 지시 6 은 회피 중 _choose 가 v=0 후보를 고르면 바로 종료 조건이 되어, _EVADE_HOLD 유지가 사실상 무력화될 수 있음\n- (검토 1회차, 판정 pass) 박스 03 충돌의 원인이 회피 종료 지연이라는 근거가 약함. 충돌 위치는 공칭 경로(y=5.8)에서 벗어난 회피 궤적에 있음\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c8t10_s1400614285에서 t=79.767s에 static:arena_box_00과 충돌, 로봇 위치 (-6.09, -6.23)은 박스_00 내부 영역 (x: -7.46~-5.96, y: -7.77~-5.77)에 속함",
+   "충돌 직전 5s 데이터에서 로봇은 주행 중 회전 (-0.4 rad/s)하며 장애물 회피 시도했으나 정적 장애물과 충돌",
+   "여러 실행 중 1개에서 충돌 발생, 나머지 5개는 통과했으나 정적 장애물 충돌 원인이 회피 경로 선택 시 정적 여유 미고려로 추정"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 중 정적 장애물 여유(stc)를 충분히 고려해야 한다고 가정하지만, 현재 코드는 mover 감지 우선 순위로 정적 여유 위반 경로 선택 가능",
+    "holds": false,
+    "why": "충돌 위치가 정적 박스 내부이며, _choose 함수에서 evading=True 시 stc < 0인 후보도 선택 가능 (안전 후보 없을 시 최소 위험 후보 선택)"
+   },
+   {
+    "assumption": "회피 종료 조건(st_n >= _RESUME_ST)이 정적 장애물 회피를 보장한다고 가정",
+    "holds": false,
+    "why": "정적 여유 0.2m 미만 구역(_NARROW_ST=0.15m)에서 회피 종료 조건이 mover 조건만으로 완화되나, 이는 정적 장애물과의 충돌 위험 증가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 종료 조건 및 정적 여유 임계값 조정",
+    "turns": "10",
+    "result": "통과 5/6 실행, 정적 장애물 충돌 지속 (예: 박스_00 충돌)"
+   },
+   {
+    "family": "센서 감지 범위 및 TTC 트리거 민감도 조정",
+    "turns": "8",
+    "result": "시간 초과 또는 불필요한 정지 증가, 정적 장애물 회피 미해결"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 정적 여유(stc) 최소 임계값 강제 적용 (예: 0.15m) 및 미달 시 정지",
+    "new_family": true,
+    "for": "정적 장애물 충돌이 회피 경로 선택 시 정적 여유 검증 부재로 발생",
+    "risk": "정적 장애물 밀집 구역에서 회피 실패 가능성 증가, 정지로 인한 시간 초과 위험"
+   },
+   {
+    "idea": "_choose 함수에서 회피 시 앵커 근처 정적 장애물 밀도 반영 패널티 추가",
+    "new_family": true,
+    "for": "앵커 기반 회피 경로가 정적 장애물 근처를 지날 때 충돌 위험 증가",
+    "risk": "정적 지도 정확도에 의존, 센서 노이즈로 인한 오탐 가능성"
+   },
+   {
+    "idea": "회피 시작 전 현재 위치의 정적 여유 검증 및 미달 시 정지 후 재감지",
+    "new_family": true,
+    "for": "정적 장애물 근접 구역에서 회피 기동 자체로 인한 충돌 방지",
+    "risk": "회피 지연으로 mover와의 충돌 위험 증가, 정지 반복으로 시간 소모"
+   }
+  ],
+  "chosen": "회피 중 정적 여유(stc) 최소 임계값 강제 적용 (0.15m) 및 미달 시 정지로, 정적 장애물 충돌 원인인 회피 경로 선택 시 정적 안전 검증 부재를 구조적 수정으로 해결",
+  "target": "_choose 함수 내 evading=True 조건에서의 정적 여유 필터링 로직",
+  "direction": "1. evading=True 시 후보 경로 중 stc >= 0.15m인 것만 허용하는 필터 추가\n2. 허용 후보 없을 시 즉시 정지(v=0, w=0) 명령 반환\n3. 회피 중 정적 여유 보너스 가중치(_ST_W)를 2.5로 상향 조정\n4. 회피 경로 예측 시 정적 장애물과의 최소 거리 검증을 0.15m로 강화\n5. 정적 여유가 0.15m 미만인 구역 진입 시 회피 트리거 자체를 비활성화\n6. 회피 종료 조건에 정적 여유 지속 검증(0.15m 이상 0.5s 유지) 추가",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c8t10_s1502678424",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 87.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 81.85,
+   "goal_dist_m": 0.2302,
+   "time_to_goal_s": 83.817
+  },
+  {
+   "run": "c8t10_s678372427",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 512.2,
+   "sim_time_s": 142.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": 136.45,
+   "goal_dist_m": 0.1982,
+   "time_to_goal_s": 138.383
+  },
+  {
+   "run": "c8t10_s1638561953",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 369.9,
+   "sim_time_s": 125.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": 119.13,
+   "goal_dist_m": 0.223,
+   "time_to_goal_s": 121.183
+  },
+  {
+   "run": "c8t10_s1400614285",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 244.8,
+   "sim_time_s": 85.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 79.767,
+   "partner": "static:arena_box_00",
+   "robot_at_collision": "주행 0.49m/s 회전 -0.4",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 26.5428,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t10_s2022551386",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 159.0,
+   "sim_time_s": 67.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 61.93,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 63.967
+  },
+  {
+   "run": "c8t10_s1475847026",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 91.1,
+   "sim_time_s": 91.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 85.45,
+   "goal_dist_m": 0.1996,
+   "time_to_goal_s": 87.5
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔에서 지도에 없는 점(움직이는 물체) 식별\\n2. 정적 장애물(MISSION boxes, WALLS, FIXED_OBSTACLES) 범위 외 점만 필터링\\n3. 가장 가까운 비정적 점까지의 거리 계산\\n4. 거리가 2m 미만이면 v=0, w=0으로 설정해 정지\\n5. 정지 후 1초간 재감지하여 물체 이동 확인 후 진행\\n6. 정지 없이 경유점 주행 시 기존 제어법 유지\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 229 s / 한도 600 s)\n#2 이번 코드(진단 \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\" 반영, 검토 통과): 새 배치 1개 중 1개 pass, 0개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#3 이번 코드(진단 \"1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 300 s / 한도 600 s)\n#4 이번 코드(진단 \"1. controller에서 slow 모드 진입 조건을 clr_n < _CLR_GO에서 clr_all < _CLR_GO로 변경\\n2. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO로 수정 (0~1 범위 유지)\\n3. 정지 결정 시 _CLR_STOP을 clr_all 기준으로 유지하되, 감속 궤적 검증 시 clr_all >= _CLR_STOP 조건 강화\\n4. 정지 후 재개 시 물체 접근 속도(closing_m_s) 음수일 경우 즉시 회피 동작 유도\\n5. clr_all 계산 시 전방 섹터 외 물체도 포함되도록 _front_sector 호출 제거\\n6. 히스테리시스 값 _HYST를 1.5로 증가시켜 감속 모드 해제 조건 완화\" 반영, 검토 통과): 새 배치 9개 중 6개 pass, 3개 fail (시뮬 시간 합계 466 s / 한도 600 s)\n#5 이번 코드(진단 \"1. _movers_now 호출 직후 partner 클로즈드 포인트(P, U)를 기반으로 _closing_speed 계산\\n2. 결과가 -0.15 미만이고 가장 가까운 물체 거리가 3m 이내일 때, 즉시 _choose(pose, P, U, target) 호출로 회피 동작 실행\\n3. 정지 모드 진입 전에도 동일 조건으로 조기 회피 유도\\n4. _slow_cmd 내 stop 조건 검사와 별도로 주행 중 검사 로직 분리\\n5. _CLOSE_V 값을 -0.15로 강화해 민감도 조정\\n6. 정지 후 재개 시 검사와 병행해 모든 상태에서 접근 물체 감지 보장\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 72 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _movers_now 직후 가장 가까운 물체의 거리(d_near)와 상대 속도(U)로 TTC 계산 (TTC = d_near / max(closing_speed, 0.01))\\n2. TTC < 1.0s 일 때 조기 회피 트리거 활성화\\n3. _choose 호출 시 현재 가장 가까운 물체 위치를 앵커로 전달\\n4. 앵커 기반 패널티로 물체 근처 경로 선택 억제 (예: da - _EVADE_R > 0 시 -20 점수)\\n5. _EVADE_HOLD를 0.5s로 유지하되, TTC 기반 트리거로 회피 시작 시점 앞당김\\n6. _CLOSE_R을 1.5m로 완화해 더 넓은 범위에서 접근 속도 계산\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _HYST 값을 1.5에서 1.0으로 감소시켜 slow 모드 해제 조건을 완화한다. 2. _TTC_TRIG을 1.0s에서 2.0s로 상향해 TTC 기반 회피 트리거 시점을 앞당긴다. 3. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO 계산 시, mover 접근 속도(U)와 로봇 속도(v) 차이를 고려해 동적 임계값을 적용한다. 4. _choose 호출 시 앵커 기반 패널티 계산 범위를 1.0s에서 1.5s로 확장해 더 긴 예측 구간에서 mover 경로 회피를 유도한다. 5. 정지 후 재진행 조건(_mover_clearance >= _CLR_STOP)을 _CLR_STOP = 0.25m로 완화해 불필요한 정지 감소한다. 6. _closing_speed 계산 시 _CLOSE_R을 1.5m에서 2.0m로 확대해 접근 감지 범위를 넓혀 조기 경고 가능성을 높인다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 248 s / 한도 600 s)\n#8 이번 코드(진단 \"When TTC triggers evasion, set evade_until to t + _EVADE_HOLD but also extend it if TTC remains < 2.0s; recalculate TTC every frame during evasion; prioritize lateral evasion candidates with larger angular deviation from mover bearing; incorporate mover velocity vectors into _choose scoring via relative motion prediction; reduce _ANCHOR_R to 0.8m for tighter evasion around closest mover; validate evasion effectiveness via lidar clearance metrics before resuming motion\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#9 이번 코드(진단 \"1. Set _TTC_TRIG = 1.0s to trigger evasion earlier when TTC drops below 1.0s\\n2. Increase _EVADE_HOLD to 1.0s so evasion extends at least 1.0s after TTC recovery\\n3. Revert _ANCHOR_R to 1.2m for better velocity estimation around movers\\n4. Adjust _EVADE_MAX to 8.0s to prevent premature evasion end in complex scenarios\\n5. In _choose, add static clearance bonus for paths maintaining >0.4m from static obstacles during evasion\\n6. Ensure evasion ends only when both TTC ≥ 1.0s and static clearance ≥ 0.3m for 0.5s\" 반영, 검토 통과): 새 배치 5개 중 2개 pass, 3개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#10 이번 코드(진단 \"1. 회피 종료 조건인 _RESUME_ST를 0.3m에서 0.2m로 완화하되, 정적 여유가 0.15m 미만인 구역에서는 회피 종료를 _EVADE_MAX(8s) 내에서도 강제로 종료하도록 수정.\\n2. _choose 함수에서 회피 모드(evading=True) 시 정적 여유(stc)가 0.2m 이상인 경우에만 보너스 점수(_ST_W)를 부여하고, stc < 0인 후보는 절대 선택되지 않도록 하드 제약 강화.\\n3. 회피 중 _mover_clearance 대신 _static_clearance를 2차 평가 지표로 추가해, mover와의 거리와 정적 여유를 균형 있게 고려하도록 점수 식 조정.\\n4. _EVADE_MAX를 6s로 단축하여 장시간 회피로 인한 시간 한도 초과 방지.\\n5. 회피 시작 시 현재 정적 여유가 0.25m 미만이면 즉시 _choose를 호출해 정적 장애물 회피 우선 동작 수행.\\n6. 정지 후 재개 시 closing_speed 음수인 경우에도 정적 여유가 0.15m 이상이면 즉시 회피 종료 검토 (시간 낭비 방지).\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 600 s / 한도 600 s)",
+ "ended": "2026-11-19 00:51:20"
+}

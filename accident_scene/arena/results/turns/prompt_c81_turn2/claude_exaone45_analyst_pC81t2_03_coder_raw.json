@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 검토 지적에 따라 `controller` 의 `toward` 를 `rx > 0.0` 으로 바꿨습니다. 이제 진단 지시 2대로 앞쪽(rx > 0)의 모든 물체 점에 로봇 속도 기여도 `v_nom·rx/rng` 를 더하며(|ry| < 1.5 조건 삭제), 나머지 구현(지시 1, 3~7)은 그대로입니다. 다만 진행 방향 옆쪽의 물체도 `total_closing > 0.15` 로 `coming` 에 들어가 `d_eff` 가 작아지므로, 진단이 risk 로 적은 과도한 정지와 실행 시간 증가가 생길 수 있다는 우려가 있습니다(지시에 없는 필터는 넣지 않았습니다). `_hold_release` 의 '거리가 약 1 s 동안 줄지 않으면 재출발' 조건은 지시 5(0.5 s 정지 + 거리 증가 확인)를 넘는 완화이며, 물체가 로봇 앞에서 멈추거나 나란히 움직여 거리가 늘지 않을 때 로봇이 영영 출발하지 못하는 교착을 막기 위한 예외로 유지했습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다로 지도에 없는 물체를 감지해 감속/정지/회피 (로봇 속도 기여도 반영).\"\"\"\n    S = _ST\n    x, y, yaw = pose\n    if not S:\n        S.update(idx=0, prev_wp=(START[0], START[1]), rejoin=None, esc=None, esc_start=None,\n                 scan_obj={}, dyn={}, tracks=[], track_t=-1.0,\n                 P=np.zeros((0, 2)), U=np.zeros((0, 2)), A=np.zeros(0), hold=None, seen=False,\n                 last=(t, x, y, yaw), speed=0.0, yawrate=0.0)\n    t0, x0, y0, yaw0 = S[\"last\"]\n    dt = t - t0\n    if dt > 1e-4:                                       # 자기 이동 속도 (스캔 지연 여유 계산용)\n        S[\"speed\"] = 0.7 * S[\"speed\"] + 0.3 * math.hypot(x - x0, y - y0) / dt\n        S[\"yawrate\"] = 0.7 * S[\"yawrate\"] + 0.3 * abs(_wrap_angle(yaw - yaw0)) / dt\n    S[\"last\"] = (t, x, y, yaw)\n\n    _perceive(t, pose)\n    if not S[\"seen\"] and t < 2.0:                       # 첫 스캔이 들어올 때까지 출발하지 않음\n        return 0.0, 0.0, False\n    if S[\"esc\"] is not None:\n        S[\"hold\"] = None\n        return _escape_step(t, pose)\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n    P, U, A = S[\"P\"], S[\"U\"], S[\"A\"]\n    if len(P) == 0:\n        S[\"hold\"] = None\n        return v_nom, w_nom, False\n    if len(A) != len(P):\n        A = np.ones(len(P))\n\n    c, s = math.cos(yaw), math.sin(yaw)\n    dx, dy = P[:, 0] - x, P[:, 1] - y\n    rx, ry = c * dx + s * dy, -s * dx + c * dy\n    clr = _rect_clear(rx, ry)                           # 몸체 가장자리까지 거리\n    rng = np.maximum(np.hypot(dx, dy), 1e-6)\n    # (지시 1) 물체 자체가 로봇 쪽으로 다가오는 속도\n    closing_obj = -(U[:, 0] * dx + U[:, 1] * dy) / rng\n    # (지시 6) 처음 본 물체(age=1)는 속도 추정이 없으므로 최소 0.1 m/s 접근을 더 가정\n    closing_obj = closing_obj + np.where(A <= 1, 0.1, 0.0)\n    # (지시 2) 로봇 속도 기여도: rx > 0 인 모든 점에 v_nom * rx / rng\n    vr = max(v_nom, 0.0)\n    toward = rx > 0.0\n    v_robot_n = np.where(toward, vr * rx / rng, 0.0)\n    # (지시 3) 실제 접근 속도 = 물체 + 로봇\n    total_closing = closing_obj + v_robot_n\n    ahead = (v_nom > 0.0) & (rx > 0.0) & (np.abs(ry) < 1.0)\n    coming = (total_closing > 0.15) & (rx > -0.3)       # (지시 7) 합산 접근 속도로 판단\n    rel = ahead | coming\n    d_eff = clr - 0.7 * np.maximum(total_closing, 0.0)  # (지시 4)\n    d_thr = float(d_eff[rel].min()) if rel.any() else 99.0\n    d_now = float(clr[rel].min()) if rel.any() else 99.0\n\n    if d_thr < 1.5:\n        v, w = 0.0, 0.0                                 # 정지 (지시 5: 정지할 때마다 확인 창을 새로 시작)\n        S[\"hold\"] = {\"t\": t, \"d\": d_now, \"n\": 0}\n    elif S[\"hold\"] is not None and not _hold_release(t, d_now):\n        v, w = 0.0, 0.0                                 # 재출발 전 0.5 s 정지 + 거리 증가 확인 중\n    elif d_thr < 3.0:\n        v, w = min(v_nom, 0.3), 0.0                     # 감속 후 회전 중지\n    else:\n        v, w = v_nom, w_nom\n    if float(clr.min()) < 0.45:\n        w = 0.0                                         # 바로 옆 물체가 있으면 제자리 회전 금지\n\n    if _rollout(P, U, x, y, yaw, yaw, v, 0.0) < 0.3:\n        if v > 0.0 and _rollout(P, U, x, y, yaw, yaw, 0.0, 0.0) >= 0.3:\n            return 0.0, 0.0, False\n        S[\"hold\"] = None\n        return _escape_step(t, pose)                    # 멈춰도 부딪힘: 비켜섬\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 25154,
+  "completion_tokens": 2964
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 22054,
+  "total_cost_usd": 0.260504,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2964,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 25152,
+    "webSearchRequests": 0,
+    "costUSD": 0.260504,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 728,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 25152,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "0bf080b0-42ca-41a9-97f3-8f3bbfad97cc"
+ }
+}

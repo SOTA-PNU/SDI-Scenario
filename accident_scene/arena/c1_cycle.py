@@ -20,6 +20,7 @@ import difflib
 import json
 import os
 import random
+import signal
 import subprocess
 import sys
 import time
@@ -36,7 +37,8 @@ VIDEO_PY = Path.home() / "carter_ws/mamba/envs/isaacsim/bin/python"
 MAP_FILE = "base_carter_run_ros_map_lidartime_objects_check_v18.py"
 
 
-FACT_SERIES = ("c71", "c8")      # series whose analyst input carries the turn facts (see the analyst step)
+FACT_SERIES = ("c71", "c8", "c81", "c72", "c51")
+REVERT_SERIES = ("c81", "c72", "c51")        # series whose analyst picks the turn the next coder starts from (base_turn)      # series whose analyst input carries the turn facts (see the analyst step)
 
 
 def main():
@@ -44,7 +46,7 @@ def main():
     ap.add_argument("--turn", type=int, required=True)
     ap.add_argument("--code", required=True, help="current EDIT block (file)")
     ap.add_argument("--diagnosis", default=None, help="json with key 'diagnosis' (previous turn's analyst); none for turn 0")
-    ap.add_argument("--series", default="c1", choices=["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8"],
+    ap.add_argument("--series", default="c1", choices=["c1", "c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8", "c81", "c72", "c51"],
                     help="c1: base_carter_run_ros_noenv.py + PROMPT_C1_DRAFT.md; c2: base_carter_run_c2.py (+WALLS, "
                          "FIXED_OBSTACLES) + PROMPT_C2.md")
     ap.add_argument("--history-file", required=True)
@@ -59,10 +61,13 @@ def main():
     ap.add_argument("--reuse-coder-log", default=None,
                     help="with --reuse-block: a saved *_turn.json whose coder/reviewer records (the reviewer's concerns) are kept")
     ap.add_argument("--review-retries", type=int, default=2)
+    ap.add_argument("--base-turn", type=int, default=None,
+                    help="REVERT_SERIES: the turn whose code --code is (the analyst's base_turn); recorded and told to the agents")
+    ap.add_argument("--diag-turn", type=int, default=None, help="REVERT_SERIES: the turn whose diagnosis --diagnosis is")
     ap.add_argument("--model", default="gpt-oss-120b")
     ap.add_argument("--base", default="http://127.0.0.1:8420/v1")
     a = ap.parse_args()
-    if a.series in ("c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8"):
+    if a.series in ("c2", "c3", "c4", "c5", "c6", "c7", "c71", "c8", "c81", "c72", "c51"):
         C1.BASE_FILE, C1.TASK_PROMPT = "base_carter_run_c2.py", "PROMPT_C2.md"
     model_tag = "gpu_gpt_oss_120b"
     if a.series == "c3":      # C-3 (2026-11-16): same task, base and prompts as C-2, every role is Claude Opus 5.5
@@ -87,6 +92,15 @@ def main():
     if a.series == "c8":      # C-8 (2026-11-18): as C-7b, but the analyst is EXAONE 4.5 33B on vLLM
         model_tag = "claude_exaone45_analyst"
         role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "exaone-4.5-33b"}
+    if a.series == "c81":     # C-8b (2026-11-19): C-8 again (EXAONE 4.5 33B analyst), the analyst picks base_turn
+        model_tag = "claude_exaone45_analyst"
+        role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "exaone-4.5-33b"}
+    if a.series == "c72":     # C-7c (2026-11-19): C-7b again (Gemma 4 31B analyst, turn facts), the analyst picks base_turn
+        model_tag = "claude_gemma4_analyst"                        # and rewrites its direction on that turn's code (stage 2)
+        role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "gemma-4-31b"}
+    if a.series == "c51":     # C-5b (2026-11-22): C-5 again (gpt-oss-120b analyst) with the turn facts, and the analyst picks
+        model_tag = "claude_gptoss_analyst"                        # base_turn and rewrites its direction (stage 2), as C-7c / C-8b
+        role_models = {"coder": "claude-opus-5-5", "reviewer": "claude-opus-5-5", "analyst": "gpt-oss-120b"}
     AL.BASE_FILE = HERE / C1.BASE_FILE
     AL.BASE = AL.BASE_FILE.read_text()
     AL.SP.BASE = AL.BASE
@@ -100,10 +114,23 @@ def main():
     task = C1.task_prompt()
     base = "\n\n---\n\n`base_carter_run.py`:\n\n```python\n" + AL.BASE + "```\n"
     log = {"turn": a.turn, "started": time.strftime("%F %T"), "code_in": a.code, "diagnosis_in": diagnosis, "coder": []}
+    reverted = (a.series in REVERT_SERIES and a.base_turn is not None and a.diag_turn is not None
+                and a.base_turn != a.diag_turn)
+    if a.series in REVERT_SERIES:
+        log["base_turn"], log["diag_turn"] = a.base_turn, a.diag_turn
+    # told to the coder and the reviewer when the analyst went back: the diagnosis was written without that code in view
+    back_note = ("" if not reverted else
+                 f"\n## 시작 코드에 대해\n\n분석 담당은 {a.diag_turn}턴 결과를 본 뒤, 그 코드를 버리고 **{a.base_turn}턴의 코드로 돌아가** "
+                 f"새 지시를 내리기로 했습니다. 아래 `현재 코드` 는 {a.base_turn}턴에 시험한 코드입니다({a.base_turn}턴 뒤의 변경은 들어 있지 않습니다). "
+                 + ("분석 담당은 이 코드를 읽고 `direction` 을 다시 썼습니다. 진단의 evidence 와 assumptions 는 "
+                    f"{a.diag_turn}턴 코드의 실행에서 나온 것이라 이 코드에 없는 이름을 가리킬 수 있습니다.\n"
+                    if not diagnosis.get("stage2_failed") else
+                    "분석 담당은 이 코드를 직접 보지 못하고 지시를 썼으므로, 진단이 가리키는 이름이 이 코드에 없을 수 있습니다. "
+                    "그런 지시는 뜻하는 동작을 이 코드에 맞게 구현한 것으로 따른 것으로 봅니다(수정 담당은 변경 이유에 어떻게 옮겼는지 적습니다).\n"))
     save = lambda: (HERE / out_dir / f"{tag}_turn.json").write_text(json.dumps(log, ensure_ascii=False, indent=1))  # noqa: E731
 
     # ---- 1-2. coder <-> reviewer
-    coder_msgs = [{"role": "user", "content": task + base + "\n---\n\n## 현재 코드\n\n```python\n" + current + "```\n"
+    coder_msgs = [{"role": "user", "content": task + base + "\n---\n" + back_note + "\n## 현재 코드\n\n```python\n" + current + "```\n"
                    + "\n## 진단\n\n```json\n" + json.dumps(diagnosis, ensure_ascii=False, indent=1) + "\n```\n"
                    + "\n## 시도 기록\n\n" + history + f"\n\n이번은 시도 {a.turn}입니다.\n"}]
     block, reason, merge_base = None, None, current
@@ -133,6 +160,7 @@ def main():
                 + "\n\n---\n\n## 과제 프롬프트 (수정 담당이 받은 것, 규칙 기준)\n\n" + task + base
                 + "\n---\n\n## 진단 (분석 담당)\n\n```json\n" + json.dumps(diagnosis, ensure_ascii=False, indent=1) + "\n```\n"
                 + "\n## 수정 담당의 변경 이유\n\n" + reason_i + "\n"
+                + back_note
                 + "\n## 현재 코드\n\n```python\n" + current + "```\n"
                 + "\n## 새 코드\n\n```python\n" + new_block + "```\n"
                 + "\n## 차이\n\n```diff\n" + diff[:16000] + "\n```\n")
@@ -188,9 +216,20 @@ def main():
                "ARENA_STALL_ABORT_S": os.environ.get("ARENA_STALL_ABORT_S", "60")}
         T.say(f"[isaac {i}] seed {s}, 시간 한도 {min(left, 600.0):.0f} s (예산 {used:.0f}/{a.budget_s:.0f} s 사용)")
         for attempt in range(3):     # rc 75 = another Isaac run holds the guard: wait and retry
-            p = subprocess.run(["bash", "grade_batch.sh", f"{prefix}{s}_carter_run.py", "--force"], cwd=HERE, env=env,
-                               capture_output=True, text=True)
-            line = next((ln for ln in p.stdout.splitlines() if f"{prefix}{s} ..." in ln), p.stdout.strip()[-200:])
+            # wall-clock guard (2026-11-18, C-8 turn 2): a run whose code looped forever on a NaN pose kept the turn
+            # waiting 26 min. Sim runs at ~0.85x real time plus ~25 s boot; 3x the sim limit + 5 min is far outside that.
+            wall = 3.0 * min(left, 600.0) + 300.0
+            pr = subprocess.Popen(["bash", "grade_batch.sh", f"{prefix}{s}_carter_run.py", "--force"], cwd=HERE, env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+            try:
+                out_, _ = pr.communicate(timeout=wall)
+            except subprocess.TimeoutExpired:
+                os.killpg(pr.pid, signal.SIGKILL)
+                out_, _ = pr.communicate()
+                subprocess.run(["pkill", "-9", "-f", f"{prefix}{s}_carter_run.py"])     # micromamba re-parents the sim
+                T.say(f"[isaac {i}] 벽시계 {wall:.0f} s 를 넘겨 강제 종료(코드가 끝나지 않음)")
+                out_ = (out_ or "") + f"\n{prefix}{s} ... 결과 없음 (벽시계 한도 초과)"
+            line = next((ln for ln in out_.splitlines() if f"{prefix}{s} ..." in ln), out_.strip()[-200:])
             if "rc=75" not in line:
                 break
             T.say(f"[isaac {i}] 다른 Isaac 실행 중(rc=75) - 60초 뒤 재시도")
@@ -219,11 +258,29 @@ def main():
     ran = [f"{prefix}{s}" for s, v in zip(seeds, results) if v != "no_result"]
     what = (f"진단 {json.dumps(diagnosis.get('direction'), ensure_ascii=False)} 반영, 검토 통과" if diagnosis
             else "출발점 코드 그대로")
+    if reverted:
+        what = f"{a.base_turn}턴 코드로 돌아가 시작, " + what
     hist2 = history + (f"\n#{a.turn} 이번 코드({what}): "
                        f"새 배치 {len(ran)}개 중 {n_pass}개 pass, {len(ran) - n_pass}개 fail (시뮬 시간 합계 {used:.0f} s / 한도 {a.budget_s:.0f} s)")
     # every previous turn's analyst diagnosis + reasoning (user 2026-11-15); no previous run data
     prior = CMA.prior_analyses([(k, HERE / f"results/turns/prompt_{a.series}_turn{k}") for k in range(a.turn)
-                                if (HERE / f"results/turns/prompt_{a.series}_turn{k}").is_dir()])
+                                if (HERE / f"results/turns/prompt_{a.series}_turn{k}").is_dir()],
+                               extra=a.series in REVERT_SERIES)
+    revert = None
+    if a.series in REVERT_SERIES:
+        # turns whose code was tested (a block file and at least one run); this turn is always allowed
+        ok_turns, code_of = [], {}
+        for k in range(a.turn):
+            dk = HERE / f"results/turns/prompt_{a.series}_turn{k}"
+            tj = sorted(dk.glob("*_turn.json"))
+            bk = [p_ for p_ in sorted(dk.glob("*_block.py")) if p_.name != "start_block.py"]
+            if bk and tj and (json.loads(tj[0].read_text()).get("seeds") or []):
+                ok_turns.append(k)
+                code_of[k] = str(bk[0])
+        ok_turns.append(a.turn)
+        revert = {"turn": a.turn, "allowed": ", ".join(map(str, ok_turns)), "allowed_set": set(ok_turns), "code_of": code_of,
+                  "started": ("출발점 코드 그대로" if not diagnosis else
+                              f"{a.base_turn}턴 코드로 돌아가 직전 지시를 반영해" if reverted else "직전 턴 코드에 직전 지시를 반영해")}
     log["prior_chars"] = len(prior)
     # C-7b on (user 2026-11-18): two facts the analyst did not get. (1) how many of the batches ran and why the rest did
     # not, with the mean time of the passing runs against what 10 batches in the budget need - in C-7 turns 14 and 25
@@ -259,7 +316,7 @@ def main():
                       "(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n"
                       + "\n".join(concerns) + "\n")
     diag, table = CMA.analyze(block, reason, hist2, ran, HERE / "results", HERE / out_dir / f"{tag}_multi{len(ran)}",
-                              role_models.get("analyst", a.model), a.base, prior=prior, facts=facts)
+                              role_models.get("analyst", a.model), a.base, prior=prior, facts=facts, revert=revert)
     log["facts"] = facts
     log.update(diagnosis_out=diag, table=table, history_out=hist2, ended=time.strftime("%F %T"))
     save()

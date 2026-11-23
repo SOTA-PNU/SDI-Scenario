@@ -1,0 +1,175 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "Run c8t19_s1931666398: collision at t=14.767s with mover distance 0.35m, robot speed 0.66 m/s, closing speed 0.47 m/s; lidar detected mover at 1.94m (t=12.05s) but robot continued moving straight",
+   "Run c8t19_s1355648826: similar collision at t=56.3s with mover at 0.35m, robot speed 0.79 m/s; first sight within 2m at t=53.63s (1.93m)",
+   "Stop condition (d_near < _EV_STOP_D=1.0m) not activated at collision, indicating evasion state (early) not set despite mover proximity and approach speed",
+   "Multiple runs show collisions when mover within 1.0m and robot moving toward it, with TTC <1.0s not triggering evasion in time due to late trigger condition"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Evasion triggers only when TTC<1.0s or predicted clearance <0.35m, but movers are often detected within 2m and approaching earlier",
+    "holds": false,
+    "why": "Mover detected at 1.94m (t=12.05s) but evasion not triggered until TTC<1.0s (later), causing collision"
+   },
+   {
+    "assumption": "Predicted clearance (clr_all) accurately reflects danger in straight paths",
+    "holds": false,
+    "why": "In straight motion toward mover, clr_all drops slowly; at 1.94m, clr_all likely >0.35m, delaying evasion"
+   },
+   {
+    "assumption": "Stop condition (d_near < _EV_STOP_D) activates when mover very close",
+    "holds": false,
+    "why": "At 0.35m collision, d_near <1.0m but stop not executed, implying evasion state (early) false"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC-based evasion (with varying thresholds)",
+    "turns": "14",
+    "result": "7 pass, 7 fail (mixed success)"
+   },
+   {
+    "family": "Distance-based stop (early attempts)",
+    "turns": "5",
+    "result": "0 pass, 3 fail (mostly stalls)"
+   },
+   {
+    "family": "Hybrid strategies (TTC + clearance + lateral movement)",
+    "turns": "8",
+    "result": "5 pass, 3 fail (improved but still collisions)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Trigger evasion when mover within 2.0m and approaching (closing speed >0), regardless of TTC/clearance",
+    "new_family": true,
+    "for": "Evidence shows movers detected within 2m early (e.g., 1.94m at t=12.05s) but evasion not activated; adds early trigger using lidar distance and closing speed",
+    "risk": "May trigger evasion too often in non-threatening scenarios (e.g., mover moving away), but closing speed >0 filters false positives"
+   },
+   {
+    "idea": "During evasion, force stop when mover <1.0m instead of relying on clearance scores",
+    "new_family": false,
+    "for": "Collision occurs at 0.35m with robot still moving; ensures immediate stop at critical distance",
+    "risk": "May cause unnecessary stops if mover is not actually colliding, but closing speed >0 check prevents this"
+   },
+   {
+    "idea": "Use camera to detect mover heading and plan perpendicular avoidance paths",
+    "new_family": true,
+    "for": "Lidar may not capture mover orientation; camera could provide better avoidance direction",
+    "risk": "Camera data may be noisy or occluded; requires additional processing not guaranteed in Isaac Sim"
+   }
+  ],
+  "chosen": "Trigger evasion when mover within 2.0m and approaching, as it directly addresses late evasion activation using already available lidar metrics (distance and closing speed) without adding new dependencies",
+  "target": "controller function (evasion trigger condition)",
+  "direction": "1. Compute nearest mover distance (d_near) and closing speed early in controller using lidar data\n2. Modify evasion trigger to include: (d_near < 2.0 and closing_speed > 0.1) OR existing TTC/clearance conditions\n3. Ensure trigger activates before TTC<1.0s by lowering effective danger threshold\n4. Keep existing evasion logic but add this proximity-approach condition\n5. Set _EV_STOP_D to 1.5m (higher) to allow more reaction time, but maintain stop at <1.0m\n6. Use _SENSE_R (6.0m) for detection radius to cover 2.0m threshold",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\",\n \"evidence\": [\"Run c8t19_s1931666398: collision at t=14.767s with mover distance 0.35m, robot speed 0.66 m/s, closing speed 0.47 m/s; lidar detected mover at 1.94m (t=12.05s) but robot continued moving straight\", \"Run c8t19_s1355648826: similar collision at t=56.3s with mover at 0.35m, robot speed 0.79 m/s; first sight within 2m at t=53.63s (1.93m)\", \"Stop condition (d_near < _EV_STOP_D=1.0m) not activated at collision, indicating evasion state (early) not set despite mover proximity and approach speed\", \"Multiple runs show collisions when mover within 1.0m and robot moving toward it, with TTC <1.0s not triggering evasion in time due to late trigger condition\"],\n \"assumptions\": [{\"assumption\": \"Evasion triggers only when TTC<1.0s or predicted clearance <0.35m, but movers are often detected within 2m and approaching earlier\", \"holds\": false, \"why\": \"Mover detected at 1.94m (t=12.05s) but evasion not triggered until TTC<1.0s (later), causing collision\"}, {\"assumption\": \"Predicted clearance (clr_all) accurately reflects danger in straight paths\", \"holds\": false, \"why\": \"In straight motion toward mover, clr_all drops slowly; at 1.94m, clr_all likely >0.35m, delaying evasion\"}, {\"assumption\": \"Stop condition (d_near < _EV_STOP_D) activates when mover very close\", \"holds\": false, \"why\": \"At 0.35m collision, d_near <1.0m but stop not executed, implying evasion state (early) false\"}],\n \"approach_families\": [{\"family\": \"TTC-based evasion (with varying thresholds)\", \"turns\": \"14\", \"result\": \"7 pass, 7 fail (mixed success)\"}, {\"family\": \"Distance-based stop (early attempts)\", \"turns\": \"5\", \"result\": \"0 pass, 3 fail (mostly stalls)\"}, {\"family\": \"Hybrid strategies (TTC + clearance + lateral movement)\", \"turns\": \"8\", \"result\": \"5 pass, 3 fail (improved but still collisions)\"}],\n \"candidates\": [{\"idea\": \"Trigger evasion when mover within 2.0m and approaching (closing speed >0), regardless of TTC/clearance\", \"new_family\": true, \"for\": \"Evidence shows movers detected within 2m early (e.g., 1.94m at t=12.05s) but evasion not activated; adds early trigger using lidar distance and closing speed\", \"risk\": \"May trigger evasion too often in non-threatening scenarios (e.g., mover moving away), but closing speed >0 filters false positives\"}, {\"idea\": \"During evasion, force stop when mover <1.0m instead of relying on clearance scores\", \"new_family\": false, \"for\": \"Collision occurs at 0.35m with robot still moving; ensures immediate stop at critical distance\", \"risk\": \"May cause unnecessary stops if mover is not actually colliding, but closing speed >0 check prevents this\"}, {\"idea\": \"Use camera to detect mover heading and plan perpendicular avoidance paths\", \"new_family\": true, \"for\": \"Lidar may not capture mover orientation; camera could provide better avoidance direction\", \"risk\": \"Camera data may be noisy or occluded; requires additional processing not guaranteed in Isaac Sim\"}],\n \"chosen\": \"Trigger evasion when mover within 2.0m and approaching, as it directly addresses late evasion activation using already available lidar metrics (distance and closing speed) without adding new dependencies\",\n \"target\": \"controller function (evasion trigger condition)\",\n \"direction\": \"1. Compute nearest mover distance (d_near) and closing speed early in controller using lidar data\\n2. Modify evasion trigger to include: (d_near < 2.0 and closing_speed > 0.1) OR existing TTC/clearance conditions\\n3. Ensure trigger activates before TTC<1.0s by lowering effective danger threshold\\n4. Keep existing evasion logic but add this proximity-approach condition\\n5. Set _EV_STOP_D to 1.5m (higher) to allow more reaction time, but maintain stop at <1.0m\\n6. Use _SENSE_R (6.0m) for detection radius to cover 2.0m threshold\",\n \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t19_s1355648826",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 62.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 56.3,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.79m/s 회전 -1.4",
+   "partner_rel_xy": [
+    -0.06,
+    -0.65
+   ],
+   "closing_m_s": 0.61,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 53.63,
+   "goal_dist_m": 23.7011,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t19_s420038655",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 537.7,
+   "sim_time_s": 92.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2288,
+   "time_to_goal_s": 89.283
+  },
+  {
+   "run": "c8t19_s1931666398",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 445.5,
+   "sim_time_s": 20.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 14.767,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.66m/s",
+   "partner_rel_xy": [
+    0.36,
+    -0.52
+   ],
+   "closing_m_s": 0.47,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 12.05,
+   "goal_dist_m": 19.6322,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t19_s1061477706",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 424.8,
+   "sim_time_s": 72.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 66.92,
+   "goal_dist_m": 0.206,
+   "time_to_goal_s": 68.883
+  },
+  {
+   "run": "c8t19_s566443483",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 351.9,
+   "sim_time_s": 102.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 101.8,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 30.0773,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

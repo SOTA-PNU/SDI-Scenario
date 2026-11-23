@@ -1,0 +1,190 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 6개 중 1개 시간 초과 실패(89.2s 사용, 88.2s 한도)",
+   "통과 실행 평균 시뮬레이션 시간 102초로 예산(600s/10실행) 대비 1.7배 초과",
+   "모든 실행에서 첫 감지 시점(within_2m)이 1.18~1.82m로 매우 가까운 거리에서 발생, 정지 후 제자리 회전 반복"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 임계값(d_thr) 상향만으로 충돌 회피 충분하다고 가정",
+    "holds": false,
+    "why": "정지 후 제자리 회전으로 인한 시간 소모가 예산 초과 유발"
+   },
+   {
+    "assumption": "물체 접근 속도(closing) 반영이 충분히 위협 평가에 반영되었다고 가정",
+    "holds": false,
+    "why": "d_eff 계산 시 closing 가중치 0.7로 낮아 조기 반응 미흡, 정지 빈도 증가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 상향 조정",
+    "turns": 3,
+    "result": "통과 5/6 but 시간 초과로 턴 실패"
+   },
+   {
+    "family": "접근 속도 가중치 강화",
+    "turns": 2,
+    "result": "정지 빈도 증가(stall_abort 3회)"
+   },
+   {
+    "family": "예측 기반 회피 전략",
+    "turns": 0,
+    "result": "미시도"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "d_eff 계산 시 closing 가중치 1.0으로 상향 및 정지 임계값 3.5m로 확장",
+    "new_family": true,
+    "for": "접근 물체에 대한 조기 감속 유도로 정지 빈도 감소",
+    "risk": "과도한 감속으로 경로 이탈 가능성"
+   },
+   {
+    "idea": "물체 속도 벡터 기반 회피 방향 자동 생성 (예: 물체 진행 방향과 수직 이동)",
+    "new_family": true,
+    "for": "정지 대신 이동을 통한 효율적 회피 가능",
+    "risk": "예측 오차 시 역효과 발생"
+   },
+   {
+    "idea": "감속 구간 회전 속도 제한 완화 (±1.0 rad/s)",
+    "new_family": false,
+    "for": "빠른 회피 조작으로 정지 시간 단축",
+    "risk": "정적 장애물 충돌 위험 증가"
+   }
+  ],
+  "chosen": "물체 속도 벡터 기반 회피 방향 자동 생성 + 감속 구간 회전 속도 완화 조합",
+  "target": "_plan_escape, controller",
+  "direction": "1. d_eff 계산 시 closing 가중치 0.7 → 1.0으로 상향해 조기 위협 감지\n2. _plan_escape에서 물체 속도 벡터와 수직 방향 후보 자동 생성\n3. 회피 시 회전 속도 제한 ±0.6 → ±1.0 rad/s로 완화\n4. 정지 임계값 _HOLD_ON을 3.5m로 상향\n5. 감속 구간(d_thr < 3.5m)에서 전진 속도 하한 0.2m/s 유지\n6. 회피 후 복귀 시 정지 시간 0.5s로 단축해 재시작 유연성 확보",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 3
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 6개 중 1개 시간 초과 실패(89.2s 사용, 88.2s 한도)\", \"통과 실행 평균 시뮬레이션 시간 102초로 예산(600s/10실행) 대비 1.7배 초과\", \"모든 실행에서 첫 감지 시점(within_2m)이 1.18~1.82m로 매우 가까운 거리에서 발생, 정지 후 제자리 회전 반복\"], \"assumptions\": [{\"assumption\": \"정지 임계값(d_thr) 상향만으로 충돌 회피 충분하다고 가정\", \"holds\": false, \"why\": \"정지 후 제자리 회전으로 인한 시간 소모가 예산 초과 유발\"}, {\"assumption\": \"물체 접근 속도(closing) 반영이 충분히 위협 평가에 반영되었다고 가정\", \"holds\": false, \"why\": \"d_eff 계산 시 closing 가중치 0.7로 낮아 조기 반응 미흡, 정지 빈도 증가\"}], \"approach_families\": [{\"family\": \"임계값 상향 조정\", \"turns\": 3, \"result\": \"통과 5/6 but 시간 초과로 턴 실패\"}, {\"family\": \"접근 속도 가중치 강화\", \"turns\": 2, \"result\": \"정지 빈도 증가(stall_abort 3회)\"}, {\"family\": \"예측 기반 회피 전략\", \"turns\": 0, \"result\": \"미시도\"}], \"candidates\": [{\"idea\": \"d_eff 계산 시 closing 가중치 1.0으로 상향 및 정지 임계값 3.5m로 확장\", \"new_family\": true, \"for\": \"접근 물체에 대한 조기 감속 유도로 정지 빈도 감소\", \"risk\": \"과도한 감속으로 경로 이탈 가능성\"}, {\"idea\": \"물체 속도 벡터 기반 회피 방향 자동 생성 (예: 물체 진행 방향과 수직 이동)\", \"new_family\": true, \"for\": \"정지 대신 이동을 통한 효율적 회피 가능\", \"risk\": \"예측 오차 시 역효과 발생\"}, {\"idea\": \"감속 구간 회전 속도 제한 완화 (±1.0 rad/s)\", \"new_family\": false, \"for\": \"빠른 회피 조작으로 정지 시간 단축\", \"risk\": \"정적 장애물 충돌 위험 증가\"}], \"chosen\": \"물체 속도 벡터 기반 회피 방향 자동 생성 + 감속 구간 회전 속도 완화 조합\", \"target\": \"_plan_escape, controller\", \"direction\": \"1. d_eff 계산 시 closing 가중치 0.7 → 1.0으로 상향해 조기 위협 감지\\n2. _plan_escape에서 물체 속도 벡터와 수직 방향 후보 자동 생성\\n3. 회피 시 회전 속도 제한 ±0.6 → ±1.0 rad/s로 완화\\n4. 정지 임계값 _HOLD_ON을 3.5m로 상향\\n5. 감속 구간(d_thr < 3.5m)에서 전진 속도 하한 0.2m/s 유지\\n6. 회피 후 복귀 시 정지 시간 0.5s로 단축해 재시작 유연성 확보\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 3}",
+ "table": [
+  {
+   "run": "c81t3_s306733000",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 144.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 34,
+   "first_seen_within_2m_t": 138.45,
+   "goal_dist_m": 0.1977,
+   "time_to_goal_s": 140.5
+  },
+  {
+   "run": "c81t3_s860652106",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 455.6,
+   "sim_time_s": 87.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 81.35,
+   "goal_dist_m": 0.2311,
+   "time_to_goal_s": 83.433
+  },
+  {
+   "run": "c81t3_s2141348109",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 368.2,
+   "sim_time_s": 84.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 78.55,
+   "goal_dist_m": 0.2295,
+   "time_to_goal_s": 80.667
+  },
+  {
+   "run": "c81t3_s378599145",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 283.7,
+   "sim_time_s": 99.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 93.65,
+   "goal_dist_m": 0.1968,
+   "time_to_goal_s": 95.733
+  },
+  {
+   "run": "c81t3_s2111369783",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 184.0,
+   "sim_time_s": 95.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 89.82,
+   "goal_dist_m": 0.2238,
+   "time_to_goal_s": 91.9
+  },
+  {
+   "run": "c81t3_s661057914",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 88.2,
+   "sim_time_s": 89.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 83.25,
+   "goal_dist_m": 0.1999,
+   "time_to_goal_s": 87.017
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3. 이번 코드에서 이어 가려면 3 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

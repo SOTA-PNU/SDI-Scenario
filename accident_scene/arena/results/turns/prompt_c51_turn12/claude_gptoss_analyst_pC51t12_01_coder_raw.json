@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1~4에 따라 `_DANGER_DIST = 2.0`, `_SIDE_ANGLE = 45°` 상수와 `_danger_side()` 함수를 새로 넣었습니다. `_danger_side()`는 측면·후방(|방위| > 45°) 2 m 안에 있는 가장 가까운 물체의 쪽(+1 왼쪽, -1 오른쪽)을 돌려줍니다. 이는 t=6.35 s 충돌처럼 방위 약 -50°에서 다가와 `_front_gap`이 놓친 물체에 대응하기 위한 것입니다. `controller()`는 `movers = _movers(t, pose)` 바로 뒤에서 이 함수를 불러, 값이 있으면 `detour` 상태로 바꾸고 `(0.0, 0.5*side_dir)` 제자리 회전을 즉시 반환합니다. 기존 전방 gap 기반 stop/detour 로직과 나머지 정의는 direction 5·6에 따라 그대로 두었습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 정지·대기·우회(go / stop / detour) + 다가오는 물체 회피.\n    진단 지시 3·4: 측면·후방 2 m 안의 물체가 있으면 즉시 detour 로 바꾸고 그쪽으로 제자리 회전한다.\n    go 상태에서 안전한 감속 명령이 없으면 정지 대신 _evade 로 회피 이동한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n\n    # 진단 지시 3·4: 측면·후방 위험 물체 -> 즉시 제자리 회전 우회\n    side_dir = _danger_side(pose, movers)\n    if side_dir is not None:\n        c.state = \"detour\"\n        c.detour_w = 0.5 * side_dir\n        c.detour_t = t\n        return 0.0, c.detour_w, False\n\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n\n    # 진단 지시 5: 전방 장애물용 기존 gap 기반 stop/detour 로직 유지\n    if c.state == \"go\":\n        if gap < _STOP_D:\n            c.state, c.stop_t = \"stop\", t\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (v_nom * f * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            v, w = _evade(pose, movers, target, False)\n            return v, w, False\n\n    resume = gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)\n\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * f, w_nom, False\n        if t - c.stop_t >= _STOP_WAIT:\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _evade(pose, movers, target, True)    # 멈춰 있어도 물체가 다가오면 비켜선다\n            return v, w, False\n\n    # detour\n    if resume:\n        c.state = \"go\"\n        return v_nom * f, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n\n\n_DANGER_DIST = 2.0     # 측면·후방 위험 물체 거리 [m] - 진단 지시 1\n\n\n_SIDE_ANGLE = math.radians(45)   # 이 방위각보다 바깥(|bearing|)이면 측면·후방 - 진단 지시 1\n\n\ndef _danger_side(pose, movers):\n    \"\"\"진단 지시 2: 물체를 로봇 기준 좌표로 바꿔, 거리 < _DANGER_DIST 이고 |방위| > _SIDE_ANGLE 인\n    물체 중 가장 가까운 것이 왼쪽(bearing>0)이면 +1, 오른쪽(bearing<0)이면 -1, 없으면 None.\"\"\"\n    if not movers:\n        return None\n    M = np.asarray(movers, dtype=np.float64)\n    r = _to_robot(M[:, 0:2], pose)\n    dist = np.hypot(r[:, 0], r[:, 1])\n    bearing = np.arctan2(r[:, 1], r[:, 0])\n    m = (dist < _DANGER_DIST) & (np.abs(bearing) > _SIDE_ANGLE)\n    if not m.any():\n        return None\n    idx = np.nonzero(m)[0]\n    i = int(idx[np.argmin(dist[idx])])\n    return 1 if bearing[i] > 0.0 else -1\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 28719,
+  "completion_tokens": 3441
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 29207,
+  "total_cost_usd": 0.298564,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3441,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 28717,
+    "webSearchRequests": 0,
+    "costUSD": 0.298564,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1025,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 28717,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "770743f6-4f07-4297-9249-3700aa57503d"
+ }
+}

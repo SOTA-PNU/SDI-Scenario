@@ -1,0 +1,260 @@
+{
+ "diagnosis": {
+  "failure_mode": "time_limit",
+  "evidence": [
+   "run c51t19_s688507978: time_limit 48.5 s, sim_time 49.5 s, final_goal_dist 11.9 m → 로봇이 목표에 도달하지 못하고 제한 시간 초과",
+   "전체 8개 성공 실행의 시뮬 시간 합계 551 s, 실패 실행 49.5 s → 총 601 s > 600 s 예산 초과",
+   "다수 실행에서 stop_turn_episodes 15~23회, 마지막 5 s 로그에 제자리 회전·정지 구간이 지속 → 불필요한 정지·회전이 전체 시간에 크게 기여"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다2D 앞·뒤 스캔으로 움직이는 물체를 충분히 감지하고 추적할 수 있다",
+    "holds": true,
+    "why": "first_not_on_map 시점이 65~80 s에 나타나며 _perceive/_update_tracks 로 추적이 이루어짐"
+   },
+   {
+    "assumption": "로봇의 현재 속도 추정(c.vm, c.wm) 은 TTC·안전 검사에 충분히 정확하다",
+    "holds": true,
+    "why": "_is_safe 은 c.vm 과 lag 를 사용해 실제 속도 보정"
+   },
+   {
+    "assumption": "정적 지도와 _MAP_MARGIN 로 정의된 영역은 움직이는 물체와 구분 가능하다",
+    "holds": true,
+    "why": "_is_static 함수와 _static_ok 가 정상 작동, 충돌 없이 정적 장애물 회피"
+   },
+   {
+    "assumption": "경유점(_WAYPOINTS) 은 정적 장애물을 피하면서 목표까지 갈 수 있는 최단 경로이다",
+    "holds": true,
+    "why": "모든 통과 실행에서 목표까지 도달, 정적 장애물 충돌 없음"
+   },
+   {
+    "assumption": "정지 후 _STOP_WAIT 시간 동안 대기하면 대부분의 움직이는 물체가 지나가므로 재시작이 안전하다",
+    "holds": false,
+    "why": "여러 실행에서 정지 후에도 물체가 지속적으로 나타나고 detour 로 전환, 전체 시간 증가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "state machine with stop/detour & safety thresholds",
+    "turns": "1,3,4,5,6,7,8,10,11,12,13,14,15,18,19",
+    "result": "총 15회 시도, 평균 7/10 통과, 평균 시간 70‑90 s"
+   },
+   {
+    "family": "TTC horizon extension (_TTC_H)",
+    "turns": "7",
+    "result": "8/10 통과, 평균 62 s"
+   },
+   {
+    "family": "stop distance increase (_STOP_D=1.5)",
+    "turns": "8",
+    "result": "9/9 통과, 평균 65 s"
+   },
+   {
+    "family": "reverse state 추가",
+    "turns": "19",
+    "result": "8/9 통과, 평균 79 s"
+   },
+   {
+    "family": "danger close detection",
+    "turns": "11,13",
+    "result": "14/19 통과, 평균 73 s"
+   },
+   {
+    "family": "velocity‑obstacle based 후보 필터링",
+    "turns": "6",
+    "result": "7/8 통과, 평균 79 s"
+   },
+   {
+    "family": "stop‑wait 대폭 감소 (_STOP_WAIT=0.5)",
+    "turns": "10",
+    "result": "7/9 통과, 평균 66 s, 충돌 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 대기 시간을 0.5 s 로, 회전 시간 _DETOUR_ROT 를 0.6 s 로, 최대 우회 지속 시간 _DETOUR_T 를 4.0 s 로 줄여 불필요한 정지·회전 시간을 감소시킨다",
+    "new_family": true,
+    "for": "전체 실행 시간 절감 및 time_limit 초과 방지",
+    "risk": "짧은 대기·회전으로 물체가 아직 충분히 멀리 있지 않을 경우 충돌 가능성 증가"
+   },
+   {
+    "idea": "최대 후보 속도와 명령 속도 상한을 2.0 m/s 로 확대하고 _nominal 의 v 상한을 2.0 m/s 로 올려 전체 이동 속도 향상",
+    "new_family": true,
+    "for": "시뮬 시간 단축",
+    "risk": "안전 거리(_SAFE) 대비 속도가 빨라져 충돌 위험이 상승"
+   },
+   {
+    "idea": "정지 상태가 3 s 이상 지속되고 재시작 조건을 만족하지 못하면 즉시 reverse 상태로 전환해 뒤로 물러난 뒤 재시도",
+    "new_family": true,
+    "for": "정지·우회 루프에 빠진 경우 탈출",
+    "risk": "뒤로 이동 중 정적 장애물에 충돌하거나 목표에서 멀어질 수 있음"
+   }
+  ],
+  "chosen": "후보 A 를 선택한다 – 정지·회전·우회 시간을 크게 줄이면 전체 시뮬 시간 감소와 time_limit 초과 방지를 동시에 기대할 수 있다.",
+  "target": "constants _STOP_WAIT, _DETOUR_ROT, _DETOUR_T",
+  "direction": "1) _STOP_WAIT 값을 0.5 로, _DETOUR_ROT 값을 0.6 로, _DETOUR_T 값을 4.0 로 수정한다. 2) 기존 _static_ok 와 _is_safe 검사는 그대로 유지한다. 3) detour 상태 전환 로직에서 새 _DETOUR_T 값에 맞게 타이머 초기화를 적용한다. 4) detour 초기 회전 명령은 기존 0.5·detour_w 로 유지하되, 회전 시간이 짧아지므로 바로 _safe_evade 로 전진 후보를 평가한다. 5) stop 상태에서 _STOP_WAIT 초과 시 바로 detour 로 전환하도록 로직을 그대로 사용한다. 6) 변경 후 시뮬을 재실행해 평균 실행 시간과 time_limit 초과 여부를 확인한다.",
+  "confidence": "high",
+  "last_direction_ok": "yes (reverse 상태 추가가 통과 수와 평균 시간 모두 이전보다 개선되었음)",
+  "base_turn": 19
+ },
+ "raw": "{\n  \"failure_mode\": \"time_limit\",\n  \"evidence\": [\n    \"run c51t19_s688507978: time_limit 48.5 s, sim_time 49.5 s, final_goal_dist 11.9 m → 로봇이 목표에 도달하지 못하고 제한 시간 초과\",\n    \"전체 8개 성공 실행의 시뮬 시간 합계 551 s, 실패 실행 49.5 s → 총 601 s > 600 s 예산 초과\",\n    \"다수 실행에서 stop_turn_episodes 15~23회, 마지막 5 s 로그에 제자리 회전·정지 구간이 지속 → 불필요한 정지·회전이 전체 시간에 크게 기여\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다2D 앞·뒤 스캔으로 움직이는 물체를 충분히 감지하고 추적할 수 있다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 시점이 65~80 s에 나타나며 _perceive/_update_tracks 로 추적이 이루어짐\"\n    },\n    {\n      \"assumption\": \"로봇의 현재 속도 추정(c.vm, c.wm) 은 TTC·안전 검사에 충분히 정확하다\",\n      \"holds\": true,\n      \"why\": \"_is_safe 은 c.vm 과 lag 를 사용해 실제 속도 보정\"\n    },\n    {\n      \"assumption\": \"정적 지도와 _MAP_MARGIN 로 정의된 영역은 움직이는 물체와 구분 가능하다\",\n      \"holds\": true,\n      \"why\": \"_is_static 함수와 _static_ok 가 정상 작동, 충돌 없이 정적 장애물 회피\"\n    },\n    {\n      \"assumption\": \"경유점(_WAYPOINTS) 은 정적 장애물을 피하면서 목표까지 갈 수 있는 최단 경로이다\",\n      \"holds\": true,\n      \"why\": \"모든 통과 실행에서 목표까지 도달, 정적 장애물 충돌 없음\"\n    },\n    {\n      \"assumption\": \"정지 후 _STOP_WAIT 시간 동안 대기하면 대부분의 움직이는 물체가 지나가므로 재시작이 안전하다\",\n      \"holds\": false,\n      \"why\": \"여러 실행에서 정지 후에도 물체가 지속적으로 나타나고 detour 로 전환, 전체 시간 증가\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"state machine with stop/detour & safety thresholds\",\n      \"turns\": \"1,3,4,5,6,7,8,10,11,12,13,14,15,18,19\",\n      \"result\": \"총 15회 시도, 평균 7/10 통과, 평균 시간 70‑90 s\"\n    },\n    {\n      \"family\": \"TTC horizon extension (_TTC_H)\",\n      \"turns\": \"7\",\n      \"result\": \"8/10 통과, 평균 62 s\"\n    },\n    {\n      \"family\": \"stop distance increase (_STOP_D=1.5)\",\n      \"turns\": \"8\",\n      \"result\": \"9/9 통과, 평균 65 s\"\n    },\n    {\n      \"family\": \"reverse state 추가\",\n      \"turns\": \"19\",\n      \"result\": \"8/9 통과, 평균 79 s\"\n    },\n    {\n      \"family\": \"danger close detection\",\n      \"turns\": \"11,13\",\n      \"result\": \"14/19 통과, 평균 73 s\"\n    },\n    {\n      \"family\": \"velocity‑obstacle based 후보 필터링\",\n      \"turns\": \"6\",\n      \"result\": \"7/8 통과, 평균 79 s\"\n    },\n    {\n      \"family\": \"stop‑wait 대폭 감소 (_STOP_WAIT=0.5)\",\n      \"turns\": \"10\",\n      \"result\": \"7/9 통과, 평균 66 s, 충돌 증가\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"정지 대기 시간을 0.5 s 로, 회전 시간 _DETOUR_ROT 를 0.6 s 로, 최대 우회 지속 시간 _DETOUR_T 를 4.0 s 로 줄여 불필요한 정지·회전 시간을 감소시킨다\",\n      \"new_family\": true,\n      \"for\": \"전체 실행 시간 절감 및 time_limit 초과 방지\",\n      \"risk\": \"짧은 대기·회전으로 물체가 아직 충분히 멀리 있지 않을 경우 충돌 가능성 증가\"\n    },\n    {\n      \"idea\": \"최대 후보 속도와 명령 속도 상한을 2.0 m/s 로 확대하고 _nominal 의 v 상한을 2.0 m/s 로 올려 전체 이동 속도 향상\",\n      \"new_family\": true,\n      \"for\": \"시뮬 시간 단축\",\n      \"risk\": \"안전 거리(_SAFE) 대비 속도가 빨라져 충돌 위험이 상승\"\n    },\n    {\n      \"idea\": \"정지 상태가 3 s 이상 지속되고 재시작 조건을 만족하지 못하면 즉시 reverse 상태로 전환해 뒤로 물러난 뒤 재시도\",\n      \"new_family\": true,\n      \"for\": \"정지·우회 루프에 빠진 경우 탈출\",\n      \"risk\": \"뒤로 이동 중 정적 장애물에 충돌하거나 목표에서 멀어질 수 있음\"\n    }\n  ],\n  \"chosen\": \"후보 A 를 선택한다 – 정지·회전·우회 시간을 크게 줄이면 전체 시뮬 시간 감소와 time_limit 초과 방지를 동시에 기대할 수 있다.\",\n  \"target\": \"constants _STOP_WAIT, _DETOUR_ROT, _DETOUR_T\",\n  \"direction\": \"1) _STOP_WAIT 값을 0.5 로, _DETOUR_ROT 값을 0.6 로, _DETOUR_T 값을 4.0 로 수정한다. 2) 기존 _static_ok 와 _is_safe 검사는 그대로 유지한다. 3) detour 상태 전환 로직에서 새 _DETOUR_T 값에 맞게 타이머 초기화를 적용한다. 4) detour 초기 회전 명령은 기존 0.5·detour_w 로 유지하되, 회전 시간이 짧아지므로 바로 _safe_evade 로 전진 후보를 평가한다. 5) stop 상태에서 _STOP_WAIT 초과 시 바로 detour 로 전환하도록 로직을 그대로 사용한다. 6) 변경 후 시뮬을 재실행해 평균 실행 시간과 time_limit 초과 여부를 확인한다.\",\n  \"confidence\": \"high\",\n  \"last_direction_ok\": \"yes (reverse 상태 추가가 통과 수와 평균 시간 모두 이전보다 개선되었음)\",\n  \"base_turn\": 19\n}",
+ "table": [
+  {
+   "run": "c51t19_s901364055",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 71.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 65.85,
+   "goal_dist_m": 0.2211,
+   "time_to_goal_s": 68.083
+  },
+  {
+   "run": "c51t19_s918457222",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 528.2,
+   "sim_time_s": 75.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 69.15,
+   "goal_dist_m": 0.2224,
+   "time_to_goal_s": 71.2
+  },
+  {
+   "run": "c51t19_s763011822",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 453.1,
+   "sim_time_s": 77.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 71.02,
+   "goal_dist_m": 0.2236,
+   "time_to_goal_s": 73.083
+  },
+  {
+   "run": "c51t19_s1274294112",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 376.0,
+   "sim_time_s": 76.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 70.35,
+   "goal_dist_m": 0.2203,
+   "time_to_goal_s": 72.25
+  },
+  {
+   "run": "c51t19_s11655854",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 299.8,
+   "sim_time_s": 86.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 80.02,
+   "goal_dist_m": 0.2263,
+   "time_to_goal_s": 82.067
+  },
+  {
+   "run": "c51t19_s45042941",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 213.8,
+   "sim_time_s": 83.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 77.55,
+   "goal_dist_m": 0.1949,
+   "time_to_goal_s": 79.583
+  },
+  {
+   "run": "c51t19_s1804788605",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 130.2,
+   "sim_time_s": 81.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 75.72,
+   "goal_dist_m": 0.1956,
+   "time_to_goal_s": 77.567
+  },
+  {
+   "run": "c51t19_s688507978",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 48.5,
+   "sim_time_s": 49.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 11.9143,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "답이 올바른 JSON 이 아니어서 읽지 못했습니다(Expecting value: line 22 column 14 (char 811)). 오류 근처: … 지도와 _MAP_MARGIN 로 정의된 영역은 움직이는 물체와 구분 가능하다\",\n      \"holds\": true,\n      \"why\": _is_static 함수와 _static_ok 가 정상 작동, 충돌 없이… 괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

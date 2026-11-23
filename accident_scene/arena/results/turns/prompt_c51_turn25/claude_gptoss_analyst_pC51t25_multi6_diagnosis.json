@@ -1,0 +1,237 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t25_s748729050 실행에서 10.683 s에 mover_00과 충돌했으며 로봇은 7.7 s에 정지 후 7.9 s에 재출발해 충돌 직전 d_min이 1.5 m 이상이었음",
+   "first_not_on_map 기록에 따라 이동 물체를 5.75 s에 1.99 m 거리에서 관측했지만 _STOP_D=1.5 m으로 7.7 s에 정지 후 d_min이 다시 _STOP_D를 초과해 resume가 바로 발동됨",
+   "통과 실행에서는 stop‑turn 구간이 20‑30회 발생하고 이후 detour 로 회피했으며 평균 시뮬 시간 87‑113 s, 반면 실패 실행은 stop 후 짧은 대기(≤0.2 s) 후 재출발해 충돌 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_STOP_D가 앞·옆 물체 모두에 대해 안전 정지 거리로 충분히 보장한다",
+    "holds": false,
+    "why": "측면 물체가 _STOP_D 이내에 있을 때 정지 후 바로 재출발해 충돌이 발생함"
+   },
+   {
+    "assumption": "라이다가 2 m 이내 물체를 항상 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에 따라 5‑7 s에 물체가 1‑2 m 거리에서 최초 감지됨"
+   },
+   {
+    "assumption": "resume 조건(gap ≥ _GO_D와 d_min ≥ _STOP_D)만으로 물체가 충분히 지나갔다고 판단한다",
+    "holds": false,
+    "why": "충돌 발생 실행에서 resume 후에도 mover가 아직 교차 중이었음"
+   },
+   {
+    "assumption": "TTC 검사(_TTC_H=1 s, _SAFE_GO=0.6 m)가 측면 물체 충돌을 방지한다",
+    "holds": false,
+    "why": "충돌 전 _is_safe 검사가 통과했지만 측면 물체가 교차하면서 충돌함"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "distance‑based stop/resume scaling (gap+d_min)",
+    "turns": "22,23,24,25",
+    "result": "8/10,5/7,9/9,3/6 pass"
+   },
+   {
+    "family": "danger‑close detection",
+    "turns": "11,13",
+    "result": "7/9,7/10 pass"
+   },
+   {
+    "family": "TTC window extension",
+    "turns": "7",
+    "result": "8/10 pass"
+   },
+   {
+    "family": "velocity‑obstacle safety",
+    "turns": "6",
+    "result": "7/8 pass"
+   },
+   {
+    "family": "front‑angle expansion",
+    "turns": "18",
+    "result": "6/7 pass"
+   },
+   {
+    "family": "reverse state",
+    "turns": "19,20,21",
+    "result": "7/8,7/8,7/8 pass"
+   },
+   {
+    "family": "early detour (skip stop)",
+    "turns": "10",
+    "result": "7/9 pass"
+   },
+   {
+    "family": "speed scaling with side distance",
+    "turns": "15",
+    "result": "8/10 pass"
+   },
+   {
+    "family": "state simplification (single go)",
+    "turns": "16",
+    "result": "0/3 pass"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 후 d_min이 _STOP_D 이하이면 바로 detour 로 전환하고 회전 명령을 수행",
+    "new_family": true,
+    "for": "충돌 전 재출발이 너무 빨라 side mover가 아직 통과하지 않았을 때",
+    "risk": "불필요한 detour가 늘어나 전체 시간 초과 가능"
+   },
+   {
+    "idea": "_STOP_WAIT 를 2.0 s 로 늘려 side mover가 완전히 사라질 때까지 대기",
+    "new_family": false,
+    "for": "충돌 방지를 위해 대기시간을 늘림",
+    "risk": "정지 구간이 늘어나 평균 실행 시간이 60 s 한도 초과 위험"
+   },
+   {
+    "idea": "resume 전 mover가 로봇을 향해 접근하고 있는지(dot‑product) 확인하고, 접근 중이면 resume 하지 않음",
+    "new_family": true,
+    "for": "측면 물체가 아직 교차 중일 때 재출발 방지",
+    "risk": "접근 판단이 오탐될 경우 과도한 정지·detour 발생"
+   }
+  ],
+  "chosen": "정지 대기 시간을 유지하면서 우회 지속 시간과 회전 시간을 줄여 전체 주행 시간을 단축한다.",
+  "target": "_DETOUR_T, _DETOUR_ROT",
+  "direction": "1. 현재 파일에서 _DETOUR_T 정의를 찾아 값을 6.0에서 4.0으로 바꾼다. 2. _DETOUR_ROT 정의를 찾아 값을 1.2에서 0.8으로 바꾼다. 3. 주석도 새로운 값에 맞게 수정한다. 4. 기존 로직은 그대로 두어 detour 상태에서 회전은 0.8 s 동안, 전체 detour는 최대 4.0 s 동안 진행되게 한다. 5. 다른 상수나 함수는 변경하지 않는다. 6. 저장 후 하네스에서 배치 10개 실행 시 평균 시뮬 시간이 600 s 이하로 감소하는지 확인한다.",
+  "confidence": "medium",
+  "last_direction_ok": "yes – turn 24에서 resume 조건에 d_min >= _STOP_D 를 추가한 뒤 9/9 통과를 기록했으며, 이전 대비 충돌이 크게 감소했다",
+  "base_turn": 24,
+  "stage1": {
+   "chosen": "후보 1을 선택함: 정지 상태에서 d_min이 _STOP_D 이하이면 즉시 detour 로 전환해 회전 후 회피하도록 하면 side mover가 아직 통과 중일 때 재출발을 방지할 수 있다.",
+   "target": "controller (stop‑state 로직)",
+   "direction": "1) controller() 의 c.state == \"stop\" 블록에 d_min < _STOP_D 를 검사하는 조건을 추가한다. 2) 해당 조건이 true이면 c.state, c.detour_t = \"detour\", t 로 전환하고 c.detour_w = _detour_side(pose) 를 설정한다. 3) 바로 회전 명령 (0.0, c.detour_w) 를 _is_safe 와 _static_ok 로 검증 후 반환한다. 4) 기존 _STOP_WAIT 기반 resume 로직은 그대로 유지하되, 위 조건이 먼저 적용되도록 순서를 조정한다. 5) 필요한 경우 _detour_w 계산 함수는 기존 _detour_side 를 재사용한다. 6) 다른 코드와 변수는 변경하지 않는다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t25_s748729050 실행에서 10.683 s에 mover_00과 충돌했으며 로봇은 7.7 s에 정지 후 7.9 s에 재출발해 충돌 직전 d_min이 1.5 m 이상이었음\",\n    \"first_not_on_map 기록에 따라 이동 물체를 5.75 s에 1.99 m 거리에서 관측했지만 _STOP_D=1.5 m으로 7.7 s에 정지 후 d_min이 다시 _STOP_D를 초과해 resume가 바로 발동됨\",\n    \"통과 실행에서는 stop‑turn 구간이 20‑30회 발생하고 이후 detour 로 회피했으며 평균 시뮬 시간 87‑113 s, 반면 실패 실행은 stop 후 짧은 대기(≤0.2 s) 후 재출발해 충돌 발생\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"_STOP_D가 앞·옆 물체 모두에 대해 안전 정지 거리로 충분히 보장한다\",\n      \"holds\": false,\n      \"why\": \"측면 물체가 _STOP_D 이내에 있을 때 정지 후 바로 재출발해 충돌이 발생함\"\n    },\n    {\n      \"assumption\": \"라이다가 2 m 이내 물체를 항상 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에 따라 5‑7 s에 물체가 1‑2 m 거리에서 최초 감지됨\"\n    },\n    {\n      \"assumption\": \"resume 조건(gap ≥ _GO_D와 d_min ≥ _STOP_D)만으로 물체가 충분히 지나갔다고 판단한다\",\n      \"holds\": false,\n      \"why\": \"충돌 발생 실행에서 resume 후에도 mover가 아직 교차 중이었음\"\n    },\n    {\n      \"assumption\": \"TTC 검사(_TTC_H=1 s, _SAFE_GO=0.6 m)가 측면 물체 충돌을 방지한다\",\n      \"holds\": false,\n      \"why\": \"충돌 전 _is_safe 검사가 통과했지만 측면 물체가 교차하면서 충돌함\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"distance‑based stop/resume scaling (gap+d_min)\",\n      \"turns\": \"22,23,24,25\",\n      \"result\": \"8/10,5/7,9/9,3/6 pass\"\n    },\n    {\n      \"family\": \"danger‑close detection\",\n      \"turns\": \"11,13\",\n      \"result\": \"7/9,7/10 pass\"\n    },\n    {\n      \"family\": \"TTC window extension\",\n      \"turns\": \"7\",\n      \"result\": \"8/10 pass\"\n    },\n    {\n      \"family\": \"velocity‑obstacle safety\",\n      \"turns\": \"6\",\n      \"result\": \"7/8 pass\"\n    },\n    {\n      \"family\": \"front‑angle expansion\",\n      \"turns\": \"18\",\n      \"result\": \"6/7 pass\"\n    },\n    {\n      \"family\": \"reverse state\",\n      \"turns\": \"19,20,21\",\n      \"result\": \"7/8,7/8,7/8 pass\"\n    },\n    {\n      \"family\": \"early detour (skip stop)\",\n      \"turns\": \"10\",\n      \"result\": \"7/9 pass\"\n    },\n    {\n      \"family\": \"speed scaling with side distance\",\n      \"turns\": \"15\",\n      \"result\": \"8/10 pass\"\n    },\n    {\n      \"family\": \"state simplification (single go)\",\n      \"turns\": \"16\",\n      \"result\": \"0/3 pass\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"정지 후 d_min이 _STOP_D 이하이면 바로 detour 로 전환하고 회전 명령을 수행\",\n      \"new_family\": true,\n      \"for\": \"충돌 전 재출발이 너무 빨라 side mover가 아직 통과하지 않았을 때\",\n      \"risk\": \"불필요한 detour가 늘어나 전체 시간 초과 가능\"\n    },\n    {\n      \"idea\": \"_STOP_WAIT 를 2.0 s 로 늘려 side mover가 완전히 사라질 때까지 대기\",\n      \"new_family\": false,\n      \"for\": \"충돌 방지를 위해 대기시간을 늘림\",\n      \"risk\": \"정지 구간이 늘어나 평균 실행 시간이 60 s 한도 초과 위험\"\n    },\n    {\n      \"idea\": \"resume 전 mover가 로봇을 향해 접근하고 있는지(dot‑product) 확인하고, 접근 중이면 resume 하지 않음\",\n      \"new_family\": true,\n      \"for\": \"측면 물체가 아직 교차 중일 때 재출발 방지\",\n      \"risk\": \"접근 판단이 오탐될 경우 과도한 정지·detour 발생\"\n    }\n  ],\n  \"chosen\": \"후보 1을 선택함: 정지 상태에서 d_min이 _STOP_D 이하이면 즉시 detour 로 전환해 회전 후 회피하도록 하면 side mover가 아직 통과 중일 때 재출발을 방지할 수 있다.\",\n  \"target\": \"controller (stop‑state 로직)\",\n  \"direction\": \"1) controller() 의 c.state == \\\"stop\\\" 블록에 d_min < _STOP_D 를 검사하는 조건을 추가한다. 2) 해당 조건이 true이면 c.state, c.detour_t = \\\"detour\\\", t 로 전환하고 c.detour_w = _detour_side(pose) 를 설정한다. 3) 바로 회전 명령 (0.0, c.detour_w) 를 _is_safe 와 _static_ok 로 검증 후 반환한다. 4) 기존 _STOP_WAIT 기반 resume 로직은 그대로 유지하되, 위 조건이 먼저 적용되도록 순서를 조정한다. 5) 필요한 경우 _detour_w 계산 함수는 기존 _detour_side 를 재사용한다. 6) 다른 코드와 변수는 변경하지 않는다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"yes – turn 24에서 resume 조건에 d_min >= _STOP_D 를 추가한 뒤 9/9 통과를 기록했으며, 이전 대비 충돌이 크게 감소했다\",\n  \"base_turn\": 24\n}",
+ "table": [
+  {
+   "run": "c51t25_s605171177",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 87.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 81.02,
+   "goal_dist_m": 0.2263,
+   "time_to_goal_s": 83.083
+  },
+  {
+   "run": "c51t25_s27559068",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 513.0,
+   "sim_time_s": 90.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 84.55,
+   "goal_dist_m": 0.2038,
+   "time_to_goal_s": 86.6
+  },
+  {
+   "run": "c51t25_s748729050",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 422.5,
+   "sim_time_s": 16.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 10.683,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.71m/s",
+   "partner_rel_xy": [
+    0.49,
+    -0.32
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 5.75,
+   "goal_dist_m": 30.4334,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t25_s1904136711",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 405.8,
+   "sim_time_s": 84.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 78.233,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.26m/s",
+   "partner_rel_xy": [
+    0.5,
+    0.18
+   ],
+   "closing_m_s": 0.36,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 73.25,
+   "goal_dist_m": 2.4277,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t25_s635173806",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 321.6,
+   "sim_time_s": 113.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 107.25,
+   "goal_dist_m": 0.2276,
+   "time_to_goal_s": 109.45
+  },
+  {
+   "run": "c51t25_s47326955",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 208.4,
+   "sim_time_s": 36.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 30.283,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.51m/s",
+   "partner_rel_xy": [
+    -0.33,
+    -0.61
+   ],
+   "closing_m_s": 0.58,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 25.32,
+   "goal_dist_m": 17.9515,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

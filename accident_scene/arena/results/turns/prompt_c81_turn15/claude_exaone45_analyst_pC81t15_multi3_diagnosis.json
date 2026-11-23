@@ -1,0 +1,132 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 2개에서 progress_abort로 종료, 로봇이 25-30회 정지하며 진행 실패 (최종 목표 거리 5.6-6.3m)",
+   "충돌 실행에서 closing_m_s=0.36으로 접근 중 충돌 발생 (물체 속도 0.68m/s)",
+   "2D 라이다 기록에서 물체 거리가 1.3m 내외에서 변동하며 반복 정지 (예: 176.5s 1.39m → 178.0s 1.52m → 178.5s 1.53m)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "모든 감지된 물체가 멀어져야 재출발 가능",
+    "holds": false,
+    "why": "정지 빈도 25-30회로 과도하게 민감하게 반응하여 진행 불가 (증거: 물체 일부만 멀어져도 재출발 필요)"
+   },
+   {
+    "assumption": "MTC 기반 정지 임계값(_HOLD_ON=2.0s)이 물체 접근을 정확히 감지",
+    "holds": false,
+    "why": "접근 속도 0.36m/s로 충돌 발생했으나 MTC 계산 오류 가능성 (증거: closing_m_s 값과 실제 충돌 시점 불일치)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 임계값 조정 및 정지 관리",
+    "turns": "10회",
+    "result": "통과율 0-7/8, 최근 3턴(13-15)에서 모두 실패"
+   },
+   {
+    "family": "재출발 조건 엄격화 (recede 조건 강화)",
+    "turns": "5회",
+    "result": "통과율 0-2/4, stall_abort 증가 (증거: _RESUME_GO 감소로 인한 정지 지속)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "가장 가까운 물체(2m 이내)의 closing0 < 0 지속 시간(_RESUME_GO)으로 재출발 조건 변경",
+    "new_family": true,
+    "for": "접근하는 물체 중 일부만 멀어져도 즉시 재출발 가능하도록 민감도 완화 (증거: 정지 빈도 감소 필요)",
+    "risk": "다른 물체가 접근 중일 때 재출발해 충돌 가능성 (예: 측면 접근 물체 무시)"
+   },
+   {
+    "idea": "접근 물체 수를 시간에 따라 감소 추세로 판단해 재출발 허용",
+    "new_family": true,
+    "for": "물체 이동 패턴 변화에 대응 (증거: 물체 위치/속도 무작위성)",
+    "risk": "계산 복잡도 증가로 실시간 처리 지연 가능성"
+   },
+   {
+    "idea": "MTC 계산 시 물체 거리 가중 평균 적용 (근접 물체 우선 반영)",
+    "new_family": true,
+    "for": "임박한 위협에 민감하게 반응 (증거: 1.3m 거리 물체 반복 정지 원인)",
+    "risk": "원거리 물체 무시로 인한 장기적 위험 증가"
+   }
+  ],
+  "chosen": "7턴 코드의 recede 변수를 상태에 저장하고 정지 해제 조건으로 활용해 물체가 모두 멀어질 때 조기 재출발 가능하게 함",
+  "target": "controller 내 recede 계산 부분 및 _hold_release/재출발 조건 로직",
+  "direction": "1. recede 계산 후 S[\"recede\"] = recede 및 S[\"recede_t\"] 타임스탬프 저장\n2. _hold_release에 recede 지속 시간(_RESUME_GO) 조건 추가: recede 유지 시 MTC 조건 무시\n3. 재출발 조건에 (recede && t - S[\"recede_t\"] >= _RESUME_GO) 추가\n4. _RESUME_GO를 0.5s로 낮춰 민감도 향상\n5. recede 초기화 로직 추가 (물체 재접근 시 카운터 리셋)\n6. 정지 빈도 감소를 위해 _HOLD_GAIN을 0.05→0.1로 상향\n7. 재출발 시 _path_free 확인 생략하여 반응성 향상\n8. _ESC_CLOSE 0.05m/s 유지하되 접근 속도 임계값 완화",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 7,
+  "stage1": {
+   "chosen": "가장 가까운 물체(2m 이내)의 closing0 < 0 지속 시간(_RESUME_GO)으로 재출발 조건 변경을 선택. 정지 빈도 감소와 충돌 위험 최소화 균형 고려",
+   "target": "controller 내 _hold_release 함수 및 recede 조건 로직",
+   "direction": "1. _perceive에서 감지된 물체 중 2m 이내 점을 별도 저장\n2. _hold_release에서 recede 판단 시 전체 점 대신 2m 이내 점 중 closing0 < 0인 점 존재 여부 확인\n3. 해당 조건이 _RESUME_GO(0.5s) 지속되면 재출발 허용\n4. 재출발 시 _path_free 생략 및 즉시 v_nom, w_nom 적용\n5. 정지 해제 조건에 거리 증가 추세(_HOLD_DIST_INC=0.5m, _HOLD_INC_T=0.2s) 추가\n6. _ESC_CLOSE는 0.15m/s로 완화해 정지 빈도 감소"
+  }
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"실행 2개에서 progress_abort로 종료, 로봇이 25-30회 정지하며 진행 실패 (최종 목표 거리 5.6-6.3m)\",\n    \"충돌 실행에서 closing_m_s=0.36으로 접근 중 충돌 발생 (물체 속도 0.68m/s)\",\n    \"2D 라이다 기록에서 물체 거리가 1.3m 내외에서 변동하며 반복 정지 (예: 176.5s 1.39m → 178.0s 1.52m → 178.5s 1.53m)\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"모든 감지된 물체가 멀어져야 재출발 가능\",\n      \"holds\": false,\n      \"why\": \"정지 빈도 25-30회로 과도하게 민감하게 반응하여 진행 불가 (증거: 물체 일부만 멀어져도 재출발 필요)\"\n    },\n    {\n      \"assumption\": \"MTC 기반 정지 임계값(_HOLD_ON=2.0s)이 물체 접근을 정확히 감지\",\n      \"holds\": false,\n      \"why\": \"접근 속도 0.36m/s로 충돌 발생했으나 MTC 계산 오류 가능성 (증거: closing_m_s 값과 실제 충돌 시점 불일치)\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"MTC 임계값 조정 및 정지 관리\",\n      \"turns\": \"10회\",\n      \"result\": \"통과율 0-7/8, 최근 3턴(13-15)에서 모두 실패\"\n    },\n    {\n      \"family\": \"재출발 조건 엄격화 (recede 조건 강화)\",\n      \"turns\": \"5회\",\n      \"result\": \"통과율 0-2/4, stall_abort 증가 (증거: _RESUME_GO 감소로 인한 정지 지속)\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"가장 가까운 물체(2m 이내)의 closing0 < 0 지속 시간(_RESUME_GO)으로 재출발 조건 변경\",\n      \"new_family\": true,\n      \"for\": \"접근하는 물체 중 일부만 멀어져도 즉시 재출발 가능하도록 민감도 완화 (증거: 정지 빈도 감소 필요)\",\n      \"risk\": \"다른 물체가 접근 중일 때 재출발해 충돌 가능성 (예: 측면 접근 물체 무시)\"\n    },\n    {\n      \"idea\": \"접근 물체 수를 시간에 따라 감소 추세로 판단해 재출발 허용\",\n      \"new_family\": true,\n      \"for\": \"물체 이동 패턴 변화에 대응 (증거: 물체 위치/속도 무작위성)\",\n      \"risk\": \"계산 복잡도 증가로 실시간 처리 지연 가능성\"\n    },\n    {\n      \"idea\": \"MTC 계산 시 물체 거리 가중 평균 적용 (근접 물체 우선 반영)\",\n      \"new_family\": true,\n      \"for\": \"임박한 위협에 민감하게 반응 (증거: 1.3m 거리 물체 반복 정지 원인)\",\n      \"risk\": \"원거리 물체 무시로 인한 장기적 위험 증가\"\n    }\n  ],\n  \"chosen\": \"가장 가까운 물체(2m 이내)의 closing0 < 0 지속 시간(_RESUME_GO)으로 재출발 조건 변경을 선택. 정지 빈도 감소와 충돌 위험 최소화 균형 고려\",\n  \"target\": \"controller 내 _hold_release 함수 및 recede 조건 로직\",\n  \"direction\": \"1. _perceive에서 감지된 물체 중 2m 이내 점을 별도 저장\\n2. _hold_release에서 recede 판단 시 전체 점 대신 2m 이내 점 중 closing0 < 0인 점 존재 여부 확인\\n3. 해당 조건이 _RESUME_GO(0.5s) 지속되면 재출발 허용\\n4. 재출발 시 _path_free 생략 및 즉시 v_nom, w_nom 적용\\n5. 정지 해제 조건에 거리 증가 추세(_HOLD_DIST_INC=0.5m, _HOLD_INC_T=0.2s) 추가\\n6. _ESC_CLOSE는 0.15m/s로 완화해 정지 빈도 감소\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no\",\n  \"base_turn\": 7\n}",
+ "table": [
+  {
+   "run": "c81t15_s1095182432",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 182.5,
+   "stall_abort_t": null,
+   "progress_abort_t": 181.48,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 25,
+   "first_seen_within_2m_t": 176.52,
+   "goal_dist_m": 5.619,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t15_s695304200",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 417.5,
+   "sim_time_s": 182.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 181.82,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 176.83,
+   "goal_dist_m": 6.2795,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t15_s214560489",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 234.7,
+   "sim_time_s": 113.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 107.783,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.01m/s",
+   "partner_rel_xy": [
+    -0.74,
+    -0.47
+   ],
+   "closing_m_s": 0.36,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 102.85,
+   "goal_dist_m": 0.1983,
+   "time_to_goal_s": 110.033
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

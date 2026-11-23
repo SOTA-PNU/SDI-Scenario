@@ -1,0 +1,272 @@
+{
+ "turn": 7,
+ "started": "2026-11-18 23:28:21",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn6/claude_exaone45_analyst_pC8t6_block.py",
+ "diagnosis_in": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "실패 실행(c8t6_s254704281)에서 time_limit_s=70.0s 대비 sim_time_s=71.0s 초과로 타임아웃 발생 (ended_by: time_limit)",
+   "7개 통과 실행 중 6개에서 stop_turn_episodes가 12~36회 기록되어 빈번한 정지로 인한 시간 손실 확인",
+   "실패 실행에서 로봇 속도가 0.93→0.26 m/s로 감소하며 mover 거리 2.23m→1.96m 감소 시 slow 모드 활성화로 인한 지속적 감속 관찰"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 slow 모드는 clearance 임계값(_CLR_GO=0.35m)과 히스테리시스(_HYST=1.5)로 인해 mover가 근접하지 않아도 불필요하게 속도 감소를 유발함",
+    "holds": true,
+    "why": "실행 요약에서 mover 거리가 2m 이상일 때도 로봇 속도가 급감하는 패턴과 정지 에피소드 빈도가 이를 뒷받침"
+   },
+   {
+    "assumption": "TTC 트리거 임계값(_TTC_TRIG=1.0s)은 충돌 방지에는 충분하나, 조기 회피 유도보다는 마지막 순간 감속을 유발해 전체 주행 시간을 늘림",
+    "holds": true,
+    "why": "검토 담당 지적처럼 TTC 1.0s 트리거는 기존 접근 속도 기반 트리거보다 늦게 작동해 '회피 시점 앞당김' 목표와 상충"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "slow 모드 민감도 조정",
+    "turns": "4, 6",
+    "result": "통과 6/9 (turn 4), 통과 7/8 (turn 6) - 정지 빈도 감소로 시간 절약 효과 있으나, 여전히 일부 실패 발생"
+   },
+   {
+    "family": "TTC 트리거 임계값 상향",
+    "turns": "5, 6",
+    "result": "통과 0/3 (turn 5), 통과 7/8 (turn 6) - TTC 기반 트리거 도입 시 초기 실패 발생, 임계값 조정 필요"
+   },
+   {
+    "family": "정지/재진행 조건 완화",
+    "turns": "2, 3",
+    "result": "통과 1/1 (turn 2), 통과 4/7 (turn 3) - 정지 조건 완화로 시간 단축 효과 있으나, 충돌 위험 증가 가능성"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "slow 모드 히스테리시스(_HYST) 값을 1.5에서 1.0으로 낮춰 clearance 회복 시 빠른 속도 회복 유도",
+    "new_family": true,
+    "for": "실행 요약에서 mover 거리 2m 이상일 때도 지속적 속도 감소가 관찰되며, 히스테리시스로 인한 불필요한 감속 시간 축적이 타임아웃 원인",
+    "risk": "mover가 근접 시 속도 회복이 지연되어 충돌 위험 증가 가능성"
+   },
+   {
+    "idea": "TTC 트리거 임계값(_TTC_TRIG)을 1.0s에서 2.0s로 상향해 조기 회피 유도",
+    "new_family": true,
+    "for": "검토 담당 지적대로 TTC 1.0s는 회피 시점이 너무 늦어, 2.0s로 조정 시 mover 접근 초기 단계에서 부드럽게 회피 가능",
+    "risk": "임계값 과도 상향 시 불필요한 회피로 경로 이탈 또는 시간 낭비 발생"
+   },
+   {
+    "idea": "mover 예측 경로 기반으로 waypoint 동적 조정 (예: mover 경로 회피용 임시 경유점 추가)",
+    "new_family": true,
+    "for": "현재 코드는 경유점 고정으로 mover 회피 시 정지/감속만 수행하나, 예측 경로 반영 시 정지 없이 우회 가능",
+    "risk": "waypoint 수정이 배치 독립적이지 않아 다음 실행에서 실패 가능성 높음"
+   }
+  ],
+  "chosen": "HYST 값을 1.0으로 낮춰 slow 모드에서 clearance 회복 시 속도 회복을 빠르게 하고, TTC_TRIG은 2.0s로 상향해 조기 회피를 유도하는 병행 조정을 선택함",
+  "target": "controller 함수 내 slow 모드 관련 파라미터(_HYST, _TTC_TRIG) 및 clearances 계산 로직",
+  "direction": "1. _HYST 값을 1.5에서 1.0으로 감소시켜 slow 모드 해제 조건을 완화한다. 2. _TTC_TRIG을 1.0s에서 2.0s로 상향해 TTC 기반 회피 트리거 시점을 앞당긴다. 3. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO 계산 시, mover 접근 속도(U)와 로봇 속도(v) 차이를 고려해 동적 임계값을 적용한다. 4. _choose 호출 시 앵커 기반 패널티 계산 범위를 1.0s에서 1.5s로 확장해 더 긴 예측 구간에서 mover 경로 회피를 유도한다. 5. 정지 후 재진행 조건(_mover_clearance >= _CLR_STOP)을 _CLR_STOP = 0.25m로 완화해 불필요한 정지 감소한다. 6. _closing_speed 계산 시 _CLOSE_R을 1.5m에서 2.0m로 확대해 접근 감지 범위를 넓혀 조기 경고 가능성을 높인다.",
+  "confidence": "medium"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 지난 시도는 충돌 없이 8개 중 7개를 통과했지만 시간 합계가 601 s로 한도를 넘었고, 원인은 잦은 감속·정지였습니다. 진단 1·2·4·5·6에 따라 `_HYST` 를 1.5에서 1.0으로, `_TTC_TRIG` 를 1.0에서 2.0 s로, `_ANCHOR_K` 를 10에서 15(앵커 예측 1.5 s)로, `_CLR_STOP` 을 0.20에서 0.25 m로, `_CLOSE_R` 을 1.5에서 2.0 m로 바꿨습니다. 진단 3에 따라 `_slow_cmd` 의 감속 임계값을 상대 접근 속도로 정합니다. 상대 접근 속도는 3 m 안 물체 점의 속도 U와 로봇 속도 v의 차이에서 구합니다. 물체가 다가오지 않으면 임계값을 0.75×`_CLR_GO` 로 낮춰 속도를 빨리 회복하고, 1 m/s로 다가오면 1.5×`_CLR_GO` 로 높여 더 일찍 감속합니다. 임계값의 하한은 `_CLR_STOP`(0.25 m)보다 크게 두었습니다. 그래서 감속 스케일이 1이 되었는데 바로 안전 검사에 걸려 정지하는 경우가 생기지 않습니다.",
+   "changed": [
+    "_ANCHOR_K",
+    "_CLOSE_R",
+    "_CLR_STOP",
+    "_HYST",
+    "_SLOW_APP_V",
+    "_SLOW_F_MAX",
+    "_SLOW_F_MIN",
+    "_TTC_TRIG",
+    "_slow_cmd"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. _HYST 를 1.5에서 1.0으로 낮춘다",
+      "implemented": true,
+      "note": "_HYST = 1.0 이고 slow 해제 조건 clr_all >= _CLR_GO * _HYST 에 그대로 쓰임"
+     },
+     {
+      "instruction": "2. _TTC_TRIG 를 1.0s에서 2.0s로 올린다",
+      "implemented": true,
+      "note": "_TTC_TRIG = 2.0 이고 controller 의 ttc < _TTC_TRIG 판정에 쓰임"
+     },
+     {
+      "instruction": "3. _slow_cmd 의 s = clr_all/_CLR_GO 에 물체 접근 속도(U)와 로봇 속도(v) 차이로 정한 동적 임계값을 적용한다",
+      "implemented": true,
+      "note": "_closing_speed(P, U, pose, v0, _EARLY_R) 로 상대 접근 속도를 구함. 계수 f 를 0.75~1.5 로 정해 go = _CLR_GO*f, s = clr/go 로 계산함"
+     },
+     {
+      "instruction": "4. _choose 의 앵커 패널티 예측 구간을 1.0s에서 1.5s로 늘린다",
+      "implemented": true,
+      "note": "_ANCHOR_K = 15, _DTP = 0.1 이므로 1.5 s. trajc 길이가 31 이라 min() 에서 잘리지 않음"
+     },
+     {
+      "instruction": "5. _CLR_STOP 을 0.25m 로 정한다",
+      "implemented": true,
+      "note": "_CLR_STOP = 0.25. _slow_cmd 검사, 정지 상태 hit_still, 비 slow 분기에 모두 반영됨"
+     },
+     {
+      "instruction": "6. _CLOSE_R 을 1.5m에서 2.0m로 넓힌다",
+      "implemented": true,
+      "note": "_CLOSE_R = 2.0. 정의가 _closing_speed 보다 앞이라 기본 인자에도 반영되고, controller 도 명시적으로 넘김"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 5는 '완화'라고 했지만 _CLR_STOP 을 0.20에서 0.25로 올리면 정지 조건이 더 엄격해짐. 정지와 _choose 회피가 늘어 시간 단축 목표와 반대 방향일 수 있음",
+     "지시 2(TTC 2.0s)와 지시 6(_CLOSE_R 2.0m)은 회피가 걸리는 범위를 넓힘. 회피 빈도가 늘어 타임아웃 원인을 키울 수 있음",
+     "지시 3의 동적 임계값은 접근 시 go 를 최대 1.5배로 올려 감속을 늘림. 시간 단축 효과는 접근 물체가 없을 때만 있음",
+     "근거의 'mover 거리 2m 이상'은 현재 거리이고, slow 진입은 3 s 예측 최소 간격(clr_all) 기준이라 근거와 가정이 정확히 맞물리지 않음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 지난 시도는 충돌 없이 8개 중 7개를 통과했지만 시간 합계가 601 s로 한도를 넘었고, 원인은 잦은 감속·정지였습니다. 진단 1·2·4·5·6에 따라 `_HYST` 를 1.5에서 1.0으로, `_TTC_TRIG` 를 1.0에서 2.0 s로, `_ANCHOR_K` 를 10에서 15(앵커 예측 1.5 s)로, `_CLR_STOP` 을 0.20에서 0.25 m로, `_CLOSE_R` 을 1.5에서 2.0 m로 바꿨습니다. 진단 3에 따라 `_slow_cmd` 의 감속 임계값을 상대 접근 속도로 정합니다. 상대 접근 속도는 3 m 안 물체 점의 속도 U와 로봇 속도 v의 차이에서 구합니다. 물체가 다가오지 않으면 임계값을 0.75×`_CLR_GO` 로 낮춰 속도를 빨리 회복하고, 1 m/s로 다가오면 1.5×`_CLR_GO` 로 높여 더 일찍 감속합니다. 임계값의 하한은 `_CLR_STOP`(0.25 m)보다 크게 두었습니다. 그래서 감속 스케일이 1이 되었는데 바로 안전 검사에 걸려 정지하는 경우가 생기지 않습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  1269609970,
+  882861024,
+  1973219913
+ ],
+ "sim_used_s": 248.4,
+ "verdicts": {
+  "1269609970": "fail",
+  "882861024": "fail",
+  "1973219913": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 3067,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 0개, 실패 3개. 시뮬 시간 합계 248초 / 예산 600초.\n- 통과한 실행이 없습니다. 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 5는 '완화'라고 했지만 _CLR_STOP 을 0.20에서 0.25로 올리면 정지 조건이 더 엄격해짐. 정지와 _choose 회피가 늘어 시간 단축 목표와 반대 방향일 수 있음\n- (검토 1회차, 판정 pass) 지시 2(TTC 2.0s)와 지시 6(_CLOSE_R 2.0m)은 회피가 걸리는 범위를 넓힘. 회피 빈도가 늘어 타임아웃 원인을 키울 수 있음\n- (검토 1회차, 판정 pass) 지시 3의 동적 임계값은 접근 시 go 를 최대 1.5배로 올려 감속을 늘림. 시간 단축 효과는 접근 물체가 없을 때만 있음\n- (검토 1회차, 판정 pass) 근거의 'mover 거리 2m 이상'은 현재 거리이고, slow 진입은 3 s 예측 최소 간격(clr_all) 기준이라 근거와 가정이 정확히 맞물리지 않음\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3 runs all collided while moving (not during stop) with closing speeds 0.23-0.7 m/s",
+   "First mover within 2m detected 4-15s before collision, but TTC > 2.0s threshold delayed evasion",
+   "Evasion triggered (evading flag active) yet collisions still occurred due to insufficient maneuver effectiveness"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Current TTC threshold (2.0s) is too high for dynamic scenarios, causing evasion to trigger too late",
+    "holds": false,
+    "why": "Collisions occurred with closing speeds >0.23 m/s and distances <2m for >4s, indicating TTC likely dropped below 2.0s before collision"
+   },
+   {
+    "assumption": "Fixed evasion duration (0.5s) is inadequate when collision risk persists beyond initial TTC trigger",
+    "holds": false,
+    "why": "Multiple stop episodes logged but collisions still happened, suggesting evasion didn't fully mitigate risk"
+   },
+   {
+    "assumption": "Anchor-based evasion path selection fails when mover velocity vectors aren't fully integrated into trajectory prediction",
+    "holds": true,
+    "why": "Mover positions/velocities change dynamically; static anchor penalty (1.2m) may not account for mover motion during evasion"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Threshold adjustment (TTC, CLOSE_V, CLR_STOP)",
+    "turns": "5",
+    "result": "mixed: reduced collisions but increased timeouts or new collisions"
+   },
+   {
+    "family": "Evasion duration and trigger logic",
+    "turns": "3",
+    "result": "collisions persisted despite parameter tweaks"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Dynamic evasion duration based on real-time TTC instead of fixed _EVADE_HOLD",
+    "new_family": true,
+    "for": "Ensures evasion continues while collision risk remains, addressing delayed reaction from fixed 0.5s hold",
+    "risk": "May cause prolonged stops if TTC fluctuates near threshold"
+   },
+   {
+    "idea": "Integrate mover velocity vectors into candidate scoring using relative motion prediction",
+    "new_family": true,
+    "for": "Improves evasion path selection by anticipating mover movement beyond static anchor penalty",
+    "risk": "Increased computational load; requires accurate velocity estimation"
+   },
+   {
+    "idea": "Immediate speed reduction when movers within 3m regardless of TTC, with hysteresis for resumption",
+    "new_family": false,
+    "for": "Provides earlier reaction than TTC alone, leveraging proximity detection",
+    "risk": "Over-sensitivity may cause unnecessary slowdowns in static environments"
+   }
+  ],
+  "chosen": "Implement dynamic evasion duration tied to TTC > 2.0s condition instead of fixed 0.5s hold, as collisions occurred despite active evasion due to premature resumption",
+  "target": "controller function's evade_until logic and _choose integration",
+  "direction": "When TTC triggers evasion, set evade_until to t + _EVADE_HOLD but also extend it if TTC remains < 2.0s; recalculate TTC every frame during evasion; prioritize lateral evasion candidates with larger angular deviation from mover bearing; incorporate mover velocity vectors into _choose scoring via relative motion prediction; reduce _ANCHOR_R to 0.8m for tighter evasion around closest mover; validate evasion effectiveness via lidar clearance metrics before resuming motion",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c8t7_s1269609970",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 33.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 27.683,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s 회전 -0.5",
+   "partner_rel_xy": [
+    0.29,
+    -0.5
+   ],
+   "closing_m_s": 0.7,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 23.02,
+   "goal_dist_m": 20.5664,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t7_s882861024",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 566.3,
+   "sim_time_s": 105.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 99.383,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.21m/s 회전 +1.0",
+   "partner_rel_xy": [
+    -0.51,
+    -0.48
+   ],
+   "closing_m_s": 0.23,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 94.47,
+   "goal_dist_m": 0.9397,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t7_s1973219913",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 460.9,
+   "sim_time_s": 109.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 103.383,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.81m/s 회전 +1.2",
+   "partner_rel_xy": [
+    0.43,
+    -0.49
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 98.45,
+   "goal_dist_m": 5.8305,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔에서 지도에 없는 점(움직이는 물체) 식별\\n2. 정적 장애물(MISSION boxes, WALLS, FIXED_OBSTACLES) 범위 외 점만 필터링\\n3. 가장 가까운 비정적 점까지의 거리 계산\\n4. 거리가 2m 미만이면 v=0, w=0으로 설정해 정지\\n5. 정지 후 1초간 재감지하여 물체 이동 확인 후 진행\\n6. 정지 없이 경유점 주행 시 기존 제어법 유지\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 229 s / 한도 600 s)\n#2 이번 코드(진단 \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\" 반영, 검토 통과): 새 배치 1개 중 1개 pass, 0개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#3 이번 코드(진단 \"1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 300 s / 한도 600 s)\n#4 이번 코드(진단 \"1. controller에서 slow 모드 진입 조건을 clr_n < _CLR_GO에서 clr_all < _CLR_GO로 변경\\n2. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO로 수정 (0~1 범위 유지)\\n3. 정지 결정 시 _CLR_STOP을 clr_all 기준으로 유지하되, 감속 궤적 검증 시 clr_all >= _CLR_STOP 조건 강화\\n4. 정지 후 재개 시 물체 접근 속도(closing_m_s) 음수일 경우 즉시 회피 동작 유도\\n5. clr_all 계산 시 전방 섹터 외 물체도 포함되도록 _front_sector 호출 제거\\n6. 히스테리시스 값 _HYST를 1.5로 증가시켜 감속 모드 해제 조건 완화\" 반영, 검토 통과): 새 배치 9개 중 6개 pass, 3개 fail (시뮬 시간 합계 466 s / 한도 600 s)\n#5 이번 코드(진단 \"1. _movers_now 호출 직후 partner 클로즈드 포인트(P, U)를 기반으로 _closing_speed 계산\\n2. 결과가 -0.15 미만이고 가장 가까운 물체 거리가 3m 이내일 때, 즉시 _choose(pose, P, U, target) 호출로 회피 동작 실행\\n3. 정지 모드 진입 전에도 동일 조건으로 조기 회피 유도\\n4. _slow_cmd 내 stop 조건 검사와 별도로 주행 중 검사 로직 분리\\n5. _CLOSE_V 값을 -0.15로 강화해 민감도 조정\\n6. 정지 후 재개 시 검사와 병행해 모든 상태에서 접근 물체 감지 보장\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 72 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _movers_now 직후 가장 가까운 물체의 거리(d_near)와 상대 속도(U)로 TTC 계산 (TTC = d_near / max(closing_speed, 0.01))\\n2. TTC < 1.0s 일 때 조기 회피 트리거 활성화\\n3. _choose 호출 시 현재 가장 가까운 물체 위치를 앵커로 전달\\n4. 앵커 기반 패널티로 물체 근처 경로 선택 억제 (예: da - _EVADE_R > 0 시 -20 점수)\\n5. _EVADE_HOLD를 0.5s로 유지하되, TTC 기반 트리거로 회피 시작 시점 앞당김\\n6. _CLOSE_R을 1.5m로 완화해 더 넓은 범위에서 접근 속도 계산\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _HYST 값을 1.5에서 1.0으로 감소시켜 slow 모드 해제 조건을 완화한다. 2. _TTC_TRIG을 1.0s에서 2.0s로 상향해 TTC 기반 회피 트리거 시점을 앞당긴다. 3. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO 계산 시, mover 접근 속도(U)와 로봇 속도(v) 차이를 고려해 동적 임계값을 적용한다. 4. _choose 호출 시 앵커 기반 패널티 계산 범위를 1.0s에서 1.5s로 확장해 더 긴 예측 구간에서 mover 경로 회피를 유도한다. 5. 정지 후 재진행 조건(_mover_clearance >= _CLR_STOP)을 _CLR_STOP = 0.25m로 완화해 불필요한 정지 감소한다. 6. _closing_speed 계산 시 _CLOSE_R을 1.5m에서 2.0m로 확대해 접근 감지 범위를 넓혀 조기 경고 가능성을 높인다.\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 248 s / 한도 600 s)",
+ "ended": "2026-11-18 23:41:35"
+}

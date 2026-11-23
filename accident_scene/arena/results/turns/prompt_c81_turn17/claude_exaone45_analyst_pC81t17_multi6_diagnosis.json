@@ -1,0 +1,188 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 실행(c81t17_s820872510)에서 로봇이 mover_00과 충돌(60.317s), 충돌 전 55.35s에 0.73m 거리에서 감지되었으나 정지 후 재출발 시 recede 상태 지속 시간(_RESUME_GO=0.5s)만 확인하고 재접근 시 충돌",
+   "성공 실행들은 감지 시점이 늦거나(86.52s+) recede 상태 외에 물체 거리가 멀어(>2m) 재출발 안전",
+   "시간 한도 초과 실행(c81t17_s1352226326)은 정지 후 재출발 조건이 엄격해 목표 도달 지연"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체가 recede 상태(접근 속도 < _ESC_CLOSE)가 되면 안전하다고 가정",
+    "holds": false,
+    "why": "물체는 왕복하므로 0.5s 지속 후 재접근 가능, 충돌 사례에서 재접근으로 충돌 발생"
+   },
+   {
+    "assumption": "MTC 기반 정지 임계값(_HOLD_ON=1.5s)로 충분히 안전 거리 확보 가능",
+    "holds": false,
+    "why": "충돌 사례에서 MTC <1.5s 시 정지했으나 재출발 시 물체 재접근으로 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 임계값 및 정지/재출발 시간 파라미터 조정",
+    "turns": "12",
+    "result": "통과 4/6, 실패 2/6"
+   },
+   {
+    "family": "recede 지속 시간 조건 추가 및 거리 기반 재출발 시도",
+    "turns": "5",
+    "result": "통과 7/7(턴16) 후 이번 턴에서 4/6로 악화"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "재출발 조건에 물체 거리 임계값(2m) 추가: recede 지속 + 물체 거리 >2m 동시 충족",
+    "new_family": true,
+    "for": "재접근 위험을 줄이고 안전 거리 확보 시에만 재출발 허용",
+    "risk": "물체 이동 속도에 따라 2m 도달 시간이 길어 평균 실행 시간 증가"
+   },
+   {
+    "idea": "정지 후 재출발 전 MTC 재계산 및 예측",
+    "new_family": false,
+    "for": "상대 접근 속도 정확도 향상",
+    "risk": "계산 복잡도 증가로 실시간 성능 저하"
+   },
+   {
+    "idea": "물체 궤적 예측(3초) 후 재출발 가능 여부 판단",
+    "new_family": true,
+    "for": "미래 위치 예측으로 재접근 방지",
+    "risk": "예측 오차로 인한 과도한 정지 또는 충돌 위험"
+   }
+  ],
+  "chosen": "재출발 조건에 물체 거리 임계값(2m) 추가: recede 지속 시간 + 물체 거리 >2m 동시 충족 시 재출발",
+  "target": "hold_release 함수 재출발 조건 수정",
+  "direction": "1. 재출발 조건에 '물체 거리 > 2.0m' 추가\n2. 현재 nearest mover 거리 계산 (P에서 최소 거리 추출)\n3. recede 지속 시간 >=_RESUME_GO(1.0s)와 거리 >2.0m 동시 확인\n4. _RESUME_GO를 1.0s로 상향 조정\n5. 정지 시 물체 거리 추적 변수 추가 (S['recede_dist'])\n6. 재출발 전 거리와 지속 시간 동시 검증 후 v_nom, w_nom 적용",
+  "confidence": "medium",
+  "last_direction_ok": "no, 직전 지시(턴 16)는 7/7 통과했으나 이번 턴(17)에서는 4/6 통과로 성능 저하 및 충돌 재발생",
+  "base_turn": 17
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"충돌 실행(c81t17_s820872510)에서 로봇이 mover_00과 충돌(60.317s), 충돌 전 55.35s에 0.73m 거리에서 감지되었으나 정지 후 재출발 시 recede 상태 지속 시간(_RESUME_GO=0.5s)만 확인하고 재접근 시 충돌\", \"성공 실행들은 감지 시점이 늦거나(86.52s+) recede 상태 외에 물체 거리가 멀어(>2m) 재출발 안전\", \"시간 한도 초과 실행(c81t17_s1352226326)은 정지 후 재출발 조건이 엄격해 목표 도달 지연\"], \"assumptions\": [{\"assumption\": \"물체가 recede 상태(접근 속도 < _ESC_CLOSE)가 되면 안전하다고 가정\", \"holds\": false, \"why\": \"물체는 왕복하므로 0.5s 지속 후 재접근 가능, 충돌 사례에서 재접근으로 충돌 발생\"}, {\"assumption\": \"MTC 기반 정지 임계값(_HOLD_ON=1.5s)로 충분히 안전 거리 확보 가능\", \"holds\": false, \"why\": \"충돌 사례에서 MTC <1.5s 시 정지했으나 재출발 시 물체 재접근으로 충돌\"}], \"approach_families\": [{\"family\": \"MTC 임계값 및 정지/재출발 시간 파라미터 조정\", \"turns\": \"12\", \"result\": \"통과 4/6, 실패 2/6\"}, {\"family\": \"recede 지속 시간 조건 추가 및 거리 기반 재출발 시도\", \"turns\": \"5\", \"result\": \"통과 7/7(턴16) 후 이번 턴에서 4/6로 악화\"}], \"candidates\": [{\"idea\": \"재출발 조건에 물체 거리 임계값(2m) 추가: recede 지속 + 물체 거리 >2m 동시 충족\", \"new_family\": true, \"for\": \"재접근 위험을 줄이고 안전 거리 확보 시에만 재출발 허용\", \"risk\": \"물체 이동 속도에 따라 2m 도달 시간이 길어 평균 실행 시간 증가\"}, {\"idea\": \"정지 후 재출발 전 MTC 재계산 및 예측\", \"new_family\": false, \"for\": \"상대 접근 속도 정확도 향상\", \"risk\": \"계산 복잡도 증가로 실시간 성능 저하\"}, {\"idea\": \"물체 궤적 예측(3초) 후 재출발 가능 여부 판단\", \"new_family\": true, \"for\": \"미래 위치 예측으로 재접근 방지\", \"risk\": \"예측 오차로 인한 과도한 정지 또는 충돌 위험\"}], \"chosen\": \"재출발 조건에 물체 거리 임계값(2m) 추가: recede 지속 시간 + 물체 거리 >2m 동시 충족 시 재출발\", \"target\": \"hold_release 함수 재출발 조건 수정\", \"direction\": \"1. 재출발 조건에 '물체 거리 > 2.0m' 추가\\n2. 현재 nearest mover 거리 계산 (P에서 최소 거리 추출)\\n3. recede 지속 시간 >=_RESUME_GO(1.0s)와 거리 >2.0m 동시 확인\\n4. _RESUME_GO를 1.0s로 상향 조정\\n5. 정지 시 물체 거리 추적 변수 추가 (S['recede_dist'])\\n6. 재출발 전 거리와 지속 시간 동시 검증 후 v_nom, w_nom 적용\", \"confidence\": \"medium\", \"last_direction_ok\": \"no, 직전 지시(턴 16)는 7/7 통과했으나 이번 턴(17)에서는 4/6 통과로 성능 저하 및 충돌 재발생\", \"base_turn\": 17}",
+ "table": [
+  {
+   "run": "c81t17_s820872510",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 66.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 60.317,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.18m/s",
+   "partner_rel_xy": [
+    0.18,
+    0.56
+   ],
+   "closing_m_s": 0.64,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 55.35,
+   "goal_dist_m": 32.3976,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t17_s1921746990",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 533.7,
+   "sim_time_s": 92.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 86.52,
+   "goal_dist_m": 0.1983,
+   "time_to_goal_s": 88.6
+  },
+  {
+   "run": "c81t17_s1124227629",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 441.2,
+   "sim_time_s": 105.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 99.85,
+   "goal_dist_m": 0.1969,
+   "time_to_goal_s": 101.917
+  },
+  {
+   "run": "c81t17_s790680994",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 335.4,
+   "sim_time_s": 101.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 95.52,
+   "goal_dist_m": 0.1965,
+   "time_to_goal_s": 97.55
+  },
+  {
+   "run": "c81t17_s779999598",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 233.9,
+   "sim_time_s": 146.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": 140.22,
+   "goal_dist_m": 0.2273,
+   "time_to_goal_s": 142.25
+  },
+  {
+   "run": "c81t17_s1352226326",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 87.8,
+   "sim_time_s": 88.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 82.85,
+   "goal_dist_m": 30.1924,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17. 이번 코드에서 이어 가려면 17 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

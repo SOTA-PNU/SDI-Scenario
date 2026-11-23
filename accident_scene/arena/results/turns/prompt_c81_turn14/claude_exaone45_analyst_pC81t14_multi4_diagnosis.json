@@ -1,0 +1,149 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 c81t14_s621068068에서 31회 정지 후 progress_abort 발생, last 5s 로그에서 2.0m 거리 물체 감지 시 0.2m/s로 주행하다가 반복 정지",
+   "통과 실행 대비 실패 실행의 stop_turns 평균 24.5회 vs 17.5회, 정지 빈도가 정체 원인",
+   "_HOLD_ON=2.0s로 인해 MTC 1.5s에서도 재출발 불가해 불필요한 정지 증가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "MTC >= _HOLD_ON(2.0s)일 때만 재출발 안전하다고 가정",
+    "holds": false,
+    "why": "움직이는 물체로 인해 MTC 변동성이 크며, 1.5s일 때도 재출발 가능함에도 정지 유지로 진행 정체 유발"
+   },
+   {
+    "assumption": "물체 거리 증가(_hold_trend)만으로 재출발 허용 가능하다고 가정",
+    "holds": false,
+    "why": "물체 이동 패턴 무작위라 거리 증가 지속되지 않으며, 오히려 접근 중일 때 정지 유지로 정체 심화"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 엄격화 계열",
+    "turns": "5",
+    "result": "통과 4/6 → 2/4, 평균 정지 횟수 증가"
+   },
+   {
+    "family": "정지 관리 로직 강화 계열",
+    "turns": "3",
+    "result": "통과 7/8 → 2/4, 시간 초과 및 stall 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체가 멀어질 때( closing0 < 0) 재출발 허용 조건 추가",
+    "new_family": true,
+    "for": "정지 중 물체가 접근하지 않으면 재출발 판단 가능, MTC 의존도 감소",
+    "risk": "노이즈로 인한 오진 시 불필요한 재출발로 충돌 위험"
+   },
+   {
+    "idea": "MTC 이동 평균 적용해 일시적 변동 무시",
+    "new_family": true,
+    "for": "센서 노이즈로 인한 잦은 정지 방지",
+    "risk": "평균 계산 지연으로 실제 위험 대응 늦어질 수 있음"
+   },
+   {
+    "idea": "정지 시 소규격 전진 테스트로 경로 확인",
+    "new_family": true,
+    "for": "재출발 전 실시간 경로 안전성 검증",
+    "risk": "테스트 중 충돌 가능성, 코드 복잡도 증가"
+   }
+  ],
+  "chosen": "물체가 멀어질 때 재출발 허용 조건 추가 선택: 정지 중 closing0 < 0인 상태가 지속되면 MTC 임계값 없이도 재출발 가능하도록 해 정지-재출발 반복 문제 해결",
+  "target": "controller 내 _hold_release 함수 및 정지 관리 로직",
+  "direction": "1. 정지 상태(S['hold'])에서 물체 접근 속도 closing0 계산 시, closing0 < 0인 물체의 지속 시간을 추적하는 변수 추가\n2. _hold_release에서 d_thr >= _HOLD_ON 조건 외, closing0 < 0인 상태가 _RESUME_GO(0.8s) 이상 지속되면 재출발 허용\n3. 재출발 시 _path_free 확인을 생략하고 즉시 v_nom, w_nom 적용\n4. closing0 < 0 지속 시간 초기화 조건: 재출발 후 또는 물체 재접근 시\n5. _ESC_CLOSE(0.05 m/s)는 유지하되, 재출발 조건 완화로 정지 빈도 감소\n6. _RESUME_GO를 0.5s로 낮춰 빠른 재출발 지원",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 14
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 c81t14_s621068068에서 31회 정지 후 progress_abort 발생, last 5s 로그에서 2.0m 거리 물체 감지 시 0.2m/s로 주행하다가 반복 정지\", \"통과 실행 대비 실패 실행의 stop_turns 평균 24.5회 vs 17.5회, 정지 빈도가 정체 원인\", \"_HOLD_ON=2.0s로 인해 MTC 1.5s에서도 재출발 불가해 불필요한 정지 증가\"], \"assumptions\": [{\"assumption\": \"MTC >= _HOLD_ON(2.0s)일 때만 재출발 안전하다고 가정\", \"holds\": false, \"why\": \"움직이는 물체로 인해 MTC 변동성이 크며, 1.5s일 때도 재출발 가능함에도 정지 유지로 진행 정체 유발\"}, {\"assumption\": \"물체 거리 증가(_hold_trend)만으로 재출발 허용 가능하다고 가정\", \"holds\": false, \"why\": \"물체 이동 패턴 무작위라 거리 증가 지속되지 않으며, 오히려 접근 중일 때 정지 유지로 정체 심화\"}], \"approach_families\": [{\"family\": \"임계값 엄격화 계열\", \"turns\": \"5\", \"result\": \"통과 4/6 → 2/4, 평균 정지 횟수 증가\"}, {\"family\": \"정지 관리 로직 강화 계열\", \"turns\": \"3\", \"result\": \"통과 7/8 → 2/4, 시간 초과 및 stall 증가\"}], \"candidates\": [{\"idea\": \"물체가 멀어질 때( closing0 < 0) 재출발 허용 조건 추가\", \"new_family\": true, \"for\": \"정지 중 물체가 접근하지 않으면 재출발 판단 가능, MTC 의존도 감소\", \"risk\": \"노이즈로 인한 오진 시 불필요한 재출발로 충돌 위험\"}, {\"idea\": \"MTC 이동 평균 적용해 일시적 변동 무시\", \"new_family\": true, \"for\": \"센서 노이즈로 인한 잦은 정지 방지\", \"risk\": \"평균 계산 지연으로 실제 위험 대응 늦어질 수 있음\"}, {\"idea\": \"정지 시 소규격 전진 테스트로 경로 확인\", \"new_family\": true, \"for\": \"재출발 전 실시간 경로 안전성 검증\", \"risk\": \"테스트 중 충돌 가능성, 코드 복잡도 증가\"}], \"chosen\": \"물체가 멀어질 때 재출발 허용 조건 추가 선택: 정지 중 closing0 < 0인 상태가 지속되면 MTC 임계값 없이도 재출발 가능하도록 해 정지-재출발 반복 문제 해결\", \"target\": \"controller 내 _hold_release 함수 및 정지 관리 로직\", \"direction\": \"1. 정지 상태(S['hold'])에서 물체 접근 속도 closing0 계산 시, closing0 < 0인 물체의 지속 시간을 추적하는 변수 추가\\n2. _hold_release에서 d_thr >= _HOLD_ON 조건 외, closing0 < 0인 상태가 _RESUME_GO(0.8s) 이상 지속되면 재출발 허용\\n3. 재출발 시 _path_free 확인을 생략하고 즉시 v_nom, w_nom 적용\\n4. closing0 < 0 지속 시간 초기화 조건: 재출발 후 또는 물체 재접근 시\\n5. _ESC_CLOSE(0.05 m/s)는 유지하되, 재출발 조건 완화로 정지 빈도 감소\\n6. _RESUME_GO를 0.5s로 낮춰 빠른 재출발 지원\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 14}",
+ "table": [
+  {
+   "run": "c81t14_s621068068",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 247.4,
+   "stall_abort_t": null,
+   "progress_abort_t": 246.4,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 31,
+   "first_seen_within_2m_t": 241.45,
+   "goal_dist_m": 6.5341,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t14_s1717567879",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 352.6,
+   "sim_time_s": 117.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 111.62,
+   "goal_dist_m": 0.1963,
+   "time_to_goal_s": 113.683
+  },
+  {
+   "run": "c81t14_s1988683908",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 235.0,
+   "sim_time_s": 166.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 160.72,
+   "goal_dist_m": 0.2038,
+   "time_to_goal_s": 162.7
+  },
+  {
+   "run": "c81t14_s748969119",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 68.4,
+   "sim_time_s": 69.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 63.42,
+   "goal_dist_m": 18.1963,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14. 이번 코드에서 이어 가려면 14 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

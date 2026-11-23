@@ -1,0 +1,136 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "3 실행 모두 'stall_abort'로 실패 (sim_time_s 69~88초), 최종 위치 31.9m 거리로 목표 미도달",
+   "로봇이 '정지' 상태에서 5초 간격 기록 시 움직이는 물체가 1.2~2.16m 거리로 접근 중 (last_5s 데이터)",
+   "모든 실행에서 'first_seen_within_2m_t' 이후 지속적 정지 발생 (예: 실행 1에서 82.72초 이후 60초 정지)",
+   "로봇이 물체 감지 시 2m 이내에서 무조건 정지 (zone 기반)하고 1초 대기 후 재감지하나, 물체가 접근 중이라 재진행 불가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "움직이는 물체가 2m 이내일 때 무조건 정지하는 것이 안전하다고 가정",
+    "holds": false,
+    "why": "실행 데이터에서 물체가 정지 중에도 접근 중 (거리 감소)하여 1초 대기 후에도 2m 이내 유지, 로봇이 계속 정지함"
+   },
+   {
+    "assumption": "정적 장애물(WAYPOINTS 경로)만 고려해도 동적 물체 회피 가능하다고 가정",
+    "holds": false,
+    "why": "실행 요약에서 'first_not_on_map' 시점이 경로 근처에서 발생하나, 로봇이 정지해 진행 불가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "거리 기반 정지 (고정 임계값)",
+    "turns": 2,
+    "result": "통과 0, 실패 3 (모든 실행에서 stall 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "움직이는 물체의 상대 속도/접근 방향을 고려해 정지 임계값 동적 조정",
+    "new_family": true,
+    "for": "물체가 접근 중일 때만 정지, 통과 시 감속으로 회피 가능하도록",
+    "risk": "속도 계산 오류 시 불필요 정지 또는 충돌 위험"
+   },
+   {
+    "idea": "2m 정지 조건 제거, 예측 안전 거리(_CLR_GO 기준)만으로 정지 판단",
+    "new_family": true,
+    "for": "불필요 정지 감소로 진행률 향상",
+    "risk": "물체 접근 시 예측 실패로 충돌 가능성"
+   },
+   {
+    "idea": "전방 90도 영역만 감지 대상으로 제한 (후방 물체 무시)",
+    "new_family": true,
+    "for": "후방 접근 물체로 인한 불필요한 정지 방지",
+    "risk": "로봇 회전 시 측면 물체 미감지로 충돌"
+   }
+  ],
+  "chosen": "전방 90도 영역만 감지 대상으로 제한 (후방 물체 무시) + 예측 안전 거리 기준 정지 판단 결합",
+  "target": "zone 계산 로직 및 정지 조건 수정 (lidar2d_points 처리 부분)",
+  "direction": "1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"stall\",\n  \"evidence\": [\n    \"3 실행 모두 'stall_abort'로 실패 (sim_time_s 69~88초), 최종 위치 31.9m 거리로 목표 미도달\",\n    \"로봇이 '정지' 상태에서 5초 간격 기록 시 움직이는 물체가 1.2~2.16m 거리로 접근 중 (last_5s 데이터)\",\n    \"모든 실행에서 'first_seen_within_2m_t' 이후 지속적 정지 발생 (예: 실행 1에서 82.72초 이후 60초 정지)\",\n    \"로봇이 물체 감지 시 2m 이내에서 무조건 정지 (zone 기반)하고 1초 대기 후 재감지하나, 물체가 접근 중이라 재진행 불가\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"움직이는 물체가 2m 이내일 때 무조건 정지하는 것이 안전하다고 가정\",\n      \"holds\": false,\n      \"why\": \"실행 데이터에서 물체가 정지 중에도 접근 중 (거리 감소)하여 1초 대기 후에도 2m 이내 유지, 로봇이 계속 정지함\"\n    },\n    {\n      \"assumption\": \"정적 장애물(WAYPOINTS 경로)만 고려해도 동적 물체 회피 가능하다고 가정\",\n      \"holds\": false,\n      \"why\": \"실행 요약에서 'first_not_on_map' 시점이 경로 근처에서 발생하나, 로봇이 정지해 진행 불가\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"거리 기반 정지 (고정 임계값)\",\n      \"turns\": 2,\n      \"result\": \"통과 0, 실패 3 (모든 실행에서 stall 발생)\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"움직이는 물체의 상대 속도/접근 방향을 고려해 정지 임계값 동적 조정\",\n      \"new_family\": true,\n      \"for\": \"물체가 접근 중일 때만 정지, 통과 시 감속으로 회피 가능하도록\",\n      \"risk\": \"속도 계산 오류 시 불필요 정지 또는 충돌 위험\"\n    },\n    {\n      \"idea\": \"2m 정지 조건 제거, 예측 안전 거리(_CLR_GO 기준)만으로 정지 판단\",\n      \"new_family\": true,\n      \"for\": \"불필요 정지 감소로 진행률 향상\",\n      \"risk\": \"물체 접근 시 예측 실패로 충돌 가능성\"\n    },\n    {\n      \"idea\": \"전방 90도 영역만 감지 대상으로 제한 (후방 물체 무시)\",\n      \"new_family\": true,\n      \"for\": \"후방 접근 물체로 인한 불필요한 정지 방지\",\n      \"risk\": \"로봇 회전 시 측면 물체 미감지로 충돌\"\n    }\n  ],\n  \"chosen\": \"전방 90도 영역만 감지 대상으로 제한 (후방 물체 무시) + 예측 안전 거리 기준 정지 판단 결합\",\n  \"target\": \"zone 계산 로직 및 정지 조건 수정 (lidar2d_points 처리 부분)\",\n  \"direction\": \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\",\n  \"confidence\": \"medium\"\n}",
+ "table": [
+  {
+   "run": "c8t1_s1673687014",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 87.9,
+   "stall_abort_t": 86.85,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 2,
+   "first_seen_within_2m_t": 82.72,
+   "goal_dist_m": 31.9149,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t1_s321034601",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 512.1,
+   "sim_time_s": 69.4,
+   "stall_abort_t": 68.4,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 63.45,
+   "goal_dist_m": 31.9615,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t1_s346148729",
+   "verdict": "fail",
+   "ended_by": "stall_abort",
+   "time_limit_s": 442.7,
+   "sim_time_s": 71.5,
+   "stall_abort_t": 70.48,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 1,
+   "first_seen_within_2m_t": 65.52,
+   "goal_dist_m": 31.9546,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": 2,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": "no_prior",
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

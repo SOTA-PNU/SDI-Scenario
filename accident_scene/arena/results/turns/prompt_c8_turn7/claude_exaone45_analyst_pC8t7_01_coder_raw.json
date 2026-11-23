@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 지난 시도는 충돌 없이 8개 중 7개를 통과했지만 시간 합계가 601 s로 한도를 넘었고, 원인은 잦은 감속·정지였습니다. 진단 1·2·4·5·6에 따라 `_HYST` 를 1.5에서 1.0으로, `_TTC_TRIG` 를 1.0에서 2.0 s로, `_ANCHOR_K` 를 10에서 15(앵커 예측 1.5 s)로, `_CLR_STOP` 을 0.20에서 0.25 m로, `_CLOSE_R` 을 1.5에서 2.0 m로 바꿨습니다. 진단 3에 따라 `_slow_cmd` 의 감속 임계값을 상대 접근 속도로 정합니다. 상대 접근 속도는 3 m 안 물체 점의 속도 U와 로봇 속도 v의 차이에서 구합니다. 물체가 다가오지 않으면 임계값을 0.75×`_CLR_GO` 로 낮춰 속도를 빨리 회복하고, 1 m/s로 다가오면 1.5×`_CLR_GO` 로 높여 더 일찍 감속합니다. 임계값의 하한은 `_CLR_STOP`(0.25 m)보다 크게 두었습니다. 그래서 감속 스케일이 1이 되었는데 바로 안전 검사에 걸려 정지하는 경우가 생기지 않습니다.\n\n```python\n_HYST = 1.0             # diagnosis 1: leave slow mode as soon as clr_all >= _CLR_GO (was 1.5)\n\n_TTC_TRIG = 2.0         # diagnosis 2: early evasion when the time to collision with a mover point is below 2.0 s (was 1.0)\n\n_ANCHOR_K = 15          # diagnosis 4: anchor penalty looks at the first 1.5 s of each candidate (was 1.0 s)\n\n_CLR_STOP = 0.25        # diagnosis 5: min predicted mover clearance for the scaled path / standing still (was 0.20)\n\n_CLOSE_R = 2.0          # diagnosis 6: stopped/resume closing-speed check covers movers within 2.0 m of the body (was 1.5)\n\n_SLOW_F_MIN = 0.75      # diagnosis 3: slow threshold factor when no mover is approaching (0.75 * _CLR_GO > _CLR_STOP)\n\n_SLOW_F_MAX = 1.5       # diagnosis 3: slow threshold factor for a mover approaching at _SLOW_APP_V or faster\n\n_SLOW_APP_V = 1.0       # diagnosis 3: relative approach speed [m/s] at which the factor reaches _SLOW_F_MAX\n\n\ndef _slow_cmd(pose, idx, v0, clr, P, U):\n    \"\"\"Diagnosis 3: follow the nominal path with the speed scaled by s = clr_all / go (0..1), where the threshold\n    go = _CLR_GO * f depends on the relative approach speed of movers within _EARLY_R (mover velocity U minus the\n    robot velocity v0 along its heading): f = _SLOW_F_MIN when nothing approaches, up to _SLOW_F_MAX when a mover\n    closes in at _SLOW_APP_V or faster.\n    The scaled path must be static-safe and keep >= _CLR_STOP from ALL mover points (front and back lidar);\n    otherwise the robot stops: returns (0.0, 0.0, True).\"\"\"\n    x, y, yaw = pose\n    rel = _closing_speed(P, U, pose, v0, _EARLY_R)\n    app = max(-rel, 0.0)\n    f = _clamp(_SLOW_F_MIN + (_SLOW_F_MAX - _SLOW_F_MIN) * app / _SLOW_APP_V, _SLOW_F_MIN, _SLOW_F_MAX)\n    go = _CLR_GO * f\n    s = _clamp(clr / go, 0.0, 1.0)\n    v, w, _ = _nominal_cmd(x, y, yaw, idx, s)\n    traj = _rollout_nominal(pose, idx, v0, s)\n    ok = (_static_clearance(traj[None, :_KS + 1])[0] >= 0.0\n          and _mover_clearance(traj[None], P, U)[0] >= _CLR_STOP)\n    if not ok:\n        return 0.0, 0.0, True\n    return v, w, False\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 26530,
+  "completion_tokens": 4589
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 40725,
+  "total_cost_usd": 0.304012,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4589,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 26528,
+    "webSearchRequests": 0,
+    "costUSD": 0.304012,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 3031,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 26528,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "ddcfb95f-07db-4496-bd78-4c37310155a8"
+ }
+}

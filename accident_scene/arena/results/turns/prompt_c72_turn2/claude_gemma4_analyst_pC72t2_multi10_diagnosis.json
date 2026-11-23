@@ -1,0 +1,239 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c72t2_s1779101981: t=17.8s에 물체가 -34°로 _CONE(±30°)를 벗어나자 v가 0.40에서 1.52m/s로 급가속, 이후 물체가 0.36m까지 접근했으나 감지 못하고 t=19.533s에 충돌",
+   "c72t2_s785776207: t=15.2s에 물체가 -33°로 _CONE를 벗어나자 v가 0.80에서 1.47m/s로 가속, 물체가 0.39m까지 접근했음에도 감지 없이 t=17.0s에 충돌"
+  ],
+  "assumptions": [
+   {
+    "assumption": "±30°의 좁은 감지 콘이 주행 경로상의 모든 충돌 위험 물체를 식별하기에 충분하다",
+    "holds": false,
+    "why": "물체가 약간만 측면으로 이동해 콘을 벗어나면 로봇이 즉시 최대 속도로 가속하여 충돌하는 사례가 반복됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "고정 콘 기반 감지 및 감속",
+    "turns": "2",
+    "result": "1턴(45°): 7/7 통과(느림), 2턴(30°): 8/10 통과(빠름, 충돌 발생)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_CONE를 60° 이상으로 크게 넓혀 측면 접근 물체까지 감지",
+    "new_family": false,
+    "for": "단순하며 구현이 쉬움",
+    "risk": "측면의 정적 장애물이나 멀리 있는 물체에 의해 불필요한 정지가 잦아질 수 있음"
+   },
+   {
+    "idea": "콘 감지와 별개로 로봇 전방의 일정 반경(예: 1.0m) 내 모든 물체를 감지하는 '근접 안전 구역' 도입",
+    "new_family": true,
+    "for": "각도와 상관없이 물리적으로 충돌 가능한 근거리 물체에 대해 확실한 제동 보장",
+    "risk": "근접 구역 설정값이 너무 크면 통로 주행 시 정체가 발생할 수 있음"
+   }
+  ],
+  "chosen": "근접 안전 구역 도입. 각도 기반의 원거리 감지와 거리 기반의 근거리 보호를 결합하여 안전성과 효율성을 동시에 잡을 수 있음",
+  "target": "_sense_movers",
+  "direction": "1. _CONE를 math.radians(45.0)로 다시 넓혀 일반적인 접근 감지 범위를 확보합니다. 2. _sense_movers 내에서 각도 조건과 상관없이 'x > 0 이고 거리 r < 1.0m'인 점들을 찾는 near_field 마스크를 생성합니다. 3. 기존의 cone 마스크와 near_field 마스크의 합집합(OR)을 사용하여 감지 대상 점(rc)을 선정합니다. 4. 이를 통해 물체가 콘을 벗어나더라도 1m 이내에 있으면 감속 및 정지 로직이 작동하게 합니다. 5. _STOP_RANGE, _SLOW_RANGE 및 Turn 2의 속도 식은 그대로 유지합니다.",
+  "confidence": "high",
+  "last_direction_ok": "no",
+  "base_turn": 2
+ },
+ "raw": "```json\n{\n \"failure_mode\": \"collision\",\n \"evidence\": [\n  \"c72t2_s1779101981: t=17.8s에 물체가 -34°로 _CONE(±30°)를 벗어나자 v가 0.40에서 1.52m/s로 급가속, 이후 물체가 0.36m까지 접근했으나 감지 못하고 t=19.533s에 충돌\",\n  \"c72t2_s785776207: t=15.2s에 물체가 -33°로 _CONE를 벗어나자 v가 0.80에서 1.47m/s로 가속, 물체가 0.39m까지 접근했음에도 감지 없이 t=17.0s에 충돌\"\n ],\n \"assumptions\": [\n  {\n   \"assumption\": \"±30°의 좁은 감지 콘이 주행 경로상의 모든 충돌 위험 물체를 식별하기에 충분하다\",\n   \"holds\": false,\n   \"why\": \"물체가 약간만 측면으로 이동해 콘을 벗어나면 로봇이 즉시 최대 속도로 가속하여 충돌하는 사례가 반복됨\"\n  }\n ],\n \"approach_families\": [\n  {\n   \"family\": \"고정 콘 기반 감지 및 감속\",\n   \"turns\": \"2\",\n   \"result\": \"1턴(45°): 7/7 통과(느림), 2턴(30°): 8/10 통과(빠름, 충돌 발생)\"\n  }\n ],\n \"candidates\": [\n  {\n   \"idea\": \"_CONE를 60° 이상으로 크게 넓혀 측면 접근 물체까지 감지\",\n   \"new_family\": false,\n   \"for\": \"단순하며 구현이 쉬움\",\n   \"risk\": \"측면의 정적 장애물이나 멀리 있는 물체에 의해 불필요한 정지가 잦아질 수 있음\"\n  },\n  {\n   \"idea\": \"콘 감지와 별개로 로봇 전방의 일정 반경(예: 1.0m) 내 모든 물체를 감지하는 '근접 안전 구역' 도입\",\n   \"new_family\": true,\n   \"for\": \"각도와 상관없이 물리적으로 충돌 가능한 근거리 물체에 대해 확실한 제동 보장\",\n   \"risk\": \"근접 구역 설정값이 너무 크면 통로 주행 시 정체가 발생할 수 있음\"\n  }\n ],\n \"chosen\": \"근접 안전 구역 도입. 각도 기반의 원거리 감지와 거리 기반의 근거리 보호를 결합하여 안전성과 효율성을 동시에 잡을 수 있음\",\n \"target\": \"_sense_movers\",\n \"direction\": \"1. _CONE를 math.radians(45.0)로 다시 넓혀 일반적인 접근 감지 범위를 확보합니다. 2. _sense_movers 내에서 각도 조건과 상관없이 'x > 0 이고 거리 r < 1.0m'인 점들을 찾는 near_field 마스크를 생성합니다. 3. 기존의 cone 마스크와 near_field 마스크의 합집합(OR)을 사용하여 감지 대상 점(rc)을 선정합니다. 4. 이를 통해 물체가 콘을 벗어나더라도 1m 이내에 있으면 감속 및 정지 로직이 작동하게 합니다. 5. _STOP_RANGE, _SLOW_RANGE 및 Turn 2의 속도 식은 그대로 유지합니다.\",\n \"confidence\": \"high\",\n \"last_direction_ok\": \"no\",\n \"base_turn\": 2\n}\n```",
+ "table": [
+  {
+   "run": "c72t2_s1329422257",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 47.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 41.95,
+   "goal_dist_m": 0.3947,
+   "time_to_goal_s": 43.967
+  },
+  {
+   "run": "c72t2_s1442415694",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 552.1,
+   "sim_time_s": 49.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 43.45,
+   "goal_dist_m": 0.3847,
+   "time_to_goal_s": 45.417
+  },
+  {
+   "run": "c72t2_s893442680",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 502.7,
+   "sim_time_s": 51.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 45.95,
+   "goal_dist_m": 0.3564,
+   "time_to_goal_s": 47.933
+  },
+  {
+   "run": "c72t2_s1866624629",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 450.8,
+   "sim_time_s": 54.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 48.95,
+   "goal_dist_m": 0.3593,
+   "time_to_goal_s": 50.95
+  },
+  {
+   "run": "c72t2_s1779101981",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 395.9,
+   "sim_time_s": 25.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 19.533,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.52m/s",
+   "partner_rel_xy": [
+    -0.56,
+    -0.48
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 16.87,
+   "goal_dist_m": 17.4928,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c72t2_s785776207",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 370.3,
+   "sim_time_s": 23.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 17.0,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 1.47m/s",
+   "partner_rel_xy": [
+    -0.68,
+    -0.47
+   ],
+   "closing_m_s": 0.38,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 15.02,
+   "goal_dist_m": 16.6291,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c72t2_s1334262190",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 347.3,
+   "sim_time_s": 50.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 44.32,
+   "goal_dist_m": 0.3636,
+   "time_to_goal_s": 46.283
+  },
+  {
+   "run": "c72t2_s137737530",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 297.1,
+   "sim_time_s": 46.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 40.52,
+   "goal_dist_m": 0.3576,
+   "time_to_goal_s": 42.55
+  },
+  {
+   "run": "c72t2_s1560489745",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 250.5,
+   "sim_time_s": 51.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 45.45,
+   "goal_dist_m": 0.3856,
+   "time_to_goal_s": 47.483
+  },
+  {
+   "run": "c72t2_s1561124970",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 199.1,
+   "sim_time_s": 59.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 53.93,
+   "goal_dist_m": 0.3959,
+   "time_to_goal_s": 55.983
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

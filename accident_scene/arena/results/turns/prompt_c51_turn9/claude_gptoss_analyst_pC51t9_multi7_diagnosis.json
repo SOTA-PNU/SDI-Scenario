@@ -1,0 +1,250 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t9_s232831424: t=5.65 s 충돌, mover_00와 0.68 m/s 전진 중, 물체가 t=0.72 s에 1.71 m 거리에서 감지됨(첫_2m=0.72 s)",
+   "c51t9_s859858133: t=9.8 s 충돌, mover_00와 0.69 m/s 전진+회전, 물체가 t=4.82 s에 1.4 m 거리에서 감지됨",
+   "c51t9_s1027347322: t=54.667 s 충돌, mover_03와 0.52 m/s 전진, 물체가 t=53.52 s에 0.89 m 거리에서 감지됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "2D 라이다가 8 m 이내의 움직이는 물체를 정확히 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록에서 물체가 0.7~5 s 내에 2 m 이내에서 처음 관측됨"
+   },
+   {
+    "assumption": "_SAFE=0.25 m 여유가 충돌 방지에 충분하다",
+    "holds": false,
+    "why": "충돌이 발생했으며 현재 거리와 안전여유가 0.25 m 이하였음에도 회피가 이루어지지 않음"
+   },
+   {
+    "assumption": "_TAU=0.30 s 의 응답 지연 보정으로 현재 속도로 충분히 정지할 수 있다",
+    "holds": false,
+    "why": "0.68 m/s 속도에서 정지 거리가 약 0.77 m(감속 0.5 m/s² 가정)보다 작아 충돌이 발생함"
+   },
+   {
+    "assumption": "speed_factor 최소 0.15배는 충돌을 방지하기에 충분하다",
+    "holds": false,
+    "why": "스케일링 후에도 0.1~0.2 m/s 정도로 이동해 물체와 충돌함"
+   },
+   {
+    "assumption": "이동 물체의 속도는 2 m/s 이하이며 선형 예측이 정확하다",
+    "holds": true,
+    "why": "관측된 상대 속도는 약 0.3~0.5 m/s이며 선형 외삽이 크게 오차를 보이지 않음"
+   },
+   {
+    "assumption": "정적 지도와 클러스터링이 정확히 구분된다",
+    "holds": true,
+    "why": "static 검증에서 false positive가 보고되지 않았음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "state machine with stop/detour",
+    "turns": "1,3,5,8",
+    "result": "36/39 passes (turn 8 9/9 perfect)"
+   },
+   {
+    "family": "pure candidate evaluation without stop",
+    "turns": "2",
+    "result": "0/3 passes (stall)"
+   },
+   {
+    "family": "danger zone speed scaling",
+    "turns": "4",
+    "result": "6/8 passes (1 collision, 1 time limit)"
+   },
+   {
+    "family": "velocity‑obstacle safe velocities",
+    "turns": "6",
+    "result": "7/8 passes (1 time limit)"
+   },
+   {
+    "family": "extended TTC horizon",
+    "turns": "7",
+    "result": "8/10 passes (2 collisions)"
+   },
+   {
+    "family": "increased STOP_D with stop/detour",
+    "turns": "8",
+    "result": "9/9 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "state machine 재도입: 기존 stop/detour 로직을 복구하고 _STOP_D=1.5, _STOP_WAIT=2.0 유지, go 상태에서 기존 TTC 기반 속도 스케일링 적용",
+    "new_family": false,
+    "for": "turn 8에서 충돌 없이 9/9 통과한 검증된 방법",
+    "risk": "정지·회전 구간이 늘어나 시뮬 시간 초과 가능성"
+   },
+   {
+    "idea": "동적 제동 거리 검사 추가: 현재 속도 v와 감속 한계 a_max=0.5 m/s² 로 정지 거리 d_stop=v²/(2a_max) 계산, 물체와 거리 < d_stop+_SAFE+_MOVER_R이면 즉시 정지 후 회피",
+    "new_family": true,
+    "for": "물리적 제동 거리를 보장해 충돌을 사전에 차단",
+    "risk": "과도한 정지로 전체 실행 시간이 늘어나 타임리밋 초과 위험"
+   },
+   {
+    "idea": "안전 여유 확대: _SAFE를 0.5 m, _SAFE_GO를 0.8 m 로 증가하고 _TTC_H를 2.0 s 로 연장, 속도 스케일링 하한을 0.1로 낮춤",
+    "new_family": false,
+    "for": "충돌 회피 여유 시간을 늘려 안전성 향상",
+    "risk": "속도 감소가 누적돼 평균 목표 도달 시간이 증가"
+   }
+  ],
+  "chosen": "정지 상태를 없애고 gap < _STOP_D 일 때 바로 회피(detour) 로 전환해 정지·대기 시간을 없애고 실행 시간을 단축한다.",
+  "target": "controller 함수 내 상태 전환 로직 (c.state, c.stop_t, c.detour_t, c.detour_w) 및 _STOP_WAIT 상수",
+  "direction": "1. _STOP_WAIT 값을 0.5 로 줄여 정지 대기 시간을 최소화한다. 2. controller 내부에서 `if c.state == \"go\":` 블록을 수정한다: `if gap < _STOP_D:` 에서 `c.state, c.detour_t = \"detour\", t` 로 바꾸고 `c.detour_w = _detour_side(pose)` 를 설정한다. 3. 위 조건에서 바로 회전 명령 `cmd = (0.0, c.detour_w)` 를 안전 검사 `_is_safe` 와 `_static_ok` 로 확인하고 안전하면 `return cmd[0], cmd[1], False` 로 반환한다. 4. 기존 `c.state = \"stop\"` 로 전환하는 코드를 삭제하거나 주석 처리해 정지 상태가 발생하지 않도록 한다. 5. 이후 `if c.state == \"stop\":` 블록은 그대로 두되, 실제로는 호출되지 않으므로 무시된다. 6. 나머지 로직(resume 조건, detour 진행, _evade 호출)은 그대로 유지해 기존 안전 검증과 회피 행동을 보존한다.",
+  "confidence": "high",
+  "last_direction_ok": "no: 이번 턴(9)에서는 정지·우회 상태머신을 제거해 충돌 3건 발생, 통과율 4/7 로 이전 9/9 대비 악화됨",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "Candidate A(정지·우회 상태머신 복구)를 선택한다. 기존에 검증된 turn 8 방식이 충돌을 완전히 방지했으며, 현재 코드에 최소한의 변경만으로 복구 가능하기 때문이다.",
+   "target": "controller 함수와 상태 변수(c.state, c.stop_t, c.detour_t, c.detour_w) 및 stop/detour 로직",
+   "direction": "controller 내부에 c.state를 추가하고 초기값을 \"go\" 로 설정한다. 전방 라이다와 클러스터링 결과를 이용해 앞 ±30° 구역의 최소 거리 gap을 계산하고 gap < _STOP_D이면 c.state를 \"stop\" 으로 전환해 stop_t = t 로 기록한다. stop 상태에서 gap >= _GO_D이면 stop_t를 0 으로 초기화하고 c.state를 \"go\" 로 복귀하며, stop이 _STOP_WAIT 초 이상 지속되면 c.state를 \"detour\" 로 바꾸고 detour_w = _detour_side(pose) 로 회전 방향을 정한다. detour 상태에서는 회전 명령 w = detour_w 로 실행하고 detour_t를 증가시키며 detour_t > _DETOUR_T 가 되면 다시 \"go\" 로 전환한다. go 상태에서는 기존 waypoint 추종 및 TTC 기반 속도 스케일링 로직을 그대로 유지한다. 모든 상태 전환 시 _is_safe 검사를 통해 현재 명령이 안전한지 확인하고, 안전하지 않으면 _evade 로 회피 명령을 사용한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t9_s232831424: t=5.65 s 충돌, mover_00와 0.68 m/s 전진 중, 물체가 t=0.72 s에 1.71 m 거리에서 감지됨(첫_2m=0.72 s)\",\n    \"c51t9_s859858133: t=9.8 s 충돌, mover_00와 0.69 m/s 전진+회전, 물체가 t=4.82 s에 1.4 m 거리에서 감지됨\",\n    \"c51t9_s1027347322: t=54.667 s 충돌, mover_03와 0.52 m/s 전진, 물체가 t=53.52 s에 0.89 m 거리에서 감지됨\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"2D 라이다가 8 m 이내의 움직이는 물체를 정확히 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록에서 물체가 0.7~5 s 내에 2 m 이내에서 처음 관측됨\"\n    },\n    {\n      \"assumption\": \"_SAFE=0.25 m 여유가 충돌 방지에 충분하다\",\n      \"holds\": false,\n      \"why\": \"충돌이 발생했으며 현재 거리와 안전여유가 0.25 m 이하였음에도 회피가 이루어지지 않음\"\n    },\n    {\n      \"assumption\": \"_TAU=0.30 s 의 응답 지연 보정으로 현재 속도로 충분히 정지할 수 있다\",\n      \"holds\": false,\n      \"why\": \"0.68 m/s 속도에서 정지 거리가 약 0.77 m(감속 0.5 m/s² 가정)보다 작아 충돌이 발생함\"\n    },\n    {\n      \"assumption\": \"speed_factor 최소 0.15배는 충돌을 방지하기에 충분하다\",\n      \"holds\": false,\n      \"why\": \"스케일링 후에도 0.1~0.2 m/s 정도로 이동해 물체와 충돌함\"\n    },\n    {\n      \"assumption\": \"이동 물체의 속도는 2 m/s 이하이며 선형 예측이 정확하다\",\n      \"holds\": true,\n      \"why\": \"관측된 상대 속도는 약 0.3~0.5 m/s이며 선형 외삽이 크게 오차를 보이지 않음\"\n    },\n    {\n      \"assumption\": \"정적 지도와 클러스터링이 정확히 구분된다\",\n      \"holds\": true,\n      \"why\": \"static 검증에서 false positive가 보고되지 않았음\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"state machine with stop/detour\",\n      \"turns\": \"1,3,5,8\",\n      \"result\": \"36/39 passes (turn 8 9/9 perfect)\"\n    },\n    {\n      \"family\": \"pure candidate evaluation without stop\",\n      \"turns\": \"2\",\n      \"result\": \"0/3 passes (stall)\"\n    },\n    {\n      \"family\": \"danger zone speed scaling\",\n      \"turns\": \"4\",\n      \"result\": \"6/8 passes (1 collision, 1 time limit)\"\n    },\n    {\n      \"family\": \"velocity‑obstacle safe velocities\",\n      \"turns\": \"6\",\n      \"result\": \"7/8 passes (1 time limit)\"\n    },\n    {\n      \"family\": \"extended TTC horizon\",\n      \"turns\": \"7\",\n      \"result\": \"8/10 passes (2 collisions)\"\n    },\n    {\n      \"family\": \"increased STOP_D with stop/detour\",\n      \"turns\": \"8\",\n      \"result\": \"9/9 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"state machine 재도입: 기존 stop/detour 로직을 복구하고 _STOP_D=1.5, _STOP_WAIT=2.0 유지, go 상태에서 기존 TTC 기반 속도 스케일링 적용\",\n      \"new_family\": false,\n      \"for\": \"turn 8에서 충돌 없이 9/9 통과한 검증된 방법\",\n      \"risk\": \"정지·회전 구간이 늘어나 시뮬 시간 초과 가능성\"\n    },\n    {\n      \"idea\": \"동적 제동 거리 검사 추가: 현재 속도 v와 감속 한계 a_max=0.5 m/s² 로 정지 거리 d_stop=v²/(2a_max) 계산, 물체와 거리 < d_stop+_SAFE+_MOVER_R이면 즉시 정지 후 회피\",\n      \"new_family\": true,\n      \"for\": \"물리적 제동 거리를 보장해 충돌을 사전에 차단\",\n      \"risk\": \"과도한 정지로 전체 실행 시간이 늘어나 타임리밋 초과 위험\"\n    },\n    {\n      \"idea\": \"안전 여유 확대: _SAFE를 0.5 m, _SAFE_GO를 0.8 m 로 증가하고 _TTC_H를 2.0 s 로 연장, 속도 스케일링 하한을 0.1로 낮춤\",\n      \"new_family\": false,\n      \"for\": \"충돌 회피 여유 시간을 늘려 안전성 향상\",\n      \"risk\": \"속도 감소가 누적돼 평균 목표 도달 시간이 증가\"\n    }\n  ],\n  \"chosen\": \"Candidate A(정지·우회 상태머신 복구)를 선택한다. 기존에 검증된 turn 8 방식이 충돌을 완전히 방지했으며, 현재 코드에 최소한의 변경만으로 복구 가능하기 때문이다.\",\n  \"target\": \"controller 함수와 상태 변수(c.state, c.stop_t, c.detour_t, c.detour_w) 및 stop/detour 로직\",\n  \"direction\": \"controller 내부에 c.state를 추가하고 초기값을 \\\"go\\\" 로 설정한다. 전방 라이다와 클러스터링 결과를 이용해 앞 ±30° 구역의 최소 거리 gap을 계산하고 gap < _STOP_D이면 c.state를 \\\"stop\\\" 으로 전환해 stop_t = t 로 기록한다. stop 상태에서 gap >= _GO_D이면 stop_t를 0 으로 초기화하고 c.state를 \\\"go\\\" 로 복귀하며, stop이 _STOP_WAIT 초 이상 지속되면 c.state를 \\\"detour\\\" 로 바꾸고 detour_w = _detour_side(pose) 로 회전 방향을 정한다. detour 상태에서는 회전 명령 w = detour_w 로 실행하고 detour_t를 증가시키며 detour_t > _DETOUR_T 가 되면 다시 \\\"go\\\" 로 전환한다. go 상태에서는 기존 waypoint 추종 및 TTC 기반 속도 스케일링 로직을 그대로 유지한다. 모든 상태 전환 시 _is_safe 검사를 통해 현재 명령이 안전한지 확인하고, 안전하지 않으면 _evade 로 회피 명령을 사용한다.\",\n  \"confidence\": \"high\",\n  \"last_direction_ok\": \"no: 이번 턴(9)에서는 정지·우회 상태머신을 제거해 충돌 3건 발생, 통과율 4/7 로 이전 9/9 대비 악화됨\",\n  \"base_turn\": 8\n}",
+ "table": [
+  {
+   "run": "c51t9_s821138568",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 58.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 52.75,
+   "goal_dist_m": 0.2289,
+   "time_to_goal_s": 54.783
+  },
+  {
+   "run": "c51t9_s1168757480",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 541.2,
+   "sim_time_s": 52.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 45.95,
+   "goal_dist_m": 0.1981,
+   "time_to_goal_s": 48.0
+  },
+  {
+   "run": "c51t9_s37654369",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 489.3,
+   "sim_time_s": 56.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 50.75,
+   "goal_dist_m": 0.2253,
+   "time_to_goal_s": 52.85
+  },
+  {
+   "run": "c51t9_s1301877429",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 432.6,
+   "sim_time_s": 55.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 48.95,
+   "goal_dist_m": 0.2242,
+   "time_to_goal_s": 51.05
+  },
+  {
+   "run": "c51t9_s232831424",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 377.6,
+   "sim_time_s": 11.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 5.65,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.68m/s",
+   "partner_rel_xy": [
+    0.46,
+    0.47
+   ],
+   "closing_m_s": -0.36,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 0.72,
+   "goal_dist_m": 29.7429,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t9_s859858133",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 366.0,
+   "sim_time_s": 15.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 9.8,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.69m/s 회전 +0.3",
+   "partner_rel_xy": [
+    0.39,
+    0.46
+   ],
+   "closing_m_s": -0.28,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 4.82,
+   "goal_dist_m": 29.4185,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t9_s1027347322",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 350.2,
+   "sim_time_s": 60.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 54.667,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.52m/s",
+   "partner_rel_xy": [
+    0.4,
+    -0.44
+   ],
+   "closing_m_s": -0.3,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 50.72,
+   "goal_dist_m": 0.2313,
+   "time_to_goal_s": 59.05
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

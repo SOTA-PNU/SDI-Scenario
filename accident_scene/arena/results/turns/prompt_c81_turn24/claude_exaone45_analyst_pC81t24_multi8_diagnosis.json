@@ -1,0 +1,211 @@
+{
+ "diagnosis": {
+  "failure_mode": "time_limit",
+  "evidence": [
+   "실패 실행(c81t24_s802000508)에서 시간 제한으로 실패, 목표까지 거리 7.97m",
+   "여러 실행에서 정지/제자리 회전 횟수가 많음(예: 29회)",
+   "통과 실행 평균 시간 70~92초로 10개 실행 평균 60초 이하 요구에 미달"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇은 recede 상태에서 재출발하도록 설계됨",
+    "holds": true,
+    "why": "여러 실행에서 recede가 기록되지만 재출발 조건이 엄격해 정지 기간이 길어짐"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 기반 정지 및 recede 조건 조정",
+    "turns": "1~23",
+    "result": "통과 수 4~7, 실패 유형 collision/time_limit 혼합"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 후 재출발 시 _path_free 확인 생략하고 즉시 재출발 허용",
+    "new_family": true,
+    "for": "recede 상태가 지속되면 경로에 장애물이 없을 가능성이 높으므로 재출발 지연 감소",
+    "risk": "정지 중 다른 물체 접근 시 충돌 가능"
+   },
+   {
+    "idea": "recede 조건 완화 (시간 또는 거리 조건 완화)",
+    "new_family": true,
+    "for": "정지 기간 단축으로 시간 초과 방지",
+    "risk": "재출발 시 물체와 충돌 가능성 증가"
+   },
+   {
+    "idea": "_HOLD_ON 낮추어 조기 정지 방지",
+    "new_family": false,
+    "for": "불필요한 정지로 시간 단축",
+    "risk": "충돌 위험 증가"
+   }
+  ],
+  "chosen": "정지 후 재출발 시 _path_free 확인 생략이 시간 단축에 가장 직접적이고, recede 상태 유지 시 충돌 위험이 낮을 것이라 판단",
+  "target": "controller 내 정지 해제 로직 (released from hold)",
+  "direction": "정지 상태 H에서 재출발 조건 검사 시 _path_free 확인을 생략하고, recede 지속 시간 또는 거리 증가 조건 중 하나만 만족하면 즉시 v_nom, w_nom 적용. 단, 정지 중 물체 접근 속도 closing0 > 0.05인 경우는 예외로 유지.",
+  "confidence": "medium",
+  "last_direction_ok": "no, 직전 지시(23턴)는 통과 수를 7에서 6으로 줄였고, 여전히 시간 제한 실패 발생",
+  "base_turn": 24
+ },
+ "raw": "\n\n{\"failure_mode\": \"time_limit\",\n \"evidence\": [\"실패 실행(c81t24_s802000508)에서 시간 제한으로 실패, 목표까지 거리 7.97m\", \"여러 실행에서 정지/제자리 회전 횟수가 많음(예: 29회)\", \"통과 실행 평균 시간 70~92초로 10개 실행 평균 60초 이하 요구에 미달\"],\n \"assumptions\": [{\"assumption\": \"로봇은 recede 상태에서 재출발하도록 설계됨\", \"holds\": true, \"why\": \"여러 실행에서 recede가 기록되지만 재출발 조건이 엄격해 정지 기간이 길어짐\"}],\n \"approach_families\": [{\"family\": \"MTC 기반 정지 및 recede 조건 조정\", \"turns\": \"1~23\", \"result\": \"통과 수 4~7, 실패 유형 collision/time_limit 혼합\"}],\n \"candidates\": [{\"idea\": \"정지 후 재출발 시 _path_free 확인 생략하고 즉시 재출발 허용\", \"new_family\": true, \"for\": \"recede 상태가 지속되면 경로에 장애물이 없을 가능성이 높으므로 재출발 지연 감소\", \"risk\": \"정지 중 다른 물체 접근 시 충돌 가능\"}, {\"idea\": \"recede 조건 완화 (시간 또는 거리 조건 완화)\", \"new_family\": true, \"for\": \"정지 기간 단축으로 시간 초과 방지\", \"risk\": \"재출발 시 물체와 충돌 가능성 증가\"}, {\"idea\": \"_HOLD_ON 낮추어 조기 정지 방지\", \"new_family\": false, \"for\": \"불필요한 정지로 시간 단축\", \"risk\": \"충돌 위험 증가\"}],\n \"chosen\": \"정지 후 재출발 시 _path_free 확인 생략이 시간 단축에 가장 직접적이고, recede 상태 유지 시 충돌 위험이 낮을 것이라 판단\",\n \"target\": \"controller 내 정지 해제 로직 (released from hold)\",\n \"direction\": \"정지 상태 H에서 재출발 조건 검사 시 _path_free 확인을 생략하고, recede 지속 시간 또는 거리 증가 조건 중 하나만 만족하면 즉시 v_nom, w_nom 적용. 단, 정지 중 물체 접근 속도 closing0 > 0.05인 경우는 예외로 유지.\",\n \"confidence\": \"medium\",\n \"last_direction_ok\": \"no, 직전 지시(23턴)는 통과 수를 7에서 6으로 줄였고, 여전히 시간 제한 실패 발생\",\n \"base_turn\": 24}",
+ "table": [
+  {
+   "run": "c81t24_s1874867438",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 70.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 64.85,
+   "goal_dist_m": 0.2206,
+   "time_to_goal_s": 66.933
+  },
+  {
+   "run": "c81t24_s1957954241",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 529.2,
+   "sim_time_s": 66.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 60.15,
+   "goal_dist_m": 0.2307,
+   "time_to_goal_s": 62.25
+  },
+  {
+   "run": "c81t24_s1860412107",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 463.0,
+   "sim_time_s": 84.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 78.32,
+   "goal_dist_m": 0.2039,
+   "time_to_goal_s": 80.383
+  },
+  {
+   "run": "c81t24_s685946023",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 378.7,
+   "sim_time_s": 87.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 81.45,
+   "goal_dist_m": 0.2212,
+   "time_to_goal_s": 83.467
+  },
+  {
+   "run": "c81t24_s589906037",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 291.4,
+   "sim_time_s": 68.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 63.02,
+   "goal_dist_m": 0.2204,
+   "time_to_goal_s": 65.017
+  },
+  {
+   "run": "c81t24_s707730953",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 222.4,
+   "sim_time_s": 65.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 59.75,
+   "goal_dist_m": 0.1965,
+   "time_to_goal_s": 61.783
+  },
+  {
+   "run": "c81t24_s1550686028",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 156.8,
+   "sim_time_s": 92.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 29,
+   "first_seen_within_2m_t": 86.52,
+   "goal_dist_m": 0.23,
+   "time_to_goal_s": 88.55
+  },
+  {
+   "run": "c81t24_s802000508",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 64.3,
+   "sim_time_s": 65.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 59.32,
+   "goal_dist_m": 7.9747,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24. 이번 코드에서 이어 가려면 24 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

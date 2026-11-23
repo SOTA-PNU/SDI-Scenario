@@ -1,0 +1,198 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision|stall",
+  "evidence": [
+   "collision at t=114.1s with closing speed 0.37 m/s despite _ESC_CLOSE=0.1",
+   "timeout at t=79.3s due to 5s+ stop after mover passed (distance increased but robot never resumed)",
+   "multiple runs show stop durations > _HOLD_MIN=0.8s with approaching objects (e.g., c81t12_s734212318: closing_m_s=0.37 while stopped)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "MTC threshold _HOLD_ON=1.5s prevents collisions by stopping before threat closes",
+    "holds": false,
+    "why": "Collision occurred with closing speed 0.37 m/s (MTC ~5.7s) while robot kept moving"
+   },
+   {
+    "assumption": "d_thr is recalculated when objects move away to allow resuming",
+    "holds": false,
+    "why": "Timeout run shows robot stayed stopped for 5s+ after mover passed (closing speed became negative but d_thr never updated)"
+   },
+   {
+    "assumption": "approach > _ESC_CLOSE triggers immediate escape during hold",
+    "holds": false,
+    "why": "Collision run had approach=0.37 m/s (>0.1) but robot didn't escape, continued moving until impact"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "parameter tuning",
+    "turns": "11",
+    "result": "7/8 pass, 1 timeout"
+   },
+   {
+    "family": "MTC logic refinement",
+    "turns": "8-12",
+    "result": "mixed results with persistent timeout/collision"
+   },
+   {
+    "family": "static threshold adjustments",
+    "turns": "0-7",
+    "result": "high failure rates (e.g., turn 2: 0/3 pass)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "add timer-based resumption: resume if no approaching objects (closing ≤ 0) for 2s",
+    "new_family": true,
+    "for": "addresses timeout by letting robot resume after mover passes",
+    "risk": "may resume too early if mover loops back quickly"
+   },
+   {
+    "idea": "use closing speed sign duration: resume when closing ≤ 0 for 1.5s",
+    "new_family": true,
+    "for": "avoids timeout while maintaining safety margin",
+    "risk": "sensitive to sensor noise causing false negatives"
+   },
+   {
+    "idea": "implement velocity-based safety margin: require d_thr > (closing_speed × 3.0)",
+    "new_family": true,
+    "for": "adapts threshold to threat speed (e.g., 0.37 m/s → 1.11s threshold)",
+    "risk": "computationally heavier but feasible with current sensors"
+   }
+  ],
+  "chosen": "timer-based resumption with closing speed sign duration (candidate 2) to address both timeout and collision by ensuring robot resumes only after verified threat clearance",
+  "target": "controller hold state logic and _hold_release condition",
+  "direction": "In _hold_release, require t - H['t0'] >= _HOLD_MIN AND (no objects with closing > 0.05 for last 1.5s) to resume; add closing_sign_timer tracking duration of negative closing speeds; update d_thr calculation to consider only objects within 3m regardless of closing sign; set _HOLD_ON=2.0s to increase safety margin; ensure approach uses current closing (not closing0) during hold state; implement closing_sign_timer reset on new detections; set _ESC_CLOSE=0.25 m/s to reduce false escapes",
+  "confidence": "high",
+  "last_direction_ok": "no, 직전 지시로 통과 수 감소(7→4) 및 time_limit 실패 발생",
+  "base_turn": 12
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision|stall\", \"evidence\": [\"collision at t=114.1s with closing speed 0.37 m/s despite _ESC_CLOSE=0.1\", \"timeout at t=79.3s due to 5s+ stop after mover passed (distance increased but robot never resumed)\", \"multiple runs show stop durations > _HOLD_MIN=0.8s with approaching objects (e.g., c81t12_s734212318: closing_m_s=0.37 while stopped)\"], \"assumptions\": [{\"assumption\": \"MTC threshold _HOLD_ON=1.5s prevents collisions by stopping before threat closes\", \"holds\": false, \"why\": \"Collision occurred with closing speed 0.37 m/s (MTC ~5.7s) while robot kept moving\"}, {\"assumption\": \"d_thr is recalculated when objects move away to allow resuming\", \"holds\": false, \"why\": \"Timeout run shows robot stayed stopped for 5s+ after mover passed (closing speed became negative but d_thr never updated)\"}, {\"assumption\": \"approach > _ESC_CLOSE triggers immediate escape during hold\", \"holds\": false, \"why\": \"Collision run had approach=0.37 m/s (>0.1) but robot didn't escape, continued moving until impact\"}], \"approach_families\": [{\"family\": \"parameter tuning\", \"turns\": \"11\", \"result\": \"7/8 pass, 1 timeout\"}, {\"family\": \"MTC logic refinement\", \"turns\": \"8-12\", \"result\": \"mixed results with persistent timeout/collision\"}, {\"family\": \"static threshold adjustments\", \"turns\": \"0-7\", \"result\": \"high failure rates (e.g., turn 2: 0/3 pass)\"}], \"candidates\": [{\"idea\": \"add timer-based resumption: resume if no approaching objects (closing ≤ 0) for 2s\", \"new_family\": true, \"for\": \"addresses timeout by letting robot resume after mover passes\", \"risk\": \"may resume too early if mover loops back quickly\"}, {\"idea\": \"use closing speed sign duration: resume when closing ≤ 0 for 1.5s\", \"new_family\": true, \"for\": \"avoids timeout while maintaining safety margin\", \"risk\": \"sensitive to sensor noise causing false negatives\"}, {\"idea\": \"implement velocity-based safety margin: require d_thr > (closing_speed × 3.0)\", \"new_family\": true, \"for\": \"adapts threshold to threat speed (e.g., 0.37 m/s → 1.11s threshold)\", \"risk\": \"computationally heavier but feasible with current sensors\"}], \"chosen\": \"timer-based resumption with closing speed sign duration (candidate 2) to address both timeout and collision by ensuring robot resumes only after verified threat clearance\", \"target\": \"controller hold state logic and _hold_release condition\", \"direction\": \"In _hold_release, require t - H['t0'] >= _HOLD_MIN AND (no objects with closing > 0.05 for last 1.5s) to resume; add closing_sign_timer tracking duration of negative closing speeds; update d_thr calculation to consider only objects within 3m regardless of closing sign; set _HOLD_ON=2.0s to increase safety margin; ensure approach uses current closing (not closing0) during hold state; implement closing_sign_timer reset on new detections; set _ESC_CLOSE=0.25 m/s to reduce false escapes\", \"confidence\": \"high\", \"last_direction_ok\": \"no, 직전 지시로 통과 수 감소(7→4) 및 time_limit 실패 발생\", \"base_turn\": 12}",
+ "table": [
+  {
+   "run": "c81t12_s897746497",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 118.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 31,
+   "first_seen_within_2m_t": 112.62,
+   "goal_dist_m": 0.2203,
+   "time_to_goal_s": 114.717
+  },
+  {
+   "run": "c81t12_s89025828",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 481.4,
+   "sim_time_s": 88.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 82.45,
+   "goal_dist_m": 0.1992,
+   "time_to_goal_s": 84.55
+  },
+  {
+   "run": "c81t12_s734212318",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 392.9,
+   "sim_time_s": 120.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 114.1,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.59m/s",
+   "partner_rel_xy": [
+    0.43,
+    -0.54
+   ],
+   "closing_m_s": 0.37,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": 109.12,
+   "goal_dist_m": 6.0313,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t12_s1358146740",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 272.9,
+   "sim_time_s": 105.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 99.82,
+   "goal_dist_m": 0.201,
+   "time_to_goal_s": 101.867
+  },
+  {
+   "run": "c81t12_s1402663678",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 167.1,
+   "sim_time_s": 87.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 81.85,
+   "goal_dist_m": 0.2004,
+   "time_to_goal_s": 83.9
+  },
+  {
+   "run": "c81t12_s1913335647",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 79.3,
+   "sim_time_s": 80.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 78.95,
+   "goal_dist_m": 4.6995,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12. 이번 코드에서 이어 가려면 12 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,234 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 시 clr_min=0.36m (0.3m 초과) 이었으나 로봇 속도 0.52m/s 유지, _V_SLOW=0.2m/s 미달",
+   "여러 실행에서 clr_min 0.3~0.45m 구간에서 충돌 발생, MTC 기반 감속 미흡",
+   "closing_m_s=0.31m/s (>_CLOSE_MIN=0.2) 이나 d_thr=1.16s에서 속도 충분히 감소되지 않음"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 _STOP_CLR=0.3m 및 _HOLD_ON=1.0s 기준이 물체 접근 시 조기 대응에 부적절함",
+    "holds": true,
+    "why": "clr_min 0.36m에서 충돌 발생, _V_SLOW=0.2m/s 미달 속도 유지로 감속 지연"
+   },
+   {
+    "assumption": "MTC 기반 감속 구간(_SLOW_T=3.5s)이 d_thr 1~2s 구간에서 속도 감소를 충분히 유도하지 못함",
+    "holds": true,
+    "why": "d_thr=1.16s에서 k=(0.16)/2.5=0.064로 _V_SLOW(0.2) 미달 속도 발생"
+   },
+   {
+    "assumption": "정지 후 재출발 조건(clr_min>0.5m)이 물체 접근 중 재충돌 위험 증가시킴",
+    "holds": false,
+    "why": "clr_min 0.3~0.5m 구간에서 정지 지속 시 시간 초과 가능성(실행 8번 timeout)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정을 통한 조기 대응 강화",
+    "turns": "10, 11, 16, 19, 20",
+    "result": "통과 6/8, 실패 2/8 (collision 1, timeout 1)"
+   },
+   {
+    "family": "회피 트리거 조건 완화 (rollout 기준 변경)",
+    "turns": "11, 13, 15",
+    "result": "통과 4/6, 실패 2/6 (progress_abort 2, collision 1)"
+   },
+   {
+    "family": "MTC 계산 민감도 향상 (closing 가중치 조정)",
+    "turns": "5, 6, 17",
+    "result": "통과 7/7 (턴 7) → 4/6 (턴 9) 변동 심함"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_STOP_CLR을 0.25m로 낮추고, d_thr < 2.0s 구간에서 감속 강화",
+    "new_family": true,
+    "for": "clr_min 0.3~0.45m 구간 충돌 감소 및 조기 감속 유도",
+    "risk": "정지 빈도 증가로 인한 시간 초과 가능성"
+   },
+   {
+    "idea": "회피 트리거를 clr_min < 0.4m에서 활성화 (rollout < 0.3m 대신)",
+    "new_family": true,
+    "for": "물체 접근 초기 단계에서 회피 동작 조기 실행",
+    "risk": "정적 장애물과의 불필요한 충돌 위험"
+   },
+   {
+    "idea": "_HOLD_ON을 0.8s로 하향 및 _ESC_CLOSE를 0.1m/s로 완화",
+    "new_family": true,
+    "for": "물체 접근 속도 감지 민감도 향상으로 조기 대응",
+    "risk": "정적 장애물 간섭으로 인한 과도한 정지 유발"
+   }
+  ],
+  "chosen": "STOP_CLR을 0.25m로 낮추고 d_thr < 2.0s 구간에서 감속 강화하여 조기 대응 유도",
+  "target": "controller, _STOP_CLR, _HOLD_ON, _ESC_CLOSE, 회피 트리거 조건",
+  "direction": "1. _STOP_CLR을 0.25m로 설정해 0.25m 이내 물체에서 강제 정지\n2. d_thr < 2.0s일 때 k = (2.0 - d_thr) / 0.5 계산으로 감속 가속화\n3. clr_min < 0.4m 시 _escape_step 호출 (rollout 검사 이전 적용)\n4. _ESC_CLOSE를 0.1m/s로 낮춰 저속 접근 물체 감지 향상\n5. _HOLD_ON을 0.8s로 하향해 재출발 임계 완화\n6. clr_min < 0.4m 구간에서 w=0 강제 적용 (회전 금지 확대)",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 20
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\",\"evidence\": [\"충돌 시 clr_min=0.36m (0.3m 초과) 이었으나 로봇 속도 0.52m/s 유지, _V_SLOW=0.2m/s 미달\",\"여러 실행에서 clr_min 0.3~0.45m 구간에서 충돌 발생, MTC 기반 감속 미흡\",\"closing_m_s=0.31m/s (>_CLOSE_MIN=0.2) 이나 d_thr=1.16s에서 속도 충분히 감소되지 않음\"], \"assumptions\": [{\"assumption\": \"현재 _STOP_CLR=0.3m 및 _HOLD_ON=1.0s 기준이 물체 접근 시 조기 대응에 부적절함\",\"holds\": true, \"why\": \"clr_min 0.36m에서 충돌 발생, _V_SLOW=0.2m/s 미달 속도 유지로 감속 지연\"},{\"assumption\": \"MTC 기반 감속 구간(_SLOW_T=3.5s)이 d_thr 1~2s 구간에서 속도 감소를 충분히 유도하지 못함\",\"holds\": true, \"why\": \"d_thr=1.16s에서 k=(0.16)/2.5=0.064로 _V_SLOW(0.2) 미달 속도 발생\"},{\"assumption\": \"정지 후 재출발 조건(clr_min>0.5m)이 물체 접근 중 재충돌 위험 증가시킴\",\"holds\": false, \"why\": \"clr_min 0.3~0.5m 구간에서 정지 지속 시 시간 초과 가능성(실행 8번 timeout)\"}], \"approach_families\": [{\"family\": \"임계값 조정을 통한 조기 대응 강화\",\"turns\": \"10, 11, 16, 19, 20\",\"result\": \"통과 6/8, 실패 2/8 (collision 1, timeout 1)\"},{\"family\": \"회피 트리거 조건 완화 (rollout 기준 변경)\",\"turns\": \"11, 13, 15\",\"result\": \"통과 4/6, 실패 2/6 (progress_abort 2, collision 1)\"},{\"family\": \"MTC 계산 민감도 향상 (closing 가중치 조정)\",\"turns\": \"5, 6, 17\",\"result\": \"통과 7/7 (턴 7) → 4/6 (턴 9) 변동 심함\"}], \"candidates\": [{\"idea\": \"_STOP_CLR을 0.25m로 낮추고, d_thr < 2.0s 구간에서 감속 강화\",\"new_family\": true,\"for\": \"clr_min 0.3~0.45m 구간 충돌 감소 및 조기 감속 유도\",\"risk\": \"정지 빈도 증가로 인한 시간 초과 가능성\"},{\"idea\": \"회피 트리거를 clr_min < 0.4m에서 활성화 (rollout < 0.3m 대신)\",\"new_family\": true,\"for\": \"물체 접근 초기 단계에서 회피 동작 조기 실행\",\"risk\": \"정적 장애물과의 불필요한 충돌 위험\"},{\"idea\": \"_HOLD_ON을 0.8s로 하향 및 _ESC_CLOSE를 0.1m/s로 완화\",\"new_family\": true,\"for\": \"물체 접근 속도 감지 민감도 향상으로 조기 대응\",\"risk\": \"정적 장애물 간섭으로 인한 과도한 정지 유발\"}], \"chosen\": \"STOP_CLR을 0.25m로 낮추고 d_thr < 2.0s 구간에서 감속 강화하여 조기 대응 유도\", \"target\": \"controller, _STOP_CLR, _HOLD_ON, _ESC_CLOSE, 회피 트리거 조건\", \"direction\": \"1. _STOP_CLR을 0.25m로 설정해 0.25m 이내 물체에서 강제 정지\\n2. d_thr < 2.0s일 때 k = (2.0 - d_thr) / 0.5 계산으로 감속 가속화\\n3. clr_min < 0.4m 시 _escape_step 호출 (rollout 검사 이전 적용)\\n4. _ESC_CLOSE를 0.1m/s로 낮춰 저속 접근 물체 감지 향상\\n5. _HOLD_ON을 0.8s로 하향해 재출발 임계 완화\\n6. clr_min < 0.4m 구간에서 w=0 강제 적용 (회전 금지 확대)\", \"confidence\": \"medium\",\"last_direction_ok\": \"no\",\"base_turn\": 20}",
+ "table": [
+  {
+   "run": "c81t20_s2031808492",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 86.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": 80.65,
+   "goal_dist_m": 0.253,
+   "time_to_goal_s": 82.75
+  },
+  {
+   "run": "c81t20_s719721184",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 513.4,
+   "sim_time_s": 98.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 92.32,
+   "goal_dist_m": 0.2506,
+   "time_to_goal_s": 94.4
+  },
+  {
+   "run": "c81t20_s368885894",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 415.1,
+   "sim_time_s": 76.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 70.85,
+   "goal_dist_m": 0.2211,
+   "time_to_goal_s": 72.917
+  },
+  {
+   "run": "c81t20_s2004370851",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 338.3,
+   "sim_time_s": 85.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 79.22,
+   "goal_dist_m": 0.2246,
+   "time_to_goal_s": 81.3
+  },
+  {
+   "run": "c81t20_s1337354190",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 253.1,
+   "sim_time_s": 41.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 35.2,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    -0.69,
+    0.49
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 30.22,
+   "goal_dist_m": 29.7523,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t20_s49026120",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 211.9,
+   "sim_time_s": 71.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 65.05,
+   "goal_dist_m": 0.2049,
+   "time_to_goal_s": 67.033
+  },
+  {
+   "run": "c81t20_s1692348848",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 140.9,
+   "sim_time_s": 87.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 81.85,
+   "goal_dist_m": 0.1958,
+   "time_to_goal_s": 83.9
+  },
+  {
+   "run": "c81t20_s99814562",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 53.1,
+   "sim_time_s": 54.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 6.4149,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20. 이번 코드에서 이어 가려면 20 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

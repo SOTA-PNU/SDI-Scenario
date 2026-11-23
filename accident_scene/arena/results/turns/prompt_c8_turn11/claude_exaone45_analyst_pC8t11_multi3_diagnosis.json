@@ -1,0 +1,131 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "모든 실행에서 로봇이 주행 중 mover_01과 충돌 (partner: mover_01, robot_state: 주행 0.45~0.81m/s)",
+   "충돌 5초 전 nearest_not_on_map 거리 1.91m 이내 (first_seen_within_2m_t: 36.12s), closing_m_s 0.54~0.73m/s로 접근 중",
+   "로봇이 box_00 인근(-4.95, -0.9)에서 정지 없이 주행 중 충돌, static_clearance(st0) < 0.15m 구간에서 evasion 트리거 미발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "evasion 트리거에 static_clearance(st0) >= 0.15m 조건이 필수적이라 가정",
+    "holds": false,
+    "why": "box_00 인근 등 static_clearance가 낮은 구간에서도 moving object 접근 시 충돌 발생, st0 조건으로 인해 evasion이 아예 비활성화됨"
+   },
+   {
+    "assumption": "evasion 중 static_clearance 필터가 mover 회피에 방해되지 않는다고 가정",
+    "holds": false,
+    "why": "stc >= 0.15m 필터로 인해 회피 경로 선택 폭이 과도하게 제한되어 mover와의 거리 감소 시 정지 또는 충돌 유발"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": 11,
+    "result": "6/11 통과, 5/11 실패 (collision_driving 우세)"
+   },
+   {
+    "family": "TTC 기반 조기 회피 계열",
+    "turns": 6,
+    "result": "7/8 통과, 1/8 time_limit 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "evasion 트리거에서 static_clearance 조건(st0 >= _EV_ST_MIN) 제거 및 TTC만으로 트리거",
+    "new_family": true,
+    "for": "st0 < 0.15m 구간에서도 moving object 접근 시 즉시 evasion 활성화 필요",
+    "risk": "static_clearance가 극도로 낮은 구간에서 불필요한 evasion 발생 가능"
+   },
+   {
+    "idea": "evasion 중 mover_clearance(clr) 점수 가중치를 static_clearance(stc)보다 우선 적용",
+    "new_family": true,
+    "for": "narrow 통로에서 static_clearance 유지보다 mover 회피가 우선시되어야 함",
+    "risk": "static_clearance 급감으로 인한 정적 장애물 충돌 위험 증가"
+   },
+   {
+    "idea": "evasion 종료 조건에서 static_clearance(st_n) 요건을 완화하고 mover_clearance(clr) 충족 시 즉시 종료 허용",
+    "new_family": true,
+    "for": "st0 < 0.15m 구간에서 prolonged evasion으로 인한 time_limit 실패 방지",
+    "risk": "static_clearance 부족 상태에서 mover만 피하다가 정적 장애물 충돌 가능성"
+   }
+  ],
+  "chosen": "evasion 트리거에서 static_clearance 조건 제거 및 TTC만으로 트리거, evasion 중 mover_clearance 점수 가중치를 static_clearance보다 우선 적용",
+  "target": "controller 내 evasion 트리거 조건 및 _choose 함수의 evading=True 분기",
+  "direction": "1. evasion 트리거 조건에서 st0 >= _EV_ST_MIN 조건 제거 (ttc < _TTC_TRIG만으로 트리거). 2. _choose 함수의 evading=True 분기에서 mover_clearance(clr) 점수에 가중치 2.0 추가 및 static_clearance(stc) 점수 가중치 0.5로 감소. 3. evasion 중 허용 후보 필터링 시 stc >= _EV_ST_MIN 대신 clr >= _CLR_GO * 0.8 조건 적용. 4. evasion 종료 조건에서 static_clearance(st_n >= _RESUME_ST) 요건을 clr_all >= _CLR_GO * 1.1로 대체. 5. evasion 시작 시 현재 static_clearance가 낮은 경우 lateral movement(가속도 w) 보너스 점수 3.0 부여. 6. _EVADE_MAX 상한은 6s로 유지하되, mover_clearance가 지속적으로 개선되지 않을 경우 강제 종료 로직 추가.",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"모든 실행에서 로봇이 주행 중 mover_01과 충돌 (partner: mover_01, robot_state: 주행 0.45~0.81m/s)\", \"충돌 5초 전 nearest_not_on_map 거리 1.91m 이내 (first_seen_within_2m_t: 36.12s), closing_m_s 0.54~0.73m/s로 접근 중\", \"로봇이 box_00 인근(-4.95, -0.9)에서 정지 없이 주행 중 충돌, static_clearance(st0) < 0.15m 구간에서 evasion 트리거 미발생\"], \"assumptions\": [{\"assumption\": \"evasion 트리거에 static_clearance(st0) >= 0.15m 조건이 필수적이라 가정\", \"holds\": false, \"why\": \"box_00 인근 등 static_clearance가 낮은 구간에서도 moving object 접근 시 충돌 발생, st0 조건으로 인해 evasion이 아예 비활성화됨\"}, {\"assumption\": \"evasion 중 static_clearance 필터가 mover 회피에 방해되지 않는다고 가정\", \"holds\": false, \"why\": \"stc >= 0.15m 필터로 인해 회피 경로 선택 폭이 과도하게 제한되어 mover와의 거리 감소 시 정지 또는 충돌 유발\"}], \"approach_families\": [{\"family\": \"임계값 조정 계열\", \"turns\": 11, \"result\": \"6/11 통과, 5/11 실패 (collision_driving 우세)\"}, {\"family\": \"TTC 기반 조기 회피 계열\", \"turns\": 6, \"result\": \"7/8 통과, 1/8 time_limit 실패\"}], \"candidates\": [{\"idea\": \"evasion 트리거에서 static_clearance 조건(st0 >= _EV_ST_MIN) 제거 및 TTC만으로 트리거\", \"new_family\": true, \"for\": \"st0 < 0.15m 구간에서도 moving object 접근 시 즉시 evasion 활성화 필요\", \"risk\": \"static_clearance가 극도로 낮은 구간에서 불필요한 evasion 발생 가능\"}, {\"idea\": \"evasion 중 mover_clearance(clr) 점수 가중치를 static_clearance(stc)보다 우선 적용\", \"new_family\": true, \"for\": \"narrow 통로에서 static_clearance 유지보다 mover 회피가 우선시되어야 함\", \"risk\": \"static_clearance 급감으로 인한 정적 장애물 충돌 위험 증가\"}, {\"idea\": \"evasion 종료 조건에서 static_clearance(st_n) 요건을 완화하고 mover_clearance(clr) 충족 시 즉시 종료 허용\", \"new_family\": true, \"for\": \"st0 < 0.15m 구간에서 prolonged evasion으로 인한 time_limit 실패 방지\", \"risk\": \"static_clearance 부족 상태에서 mover만 피하다가 정적 장애물 충돌 가능성\"}], \"chosen\": \"evasion 트리거에서 static_clearance 조건 제거 및 TTC만으로 트리거, evasion 중 mover_clearance 점수 가중치를 static_clearance보다 우선 적용\", \"target\": \"controller 내 evasion 트리거 조건 및 _choose 함수의 evading=True 분기\", \"direction\": \"1. evasion 트리거 조건에서 st0 >= _EV_ST_MIN 조건 제거 (ttc < _TTC_TRIG만으로 트리거). 2. _choose 함수의 evading=True 분기에서 mover_clearance(clr) 점수에 가중치 2.0 추가 및 static_clearance(stc) 점수 가중치 0.5로 감소. 3. evasion 중 허용 후보 필터링 시 stc >= _EV_ST_MIN 대신 clr >= _CLR_GO * 0.8 조건 적용. 4. evasion 종료 조건에서 static_clearance(st_n >= _RESUME_ST) 요건을 clr_all >= _CLR_GO * 1.1로 대체. 5. evasion 시작 시 현재 static_clearance가 낮은 경우 lateral movement(가속도 w) 보너스 점수 3.0 부여. 6. _EVADE_MAX 상한은 6s로 유지하되, mover_clearance가 지속적으로 개선되지 않을 경우 강제 종료 로직 추가.\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t11_s1815091526",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 44.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 38.183,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.45m/s",
+   "partner_rel_xy": [
+    -0.1,
+    -0.55
+   ],
+   "closing_m_s": 0.73,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 36.12,
+   "goal_dist_m": 21.5792,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t11_s701629405",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 555.8,
+   "sim_time_s": 21.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 15.367,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s",
+   "partner_rel_xy": [
+    0.35,
+    -0.55
+   ],
+   "closing_m_s": 0.54,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 12.55,
+   "goal_dist_m": 22.3387,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t11_s1573132597",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 534.5,
+   "sim_time_s": 32.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 25.983,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.54m/s",
+   "partner_rel_xy": [
+    0.27,
+    -0.55
+   ],
+   "closing_m_s": 0.68,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 23.25,
+   "goal_dist_m": 22.3202,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

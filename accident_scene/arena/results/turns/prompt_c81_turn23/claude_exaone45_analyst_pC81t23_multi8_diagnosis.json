@@ -1,0 +1,246 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 실행(c81t23_s1574478275)에서 물체가 0.38m까지 접근했으나 _STOP_CLR(0.25m)를 초과하지 않아 정지하지 않음",
+   "시간 한도 초과 실행(c81t23_s623396788)에서 로봇이 정지 후 재출발 조건이 엄격해 오랫동안 정체됨",
+   "여러 실행에서 정지 횟수가 많고(15~21회), recede 상태가 _RESUME_GO(0.3s)보다 짧게 나타나 재출발이 지연됨"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇은 MTC가 _HOLD_ON(1.0s) 미만일 때 정지하고, recede 상태가 _RESUME_GO(0.3s) 이상 지속되면 재출발한다.",
+    "holds": false,
+    "why": "재출발 조건이 엄격해 재출발이 지연되고, 정지 횟수가 증가하여 시간 초과와 정체가 발생함"
+   },
+   {
+    "assumption": "_STOP_CLR(0.25m) 이내 물체에서 강제 정지한다.",
+    "holds": false,
+    "why": "충돌 실행에서 물체가 0.38m까지 접근했을 때 정지하지 않아 충돌 발생"
+   },
+   {
+    "assumption": "회피는 _ESC_CLR(0.4m) 이내에서 rollout 검사 이전에 트리거된다.",
+    "holds": true,
+    "why": "코드에서 해당 로직이 구현되어 있으나, 트리거 조건이 충족되지 않았거나 회피 효과가 미흡할 수 있음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 기반 정지/재출발 조정",
+    "turns": 23,
+    "result": "6 pass, 2 fail"
+   },
+   {
+    "family": "정지 임계값 조정",
+    "turns": 10,
+    "result": "혼합"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "재출발 조건 완화: _RESUME_GO 상향 및 거리 증가 추세 조건 추가",
+    "new_family": true,
+    "for": "정체 구간 감소로 평균 실행 시간 단축",
+    "risk": "조기 재출발로 충돌 가능성 증가"
+   },
+   {
+    "idea": "회피 로직 개선: rollout 예측 시간 증가 및 회피 후보 다양화",
+    "new_family": true,
+    "for": "정지 없이 회피하여 시간 절약 및 충돌 감소",
+    "risk": "계산 부하 증가 및 비효율적 회피 경로 선택"
+   },
+   {
+    "idea": "정지 임계값 하향: _STOP_CLR 0.2m로 조정",
+    "new_family": false,
+    "for": "조기 정지로 충돌 예방",
+    "risk": "정지 횟수 증가로 시간 초과 가능성"
+   }
+  ],
+  "chosen": "16턴 코드에 충돌 방지를 위한 즉시 정지 임계값 추가 및 재출발 조건 완화를 결합: clr_min < 0.3m 시 완전 정지, _HOLD_ON을 0.8s로 하향, _ESC_CLOSE를 0.1m/s로 상향, 재출발 대기 시간 단축",
+  "target": "_controller 함수 내 clr_min 처리 로직 및 하단 상수(_HOLD_ON, _ESC_CLOSE 등)",
+  "direction": "1. controller에서 clr_min 계산 후 'if clr_min < 0.3: v, w = 0.0, 0.0; elif clr_min < 0.35: w = 0.0' 추가해 근접 시 즉시 정지. 2. _HOLD_ON을 0.8s로 낮춰 MTC 기준 민감도 향상. 3. _ESC_CLOSE를 0.1m/s로 상향해 접근 속도 감지 개선. 4. _rollout 검사 임계값을 0.3→0.4m로 완화해 회피 조기 트리거. 5. _RESUME_GO를 0.5→0.3s로 단축해 재출발 대기 시간 감소. 6. 정지 중 재출발 시 _path_free 확인 생략 조건 유지하되, 거리 0.5m 이상 증가 시 자동 재개 허용.",
+  "confidence": "medium",
+  "last_direction_ok": "unclear - 통과 수는 유지되었으나 실패 유형이 다양해지고 시간 초과 실패가 발생함",
+  "base_turn": 16,
+  "stage1": {
+   "chosen": "재출발 조건 완화와 회피 로직 개선을 결합: _RESUME_GO를 0.3s에서 0.5s로 상향하고, 재출발 시 거리 증가 추세(0.5m 이상 1.5초 지속)를 확인하며, rollout 예측 시간을 3.0s에서 4.0s로 증가시킨다.",
+   "target": "controller, _HOLD_ON, _RESUME_GO, _rollout, _plan_escape",
+   "direction": "1. _RESUME_GO를 0.5s로 상향 조정하여 recede 지속 시간 요구 완화. 2. 재출발 조건에 추가하여, 정지 중 물체 거리가 0.5m 이상 증가하고 1.5초 이상 지속되면 재출발 허용. 3. _rollout의 예측 시간 T를 3.0s에서 4.0s로 증가시켜 미래 안전 거리 평가 강화. 4. _plan_escape에서 회피 후보 수를 8에서 12로 늘리고, 물체 속도 벡터를 반영한 후보 자동 생성. 5. 정지 중 재출발 시 _path_free 확인을 생략하고 즉시 v_nom, w_nom 적용. 6. _ESC_CLOSE(0.05m/s)를 0.1m/s로 상향하여 접근 속도 임계 완화."
+  }
+ },
+ "raw": "\n\n{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"충돌 실행(c81t23_s1574478275)에서 물체가 0.38m까지 접근했으나 _STOP_CLR(0.25m)를 초과하지 않아 정지하지 않음\",\n    \"시간 한도 초과 실행(c81t23_s623396788)에서 로봇이 정지 후 재출발 조건이 엄격해 오랫동안 정체됨\",\n    \"여러 실행에서 정지 횟수가 많고(15~21회), recede 상태가 _RESUME_GO(0.3s)보다 짧게 나타나 재출발이 지연됨\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"로봇은 MTC가 _HOLD_ON(1.0s) 미만일 때 정지하고, recede 상태가 _RESUME_GO(0.3s) 이상 지속되면 재출발한다.\",\n      \"holds\": false,\n      \"why\": \"재출발 조건이 엄격해 재출발이 지연되고, 정지 횟수가 증가하여 시간 초과와 정체가 발생함\"\n    },\n    {\n      \"assumption\": \"_STOP_CLR(0.25m) 이내 물체에서 강제 정지한다.\",\n      \"holds\": false,\n      \"why\": \"충돌 실행에서 물체가 0.38m까지 접근했을 때 정지하지 않아 충돌 발생\"\n    },\n    {\n      \"assumption\": \"회피는 _ESC_CLR(0.4m) 이내에서 rollout 검사 이전에 트리거된다.\",\n      \"holds\": true,\n      \"why\": \"코드에서 해당 로직이 구현되어 있으나, 트리거 조건이 충족되지 않았거나 회피 효과가 미흡할 수 있음\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"MTC 기반 정지/재출발 조정\",\n      \"turns\": 23,\n      \"result\": \"6 pass, 2 fail\"\n    },\n    {\n      \"family\": \"정지 임계값 조정\",\n      \"turns\": 10,\n      \"result\": \"혼합\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"재출발 조건 완화: _RESUME_GO 상향 및 거리 증가 추세 조건 추가\",\n      \"new_family\": true,\n      \"for\": \"정체 구간 감소로 평균 실행 시간 단축\",\n      \"risk\": \"조기 재출발로 충돌 가능성 증가\"\n    },\n    {\n      \"idea\": \"회피 로직 개선: rollout 예측 시간 증가 및 회피 후보 다양화\",\n      \"new_family\": true,\n      \"for\": \"정지 없이 회피하여 시간 절약 및 충돌 감소\",\n      \"risk\": \"계산 부하 증가 및 비효율적 회피 경로 선택\"\n    },\n    {\n      \"idea\": \"정지 임계값 하향: _STOP_CLR 0.2m로 조정\",\n      \"new_family\": false,\n      \"for\": \"조기 정지로 충돌 예방\",\n      \"risk\": \"정지 횟수 증가로 시간 초과 가능성\"\n    }\n  ],\n  \"chosen\": \"재출발 조건 완화와 회피 로직 개선을 결합: _RESUME_GO를 0.3s에서 0.5s로 상향하고, 재출발 시 거리 증가 추세(0.5m 이상 1.5초 지속)를 확인하며, rollout 예측 시간을 3.0s에서 4.0s로 증가시킨다.\",\n  \"target\": \"controller, _HOLD_ON, _RESUME_GO, _rollout, _plan_escape\",\n  \"direction\": \"1. _RESUME_GO를 0.5s로 상향 조정하여 recede 지속 시간 요구 완화. 2. 재출발 조건에 추가하여, 정지 중 물체 거리가 0.5m 이상 증가하고 1.5초 이상 지속되면 재출발 허용. 3. _rollout의 예측 시간 T를 3.0s에서 4.0s로 증가시켜 미래 안전 거리 평가 강화. 4. _plan_escape에서 회피 후보 수를 8에서 12로 늘리고, 물체 속도 벡터를 반영한 후보 자동 생성. 5. 정지 중 재출발 시 _path_free 확인을 생략하고 즉시 v_nom, w_nom 적용. 6. _ESC_CLOSE(0.05m/s)를 0.1m/s로 상향하여 접근 속도 임계 완화.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"unclear - 통과 수는 유지되었으나 실패 유형이 다양해지고 시간 초과 실패가 발생함\",\n  \"base_turn\": 16\n}",
+ "table": [
+  {
+   "run": "c81t23_s1574478275",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 81.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 75.2,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.08m/s",
+   "partner_rel_xy": [
+    0.32,
+    -0.54
+   ],
+   "closing_m_s": 0.61,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 72.95,
+   "goal_dist_m": 4.6938,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t23_s1807699860",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 518.8,
+   "sim_time_s": 81.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 75.95,
+   "goal_dist_m": 0.2047,
+   "time_to_goal_s": 77.967
+  },
+  {
+   "run": "c81t23_s647387794",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 436.9,
+   "sim_time_s": 95.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 89.92,
+   "goal_dist_m": 0.2222,
+   "time_to_goal_s": 92.0
+  },
+  {
+   "run": "c81t23_s1512309568",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 341.0,
+   "sim_time_s": 61.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 55.92,
+   "goal_dist_m": 0.2196,
+   "time_to_goal_s": 57.983
+  },
+  {
+   "run": "c81t23_s335570790",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 279.1,
+   "sim_time_s": 72.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 66.62,
+   "goal_dist_m": 0.2058,
+   "time_to_goal_s": 68.633
+  },
+  {
+   "run": "c81t23_s1019385244",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 206.6,
+   "sim_time_s": 92.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 86.42,
+   "goal_dist_m": 0.2058,
+   "time_to_goal_s": 88.467
+  },
+  {
+   "run": "c81t23_s2105974483",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 114.1,
+   "sim_time_s": 80.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 74.42,
+   "goal_dist_m": 0.2037,
+   "time_to_goal_s": 76.45
+  },
+  {
+   "run": "c81t23_s623396788",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 33.8,
+   "sim_time_s": 34.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": 28.82,
+   "goal_dist_m": 19.7547,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23. 이번 코드에서 이어 가려면 23 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": [
+    "c81t23_s623396788 는 정체 중단이 없습니다. 실제 c81t23_s623396788: verdict=fail, stall_abort_t=None, progress_abort_t=None, collision_t=None, partner=None, robot_at_collision=None, stop_turns=4"
+   ]
+  },
+  {
+   "attempt": 2,
+   "errors": [
+    "c81t23_s1574478275 의 충돌 시각이 다릅니다. 실제 c81t23_s1574478275: verdict=fail, stall_abort_t=None, progress_abort_t=None, collision_t=75.2, partner=mover_03, robot_at_collision=주행 0.08m/s, stop_turns=18"
+   ]
+  },
+  {
+   "attempt": "no_prior",
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

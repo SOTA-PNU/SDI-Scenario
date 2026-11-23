@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1에 따라 정지 중 주행 재개에 필요한 최소 예측 여유 `_RESUME_GO` 를 0.8 m에서 0.5 m로 낮췄습니다. 지시 2에 따라 재개 판단의 예측 시간 `_RESUME_T`(2.0 s)와 여유 차이 기준 `_RESUME_MARGIN`(0.5 m)은 그대로 두었습니다. 재개 판단에만 쓰는 최소 정지 시간은 새 상수 `_RESUME_HOLD` 로 1.0 s에서 0.5 s로 줄였습니다(지시 2·3: 대기 시간 단축). 정지 시작 기준 `_HOLD_ON`·`_CLOSE_MIN`, 정지 해제 함수 `_hold_release`(`_HOLD_MIN`=1.0 s), 감속 기준 `_SLOW_T`·`_V_SLOW`, 마지막 `_rollout` 충돌 검사는 바꾸지 않아 안전 장치를 유지했습니다(지시 4·5).\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다로 지도에 없는 물체를 감지하고, MTC(충돌까지 남은 시간)로 감속/정지/회피합니다.\"\"\"\n    S = _ST\n    x, y, yaw = pose\n    if not S:\n        S.update(idx=0, prev_wp=(START[0], START[1]), rejoin=None, esc=None, esc_start=None,\n                 scan_obj={}, dyn={}, tracks=[], track_t=-1.0,\n                 P=np.zeros((0, 2)), U=np.zeros((0, 2)), seen=False,\n                 last=(t, x, y, yaw), speed=0.0, yawrate=0.0,\n                 hold=None, armed=True, rel_d=99.0)\n    t0, x0, y0, yaw0 = S[\"last\"]\n    dt = t - t0\n    if dt > 1e-4:                                       # 자기 이동 속도 (스캔 지연 여유 계산용)\n        S[\"speed\"] = 0.7 * S[\"speed\"] + 0.3 * math.hypot(x - x0, y - y0) / dt\n        S[\"yawrate\"] = 0.7 * S[\"yawrate\"] + 0.3 * abs(_wrap_angle(yaw - yaw0)) / dt\n    S[\"last\"] = (t, x, y, yaw)\n\n    _perceive(t, pose)\n    if not S[\"seen\"] and t < 2.0:                       # 첫 스캔이 들어올 때까지 출발하지 않음\n        return 0.0, 0.0, False\n    if S[\"esc\"] is not None:\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n    P, U = S[\"P\"], S[\"U\"]\n\n    d_thr, clr_min = 99.0, 99.0                         # d_thr: 최소 MTC [s]\n    if len(P):\n        c, s = math.cos(yaw), math.sin(yaw)\n        dx, dy = P[:, 0] - x, P[:, 1] - y\n        rx, ry = c * dx + s * dy, -s * dx + c * dy\n        clr = _rect_clear(rx, ry)                       # 몸체 가장자리까지 거리\n        rng = np.maximum(np.hypot(dx, dy), 1e-6)\n        vrx, vry = v_nom * c, v_nom * s                 # 로봇 속도 벡터\n        closing = -((U[:, 0] - vrx) * dx + (U[:, 1] - vry) * dy) / rng   # 상대 접근 속도\n        rel = closing > _CLOSE_MIN                      # rx 방향 제한 없음\n        if rel.any():\n            mtc = clr[rel] / closing[rel]               # MTC = 거리 / 접근 속도\n            d_thr = float(mtc.min())\n        clr_min = float(clr.min())\n\n    # 정지 상태(H) 관리 (단위: 초): 시작 1.0 s, 재출발 직후에는 0.8 s 이하이고 더 줄어들 때만 다시 정지\n    H = S[\"hold\"]\n    if H is None:\n        S[\"rel_d\"] = max(S[\"rel_d\"], d_thr)\n        if d_thr >= _HOLD_ON:\n            S[\"armed\"] = True\n        thr = _HOLD_ON if S[\"armed\"] else min(_HOLD_REARM, S[\"rel_d\"] - _HOLD_GAIN)\n        if d_thr < thr:\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr}\n    else:\n        if d_thr < min(_HOLD_REARM, H[\"d\"] - _HOLD_GAIN):\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr}           # MTC 가 더 줄어듦: 기준 재설정\n        elif _hold_release(H, d_thr, t):                # MTC 기반 해제는 _HOLD_MIN(1.0 s) 충족 필수 (유지)\n            S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, d_thr\n\n    if S[\"hold\"] is not None:\n        v, w = 0.0, 0.0                                 # 정지\n        held = t - S[\"hold\"][\"t0\"]\n        # 시도 30 지시 2·3: 예측 기반 재개의 지속 시간 요구를 _HOLD_MIN(1.0 s) -> _RESUME_HOLD(0.5 s) 로 완화\n        # 예측 시간 T=_RESUME_T(2.0 s) 와 여유 차이 기준 _RESUME_MARGIN 은 유지, _RESUME_GO 는 0.5 m (지시 1)\n        if held >= _RESUME_HOLD and v_nom > 0.0 and _path_free(x, y, yaw, v_nom, 0.0):\n            go = _rollout(P, U, x, y, yaw, yaw, v_nom, 0.0, T=_RESUME_T)\n            stay = _rollout(P, U, x, y, yaw, yaw, 0.0, 0.0, T=_RESUME_T)\n            if go >= _RESUME_GO and go > stay + _RESUME_MARGIN:   # 확실히 더 안전할 때만 계속 감\n                v, w = v_nom, _clamp(w_nom, -0.6, 0.6)\n    elif d_thr < _SLOW_T:\n        k = (d_thr - _HOLD_ON) / (_SLOW_T - _HOLD_ON)   # (d_thr - 1.0) / (3.5 - 1.0)\n        v = min(v_nom, max(_V_SLOW, 1.5 * k))\n        w = _clamp(w_nom, -1.0, 1.0)                    # 감속 구간 회전 제한 ±1.0 rad/s\n    else:\n        v, w = v_nom, w_nom\n    if clr_min < 0.45:\n        w = 0.0                                         # 바로 옆 물체가 있으면 회전 금지\n\n    if _rollout(P, U, x, y, yaw, yaw, v, 0.0) < 0.3:\n        if v > 0.0 and _rollout(P, U, x, y, yaw, yaw, 0.0, 0.0) >= 0.3:\n            return 0.0, 0.0, False\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, 0.0\n        return _escape_step(t, pose)                    # 멈춰도 부딪힘: 비켜섬\n    return v, w, False\n\n\n_RESUME_GO = 0.5     # 정지 중 주행 재개에 필요한 최소 예측 여유 [m] (시도 30 지시 1: 0.8 -> 0.5)\n\n\n_RESUME_HOLD = 0.5   # 정지 중 예측 기반 주행 재개를 검토하기 전 최소 정지 시간 [s] (시도 30 지시 2: 1.0 -> 0.5)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 32132,
+  "completion_tokens": 3714
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 27719,
+  "total_cost_usd": 0.33132799999999996,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3714,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 32130,
+    "webSearchRequests": 0,
+    "costUSD": 0.33132799999999996,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 898,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 32130,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "aac21744-a1fa-42d4-83ac-772f9c52b92d"
+ }
+}

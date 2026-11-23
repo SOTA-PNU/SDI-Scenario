@@ -1,0 +1,267 @@
+{
+ "turn": 14,
+ "started": "2026-11-19 18:18:15",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c81_turn11/claude_exaone45_analyst_pC81t11_block.py",
+ "diagnosis_in": {
+  "failure_mode": "stall",
+  "evidence": [
+   "여러 실행에서 로봇이 움직이는 물체 감지 후 정지 상태로 5초 이상 지속(stall_abort), 최종 목표 거리 6.32~29.99m로 미도달",
+   "last_5s 기록에서 정지 중 물체 거리 증가(2.1m→2.52m 등)에도 재출발 조건 미충족",
+   "stop_turn_episodes 6~34회로 반복적 정지-회피 시도 실패",
+   "_hold_release 조건(clear_dur >= 1.5s) 충족 시에도 재출발 미발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "로봇 정지 시 closing 계산이 정확하여 접근 물체 감지 시 위협(threat) 상태가 되고, 멀어질 때 위협 해제되어 clear_dur 증가",
+    "holds": false,
+    "why": "물체 거리 증가에도 정지 지속으로 보아 closing 계산 오류 또는 clear_dur 추적 문제 존재"
+   },
+   {
+    "assumption": "_CLEAR_T=1.5s로 충분히 긴 위협 해제 대기 시간 설정",
+    "holds": false,
+    "why": "5초 이상 정지 발생으로 1.5s 미만 clear_dur 유지 가능성 높음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 해제 조건 강화 (시간 기반)",
+    "turns": "11,12,13",
+    "result": "11턴: 7/8 통과 → 12턴: 4/6 실패 → 13턴: 0/3 실패"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "clear_dur 계산 시 '접근 속도 음수 지속 시간'을 직접 추적 (거리 증가 추세 확인)",
+    "new_family": true,
+    "for": "물체 멀어질 때 closing < 0인 구간 지속 시간을 기반으로 재출발 조건 개선",
+    "risk": "센서 노이즈로 인한 일시적 거리 증가 오인 가능"
+   }
+  ],
+  "chosen": "정지 해제 조건을 MTC 2.0s 이상 거리 증가 추세 기반으로 단순화하고 정지 중 재출발 예측 계산을 생략하여 평균 실행 시간 단축과 통과율 향상",
+  "target": "_hold_release 함수 및 정지 중 재출발 로직 (controller 내 hold 상태 처리 부분)",
+  "direction": "1. _HOLD_ON을 2.0s로 상향 조정하여 재출발 임계 MTC 완화. 2. _hold_release에서 clear_dur 조건을 제거하고 d_now >= _HOLD_ON만 확인하도록 수정. 3. 정지 중 재출발 조건(go 계산)을 삭제하고, _hold_release가 true이면 _path_free 확인 후 즉시 v_nom, w_nom 적용. 4. 정지 중 회피 전환 조건 approach를 closing0 > 0.05 m/s로 변경. 5. _HOLD_MIN을 1.0s로 상향하여 재출발 안정성 확보. 6. 정지 중 거리 증가 추세를 기록해 일정 증가량(0.5m) 이상 지속 시 재출발 허용하는 변수 추가.",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 11,
+  "stage1": {
+   "chosen": "거리 증가 추세 직접 확인으로 정지 해제 조건 개선 (접근 속도 음수 지속 시간 추적), _CLEAR_T를 1.5s에서 3.0s로 상향해 센서 지연 고려",
+   "target": "_hold_release 함수 및 위협 추적 로직",
+   "direction": "1. _perceive에서 물체 거리 변화율 계산 (이전 스캔 대비 거리 변화)\n2. clear_dur를 '접근 속도 음수 지속 시간'으로 재정의 (거리 감소 없이 증가하는 구간 카운트)\n3. _HOLD_MIN=1.0s 유지하되, 거리 증가율 임계값(_DIST_INC_MIN=0.1m/s) 추가 적용\n4. _CLEAR_T=3.0s로 상향 조정 및 정지 중 거리 증가 추세 2회 연속 확인 시 재출발 허용\n5. _SLOW_T=5.0s 유지하되 감속 시작 조건 완화 (d_thr >= _HOLD_ON → d_thr >= _HOLD_ON - 0.5)\n6. 정지 해제 시 _RESUME_MARGIN=1.0m로 완화해 안전 거리 확보 시간 단축"
+  }
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 정지 해제 조건 때문에 로봇이 정지 상태에서 다시 출발하지 못하는 진단(stall)에 맞춰, 11턴 코드의 정지 관리 부분을 지시대로 고쳤습니다. 지시 1·5에 따라 `_HOLD_ON`은 2.0 s, `_HOLD_MIN`은 1.0 s로 올렸고, 지시 2에 따라 `_hold_release`는 최소 정지 시간과 `d_now >= _HOLD_ON`만 봅니다. 지시 3에 따라 정지 중 재출발 예측(`go`/`stay` 롤아웃)을 지웠고, 해제되면 `_path_free`를 확인한 뒤 곧바로 `v_nom`, `w_nom`을 씁니다. 지시 4에 따라 정지 중 회피 전환 기준은 `closing0 > 0.05 m/s`(`_ESC_CLOSE`)로 낮췄고, 지시 6에 따라 정지 중 가장 가까운 물체와의 거리가 최소값보다 0.5 m 이상 늘어난 상태가 0.2 s 이어지면 재출발을 허용하는 `_hold_trend`를 넣었습니다.",
+   "changed": [
+    "_ESC_CLOSE",
+    "_HOLD_DIST_INC",
+    "_HOLD_INC_T",
+    "_HOLD_MIN",
+    "_HOLD_ON",
+    "_hold_release",
+    "_hold_trend",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "_HOLD_ON 을 2.0 s 로 상향",
+      "implemented": true,
+      "note": "_HOLD_ON = 2.0 으로 바꿈. 정지 시작, 재무장, 해제, 감속 k 계산에 모두 반영됨"
+     },
+     {
+      "instruction": "_hold_release 에서 clear_dur 조건 제거, d_now >= _HOLD_ON 만 확인",
+      "implemented": true,
+      "note": "11턴 코드에는 clear_dur 가 없음. 'd_now >= H[\"d\"] + _HOLD_GAIN' 대안을 지우고 _HOLD_MIN 경과 뒤 d_now >= _HOLD_ON 만 봄"
+     },
+     {
+      "instruction": "정지 중 go 롤아웃 삭제, 해제 시 _path_free 확인 후 즉시 v_nom, w_nom 적용",
+      "implemented": true,
+      "note": "go/stay 롤아웃을 지우고 resume 플래그와 _path_free 확인 뒤 v_nom, w_nom 를 씀. 다만 _path_free 가 거짓이면 아래 감속·정상 분기로 넘어가 결국 주행하므로, 이 확인은 사실상 주행을 막지 않음"
+     },
+     {
+      "instruction": "정지 중 회피 전환 조건을 closing0 > 0.05 m/s 로 변경",
+      "implemented": true,
+      "note": "approach 는 closing0 기반이고, _ESC_CLOSE 를 0.05 로 바꿈"
+     },
+     {
+      "instruction": "_HOLD_MIN 을 1.0 s 로 상향",
+      "implemented": true,
+      "note": "_HOLD_MIN = 1.0, _hold_release 와 _hold_trend 둘 다 적용"
+     },
+     {
+      "instruction": "정지 중 거리 증가 추세를 기록해 0.5 m 이상 증가가 지속되면 재출발 허용",
+      "implemented": true,
+      "note": "H[\"dmin\"] 에 정지 중 최소 거리를 기록하고 H[\"inc_t\"] 로 지속 시간을 잼. _HOLD_DIST_INC=0.5 이상 증가가 _HOLD_INC_T=0.2 s 이어지면 _hold_trend 가 해제함"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 1 은 '재출발 임계 완화'라고 했지만 _HOLD_ON 2.0 은 해제 조건을 MTC 1.0→2.0 으로 오히려 엄격하게 만들고 정지 시작도 앞당겨 stall 을 늘릴 수 있음",
+     "지시 2 가 MTC 증가(H[\"d\"]+_HOLD_GAIN) 해제 경로를 지워 해제가 더 어려워짐. 사실상 지시 6 의 거리 증가 경로에 의존함",
+     "evidence 의 clear_dur, _CLEAR_T 는 13턴 코드의 이름이라 11턴 코드와 맞지 않음",
+     "_ESC_CLOSE 0.05 m/s 는 속도 추정 잡음 수준이라 정지 중 회피 전환이 잦아질 수 있음"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "base_turn": 11,
+ "diag_turn": 13,
+ "reason": "변경 이유: 정지 해제 조건 때문에 로봇이 정지 상태에서 다시 출발하지 못하는 진단(stall)에 맞춰, 11턴 코드의 정지 관리 부분을 지시대로 고쳤습니다. 지시 1·5에 따라 `_HOLD_ON`은 2.0 s, `_HOLD_MIN`은 1.0 s로 올렸고, 지시 2에 따라 `_hold_release`는 최소 정지 시간과 `d_now >= _HOLD_ON`만 봅니다. 지시 3에 따라 정지 중 재출발 예측(`go`/`stay` 롤아웃)을 지웠고, 해제되면 `_path_free`를 확인한 뒤 곧바로 `v_nom`, `w_nom`을 씁니다. 지시 4에 따라 정지 중 회피 전환 기준은 `closing0 > 0.05 m/s`(`_ESC_CLOSE`)로 낮췄고, 지시 6에 따라 정지 중 가장 가까운 물체와의 거리가 최소값보다 0.5 m 이상 늘어난 상태가 0.2 s 이어지면 재출발을 허용하는 `_hold_trend`를 넣었습니다.",
+ "budget_s": 600.0,
+ "seeds": [
+  621068068,
+  1717567879,
+  1988683908,
+  748969119
+ ],
+ "sim_used_s": 601.0,
+ "verdicts": {
+  "621068068": "fail",
+  "1717567879": "pass",
+  "1988683908": "pass",
+  "748969119": "fail"
+ },
+ "passes": 2,
+ "prior_chars": 5785,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 4개를 실행했고, 6개는 실행하지 못했습니다 (사유: 남은 예산 0초가 실행 하나의 최소 시간 30초보다 적음).\n- 통과 2개, 실패 2개. 시뮬 시간 합계 601초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 142초 (가장 짧은 것 118초, 가장 긴 것 167초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 1 은 '재출발 임계 완화'라고 했지만 _HOLD_ON 2.0 은 해제 조건을 MTC 1.0→2.0 으로 오히려 엄격하게 만들고 정지 시작도 앞당겨 stall 을 늘릴 수 있음\n- (검토 1회차, 판정 pass) 지시 2 가 MTC 증가(H[\"d\"]+_HOLD_GAIN) 해제 경로를 지워 해제가 더 어려워짐. 사실상 지시 6 의 거리 증가 경로에 의존함\n- (검토 1회차, 판정 pass) evidence 의 clear_dur, _CLEAR_T 는 13턴 코드의 이름이라 11턴 코드와 맞지 않음\n- (검토 1회차, 판정 pass) _ESC_CLOSE 0.05 m/s 는 속도 추정 잡음 수준이라 정지 중 회피 전환이 잦아질 수 있음\n",
+ "diagnosis_out": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 c81t14_s621068068에서 31회 정지 후 progress_abort 발생, last 5s 로그에서 2.0m 거리 물체 감지 시 0.2m/s로 주행하다가 반복 정지",
+   "통과 실행 대비 실패 실행의 stop_turns 평균 24.5회 vs 17.5회, 정지 빈도가 정체 원인",
+   "_HOLD_ON=2.0s로 인해 MTC 1.5s에서도 재출발 불가해 불필요한 정지 증가"
+  ],
+  "assumptions": [
+   {
+    "assumption": "MTC >= _HOLD_ON(2.0s)일 때만 재출발 안전하다고 가정",
+    "holds": false,
+    "why": "움직이는 물체로 인해 MTC 변동성이 크며, 1.5s일 때도 재출발 가능함에도 정지 유지로 진행 정체 유발"
+   },
+   {
+    "assumption": "물체 거리 증가(_hold_trend)만으로 재출발 허용 가능하다고 가정",
+    "holds": false,
+    "why": "물체 이동 패턴 무작위라 거리 증가 지속되지 않으며, 오히려 접근 중일 때 정지 유지로 정체 심화"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 엄격화 계열",
+    "turns": "5",
+    "result": "통과 4/6 → 2/4, 평균 정지 횟수 증가"
+   },
+   {
+    "family": "정지 관리 로직 강화 계열",
+    "turns": "3",
+    "result": "통과 7/8 → 2/4, 시간 초과 및 stall 증가"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "물체가 멀어질 때( closing0 < 0) 재출발 허용 조건 추가",
+    "new_family": true,
+    "for": "정지 중 물체가 접근하지 않으면 재출발 판단 가능, MTC 의존도 감소",
+    "risk": "노이즈로 인한 오진 시 불필요한 재출발로 충돌 위험"
+   },
+   {
+    "idea": "MTC 이동 평균 적용해 일시적 변동 무시",
+    "new_family": true,
+    "for": "센서 노이즈로 인한 잦은 정지 방지",
+    "risk": "평균 계산 지연으로 실제 위험 대응 늦어질 수 있음"
+   },
+   {
+    "idea": "정지 시 소규격 전진 테스트로 경로 확인",
+    "new_family": true,
+    "for": "재출발 전 실시간 경로 안전성 검증",
+    "risk": "테스트 중 충돌 가능성, 코드 복잡도 증가"
+   }
+  ],
+  "chosen": "물체가 멀어질 때 재출발 허용 조건 추가 선택: 정지 중 closing0 < 0인 상태가 지속되면 MTC 임계값 없이도 재출발 가능하도록 해 정지-재출발 반복 문제 해결",
+  "target": "controller 내 _hold_release 함수 및 정지 관리 로직",
+  "direction": "1. 정지 상태(S['hold'])에서 물체 접근 속도 closing0 계산 시, closing0 < 0인 물체의 지속 시간을 추적하는 변수 추가\n2. _hold_release에서 d_thr >= _HOLD_ON 조건 외, closing0 < 0인 상태가 _RESUME_GO(0.8s) 이상 지속되면 재출발 허용\n3. 재출발 시 _path_free 확인을 생략하고 즉시 v_nom, w_nom 적용\n4. closing0 < 0 지속 시간 초기화 조건: 재출발 후 또는 물체 재접근 시\n5. _ESC_CLOSE(0.05 m/s)는 유지하되, 재출발 조건 완화로 정지 빈도 감소\n6. _RESUME_GO를 0.5s로 낮춰 빠른 재출발 지원",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 14
+ },
+ "table": [
+  {
+   "run": "c81t14_s621068068",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 247.4,
+   "stall_abort_t": null,
+   "progress_abort_t": 246.4,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 31,
+   "first_seen_within_2m_t": 241.45,
+   "goal_dist_m": 6.5341,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t14_s1717567879",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 352.6,
+   "sim_time_s": 117.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 111.62,
+   "goal_dist_m": 0.1963,
+   "time_to_goal_s": 113.683
+  },
+  {
+   "run": "c81t14_s1988683908",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 235.0,
+   "sim_time_s": 166.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 160.72,
+   "goal_dist_m": 0.2038,
+   "time_to_goal_s": 162.7
+  },
+  {
+   "run": "c81t14_s748969119",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 68.4,
+   "sim_time_s": 69.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 63.42,
+   "goal_dist_m": 18.1963,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 79 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔을 world 좌표로 변환 후 정적 지도와 점 비교\\n2. 정적 장애물이 아닌 가장 가까운 점의 거리를 계산\\n3. 거리 < 1.5m 시 v=0, w=0 (즉시 정지)\\n4. 거리 1.5~3m 시 v=0.3, w=0 (감속 후 회전 중지)\\n5. 이전 거리와 비교해 감소 중이면 감속 강화\\n6. 물체 감지 시 waypoint 추종 일시 중단, 안전 거리 확보 후 재개\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 574 s / 한도 600 s)\n#2 이번 코드(진단 \"1. closing_object = -(U·dx + U·dy)/rng 계산 후\\n2. v_robot_n = v_nom * rx / rng (rx > 0인 물체만 적용)\\n3. total_closing = closing_object + v_robot_n\\n4. d_eff = clr - 0.7 * max(total_closing, 0.0)\\n5. 정지 조건(d_thr < 1.5m) 유지하되, 재출발 전 0.5s 정지 상태로 물체 거리 증가 확인 추가\\n6. 새로운 물체 감지 시 age=1인 경우 closing_object에 최소 0.1m/s 추가 가정 (보수적 예측)\\n7. rx > -0.3 조건 유지하되, coming 판단 시 total_closing > 0.15로 강화\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 203 s / 한도 600 s)\n#3 이번 코드(1턴 코드로 돌아가 시작, 진단 \"1. Change d_thr threshold from 1.5 to 2.0m in controller\\n2. In _hold_release, require d_now >= H['d'] + 0.1 instead of 0.05\\n3. Keep coming condition (closing >0.15) but ensure d_eff uses only object closing speed\\n4. Remove robot speed contribution from threat assessment (not applicable in 1-turn code)\\n5. Increase minimum stop duration to 1.0s instead of 0.5s to allow sustained movement\\n6. Add hysteresis: only reset H if d_thr <1.8m (new lower threshold) to prevent rapid toggle\" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#4 이번 코드(진단 \"1. d_eff 계산 시 closing 가중치 0.7 → 1.0으로 상향해 조기 위협 감지\\n2. _plan_escape에서 물체 속도 벡터와 수직 방향 후보 자동 생성\\n3. 회피 시 회전 속도 제한 ±0.6 → ±1.0 rad/s로 완화\\n4. 정지 임계값 _HOLD_ON을 3.5m로 상향\\n5. 감속 구간(d_thr < 3.5m)에서 전진 속도 하한 0.2m/s 유지\\n6. 회피 후 복귀 시 정지 시간 0.5s로 단축해 재시작 유연성 확보\" 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#5 이번 코드(3턴 코드로 돌아가 시작, 진단 \"1. 로봇 속도 벡터 v_robot_vec = (v_nom*cos(yaw), v_nom*sin(yaw)) 계산\\n2. closing = -((U - v_robot_vec)·r)/|r|로 수정 (기존 U만 고려했던 오류 수정)\\n3. closing > 0.15인 객체에 대해 MTC = |r|/closing 계산 후 d_thr = min(MTC)\\n4. rx 방향 제한 조건 제거로 모든 접근 물체 감지\\n5. _HOLD_MIN을 1.0에서 0.5로 줄여 정지 시간 단축\\n6. MTC 기반 정지/회피로 충돌 감소와 평균 실행 시간 60초 이내 달성\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#6 이번 코드(진단 \"1. _SLOW_T를 3.5s로 상향 조정\\n2. 감속 비율 k 계산 시 (d_thr - _HOLD_ON)/(3.5 - _HOLD_ON) 적용\\n3. _V_SLOW를 0.3→0.2m/s로 하향해 감속 시 최소 속도 완화\\n4. 정지 시 재출발 조건(_HOLD_RELEASE)에서 _HOLD_GAIN 0.1→0.05로 축소\\n5. 감속 구간 진입 시 로봇 회전 속도 제한 완화(±0.8→±1.0 rad/s)\" 반영, 검토 통과): 새 배치 7개 중 6개 pass, 1개 fail (시뮬 시간 합계 577 s / 한도 600 s)\n#7 이번 코드(진단 \"1. _HOLD_MIN 값을 0.5에서 1.0으로 상향 조정\\n2. 정지 상태(H) 관리 시 최소 정지 시간 검증 로직에서 _HOLD_MIN=1.0s 적용\\n3. 정지 중 주행 재개 조건을 강화하되, _HOLD_MIN 충족 전까지 재개 절대 허용하지 않음\\n4. MTC 기반 정지 임계값(_HOLD_ON=1.0s)은 유지하여 위협 감지 민감도 조정\\n5. _rollout 계산 시 근접 물체 접근 시 보수적 판단을 위해 T=2.0s로 단축\\n6. 정지 해제 조건에서 d_now >= H['d'] + _HOLD_GAIN 또는 d_now >= _HOLD_ON 유지하되, _HOLD_MIN 충족 필수 확인\" 반영, 검토 통과): 새 배치 7개 중 7개 pass, 0개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#8 이번 코드(진단 \"1. _SLOW_T를 3.5에서 5.0으로 상향 조정 2. 감속 비율 계산 시 (d_thr - _HOLD_ON)/(_SLOW_T - _HOLD_ON) 공식 유지하되 _SLOW_T 증가로 감속 시작 시점 이전화 3. _V_SLOW는 0.2m/s로 유지해 감속 구간 최소 속도 보장 4. 정지 해제 조건(_HOLD_MIN=1.0s)은 변경 없이 유지해 안전성 확보 5. _rollout 예측 시간(T=3.0s)은 유지해 회피 동작 보수성 강화 6. 모든 변경은 센서 기반 MTC 계산 로직과 연동해 mover 감지 시 자동 적용\" 반영, 검토 통과): 새 배치 5개 중 3개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#9 이번 코드(진단 \"Rewrite _rect_clear to compute horizontal distance as max(0, rx - x_max, x_min - rx) and vertical as max(0, ry - y_max, y_min - ry), then clr = sqrt(ddx² + ddy²). This ensures accurate proximity detection to body edges.\" 반영, 검토 통과): 새 배치 6개 중 4개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#10 이번 코드(7턴 코드로 돌아가 시작, 진단 [\"clr_min이 0.3m 미만일 때 v와 w를 모두 0으로 설정하여 전진 및 회전 정지를 강제한다\", \"기존 clr_min < 0.45 조건 대신 0.3m 임계값을 적용해 근접 물체에 대한 즉시 정지를 구현한다\", \"이 수정은 clr_min 0.11m에서 v가 유지되어 발생한 충돌을 직접 방지하기 위한 조치이다\", \"정지 후 재출발은 기존의 MTC 기반 _HOLD_MIN(1.0s) 조건을 충족해야만 허용되도록 유지한다\", \"임계값 0.3m는 과도한 정지를 방지하면서도 충돌 위험 시 신속히 대응할 수 있도록 설정한다\", \"회전 금지(w=0)는 기존 로직을 유지하되, 전진 속도(v)도 정지시켜 측면 접근 물체에 효과적으로 대응한다\"] 반영, 검토 통과): 새 배치 8개 중 6개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#11 이번 코드(7턴 코드로 돌아가 시작, 진단 \"1. S[\\\"hold\\\"] 상태일 때 이동 물체가 접근 중인지 확인(closing > 0.1)하고 접근 시 즉시 S[\\\"esc\\\"] 설정 후 _escape_step 호출\\n2. 기존 hold 상태 유지 로직 이후에 추가하여 정지 중 접근 물체 감지 시 회피 전환\\n3. closing 변수는 이미 계산되어 있으므로 추가 연산 없이 사용 가능\\n4. 임계값 0.1 m/s는 충돌 사례의 closing_m_s=0.54를 기반으로 설정\\n5. 이로 인해 정지 중 물체 접근 시 회피 동작이 시작되어 충돌 방지\\n6. timeout 문제 완화를 위해 정지 시간을 줄여 평균 실행 시간 60초 이내 달성\" 반영, 검토 통과): 새 배치 8개 중 7개 pass, 1개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#12 이번 코드(진단 \"1. d_thr < _SLOW_T 조건 제거, 대신 d_thr >= _HOLD_ON일 때 v = v_nom, w = w_nom 적용\\n2. 감속 구간 관련 변수(_SLOW_T, _V_SLOW, k 계산) 삭제\\n3. 정지 관리 로직에서 d_thr >= _HOLD_ON 조건만으로 재출발 허용 (감속 구간 고려 제거)\\n4. _HOLD_ON을 1.5s로 상향 조정해 충돌 안전 마진 확보\\n5. _HOLD_MIN은 0.8s로 유지해 정지 시간 최소화\\n6. 회피 모드 진입 시 _HOLD_ON 기준 유지하여 정지 전환 로직 보완\" 반영, 검토 통과): 새 배치 6개 중 4개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)\n#13 이번 코드(진단 \"In _hold_release, require t - H['t0'] >= _HOLD_MIN AND (no objects with closing > 0.05 for last 1.5s) to resume; add closing_sign_timer tracking duration of negative closing speeds; update d_thr calculation to consider only objects within 3m regardless of closing sign; set _HOLD_ON=2.0s to increase safety margin; ensure approach uses current closing (not closing0) during hold state; implement closing_sign_timer reset on new detections; set _ESC_CLOSE=0.25 m/s to reduce false escapes\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 401 s / 한도 600 s)\n#14 이번 코드(11턴 코드로 돌아가 시작, 진단 \"1. _HOLD_ON을 2.0s로 상향 조정하여 재출발 임계 MTC 완화. 2. _hold_release에서 clear_dur 조건을 제거하고 d_now >= _HOLD_ON만 확인하도록 수정. 3. 정지 중 재출발 조건(go 계산)을 삭제하고, _hold_release가 true이면 _path_free 확인 후 즉시 v_nom, w_nom 적용. 4. 정지 중 회피 전환 조건 approach를 closing0 > 0.05 m/s로 변경. 5. _HOLD_MIN을 1.0s로 상향하여 재출발 안정성 확보. 6. 정지 중 거리 증가 추세를 기록해 일정 증가량(0.5m) 이상 지속 시 재출발 허용하는 변수 추가.\" 반영, 검토 통과): 새 배치 4개 중 2개 pass, 2개 fail (시뮬 시간 합계 601 s / 한도 600 s)",
+ "ended": "2026-11-19 18:37:10"
+}

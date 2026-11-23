@@ -1,0 +1,156 @@
+{
+ "turn": 0,
+ "started": "2026-11-23 03:57:16",
+ "code_in": "results/turns/prompt_c51_turn0/start_block.py",
+ "diagnosis_in": {},
+ "coder": [],
+ "base_turn": null,
+ "diag_turn": null,
+ "reused_block": "results/turns/prompt_c51_turn0/start_block.py",
+ "reason": "출발점 코드: A-4 경유점 추종, 속도 5배, 센서 미사용",
+ "budget_s": 600.0,
+ "seeds": [
+  1941232753,
+  968001227,
+  616467864
+ ],
+ "sim_used_s": 96.9,
+ "verdicts": {
+  "1941232753": "fail",
+  "968001227": "fail",
+  "616467864": "fail"
+ },
+ "passes": 0,
+ "prior_chars": 0,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 3개를 실행했고, 7개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 0개, 실패 3개. 시뮬 시간 합계 97초 / 예산 600초.\n- 통과한 실행이 없습니다. 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "run c51t0_s616467864: collision at t=3.433 s (v=1.5 m/s) with mover_00; first_not_on_map detected at t=-0.05 s within 2 m (bearing -26°)",
+   "run c51t0_s968001227: collision at t=29.383 s with mover_02; first_not_on_map within 2 m at t=27.85 s (bearing 19°) showing detection before impact",
+   "run c51t0_s1941232753: collision at t=46.067 s with mover_03; first_not_on_map within 2 m at t=43.38 s and multiple stop‑turn episodes indicate lack of dynamic avoidance"
+  ],
+  "assumptions": [
+   {
+    "assumption": "환경에 움직이는 물체가 없으며 정적 지도만 존재한다",
+    "holds": false,
+    "why": "세 실행 모두 움직이는 박스와 충돌했음"
+   },
+   {
+    "assumption": "경유점은 모든 정적 장애물을 회피하도록 설계되었다",
+    "holds": true,
+    "why": "정적 장애물에 대한 충돌 기록 없음"
+   },
+   {
+    "assumption": "센서를 사용하지 않아도 안전하게 주행 가능하다",
+    "holds": false,
+    "why": "움직이는 물체를 감지하지 못해 충돌 발생"
+   },
+   {
+    "assumption": "현재 속도·회전 한계는 정적 환경에서 충분히 안전하다",
+    "holds": true,
+    "why": "정적 장애물과의 충돌이 없으며, 충돌은 이동 물체와만 발생"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "static_waypoint",
+    "turns": "0",
+    "result": "0/1 pass (0 %); 3 collisions"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "전방 2D 라이다로 움직이는 물체를 감지하고, 안전 거리(1 m) 이내이면 정지·대기 후 재시작",
+    "new_family": true,
+    "for": "센서로 물체를 사전에 인지해 충돌을 피함",
+    "risk": "물체가 오래 머무르면 정체·시간 초과 위험"
+   },
+   {
+    "idea": "각 경유점 도착 시 전방 라이다·카메라로 2 m 이내 물체가 없을 때만 이동 시작(대기·정지 로직)",
+    "new_family": true,
+    "for": "움직이는 물체가 지나가기를 기다려 안전하게 통과",
+    "risk": "다수의 물체가 연속으로 나타나면 전체 실행 시간이 제한을 초과"
+   },
+   {
+    "idea": "3D 라이다를 이용해 물체의 속도를 추정·예측하고, 충돌 가능성이 있으면 경로를 일시적으로 우회하도록 회전·전진 제어",
+    "new_family": true,
+    "for": "예측 기반 회피로 진행 속도 유지",
+    "risk": "속도 추정 오류가 회피 실패·복잡도 증가"
+   }
+  ],
+  "chosen": "전방 2D 라이다 기반 반응형 정지·대기 회피 (첫 번째 후보) – 간단하고 실시간 구현 가능",
+  "target": "controller (추가 상태 변수·라이다 감지·정지·재시작 로직)",
+  "direction": "1. controller에 static 속성 state='go', stop_timer=0을 초기화한다. 2. 매 호출마다 lidar2d_points('front')를 받아 전방 ±30° 구역의 최소 거리 d_front를 계산한다. 3. d_front<1.0 m이면 state를 'stop'으로 바꾸고 stop_timer를 현재 시각 t로 기록, 반환(v=0,w=0). 4. state가 'stop'일 때 d_front>=1.2 m이면 stop_timer를 0으로 초기화하고 state='go'으로 전환한다. 5. stop 상태가 5 s 이상 지속되면 회전(w=±0.5)으로 우회 시도하고 state='detour'로 전환, 이후 일정 시간 후 다시 'go'로 복귀한다. 6. 기존 waypoint‑following 로직은 state='go'일 때만 실행한다.",
+  "confidence": "high",
+  "last_direction_ok": "no: 이전 지시가 static waypoint만 사용하도록 한 것이 3번 모두 충돌을 일으켰음",
+  "base_turn": 0
+ },
+ "table": [
+  {
+   "run": "c51t0_s1941232753",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 52.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 46.067,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.05m/s 회전 +1.5",
+   "partner_rel_xy": [
+    0.4,
+    0.43
+   ],
+   "closing_m_s": 0.18,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 43.38,
+   "goal_dist_m": 4.4606,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t0_s968001227",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 547.9,
+   "sim_time_s": 35.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 29.383,
+   "partner": "mover_02",
+   "robot_at_collision": "주행 1.06m/s 회전 -1.7",
+   "partner_rel_xy": [
+    0.42,
+    -0.35
+   ],
+   "closing_m_s": 0.23,
+   "stop_turns": 9,
+   "first_seen_within_2m_t": 27.85,
+   "goal_dist_m": 11.6669,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t0_s616467864",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 512.5,
+   "sim_time_s": 9.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 3.433,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.50m/s 회전 -0.4",
+   "partner_rel_xy": [
+    0.31,
+    -0.52
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 4,
+   "first_seen_within_2m_t": -0.05,
+   "goal_dist_m": 30.3204,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 97 s / 한도 600 s)",
+ "ended": "2026-11-23 04:00:17"
+}

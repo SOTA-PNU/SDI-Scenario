@@ -1,0 +1,161 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision|stall",
+  "evidence": [
+   "collision run: mover first seen at 1.87m (t=26.22s) but evasion not triggered; robot continued moving and collided at 0.36m (t=31.15s) with closing_speed 0.56m/s",
+   "progress‑abort runs show robot repeatedly stopped/spinning (35‑54 episodes) without reaching goal, indicating evasion‑induced stalls",
+   "last 5s data: in collision run robot approached mover while turning; in abort runs robot remained stopped while mover remained within 2‑4m distance",
+   "evasion end conditions (static clearance ≥0.15m for 0.5s) likely too strict for narrow passages, causing prolonged stalls",
+   "proximity trigger (d_near <2.0m and app_rel>0.1) should have activated evasion in collision run but did not, suggesting missed detection or condition mismatch"
+  ],
+  "assumptions": [
+   {
+    "assumption": "evasion triggers (prox or TTC) activate before collision",
+    "holds": false,
+    "why": "collision occurred despite mover within 2.0m and closing_speed>0.1; evasion not started"
+   },
+   {
+    "assumption": "evasion end conditions allow timely resumption when mover is receding",
+    "holds": false,
+    "why": "progress‑abort runs show robot stalls long after mover distance stops decreasing, indicating resumption conditions too strict"
+   },
+   {
+    "assumption": "detour points provide viable paths during evasion",
+    "holds": false,
+    "why": "repeated stops suggest no safe path found meeting current static‑clearance requirements"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "proximity‑and‑TTC‑based evasion trigger",
+    "turns": "multiple",
+    "result": "mixed – collision still occurs when mover approaches from non‑frontal angle"
+   },
+   {
+    "family": "strict static‑clearance filtering in _choose during evasion",
+    "turns": "multiple",
+    "result": "causes stalls in narrow passages when no candidate meets stc≥0.15m"
+   },
+   {
+    "family": "time‑based evasion end conditions (e.g., hold static clearance for 0.5s)",
+    "turns": "multiple",
+    "result": "prolongs evasion unnecessarily when mover is stationary or slow"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "lower static‑clearance requirement during evasion and increase weight on distance‑increase metric",
+    "new_family": true,
+    "for": "reduces stalls by allowing evasion termination even when mover is near but receding slightly; encourages lateral movement away from mover",
+    "risk": "may allow robot to resume movement too close to a mover that is not truly receding"
+   },
+   {
+    "idea": "add velocity‑vector‑based path prediction in _make_detour (e.g., aim perpendicular and ahead of mover’s velocity)",
+    "new_family": true,
+    "for": "creates detour points that proactively move away from mover’s future position, improving avoidance success",
+    "risk": "requires accurate mover velocity estimation; noisy data could cause erratic detours"
+   },
+   {
+    "idea": "fallback to slow forward motion (v=0.2m/s, w=0) when _choose returns no candidate during evasion",
+    "new_family": true,
+    "for": "prevents total stalls by allowing minimal progress while continuing to monitor movers",
+    "risk": "may increase collision risk if mover suddenly closes in"
+   }
+  ],
+  "chosen": "lower static‑clearance requirement during evasion and increase weight on distance‑increase metric",
+  "target": "_choose and evasion end‑condition logic",
+  "direction": "1. In _choose during evasion, relax static‑clearance filter from stc≥0.15m to stc≥0.05m\n2. Add distance‑increase bonus: score candidates by expected distance‑to‑nearest‑mover increase over next 2 seconds\n3. Modify evasion end condition: allow termination if mover distance is increasing (closing_speed < -0.05) for 1.0s, regardless of static clearance\n4. Increase weight on lateral‑movement bonus when mover is approaching (app_rel > 0.1)\n5. Reduce evade_max to 8.0s to prevent indefinite stalls; if exceeded, force evasion end and retry nominal path\n6. Log evasion trigger times (prox, TTC, danger) to debug missed detections",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\":\"collision|stall\",\"evidence\":[\"collision run: mover first seen at 1.87m (t=26.22s) but evasion not triggered; robot continued moving and collided at 0.36m (t=31.15s) with closing_speed 0.56m/s\",\"progress‑abort runs show robot repeatedly stopped/spinning (35‑54 episodes) without reaching goal, indicating evasion‑induced stalls\",\"last 5s data: in collision run robot approached mover while turning; in abort runs robot remained stopped while mover remained within 2‑4m distance\",\"evasion end conditions (static clearance ≥0.15m for 0.5s) likely too strict for narrow passages, causing prolonged stalls\",\"proximity trigger (d_near <2.0m and app_rel>0.1) should have activated evasion in collision run but did not, suggesting missed detection or condition mismatch\"], \"assumptions\":[{\"assumption\":\"evasion triggers (prox or TTC) activate before collision\",\"holds\":false,\"why\":\"collision occurred despite mover within 2.0m and closing_speed>0.1; evasion not started\"}, {\"assumption\":\"evasion end conditions allow timely resumption when mover is receding\",\"holds\":false,\"why\":\"progress‑abort runs show robot stalls long after mover distance stops decreasing, indicating resumption conditions too strict\"}, {\"assumption\":\"detour points provide viable paths during evasion\",\"holds\":false,\"why\":\"repeated stops suggest no safe path found meeting current static‑clearance requirements\"}], \"approach_families\":[{\"family\":\"proximity‑and‑TTC‑based evasion trigger\",\"turns\":\"multiple\",\"result\":\"mixed – collision still occurs when mover approaches from non‑frontal angle\"}, {\"family\":\"strict static‑clearance filtering in _choose during evasion\",\"turns\":\"multiple\",\"result\":\"causes stalls in narrow passages when no candidate meets stc≥0.15m\"}, {\"family\":\"time‑based evasion end conditions (e.g., hold static clearance for 0.5s)\",\"turns\":\"multiple\",\"result\":\"prolongs evasion unnecessarily when mover is stationary or slow\"}], \"candidates\":[{\"idea\":\"lower static‑clearance requirement during evasion and increase weight on distance‑increase metric\",\"new_family\":true,\"for\":\"reduces stalls by allowing evasion termination even when mover is near but receding slightly; encourages lateral movement away from mover\",\"risk\":\"may allow robot to resume movement too close to a mover that is not truly receding\"}, {\"idea\":\"add velocity‑vector‑based path prediction in _make_detour (e.g., aim perpendicular and ahead of mover’s velocity)\",\"new_family\":true,\"for\":\"creates detour points that proactively move away from mover’s future position, improving avoidance success\",\"risk\":\"requires accurate mover velocity estimation; noisy data could cause erratic detours\"}, {\"idea\":\"fallback to slow forward motion (v=0.2m/s, w=0) when _choose returns no candidate during evasion\",\"new_family\":true,\"for\":\"prevents total stalls by allowing minimal progress while continuing to monitor movers\",\"risk\":\"may increase collision risk if mover suddenly closes in\"}], \"chosen\":\"lower static‑clearance requirement during evasion and increase weight on distance‑increase metric\",\"target\":\"_choose and evasion end‑condition logic\",\"direction\":\"1. In _choose during evasion, relax static‑clearance filter from stc≥0.15m to stc≥0.05m\\n2. Add distance‑increase bonus: score candidates by expected distance‑to‑nearest‑mover increase over next 2 seconds\\n3. Modify evasion end condition: allow termination if mover distance is increasing (closing_speed < -0.05) for 1.0s, regardless of static clearance\\n4. Increase weight on lateral‑movement bonus when mover is approaching (app_rel > 0.1)\\n5. Reduce evade_max to 8.0s to prevent indefinite stalls; if exceeded, force evasion end and retry nominal path\\n6. Log evasion trigger times (prox, TTC, danger) to debug missed detections\",\"confidence\":\"medium\"}",
+ "table": [
+  {
+   "run": "c8t26_s1619416099",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 148.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 26,
+   "first_seen_within_2m_t": 142.05,
+   "goal_dist_m": 0.2053,
+   "time_to_goal_s": 144.683
+  },
+  {
+   "run": "c8t26_s82097586",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 452.0,
+   "sim_time_s": 37.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 31.15,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.39m/s 회전 +0.4",
+   "partner_rel_xy": [
+    0.4,
+    -0.56
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 26.22,
+   "goal_dist_m": 31.2139,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t26_s2118543915",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 414.8,
+   "sim_time_s": 147.6,
+   "stall_abort_t": null,
+   "progress_abort_t": 146.53,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": 145.13,
+   "goal_dist_m": 30.6668,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t26_s600308238",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 267.3,
+   "sim_time_s": 227.7,
+   "stall_abort_t": null,
+   "progress_abort_t": 226.65,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 54,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 10.2633,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

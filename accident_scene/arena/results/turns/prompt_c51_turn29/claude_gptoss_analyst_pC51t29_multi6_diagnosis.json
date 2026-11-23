@@ -1,0 +1,226 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t29_s394850624: 충돌 t=37.95, static box 07, robot 속도 0.29 m/s, front gap >1.5 m but side distance d_min≈0.9 m (first_not_on_map 36.55 s, 1.92 m) → side 충돌",
+   "c51t29_s2044170879: 충돌 t=45.25, static box 07, robot 속도 1.02 m/s, side distance d_min≈0.84 m (first_not_on_map 40.25 s, 0.84 m) while front gap remained >1.5 m",
+   "c51t29_s913052668: 충돌 t=20.533, mover_01, robot 속도 0.37 m/s, mover 접근 속도 0.59 m/s, first_not_on_map 15.88 s, 1.92 m side, side distance not used for stop"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 ±30° gap만으로 충돌을 방지할 수 있다",
+    "holds": false,
+    "why": "측면 정적·이동 물체와 충돌 발생 (증거 1,2)"
+   },
+   {
+    "assumption": "TTC 1 s와 _SAFE=0.25 m는 2 m/s 속도에서 충분히 안전하다",
+    "holds": false,
+    "why": "충돌 시 robot 속도 1 m/s, side 거리 0.8 m에서 충돌 발생"
+   },
+   {
+    "assumption": "정적 장애물은 _static_ok 로 충분히 검출된다",
+    "holds": false,
+    "why": "static box 07 충돌, static clearance 미검출"
+   },
+   {
+    "assumption": "측면 물체는 속도 스케일링만으로 회피 가능하다",
+    "holds": false,
+    "why": "측면 물체가 가까워도 stop 전환되지 않아 충돌"
+   },
+   {
+    "assumption": "센서 데이터는 0.1 s마다 최신이며 오탐이 거의 없으며 충분히 정확하다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 일관됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "front‑gap stop/detour only",
+    "turns": "1,3",
+    "result": "18/20 passes"
+   },
+   {
+    "family": "side‑distance used for resume/scaling",
+    "turns": "24,25,27",
+    "result": "20/24 passes"
+   },
+   {
+    "family": "TTC‑based speed scaling",
+    "turns": "28",
+    "result": "9/9 passes"
+   },
+   {
+    "family": "danger‑close detection",
+    "turns": "11,13",
+    "result": "14/19 passes"
+   },
+   {
+    "family": "reverse state for 뒤쪽 물체",
+    "turns": "19,21",
+    "result": "14/16 passes"
+   },
+   {
+    "family": "candidate‑evaluation evasion",
+    "turns": "5,6,7,9,10",
+    "result": "35/44 passes"
+   },
+   {
+    "family": "detour timing 조정",
+    "turns": "10,20,22",
+    "result": "22/30 passes"
+   },
+   {
+    "family": "side‑distance stop 추가 (현재)",
+    "turns": "29",
+    "result": "3/6 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "측면 거리(d_min)도 정지 조건에 포함해 gap < _STOP_D 또는 d_min < _STOP_D 일 때 stop 으로 전환",
+    "new_family": false,
+    "for": "side 정적·이동 물체 충돌 방지",
+    "risk": "정지 빈도 증가로 평균 시간 초과 가능"
+   },
+   {
+    "idea": "점 기반 점유 격자(occupancy grid) 로컬 플래너 도입: 라이다 점을 각도‑거리로 변환, 자유 각도 구역 선택, 목표 방향과 정렬해 v,w 생성",
+    "new_family": true,
+    "for": "전방·측면 장애물 모두 실시간 회피",
+    "risk": "구현 복잡도 증가, 1/60 s 제한 내 계산 부담"
+   },
+   {
+    "idea": "잠재장(potential field) 방식: 목표에 대한 끌어당기는 힘과 모든 장애물에 대한 반발 힘을 합산해 원하는 heading과 속도 도출",
+    "new_family": true,
+    "for": "다양한 방향의 장애물에 부드러운 회피 제공",
+    "risk": "지역 최소점에 빠질 위험, 파라미터 튜닝 필요"
+   }
+  ],
+  "chosen": "점 기반 점유 격자 로컬 플래너를 도입한다; 이는 전방·측면 장애물을 동시에 고려해 안전한 진행 방향을 실시간으로 선택한다",
+  "target": "controller (및 새로운 헬퍼 함수들)",
+  "direction": "1. _perceive 후 앞·뒤 라이다 점들을 robot‑frame 배열로 합친다. 2. 각 점을 극좌표(거리, 각도)로 변환하고 안전 반경(예: 0.8 m) 이내 점들을 각도별로 마스크한다. 3. 연속된 빈 각도 구간을 찾아 최소 폭 20° 이상인 구간을 자유 구역으로 정의한다. 4. 현재 waypoint 방향과 가장 가까운 자유 구역의 중심 각도를 선택한다. 5. 회전 속도 w = clamp(k_angle * angle_error, -2.0, 2.0) 로 설정하고 전진 속도 v = min(2.0, max_speed * cos(angle_error)) 로 제한한다. 6. 기존 stop/detour 로직은 앞‑gap이 _STOP_D 이하일 때만 유지하고, 나머지는 새로운 로컬 플래너 결과를 반환한다.",
+  "confidence": "medium",
+  "last_direction_ok": "yes: turn 28 코드가 9/9 통과하며 평균 66 s 로 충돌 없이 목표 도달, 성능 향상",
+  "base_turn": 29
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t29_s394850624: 충돌 t=37.95, static box 07, robot 속도 0.29 m/s, front gap >1.5 m but side distance d_min≈0.9 m (first_not_on_map 36.55 s, 1.92 m) → side 충돌\",\n    \"c51t29_s2044170879: 충돌 t=45.25, static box 07, robot 속도 1.02 m/s, side distance d_min≈0.84 m (first_not_on_map 40.25 s, 0.84 m) while front gap remained >1.5 m\",\n    \"c51t29_s913052668: 충돌 t=20.533, mover_01, robot 속도 0.37 m/s, mover 접근 속도 0.59 m/s, first_not_on_map 15.88 s, 1.92 m side, side distance not used for stop\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"전방 ±30° gap만으로 충돌을 방지할 수 있다\",\n      \"holds\": false,\n      \"why\": \"측면 정적·이동 물체와 충돌 발생 (증거 1,2)\"\n    },\n    {\n      \"assumption\": \"TTC 1 s와 _SAFE=0.25 m는 2 m/s 속도에서 충분히 안전하다\",\n      \"holds\": false,\n      \"why\": \"충돌 시 robot 속도 1 m/s, side 거리 0.8 m에서 충돌 발생\"\n    },\n    {\n      \"assumption\": \"정적 장애물은 _static_ok 로 충분히 검출된다\",\n      \"holds\": false,\n      \"why\": \"static box 07 충돌, static clearance 미검출\"\n    },\n    {\n      \"assumption\": \"측면 물체는 속도 스케일링만으로 회피 가능하다\",\n      \"holds\": false,\n      \"why\": \"측면 물체가 가까워도 stop 전환되지 않아 충돌\"\n    },\n    {\n      \"assumption\": \"센서 데이터는 0.1 s마다 최신이며 오탐이 거의 없으며 충분히 정확하다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록이 일관됨\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"front‑gap stop/detour only\",\n      \"turns\": \"1,3\",\n      \"result\": \"18/20 passes\"\n    },\n    {\n      \"family\": \"side‑distance used for resume/scaling\",\n      \"turns\": \"24,25,27\",\n      \"result\": \"20/24 passes\"\n    },\n    {\n      \"family\": \"TTC‑based speed scaling\",\n      \"turns\": \"28\",\n      \"result\": \"9/9 passes\"\n    },\n    {\n      \"family\": \"danger‑close detection\",\n      \"turns\": \"11,13\",\n      \"result\": \"14/19 passes\"\n    },\n    {\n      \"family\": \"reverse state for 뒤쪽 물체\",\n      \"turns\": \"19,21\",\n      \"result\": \"14/16 passes\"\n    },\n    {\n      \"family\": \"candidate‑evaluation evasion\",\n      \"turns\": \"5,6,7,9,10\",\n      \"result\": \"35/44 passes\"\n    },\n    {\n      \"family\": \"detour timing 조정\",\n      \"turns\": \"10,20,22\",\n      \"result\": \"22/30 passes\"\n    },\n    {\n      \"family\": \"side‑distance stop 추가 (현재)\",\n      \"turns\": \"29\",\n      \"result\": \"3/6 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"측면 거리(d_min)도 정지 조건에 포함해 gap < _STOP_D 또는 d_min < _STOP_D 일 때 stop 으로 전환\",\n      \"new_family\": false,\n      \"for\": \"side 정적·이동 물체 충돌 방지\",\n      \"risk\": \"정지 빈도 증가로 평균 시간 초과 가능\"\n    },\n    {\n      \"idea\": \"점 기반 점유 격자(occupancy grid) 로컬 플래너 도입: 라이다 점을 각도‑거리로 변환, 자유 각도 구역 선택, 목표 방향과 정렬해 v,w 생성\",\n      \"new_family\": true,\n      \"for\": \"전방·측면 장애물 모두 실시간 회피\",\n      \"risk\": \"구현 복잡도 증가, 1/60 s 제한 내 계산 부담\"\n    },\n    {\n      \"idea\": \"잠재장(potential field) 방식: 목표에 대한 끌어당기는 힘과 모든 장애물에 대한 반발 힘을 합산해 원하는 heading과 속도 도출\",\n      \"new_family\": true,\n      \"for\": \"다양한 방향의 장애물에 부드러운 회피 제공\",\n      \"risk\": \"지역 최소점에 빠질 위험, 파라미터 튜닝 필요\"\n    }\n  ],\n  \"chosen\": \"점 기반 점유 격자 로컬 플래너를 도입한다; 이는 전방·측면 장애물을 동시에 고려해 안전한 진행 방향을 실시간으로 선택한다\",\n  \"target\": \"controller (및 새로운 헬퍼 함수들)\",\n  \"direction\": \"1. _perceive 후 앞·뒤 라이다 점들을 robot‑frame 배열로 합친다. 2. 각 점을 극좌표(거리, 각도)로 변환하고 안전 반경(예: 0.8 m) 이내 점들을 각도별로 마스크한다. 3. 연속된 빈 각도 구간을 찾아 최소 폭 20° 이상인 구간을 자유 구역으로 정의한다. 4. 현재 waypoint 방향과 가장 가까운 자유 구역의 중심 각도를 선택한다. 5. 회전 속도 w = clamp(k_angle * angle_error, -2.0, 2.0) 로 설정하고 전진 속도 v = min(2.0, max_speed * cos(angle_error)) 로 제한한다. 6. 기존 stop/detour 로직은 앞‑gap이 _STOP_D 이하일 때만 유지하고, 나머지는 새로운 로컬 플래너 결과를 반환한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"yes: turn 28 코드가 9/9 통과하며 평균 66 s 로 충돌 없이 목표 도달, 성능 향상\",\n  \"base_turn\": 29\n}",
+ "table": [
+  {
+   "run": "c51t29_s1027036741",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 64.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2448,
+   "time_to_goal_s": 54.033
+  },
+  {
+   "run": "c51t29_s394850624",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 535.8,
+   "sim_time_s": 44.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 37.95,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "주행 0.29m/s 회전 -0.7",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 7,
+   "first_seen_within_2m_t": 36.55,
+   "goal_dist_m": 9.8082,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t29_s2044170879",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 491.8,
+   "sim_time_s": 51.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 45.25,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "주행 1.02m/s 회전 +0.5",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 40.25,
+   "goal_dist_m": 9.4508,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t29_s30443349",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 440.6,
+   "sim_time_s": 72.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1787,
+   "time_to_goal_s": 63.383
+  },
+  {
+   "run": "c51t29_s660650094",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 368.2,
+   "sim_time_s": 78.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 24,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.2499,
+   "time_to_goal_s": 68.533
+  },
+  {
+   "run": "c51t29_s913052668",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 290.2,
+   "sim_time_s": 26.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 20.533,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.37m/s 회전 +0.9",
+   "partner_rel_xy": [
+    0.3,
+    -0.59
+   ],
+   "closing_m_s": 0.59,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 15.88,
+   "goal_dist_m": 19.8274,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

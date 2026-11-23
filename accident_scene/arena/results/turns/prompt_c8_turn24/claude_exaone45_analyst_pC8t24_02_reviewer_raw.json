@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"회피 트리거에 d_near < 1.5m 추가, 기존 TTC·근접 조건과 OR 결합\", \"implemented\": true, \"note\": \"near_abs = d_near < _NEAR_TRIG_D(1.5) 를 추가하고 (danger or near_abs) 로 OR 결합함. 거리만으로 켜진 트리거는 종료 창을 초기화하지 않는데, 이는 지시에 덧붙인 동작이고 지시와 충돌하지 않음\"},\n  {\"instruction\": \"_choose 의 evading=True 분기에서 stc >= 0.1m 를 필수 조건으로\", \"implemented\": true, \"note\": \"두 tier 모두 st_ok = stc >= _EV_ST_HARD(0.1) 를 조건으로 씀. _no_spin 에 st_min=0.1, _narrow_lateral 의 ok 에도 같은 조건을 적용함\"},\n  {\"instruction\": \"회피 중 정적 안전 거리가 모자라면 mover 회피보다 정적 회피를 우선\", \"implemented\": true, \"note\": \"0.1m 를 지키는 후보가 없으면 최대 stc 에서 0.05m 이내 후보만 허용함. 회피 중 st0 < 0.1 이면 st_prio=True 로 켬\"},\n  {\"instruction\": \"TTC_TRIG 를 0.5s 로\", \"implemented\": true, \"note\": \"_TTC_TRIG = 0.5\"},\n  {\"instruction\": \"회피 종료 조건에 정적 안전 거리 0.1m 이상 0.5s 유지 추가\", \"implemented\": true, \"note\": \"st_ok_since 와 st_hold 를 두고 normal_ok = (end_rise|end_still|end_away) and st_hold 로 바꿈. 강제 종료는 그대로 둠\"},\n  {\"instruction\": \"mover clearance 와 static clearance 가중치 1:2\", \"implemented\": true, \"note\": \"_choose 의 회피 점수는 기본 10 + 추가 10 으로 mover 20·min(clr,1), static 40·clip(stc,0,1) 임. _narrow_lateral 도 20:40\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"TTC_TRIG 를 1.0s 에서 0.5s 로 낮추면 트리거가 덜 걸림. '느린 접근 물체 감지 강화'라는 목적과 방향이 반대임. 또 종료 조건의 ttc >= _TTC_TRIG 도 함께 느슨해짐\",\n  \"근거에는 정적 박스와의 충돌이 적혀 있는데, mover 거리 트리거(1.5m)는 그 충돌 원인과 직접 이어지지 않음\",\n  \"협소 구간에서는 stc >= 0.1m 를 만족하는 후보가 자주 없어 fallback 과 강제 종료에 기대게 될 수 있음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 72695,
+  "completion_tokens": 3250
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30854,
+  "total_cost_usd": 0.6465519999999999,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3250,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 72693,
+    "webSearchRequests": 0,
+    "costUSD": 0.6465519999999999,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2178,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 72693,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "73d42245-af2d-4651-b371-70aeaf73d94a"
+ }
+}

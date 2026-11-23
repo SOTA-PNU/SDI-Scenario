@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단에 따르면 정지·회전·우회에 쓰는 시간이 쌓여 시뮬 시간 합계가 601 s 로 예산 600 s 를 넘었습니다. 그래서 진단 지시 1에 따라 `_STOP_WAIT` 를 2.0→0.5 s, `_DETOUR_ROT` 를 1.2→0.6 s, `_DETOUR_T` 를 6.0→4.0 s 로 줄였습니다. 지시 2~5에 해당하는 부분은 controller 를 바꾸지 않아도 이미 그대로 동작합니다: `_is_safe`·`_static_ok` 검사는 유지되고, 상태 전환 때마다 `c.detour_t`/`c.stop_t` 가 현재 시각으로 초기화되며, 회전은 `detour_w`(±0.5 rad/s)로 짧게 한 뒤 바로 `_safe_evade` 로 전진 후보를 평가합니다.\n\n```python\n_STOP_WAIT = 0.5       # 정지가 이 시간 이상이면 우회 [s] - 진단 지시 1 (2.0 -> 0.5)\n\n\n_DETOUR_T = 4.0        # 우회 상태 최대 지속 [s], 지나면 다시 정지·대기 - 진단 지시 1 (6.0 -> 4.0)\n\n\n_DETOUR_ROT = 0.6      # 우회 시작 시 제자리 회전(±0.5 rad/s) 시간 [s] - 진단 지시 1 (1.2 -> 0.6)\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 33264,
+  "completion_tokens": 1015
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 9271,
+  "total_cost_usd": 0.286404,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1015,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 33262,
+    "webSearchRequests": 0,
+    "costUSD": 0.286404,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 459,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 33262,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "0e73ab31-02b3-4638-abc8-bbc1e933de75"
+ }
+}

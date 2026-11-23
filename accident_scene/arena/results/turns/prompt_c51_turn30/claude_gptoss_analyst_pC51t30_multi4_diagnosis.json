@@ -1,0 +1,183 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t30_s1084981817: collision at t=49.317 s with mover_01; first 2 m detection at t=46.65 s, robot speed 0.51 m/s, heading -1.3 rad – side mover not caught by front‑gap stop",
+   "c51t30_s275133499: collision at t=23.5 s with mover_00; first 2 m detection at t=18.52 s, robot speed 0.29 m/s – mover outside front‑gap angle caused impact",
+   "c51t30_s193767252: collision at t=68.4 s with static arena_box_10; first 2 m detection at t=63.42 s, robot speed 0.17 m/s – free‑heading chose a heading intersecting static obstacle"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Front‑gap (±30°) detection is sufficient to trigger stop for any moving obstacle",
+    "holds": false,
+    "why": "Side movers caused collisions despite being within 0.6 m of the robot (runs c51t30_s1084981817, c51t30_s275133499)"
+   },
+   {
+    "assumption": "Free‑heading based on current lidar points and short‑term predictions avoids all collisions",
+    "holds": false,
+    "why": "Collision with static box (run c51t30_s193767252) shows chosen free sector intersected a known obstacle"
+   },
+   {
+    "assumption": "TTC window of 1 s (_TTC_H) and margin _SAFE=0.25 m are enough for safe motion",
+    "holds": false,
+    "why": "Collisions occurred while TTC was >1 s (side movers approached from the side and were not slowed early enough)"
+   },
+   {
+    "assumption": "Stopping only when front gap < _STOP_D and waiting _STOP_WAIT seconds before detour yields efficient progress",
+    "holds": false,
+    "why": "Long stop‑turn episodes (58 in the pass run) inflate execution time; reducing wait time is needed"
+   },
+   {
+    "assumption": "Static waypoint following without dynamic replanning is adequate when obstacles are avoided by stop/detour",
+    "holds": true,
+    "why": "When collisions are prevented, the robot reaches the goal using the existing waypoint logic"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "basic stop/detour with front‑gap only",
+    "turns": "1,3,4,5,8,10,22,24,26,28,30",
+    "result": "11 attempts, 84 passes (≈86 %); average time >60 s, many stop‑turn episodes"
+   },
+   {
+    "family": "side‑danger detection (danger_close / danger_side)",
+    "turns": "11,12,13,14,15,23,25,27",
+    "result": "8 attempts, 39 passes (≈67 %); mixed safety, occasional new collisions"
+   },
+   {
+    "family": "TTC‑based speed scaling",
+    "turns": "28,14",
+    "result": "2 attempts, 10 passes (≈77 %); safe but average time ≈66 s"
+   },
+   {
+    "family": "timing adjustments (shorter STOP_WAIT, DETOUR_T, DETOUR_ROT)",
+    "turns": "20,22,26,27",
+    "result": "4 attempts, 31 passes (≈86 %); average time as low as 61 s but occasional collisions"
+   },
+   {
+    "family": "remove stop/detour, rely on continuous planning",
+    "turns": "16,17,18",
+    "result": "3 attempts, 9 passes (≈56 %); frequent stalls"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Hybrid speed scaling: compute min TTC (as in turn 28) and side‑distance scaling (as in turn 23/24) and combine with front‑gap scaling; also set _STOP_WAIT=1.0, _DETOUR_T=4.0, _DETOUR_ROT=0.8",
+    "new_family": true,
+    "for": "reduces collisions from side movers while cutting idle stop‑turn time",
+    "risk": "may become overly conservative, causing frequent low‑speed travel and longer total time"
+   },
+   {
+    "idea": "Extend _free_heading to predict mover positions up to 2 s and discard any heading that would intersect a predicted mover trajectory",
+    "new_family": true,
+    "for": "prevents heading selection that leads to future collisions",
+    "risk": "higher computational load; may eliminate all feasible headings and cause stalls"
+   },
+   {
+    "idea": "Add a 'reverse' state that backs away from rear‑approaching movers when they enter a 1.5 m rear zone",
+    "new_family": true,
+    "for": "handles collisions from behind which current logic never stops for",
+    "risk": "adds complexity and may interfere with waypoint progression, increasing detour time"
+   }
+  ],
+  "chosen": "Add a TTC‑based speed‑scaling factor and shorten stop/detour timing to prevent side‑approaching collisions and eliminate time‑limit failures.",
+  "target": "controller, _STOP_WAIT, _DETOUR_T, _DETOUR_ROT, new helper _min_ttc",
+  "direction": "1. Define a new function _min_ttc(pose, movers) after _min_mover_dist that loops over movers, computes dx, dy, dvx, dvy as in _is_safe, clamps each TTC to [0,_TTC_H] and returns the smallest value (or _TTC_H if no movers). 2. In controller(), after calling _movers(t, pose) and before computing f, call ttc = _min_ttc(pose, movers). 3. Compute f_ttc = _clamp(ttc / _TTC_H, 0.15, 1.0) and combine with the existing front‑gap factor: f = min(f, f_ttc). 4. Use this combined f for all scaled commands (v_nom * f * k) and for the resume check (gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)). 5. Change constants: set _STOP_WAIT = 0.5, _DETOUR_T = 3.0, _DETOUR_ROT = 0.6 to reduce idle waiting and detour duration. 6. Keep all other logic unchanged.",
+  "confidence": "medium",
+  "last_direction_ok": "no – turn 30 reduced pass rate from 50 % (turn 29) to 25 % and more than doubled the average execution time, indicating the last change worsened both safety and speed",
+  "base_turn": 22,
+  "stage1": {
+   "chosen": "Hybrid speed scaling (candidate 1) because it merges the proven safety of TTC scaling with side‑distance scaling and the fast timing from turn 22, directly addressing the side‑mover collisions and excessive stop‑turn time.",
+   "target": "controller function (speed‑factor computation) and addition of a _min_ttc helper; also update constants _STOP_WAIT, _DETOUR_T, _DETOUR_ROT.",
+   "direction": "1. Add a new function _min_ttc(pose, movers) after _min_mover_dist that returns the smallest TTC (clamped to [_TTC_H,0]). 2. In controller(), after calling _movers(), compute d_min = _min_mover_dist(pose, movers) and ttc = _min_ttc(pose, movers). 3. Compute f_front = 1.0 if gap>=2.5 else _clamp((gap-_STOP_D)/1.5,0.15,1.0); f_side = _clamp((d_min-_STOP_D)/1.5,0.15,1.0); f_ttc = _clamp(ttc/_TTC_H,0.15,1.0); then set f = min(f_front, f_side, f_ttc). 4. Pass f to _plan_cmd as before so both pc and candidate scaling respect the combined factor. 5. Change constants to _STOP_WAIT=1.0, _DETOUR_T=4.0, _DETOUR_ROT=0.8 to shorten idle periods. 6. Keep all existing state‑machine logic unchanged."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t30_s1084981817: collision at t=49.317 s with mover_01; first 2 m detection at t=46.65 s, robot speed 0.51 m/s, heading -1.3 rad – side mover not caught by front‑gap stop\",\n    \"c51t30_s275133499: collision at t=23.5 s with mover_00; first 2 m detection at t=18.52 s, robot speed 0.29 m/s – mover outside front‑gap angle caused impact\",\n    \"c51t30_s193767252: collision at t=68.4 s with static arena_box_10; first 2 m detection at t=63.42 s, robot speed 0.17 m/s – free‑heading chose a heading intersecting static obstacle\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"Front‑gap (±30°) detection is sufficient to trigger stop for any moving obstacle\",\n      \"holds\": false,\n      \"why\": \"Side movers caused collisions despite being within 0.6 m of the robot (runs c51t30_s1084981817, c51t30_s275133499)\"\n    },\n    {\n      \"assumption\": \"Free‑heading based on current lidar points and short‑term predictions avoids all collisions\",\n      \"holds\": false,\n      \"why\": \"Collision with static box (run c51t30_s193767252) shows chosen free sector intersected a known obstacle\"\n    },\n    {\n      \"assumption\": \"TTC window of 1 s (_TTC_H) and margin _SAFE=0.25 m are enough for safe motion\",\n      \"holds\": false,\n      \"why\": \"Collisions occurred while TTC was >1 s (side movers approached from the side and were not slowed early enough)\"\n    },\n    {\n      \"assumption\": \"Stopping only when front gap < _STOP_D and waiting _STOP_WAIT seconds before detour yields efficient progress\",\n      \"holds\": false,\n      \"why\": \"Long stop‑turn episodes (58 in the pass run) inflate execution time; reducing wait time is needed\"\n    },\n    {\n      \"assumption\": \"Static waypoint following without dynamic replanning is adequate when obstacles are avoided by stop/detour\",\n      \"holds\": true,\n      \"why\": \"When collisions are prevented, the robot reaches the goal using the existing waypoint logic\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"basic stop/detour with front‑gap only\",\n      \"turns\": \"1,3,4,5,8,10,22,24,26,28,30\",\n      \"result\": \"11 attempts, 84 passes (≈86 %); average time >60 s, many stop‑turn episodes\"\n    },\n    {\n      \"family\": \"side‑danger detection (danger_close / danger_side)\",\n      \"turns\": \"11,12,13,14,15,23,25,27\",\n      \"result\": \"8 attempts, 39 passes (≈67 %); mixed safety, occasional new collisions\"\n    },\n    {\n      \"family\": \"TTC‑based speed scaling\",\n      \"turns\": \"28,14\",\n      \"result\": \"2 attempts, 10 passes (≈77 %); safe but average time ≈66 s\"\n    },\n    {\n      \"family\": \"timing adjustments (shorter STOP_WAIT, DETOUR_T, DETOUR_ROT)\",\n      \"turns\": \"20,22,26,27\",\n      \"result\": \"4 attempts, 31 passes (≈86 %); average time as low as 61 s but occasional collisions\"\n    },\n    {\n      \"family\": \"remove stop/detour, rely on continuous planning\",\n      \"turns\": \"16,17,18\",\n      \"result\": \"3 attempts, 9 passes (≈56 %); frequent stalls\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"Hybrid speed scaling: compute min TTC (as in turn 28) and side‑distance scaling (as in turn 23/24) and combine with front‑gap scaling; also set _STOP_WAIT=1.0, _DETOUR_T=4.0, _DETOUR_ROT=0.8\",\n      \"new_family\": true,\n      \"for\": \"reduces collisions from side movers while cutting idle stop‑turn time\",\n      \"risk\": \"may become overly conservative, causing frequent low‑speed travel and longer total time\"\n    },\n    {\n      \"idea\": \"Extend _free_heading to predict mover positions up to 2 s and discard any heading that would intersect a predicted mover trajectory\",\n      \"new_family\": true,\n      \"for\": \"prevents heading selection that leads to future collisions\",\n      \"risk\": \"higher computational load; may eliminate all feasible headings and cause stalls\"\n    },\n    {\n      \"idea\": \"Add a 'reverse' state that backs away from rear‑approaching movers when they enter a 1.5 m rear zone\",\n      \"new_family\": true,\n      \"for\": \"handles collisions from behind which current logic never stops for\",\n      \"risk\": \"adds complexity and may interfere with waypoint progression, increasing detour time\"\n    }\n  ],\n  \"chosen\": \"Hybrid speed scaling (candidate 1) because it merges the proven safety of TTC scaling with side‑distance scaling and the fast timing from turn 22, directly addressing the side‑mover collisions and excessive stop‑turn time.\",\n  \"target\": \"controller function (speed‑factor computation) and addition of a _min_ttc helper; also update constants _STOP_WAIT, _DETOUR_T, _DETOUR_ROT.\",\n  \"direction\": \"1. Add a new function _min_ttc(pose, movers) after _min_mover_dist that returns the smallest TTC (clamped to [_TTC_H,0]). 2. In controller(), after calling _movers(), compute d_min = _min_mover_dist(pose, movers) and ttc = _min_ttc(pose, movers). 3. Compute f_front = 1.0 if gap>=2.5 else _clamp((gap-_STOP_D)/1.5,0.15,1.0); f_side = _clamp((d_min-_STOP_D)/1.5,0.15,1.0); f_ttc = _clamp(ttc/_TTC_H,0.15,1.0); then set f = min(f_front, f_side, f_ttc). 4. Pass f to _plan_cmd as before so both pc and candidate scaling respect the combined factor. 5. Change constants to _STOP_WAIT=1.0, _DETOUR_T=4.0, _DETOUR_ROT=0.8 to shorten idle periods. 6. Keep all existing state‑machine logic unchanged.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no – turn 30 reduced pass rate from 50 % (turn 29) to 25 % and more than doubled the average execution time, indicating the last change worsened both safety and speed\",\n  \"base_turn\": 22\n}",
+ "table": [
+  {
+   "run": "c51t30_s263831465",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 142.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 58,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 0.1644,
+   "time_to_goal_s": 136.283
+  },
+  {
+   "run": "c51t30_s1084981817",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 457.5,
+   "sim_time_s": 55.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 49.317,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.51m/s 회전 -1.3",
+   "partner_rel_xy": [
+    0.14,
+    0.67
+   ],
+   "closing_m_s": 0.41,
+   "stop_turns": 27,
+   "first_seen_within_2m_t": 46.65,
+   "goal_dist_m": 24.1035,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t30_s193767252",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 402.2,
+   "sim_time_s": 74.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 68.4,
+   "partner": "static:arena_box_10",
+   "robot_at_collision": "주행 0.17m/s 회전 -1.9",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 28,
+   "first_seen_within_2m_t": 63.42,
+   "goal_dist_m": 9.108,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t30_s275133499",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 327.8,
+   "sim_time_s": 29.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 23.5,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.29m/s",
+   "partner_rel_xy": [
+    -0.09,
+    0.58
+   ],
+   "closing_m_s": 0.75,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 18.52,
+   "goal_dist_m": 29.7431,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,4 @@
+(첫 시도 전)
+#0 이번 코드(출발점 코드 그대로): 새 배치 4개 중 1개 pass, 3개 fail (시뮬 시간 합계 79 s / 한도 600 s)
+#1 이번 코드(진단 "1. front 2D 라이다 스캔을 world 좌표로 변환 후 정적 지도와 점 비교\n2. 정적 장애물이 아닌 가장 가까운 점의 거리를 계산\n3. 거리 < 1.5m 시 v=0, w=0 (즉시 정지)\n4. 거리 1.5~3m 시 v=0.3, w=0 (감속 후 회전 중지)\n5. 이전 거리와 비교해 감소 중이면 감속 강화\n6. 물체 감지 시 waypoint 추종 일시 중단, 안전 거리 확보 후 재개" 반영, 검토 통과): 새 배치 6개 중 5개 pass, 1개 fail (시뮬 시간 합계 574 s / 한도 600 s)
+#2 이번 코드(진단 "1. closing_object = -(U·dx + U·dy)/rng 계산 후\n2. v_robot_n = v_nom * rx / rng (rx > 0인 물체만 적용)\n3. total_closing = closing_object + v_robot_n\n4. d_eff = clr - 0.7 * max(total_closing, 0.0)\n5. 정지 조건(d_thr < 1.5m) 유지하되, 재출발 전 0.5s 정지 상태로 물체 거리 증가 확인 추가\n6. 새로운 물체 감지 시 age=1인 경우 closing_object에 최소 0.1m/s 추가 가정 (보수적 예측)\n7. rx > -0.3 조건 유지하되, coming 판단 시 total_closing > 0.15로 강화" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 203 s / 한도 600 s)

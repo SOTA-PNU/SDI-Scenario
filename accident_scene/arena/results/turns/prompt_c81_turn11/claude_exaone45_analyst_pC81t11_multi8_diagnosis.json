@@ -1,0 +1,221 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "실행 8번(c81t11_s1744608365)에서 time_limit_s=38.2s 대비 sim_time_s=39.2s 초과로 종료, 로봇이 0.2m/s로 주행하며 목표까지 12.34m 남아 시간 부족",
+   "여러 실행에서 d_thr가 _HOLD_ON(1.0s)과 _SLOW_T(3.5s) 사이일 때 _V_SLOW=0.2m/s로 고정되어 진행 속도 저하",
+   "실행 요약에서 7/8 통과했으나 1개 실패는 저예산 실행(38.2s 한도)에서 느린 속도로 인한 시간 초과로 확인"
+  ],
+  "assumptions": [
+   {
+    "assumption": "현재 설계는 MTC 기반 속도 조절로 충돌 방지와 시간 효율을 동시에 달성한다고 가정",
+    "holds": false,
+    "why": "저예산 실행에서 d_thr가 _HOLD_ON~_SLOW_T 구간일 때 _V_SLOW=0.2m/s로 고정되어 진행이 지연되며, 이는 시간 한도 초과로 이어짐"
+   },
+   {
+    "assumption": "정지-재출발 메커니즘이 충분한 안전 마진을 제공한다고 가정",
+    "holds": false,
+    "why": "실패 실행에서 정지 상태가 아닌 저속 주행 중 시간 초과 발생, 정지 관리 로직만으로는 저예산 시나리오 대응 불가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 기반 속도 조절 + 감속 구간 유지",
+    "turns": "5,6,7,8,9,10,11",
+    "result": "통과 수 변동 있으나 저예산 실행에서 timeout 빈도 증가"
+   },
+   {
+    "family": "정지 시간/임계값 조정",
+    "turns": "7,10",
+    "result": "통과율 개선되었으나 감속 구간 속도 저하로 인한 시간 초과 잔존"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "감속 구간 완전 제거: d_thr >= _HOLD_ON일 때 정상 속도(v_nom) 유지, 미만 시 즉시 정지",
+    "new_family": true,
+    "for": "저예산 실행에서 느린 속도로 인한 timeout 방지, 감속 구간 제거로 평균 속도 향상",
+    "risk": "d_thr 급감 시 충돌 위험 증가 가능성 있으나 _HOLD_ON 조정으로 완화 가능"
+   },
+   {
+    "idea": "카메라 기반 장애물 조기 감지로 속도 선제 조절",
+    "new_family": true,
+    "for": "2D 라이다보다 카메라로 더 먼 거리 감지 가능, 감속 시점 앞당겨 충돌 회피 및 시간 효율 개선",
+    "risk": "카메라 왜곡/계산 지연으로 오인 가능성, 센서 신뢰도 검증 필요"
+   },
+   {
+    "idea": "시간 예산 인지 기반 속도 조절 (실행 불가)",
+    "new_family": false,
+    "for": "남은 시간에 비례해 속도 증가",
+    "risk": "controller에 시간 정보 없음, 규칙 위반"
+   }
+  ],
+  "chosen": "감속 구간 완전 제거 후보 선택. d_thr가 _HOLD_ON 이상이면 정상 속도 유지로 저예산 실행에서 시간 초과 방지, 충돌 위험은 _HOLD_ON 조정으로 관리 가능",
+  "target": "controller의 d_thr 기반 속도 조절 로직 (감속 구간 제거)",
+  "direction": "1. d_thr < _SLOW_T 조건 제거, 대신 d_thr >= _HOLD_ON일 때 v = v_nom, w = w_nom 적용\n2. 감속 구간 관련 변수(_SLOW_T, _V_SLOW, k 계산) 삭제\n3. 정지 관리 로직에서 d_thr >= _HOLD_ON 조건만으로 재출발 허용 (감속 구간 고려 제거)\n4. _HOLD_ON을 1.5s로 상향 조정해 충돌 안전 마진 확보\n5. _HOLD_MIN은 0.8s로 유지해 정지 시간 최소화\n6. 회피 모드 진입 시 _HOLD_ON 기준 유지하여 정지 전환 로직 보완",
+  "confidence": "medium",
+  "last_direction_ok": "yes, 직전 지시로 통과율 6/8에서 7/8로 향상되고 평균 실행 시간이 78초에서 60.1초로 감소했기 때문",
+  "base_turn": 11
+ },
+ "raw": "\n\n{\"failure_mode\": \"timeout\",\n \"evidence\": [\"실행 8번(c81t11_s1744608365)에서 time_limit_s=38.2s 대비 sim_time_s=39.2s 초과로 종료, 로봇이 0.2m/s로 주행하며 목표까지 12.34m 남아 시간 부족\", \"여러 실행에서 d_thr가 _HOLD_ON(1.0s)과 _SLOW_T(3.5s) 사이일 때 _V_SLOW=0.2m/s로 고정되어 진행 속도 저하\", \"실행 요약에서 7/8 통과했으나 1개 실패는 저예산 실행(38.2s 한도)에서 느린 속도로 인한 시간 초과로 확인\"],\n \"assumptions\": [{\"assumption\": \"현재 설계는 MTC 기반 속도 조절로 충돌 방지와 시간 효율을 동시에 달성한다고 가정\", \"holds\": false, \"why\": \"저예산 실행에서 d_thr가 _HOLD_ON~_SLOW_T 구간일 때 _V_SLOW=0.2m/s로 고정되어 진행이 지연되며, 이는 시간 한도 초과로 이어짐\"}, {\"assumption\": \"정지-재출발 메커니즘이 충분한 안전 마진을 제공한다고 가정\", \"holds\": false, \"why\": \"실패 실행에서 정지 상태가 아닌 저속 주행 중 시간 초과 발생, 정지 관리 로직만으로는 저예산 시나리오 대응 불가\"}],\n \"approach_families\": [{\"family\": \"MTC 기반 속도 조절 + 감속 구간 유지\", \"turns\": \"5,6,7,8,9,10,11\", \"result\": \"통과 수 변동 있으나 저예산 실행에서 timeout 빈도 증가\"}, {\"family\": \"정지 시간/임계값 조정\", \"turns\": \"7,10\", \"result\": \"통과율 개선되었으나 감속 구간 속도 저하로 인한 시간 초과 잔존\"}],\n \"candidates\": [{\"idea\": \"감속 구간 완전 제거: d_thr >= _HOLD_ON일 때 정상 속도(v_nom) 유지, 미만 시 즉시 정지\", \"new_family\": true, \"for\": \"저예산 실행에서 느린 속도로 인한 timeout 방지, 감속 구간 제거로 평균 속도 향상\", \"risk\": \"d_thr 급감 시 충돌 위험 증가 가능성 있으나 _HOLD_ON 조정으로 완화 가능\"}, {\"idea\": \"카메라 기반 장애물 조기 감지로 속도 선제 조절\", \"new_family\": true, \"for\": \"2D 라이다보다 카메라로 더 먼 거리 감지 가능, 감속 시점 앞당겨 충돌 회피 및 시간 효율 개선\", \"risk\": \"카메라 왜곡/계산 지연으로 오인 가능성, 센서 신뢰도 검증 필요\"}, {\"idea\": \"시간 예산 인지 기반 속도 조절 (실행 불가)\", \"new_family\": false, \"for\": \"남은 시간에 비례해 속도 증가\", \"risk\": \"controller에 시간 정보 없음, 규칙 위반\"}],\n \"chosen\": \"감속 구간 완전 제거 후보 선택. d_thr가 _HOLD_ON 이상이면 정상 속도 유지로 저예산 실행에서 시간 초과 방지, 충돌 위험은 _HOLD_ON 조정으로 관리 가능\",\n \"target\": \"controller의 d_thr 기반 속도 조절 로직 (감속 구간 제거)\",\n \"direction\": \"1. d_thr < _SLOW_T 조건 제거, 대신 d_thr >= _HOLD_ON일 때 v = v_nom, w = w_nom 적용\\n2. 감속 구간 관련 변수(_SLOW_T, _V_SLOW, k 계산) 삭제\\n3. 정지 관리 로직에서 d_thr >= _HOLD_ON 조건만으로 재출발 허용 (감속 구간 고려 제거)\\n4. _HOLD_ON을 1.5s로 상향 조정해 충돌 안전 마진 확보\\n5. _HOLD_MIN은 0.8s로 유지해 정지 시간 최소화\\n6. 회피 모드 진입 시 _HOLD_ON 기준 유지하여 정지 전환 로직 보완\",\n \"confidence\": \"medium\",\n \"last_direction_ok\": \"yes, 직전 지시로 통과율 6/8에서 7/8로 향상되고 평균 실행 시간이 78초에서 60.1초로 감소했기 때문\",\n \"base_turn\": 11}",
+ "table": [
+  {
+   "run": "c81t11_s618549321",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 73.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 67.72,
+   "goal_dist_m": 0.2295,
+   "time_to_goal_s": 69.767
+  },
+  {
+   "run": "c81t11_s1657934930",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 526.3,
+   "sim_time_s": 92.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 86.92,
+   "goal_dist_m": 0.2206,
+   "time_to_goal_s": 89.017
+  },
+  {
+   "run": "c81t11_s1077907461",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 433.4,
+   "sim_time_s": 72.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 66.32,
+   "goal_dist_m": 0.2026,
+   "time_to_goal_s": 68.367
+  },
+  {
+   "run": "c81t11_s698392786",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 361.1,
+   "sim_time_s": 70.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 64.85,
+   "goal_dist_m": 0.2262,
+   "time_to_goal_s": 66.933
+  },
+  {
+   "run": "c81t11_s1289839230",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 290.3,
+   "sim_time_s": 88.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 82.05,
+   "goal_dist_m": 0.2198,
+   "time_to_goal_s": 84.1
+  },
+  {
+   "run": "c81t11_s1333139943",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 202.3,
+   "sim_time_s": 89.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 83.25,
+   "goal_dist_m": 0.2242,
+   "time_to_goal_s": 85.317
+  },
+  {
+   "run": "c81t11_s414277727",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 113.1,
+   "sim_time_s": 74.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 68.92,
+   "goal_dist_m": 0.2039,
+   "time_to_goal_s": 70.983
+  },
+  {
+   "run": "c81t11_s1744608365",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 38.2,
+   "sim_time_s": 39.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 35.02,
+   "goal_dist_m": 12.3418,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11. 이번 코드에서 이어 가려면 11 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

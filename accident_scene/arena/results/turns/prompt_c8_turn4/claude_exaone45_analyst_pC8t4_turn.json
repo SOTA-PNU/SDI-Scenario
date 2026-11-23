@@ -1,0 +1,372 @@
+{
+ "turn": 4,
+ "started": "2026-11-18 22:36:04",
+ "code_in": "/home/crojjang/SDI-Scenario/accident_scene/arena/results/turns/prompt_c8_turn3/claude_exaone45_analyst_pC8t3_block.py",
+ "diagnosis_in": {
+  "failure_mode": "collision",
+  "evidence": [
+   "여러 실행에서 충돌 시 로봇이 전방 ±45° 섹터 외부(70°, 66° 등) 물체의 접근을 감지하지 못해 clr_n이 정상으로 유지됨",
+   "충돌 직전 로봇 속도 0.6-0.9 m/s로 고속 주행 중이었으며, 정지 임계값 _CLR_STOP=0.20 m이 고속 주행 시 필요한 정지 거리보다 작음",
+   "정지 구간(6회) 후 재개 시 물체 접근 속도가 높아 충돌 회피 실패 (closing_m_s -0.16~ -0.25 m/s)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "전방 섹터 외 물체는 충돌 위험이 없으므로 clr_n만으로 감속 결정해도 안전하다",
+    "holds": false,
+    "why": "실행 1,3,5,7에서 70° 등 외부 각도 물체로 인해 충돌 발생, clr_all(전체 물체)이 위험 신호였으나 반영되지 않음"
+   },
+   {
+    "assumption": "고정된 _CLR_STOP=0.20 m은 모든 속도에서 충분한 정지 거리를 제공한다",
+    "holds": false,
+    "why": "0.7 m/s 주행 시 1 m/s² 감속 가정 시 정지 거리 약 0.25 m 필요하지만, _CLR_STOP=0.20 m으로 부족해 정지 후 재개 시 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "전방 섹터 기반 감속 + 고정 정지 임계값",
+    "turns": 3,
+    "result": "4/7 통과 (3회 충돌)"
+   },
+   {
+    "family": "속도 비례 정지 임계값 + 히스테리시스",
+    "turns": 1,
+    "result": "0/1 통과 (전부 실패)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "clr_all(전체 물체 최소 거리)을 clr_n 대신 감속 비율 및 정지 결정에 사용",
+    "new_family": true,
+    "for": "전방 외 각도 물체 접근 시에도 조기 감속 및 정지 유발",
+    "risk": "측면 물체로 인한 불필요한 감속으로 평균 속도 저하 및 시간 초과 가능성"
+   },
+   {
+    "idea": "정지 임계값 _CLR_STOP을 로봇 속도에 비례하게 동적 조정 (_CLR_STOP = 0.2 + 0.1 * v)",
+    "new_family": true,
+    "for": "고속 주행 시 충분한 정지 거리 확보로 충돌 방지",
+    "risk": "가속도 가정에 따라 정확도 달라지며, 과도한 감속으로 목표 시간 초과 유발"
+   },
+   {
+    "idea": "물체 접근 속도(closing_m_s) 기반 긴급 정지 조건 추가",
+    "new_family": true,
+    "for": "음의 closing_m_s(접근) 시 즉시 정지로 충돌 회피",
+    "risk": "진동/오탐으로 인한 불필요한 정지로 주행 지연"
+   }
+  ],
+  "chosen": "clr_all 기반 감속 결정 채택: 전방 외 각도 물체 접근도 조기 감지해 충돌 위험 대응",
+  "target": "controller 함수 내 감속 모드 진입 조건 및 _slow_cmd 속도 스케일링 로직",
+  "direction": "1. controller에서 slow 모드 진입 조건을 clr_n < _CLR_GO에서 clr_all < _CLR_GO로 변경\n2. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO로 수정 (0~1 범위 유지)\n3. 정지 결정 시 _CLR_STOP을 clr_all 기준으로 유지하되, 감속 궤적 검증 시 clr_all >= _CLR_STOP 조건 강화\n4. 정지 후 재개 시 물체 접근 속도(closing_m_s) 음수일 경우 즉시 회피 동작 유도\n5. clr_all 계산 시 전방 섹터 외 물체도 포함되도록 _front_sector 호출 제거\n6. 히스테리시스 값 _HYST를 1.5로 증가시켜 감속 모드 해제 조건 완화",
+  "confidence": "high"
+ },
+ "coder": [
+  {
+   "attempt": 0,
+   "reason": "변경 이유: 진단의 `chosen`(clr_all 기반 감속 결정)에 맞춰, 감속 모드의 진입·해제 조건과 `_slow_cmd` 의 속도 비율을 전방 ±45° 섹터의 `clr_n` 대신 전체 물체 기준 `clr_all` 로 바꿨습니다. 이제 `_front_sector` 를 부르지 않으므로 70° 처럼 측면에서 다가오는 물체도 감속·정지 판단에 들어갑니다(지시 1, 2, 5). 감속 경로 검증은 모든 물체에 대해 `clr >= _CLR_STOP` 을 요구하고 `_CLR_STOP` 값은 그대로 두었으며(지시 3), `_HYST` 는 1.5 로 올렸습니다(지시 6). 정지 중이거나 정지에서 막 재개할 때, 몸체 1 m 이내 물체의 접근 속도(closing)가 -0.1 m/s 보다 빠르게 다가오면 그 자리에서 기다리지 않고 곧바로 `_choose()` 로 회피합니다(지시 4).",
+   "changed": [
+    "_CLOSE_R",
+    "_CLOSE_V",
+    "_HYST",
+    "_closing_speed",
+    "_slow_cmd",
+    "controller"
+   ],
+   "merge_error": null,
+   "review": {
+    "verdict": "pass",
+    "follows_diagnosis": [
+     {
+      "instruction": "1. slow 모드 진입 조건을 clr_n < _CLR_GO 에서 clr_all < _CLR_GO 로 변경",
+      "implemented": true,
+      "note": "controller 에서 `elif clr_all < _CLR_GO: S[\"slow\"] = True` 로 바꿨고, clr_n 계산도 없앴음"
+     },
+     {
+      "instruction": "2. _slow_cmd 의 속도 비율을 s = clr_all / _CLR_GO (0~1) 로 수정",
+      "implemented": true,
+      "note": "`_slow_cmd(pose, S[\"idx\"], S[\"v\"], clr_all, P, U)` 로 부르고, 안에서 `s = _clamp(clr / _CLR_GO, 0.0, 1.0)`"
+     },
+     {
+      "instruction": "3. _CLR_STOP 은 clr_all 기준으로 유지하고, 감속 궤적 검증에서 clr_all >= _CLR_STOP 조건 강화",
+      "implemented": true,
+      "note": "_CLR_STOP=0.20 을 유지했고, 검증에는 전체 물체 기준 `_mover_clearance(traj, P, U) >= _CLR_STOP` 만 남김. 이 조건은 이전 코드에도 있었고, 전방 >0 검사를 없앤 것이라 실제로 강화된 부분은 없음"
+     },
+     {
+      "instruction": "4. 정지 후 재개 시 closing_m_s 가 음수면 즉시 회피",
+      "implemented": true,
+      "note": "`if stop or S[\"stopped\"]` 에서 _closing_speed < _CLOSE_V 이면 _choose() 호출. 기준이 0 이 아니라 -0.10 이지만 관측값(-0.16~-0.25)은 잡힘. 재개 검사는 slow 분기 안에서 재개 직후 한 프레임에만 동작함"
+     },
+     {
+      "instruction": "5. clr_all 계산에서 _front_sector 호출 제거",
+      "implemented": true,
+      "note": "controller 에서 `Pf, Uf = _front_sector(...)` 를 지웠고, _slow_cmd 의 Pf 검사도 지움. 함수 정의는 남았지만 호출하지 않음"
+     },
+     {
+      "instruction": "6. _HYST 를 1.5 로 증가",
+      "implemented": true,
+      "note": "`_HYST = 1.5`, 해제 조건은 `clr_all >= _CLR_GO * _HYST`"
+     }
+    ],
+    "violations": [],
+    "runtime_errors": [],
+    "diagnosis_concerns": [
+     "지시 3 의 '조건 강화'가 무엇인지 정의되지 않았음. 근거에서는 _CLR_STOP=0.20 이 부족하다고 하면서 지시는 이 값을 유지하라고 해 서로 맞지 않음",
+     "지시 2 는 뒤에서 다가오는 물체까지 속도 비율에 넣으므로, 추격당할 때 오히려 감속해 후방 충돌 위험을 키울 수 있음",
+     "지시 4 의 '재개 시'가 몇 프레임인지 정해지지 않아, 구현이 한 프레임 검사에 그침"
+    ],
+    "feedback": ""
+   }
+  }
+ ],
+ "reason": "변경 이유: 진단의 `chosen`(clr_all 기반 감속 결정)에 맞춰, 감속 모드의 진입·해제 조건과 `_slow_cmd` 의 속도 비율을 전방 ±45° 섹터의 `clr_n` 대신 전체 물체 기준 `clr_all` 로 바꿨습니다. 이제 `_front_sector` 를 부르지 않으므로 70° 처럼 측면에서 다가오는 물체도 감속·정지 판단에 들어갑니다(지시 1, 2, 5). 감속 경로 검증은 모든 물체에 대해 `clr >= _CLR_STOP` 을 요구하고 `_CLR_STOP` 값은 그대로 두었으며(지시 3), `_HYST` 는 1.5 로 올렸습니다(지시 6). 정지 중이거나 정지에서 막 재개할 때, 몸체 1 m 이내 물체의 접근 속도(closing)가 -0.1 m/s 보다 빠르게 다가오면 그 자리에서 기다리지 않고 곧바로 `_choose()` 로 회피합니다(지시 4).",
+ "budget_s": 600.0,
+ "seeds": [
+  376894202,
+  1351337252,
+  1676930991,
+  793304212,
+  1142520213,
+  714054992,
+  392890994,
+  1886516069,
+  708813833
+ ],
+ "sim_used_s": 466.1,
+ "verdicts": {
+  "376894202": "pass",
+  "1351337252": "pass",
+  "1676930991": "pass",
+  "793304212": "fail",
+  "1142520213": "pass",
+  "714054992": "fail",
+  "392890994": "pass",
+  "1886516069": "pass",
+  "708813833": "fail"
+ },
+ "passes": 6,
+ "prior_chars": 1456,
+ "facts": "\n## 이번 턴 실행 집계 (하네스가 센 사실)\n\n- 배치 10개 중 9개를 실행했고, 1개는 실행하지 못했습니다 (사유: 실패가 3개 쌓여 시험을 끝냄).\n- 통과 6개, 실패 3개. 시뮬 시간 합계 466초 / 예산 600초.\n- 통과한 실행의 시뮬 시간: 평균 61초 (가장 짧은 것 54초, 가장 긴 것 73초). 배치 10개를 예산 안에 모두 돌리려면 실행당 평균 60초 이하여야 합니다.\n- 통과 기준(배치 10개 모두 통과, 합계 600초 이내): 미충족.\n\n## 검토 담당이 이번 코드를 검토하며 직전 진단에 대해 적은 의문\n\n(검토 담당은 진단을 따랐는지만 판정하므로, 진단 자체에 대한 의문은 여기 적기만 합니다.)\n\n- (검토 1회차, 판정 pass) 지시 3 의 '조건 강화'가 무엇인지 정의되지 않았음. 근거에서는 _CLR_STOP=0.20 이 부족하다고 하면서 지시는 이 값을 유지하라고 해 서로 맞지 않음\n- (검토 1회차, 판정 pass) 지시 2 는 뒤에서 다가오는 물체까지 속도 비율에 넣으므로, 추격당할 때 오히려 감속해 후방 충돌 위험을 키울 수 있음\n- (검토 1회차, 판정 pass) 지시 4 의 '재개 시'가 몇 프레임인지 정해지지 않아, 구현이 한 프레임 검사에 그침\n",
+ "diagnosis_out": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3개 실행에서 충돌 발생 (c8t4_s793304212, c8t4_s714054992, c8t4_s708813833), 충돌 시 로봇 속도 0.87~0.98m/s, 물체 접근 속도 0.31~0.69m/s",
+   "충돌 직전 5초 라이다 기록에서 로봇이 정지하지 않고 주행 중이었으며, 첫 번째 비정적 물체 감지 시점(3.82s~11.22s)에서 2m 이내 접근",
+   "정지 중 재개 시 접근 속도 검사(_closing_speed)는 수행되었으나, 주행 중 물체 접근 시 즉시 회피 로직 미적용"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체 접근 시 정지/재개 상태에서만 _closing_speed 검사가 수행되므로 주행 중 접근하는 물체에 반응하지 못함",
+    "holds": false,
+    "why": "실행 기록에서 주행 중 충돌 다수 발생, _closing_speed 검사는 _slow_cmd 내 정지 시만 호출됨"
+   },
+   {
+    "assumption": "clr_all 기반 감속 모드가 모든 방향 물체를 감지해 충분한 안전 마진 확보",
+    "holds": false,
+    "why": "측면에서 접근하는 물체(partner_rel_xy y축 성분 -0.56 등)에도 충돌 발생, 예측 경로 검증이 실제 충돌 방지로 이어지지 않음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "센서 기반 실시간 접근 물체 감지 및 즉시 회피",
+    "turns": "4",
+    "result": "6/9 통과, 3/9 충돌"
+   },
+   {
+    "family": "정지/재개 시에만 접근 속도 검사 적용",
+    "turns": "3",
+    "result": "통과율 향상되었으나 주행 중 충돌 미해결"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "주행 중에도 _closing_speed 검사를 수행해 접근 속도 임계값 초과 시 즉시 _choose() 호출",
+    "new_family": true,
+    "for": "주행 중 측면/정면 접근 물체에 신속히 대응",
+    "risk": "과도한 회피로 인한 경로 이탈 또는 정지 과다"
+   },
+   {
+    "idea": "clr_all 임계값(_CLR_STOP)을 0.15로 낮추고, 거리 기반 정지 조건 추가 (물체 2m 이내 시 무조건 정지)",
+    "new_family": false,
+    "for": "예측 오차 보완을 위한 보수적 안전 마진 확보",
+    "risk": "정적 장애물 근처에서 과도한 정지 발생 가능성"
+   }
+  ],
+  "chosen": "주행 중에도 접근 속도(_closing_speed)를 실시간으로 검사해 임계값(-0.15 m/s) 초과 시 즉시 회피 동작(_choose())을 유도함. 이는 정지/재개 상태 외 주행 중 발생하는 측면 충돌 문제를 해결하기 위한 구조적 개선임.",
+  "target": "controller 함수 내 주행 중 물체 접근 속도 검사 로직 추가",
+  "direction": "1. _movers_now 호출 직후 partner 클로즈드 포인트(P, U)를 기반으로 _closing_speed 계산\n2. 결과가 -0.15 미만이고 가장 가까운 물체 거리가 3m 이내일 때, 즉시 _choose(pose, P, U, target) 호출로 회피 동작 실행\n3. 정지 모드 진입 전에도 동일 조건으로 조기 회피 유도\n4. _slow_cmd 내 stop 조건 검사와 별도로 주행 중 검사 로직 분리\n5. _CLOSE_V 값을 -0.15로 강화해 민감도 조정\n6. 정지 후 재개 시 검사와 병행해 모든 상태에서 접근 물체 감지 보장",
+  "confidence": "medium"
+ },
+ "table": [
+  {
+   "run": "c8t4_s376894202",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 57.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 51.63,
+   "goal_dist_m": 0.203,
+   "time_to_goal_s": 53.65
+  },
+  {
+   "run": "c8t4_s1351337252",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 542.4,
+   "sim_time_s": 72.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 66.62,
+   "goal_dist_m": 0.2247,
+   "time_to_goal_s": 68.667
+  },
+  {
+   "run": "c8t4_s1676930991",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 469.8,
+   "sim_time_s": 62.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 56.12,
+   "goal_dist_m": 0.2013,
+   "time_to_goal_s": 58.117
+  },
+  {
+   "run": "c8t4_s793304212",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 407.7,
+   "sim_time_s": 22.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 16.2,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    0.16,
+    -0.56
+   ],
+   "closing_m_s": 0.69,
+   "stop_turns": 6,
+   "first_seen_within_2m_t": 14.72,
+   "goal_dist_m": 21.7017,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t4_s1142520213",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 385.5,
+   "sim_time_s": 54.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 48.32,
+   "goal_dist_m": 0.1969,
+   "time_to_goal_s": 50.333
+  },
+  {
+   "run": "c8t4_s714054992",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 331.2,
+   "sim_time_s": 62.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 56.2,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    -0.37,
+    0.56
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 51.25,
+   "goal_dist_m": 0.2117,
+   "time_to_goal_s": 58.883
+  },
+  {
+   "run": "c8t4_s392890994",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 269.0,
+   "sim_time_s": 60.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 54.65,
+   "goal_dist_m": 0.2219,
+   "time_to_goal_s": 56.65
+  },
+  {
+   "run": "c8t4_s1886516069",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 208.4,
+   "sim_time_s": 59.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 53.65,
+   "goal_dist_m": 0.2286,
+   "time_to_goal_s": 55.717
+  },
+  {
+   "run": "c8t4_s708813833",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 148.8,
+   "sim_time_s": 14.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.8,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 0.87m/s",
+   "partner_rel_xy": [
+    0.45,
+    -0.29
+   ],
+   "closing_m_s": 0.31,
+   "stop_turns": 5,
+   "first_seen_within_2m_t": 3.82,
+   "goal_dist_m": 30.4079,
+   "time_to_goal_s": null
+  }
+ ],
+ "history_out": "(첫 시도 전)\n#0 이번 코드(출발점 코드 그대로): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 54 s / 한도 600 s)\n#1 이번 코드(진단 \"1. front 2D 라이다 스캔에서 지도에 없는 점(움직이는 물체) 식별\\n2. 정적 장애물(MISSION boxes, WALLS, FIXED_OBSTACLES) 범위 외 점만 필터링\\n3. 가장 가까운 비정적 점까지의 거리 계산\\n4. 거리가 2m 미만이면 v=0, w=0으로 설정해 정지\\n5. 정지 후 1초간 재감지하여 물체 이동 확인 후 진행\\n6. 정지 없이 경유점 주행 시 기존 제어법 유지\" 반영, 검토 통과): 새 배치 3개 중 0개 pass, 3개 fail (시뮬 시간 합계 229 s / 한도 600 s)\n#2 이번 코드(진단 \"1. 2D 라이다 데이터를 전방 90도(-45°~45°) 범위만 필터링해 감지\\n2. _STOP_DIST 기반 정지 조건 제거, 대신 _mover_clearance(traj) < _CLR_GO 시 정지\\n3. 정지 시 _choose()로 측면 이동(반경 0.5m 이내 회피) 강제 수행\\n4. 정지 후 재진행 조건: 정적 안전(st_n >=0) + 동적 안전(clr >=_CLR_GO) 동시 충족\\n5. 정지 대기 시간 1초 → 0.5초로 단축 (빠른 재진행 유도)\\n6. _ingest()에서 후방 라이다(back) 데이터 필터링 제거\" 반영, 검토 통과): 새 배치 1개 중 1개 pass, 0개 fail (시뮬 시간 합계 600 s / 한도 600 s)\n#3 이번 코드(진단 \"1. 정지 조건(clr_n < _CLR_GO)을 유지하되, 정지 대신 v_n을 clr_n/_CLR_GO 비율로 감속 (최소 0.0 유지)\\n2. 감속 시 _choose 호출 대신 감속된 속도로 기존 경로 추종 시도\\n3. 정지 유지 시 _choose 호출은 물체 거리 < _CLR_STOP(0.20m)일 때만 제한적으로 적용\\n4. 재진행 조건은 clr_n >= _CLR_GO 대신 clr_n >= _CLR_GO * 1.2 (히스테리시스 추가)\\n5. _nominal_cmd의 scale 인자에 clr_n 반영으로 속도 프로파일 동적 조정\\n6. 정지 에피소드 수 모니터링을 위한 디버그 출력 추가 (시간 초과 원인 분석용)\" 반영, 검토 통과): 새 배치 7개 중 4개 pass, 3개 fail (시뮬 시간 합계 300 s / 한도 600 s)\n#4 이번 코드(진단 \"1. controller에서 slow 모드 진입 조건을 clr_n < _CLR_GO에서 clr_all < _CLR_GO로 변경\\n2. _slow_cmd에서 속도 스케일링 비율 s = clr_all / _CLR_GO로 수정 (0~1 범위 유지)\\n3. 정지 결정 시 _CLR_STOP을 clr_all 기준으로 유지하되, 감속 궤적 검증 시 clr_all >= _CLR_STOP 조건 강화\\n4. 정지 후 재개 시 물체 접근 속도(closing_m_s) 음수일 경우 즉시 회피 동작 유도\\n5. clr_all 계산 시 전방 섹터 외 물체도 포함되도록 _front_sector 호출 제거\\n6. 히스테리시스 값 _HYST를 1.5로 증가시켜 감속 모드 해제 조건 완화\" 반영, 검토 통과): 새 배치 9개 중 6개 pass, 3개 fail (시뮬 시간 합계 466 s / 한도 600 s)",
+ "ended": "2026-11-18 22:54:43"
+}

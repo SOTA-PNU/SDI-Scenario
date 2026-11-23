@@ -1,0 +1,198 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "collision at t=8.167s with clr_min=0.11m < 0.45m but v not stopped",
+   "last_5s shows robot moving forward while clr_min < 0.45m",
+   "MTC-based stop not triggered due to P empty or calculation error"
+  ],
+  "assumptions": [
+   {
+    "assumption": "코드는 clr_min < 0.45m일 때 회전만 금지(w=0)하면 안전하다고 가정하지만 전진 속도(v)는 유지해도 된다고 판단함",
+    "holds": false,
+    "why": "collision 증거에서 clr_min 0.11m일 때 v가 0.95m/s로 유지되어 충돌 발생"
+   },
+   {
+    "assumption": "MTC 기반 정지 로직이 충돌 전 충분히 작동할 것이라고 가정함",
+    "holds": false,
+    "why": "d_thr < _HOLD_ON(1.0s) 조건 충족 시에도 S[\"hold\"] 설정되지 않아 정지 안 됨"
+   },
+   {
+    "assumption": "P 배열에 움직이는 물체가 항상 감지된다고 가정함",
+    "holds": false,
+    "why": "collision run에서 P 비어있을 가능성 있으나 last_5s 기록으로 감지는 확인됨"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 기반 동적 정지",
+    "turns": "1-9",
+    "result": "통과 수 변동 (최대 7/7, 최소 0/3)"
+   },
+   {
+    "family": "직접 거리 기반 즉시 정지",
+    "turns": "0",
+    "result": "4/6 통과 (collision_driving 1개)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "clr_min < 0.3m일 때 v=0, w=0 강제 정지 (새 접근 방식)",
+    "new_family": true,
+    "for": "collision 증거에서 clr_min 0.11m일 때 v 유지로 충돌 발생",
+    "risk": "과도한 정지로 인한 time_limit 실패 가능성"
+   },
+   {
+    "idea": "MTC 계산 시 rx > 0 조건 추가 (기존 방식 계열)",
+    "new_family": false,
+    "for": "측면에서 접근하는 물체 무시해 충돌 방지",
+    "risk": "정면 접근 물체 감지 누락 가능"
+   },
+   {
+    "idea": "_HOLD_MIN을 0.5s로 축소해 재출발 유연성 증가 (기존 방식 계열)",
+    "new_family": false,
+    "for": "stop_turn_episodes 수 감소로 시간 절약",
+    "risk": "충돌 위험 증가 가능성"
+   }
+  ],
+  "chosen": "clr_min <0.3m일 때 v와 w를 모두 0으로 설정하여 전진 및 회전 정지를 강제하고, 기존 0.45 임계값 대신 0.3m를 적용해 근접 충돌 방지",
+  "target": "controller",
+  "direction": [
+   "clr_min이 0.3m 미만일 때 v와 w를 모두 0으로 설정하여 전진 및 회전 정지를 강제한다",
+   "기존 clr_min < 0.45 조건 대신 0.3m 임계값을 적용해 근접 물체에 대한 즉시 정지를 구현한다",
+   "이 수정은 clr_min 0.11m에서 v가 유지되어 발생한 충돌을 직접 방지하기 위한 조치이다",
+   "정지 후 재출발은 기존의 MTC 기반 _HOLD_MIN(1.0s) 조건을 충족해야만 허용되도록 유지한다",
+   "임계값 0.3m는 과도한 정지를 방지하면서도 충돌 위험 시 신속히 대응할 수 있도록 설정한다",
+   "회전 금지(w=0)는 기존 로직을 유지하되, 전진 속도(v)도 정지시켜 측면 접근 물체에 효과적으로 대응한다"
+  ],
+  "confidence": "high",
+  "last_direction_ok": "no",
+  "base_turn": 7,
+  "stage1": {
+   "chosen": "clr_min < 0.3m일 때 v=0 강제 정지 (새 접근 방식), collision 증거에서 전진 속도 유지가 직접적 원인임",
+   "target": "controller",
+   "direction": "1. clr_min < 0.3m일 때 v=0, w=0으로 즉시 정지하도록 조건 추가\n2. 기존 clr_min < 0.45m 조건 유지하되 w=0만 설정하지 않도록 수정\n3. 정지 해제 시 _HOLD_MIN(1.0s) 충족 필수 조건 강화\n4. MTC 계산 시 P 비어있을 경우 d_thr 기본값 99.0 유지 대신 clr_min 기반 안전 거리 확인\n5. _rollout 예측 시간 T=1.5s로 단축해 즉시 위협 대응\n6. 정지 중 clr_min < 0.3m 지속 시 재출발 조건 엄격 적용"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"collision at t=8.167s with clr_min=0.11m < 0.45m but v not stopped\", \"last_5s shows robot moving forward while clr_min < 0.45m\", \"MTC-based stop not triggered due to P empty or calculation error\"], \"assumptions\": [{\"assumption\": \"코드는 clr_min < 0.45m일 때 회전만 금지(w=0)하면 안전하다고 가정하지만 전진 속도(v)는 유지해도 된다고 판단함\", \"holds\": false, \"why\": \"collision 증거에서 clr_min 0.11m일 때 v가 0.95m/s로 유지되어 충돌 발생\"}, {\"assumption\": \"MTC 기반 정지 로직이 충돌 전 충분히 작동할 것이라고 가정함\", \"holds\": false, \"why\": \"d_thr < _HOLD_ON(1.0s) 조건 충족 시에도 S[\\\"hold\\\"] 설정되지 않아 정지 안 됨\"}, {\"assumption\": \"P 배열에 움직이는 물체가 항상 감지된다고 가정함\", \"holds\": false, \"why\": \"collision run에서 P 비어있을 가능성 있으나 last_5s 기록으로 감지는 확인됨\"}], \"approach_families\": [{\"family\": \"MTC 기반 동적 정지\", \"turns\": \"1-9\", \"result\": \"통과 수 변동 (최대 7/7, 최소 0/3)\"}, {\"family\": \"직접 거리 기반 즉시 정지\", \"turns\": \"0\", \"result\": \"4/6 통과 (collision_driving 1개)\"}], \"candidates\": [{\"idea\": \"clr_min < 0.3m일 때 v=0, w=0 강제 정지 (새 접근 방식)\", \"new_family\": true, \"for\": \"collision 증거에서 clr_min 0.11m일 때 v 유지로 충돌 발생\", \"risk\": \"과도한 정지로 인한 time_limit 실패 가능성\"}, {\"idea\": \"MTC 계산 시 rx > 0 조건 추가 (기존 방식 계열)\", \"new_family\": false, \"for\": \"측면에서 접근하는 물체 무시해 충돌 방지\", \"risk\": \"정면 접근 물체 감지 누락 가능\"}, {\"idea\": \"_HOLD_MIN을 0.5s로 축소해 재출발 유연성 증가 (기존 방식 계열)\", \"new_family\": false, \"for\": \"stop_turn_episodes 수 감소로 시간 절약\", \"risk\": \"충돌 위험 증가 가능성\"}], \"chosen\": \"clr_min < 0.3m일 때 v=0 강제 정지 (새 접근 방식), collision 증거에서 전진 속도 유지가 직접적 원인임\", \"target\": \"controller\", \"direction\": \"1. clr_min < 0.3m일 때 v=0, w=0으로 즉시 정지하도록 조건 추가\\n2. 기존 clr_min < 0.45m 조건 유지하되 w=0만 설정하지 않도록 수정\\n3. 정지 해제 시 _HOLD_MIN(1.0s) 충족 필수 조건 강화\\n4. MTC 계산 시 P 비어있을 경우 d_thr 기본값 99.0 유지 대신 clr_min 기반 안전 거리 확인\\n5. _rollout 예측 시간 T=1.5s로 단축해 즉시 위협 대응\\n6. 정지 중 clr_min < 0.3m 지속 시 재출발 조건 엄격 적용\", \"confidence\": \"high\", \"last_direction_ok\": \"no\", \"base_turn\": 7}",
+ "table": [
+  {
+   "run": "c81t9_s429497111",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 14.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 8.167,
+   "partner": "mover_00",
+   "robot_at_collision": "주행 1.01m/s",
+   "partner_rel_xy": [
+    -0.63,
+    0.47
+   ],
+   "closing_m_s": 0.44,
+   "stop_turns": 3,
+   "first_seen_within_2m_t": 3.22,
+   "goal_dist_m": 30.0825,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t9_s1888122562",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 585.8,
+   "sim_time_s": 121.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 115.42,
+   "goal_dist_m": 0.1991,
+   "time_to_goal_s": 117.417
+  },
+  {
+   "run": "c81t9_s1279649573",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 464.5,
+   "sim_time_s": 127.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 121.12,
+   "goal_dist_m": 0.1999,
+   "time_to_goal_s": 123.15
+  },
+  {
+   "run": "c81t9_s1932350748",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 337.4,
+   "sim_time_s": 107.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 101.15,
+   "goal_dist_m": 0.1971,
+   "time_to_goal_s": 103.233
+  },
+  {
+   "run": "c81t9_s1734264923",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 230.3,
+   "sim_time_s": 108.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 102.15,
+   "goal_dist_m": 0.197,
+   "time_to_goal_s": 104.233
+  },
+  {
+   "run": "c81t9_s1271687767",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 122.1,
+   "sim_time_s": 123.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 117.12,
+   "goal_dist_m": 2.8649,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

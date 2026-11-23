@@ -1,0 +1,170 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "collision at t=108.07s with mover_03 while robot speed increased from 0.2m/s to 1.37m/s",
+   "clr calculation in _rect_clear overestimates distance (e.g., 1.08m instead of 0.06m for point (0.36,-0.55)), causing incorrect MTC",
+   "robot failed to stop despite MTC < _HOLD_ON=1.0s due to clr error, as seen in collision run's last 5s data"
+  ],
+  "assumptions": [
+   {
+    "assumption": "_rect_clear correctly computes distance to robot's body rectangle",
+    "holds": false,
+    "why": "_rect_clear uses max((x_max - rx), (rx - x_min)) which overestimates distance when point is outside rectangle (e.g., rx=0.36 > x_max=0.36 gives 0.0 but ry=-0.55 < y_min=-0.36 gives 0.19, yet reported distances are much larger)"
+   },
+   {
+    "assumption": "MTC calculation accurately reflects time to collision",
+    "holds": false,
+    "why": "Overestimated clr leads to inflated MTC (e.g., 0.2m distance reported as 1.4m), delaying stop commands and causing collisions or prolonged stalls"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "threshold tuning (e.g., _HOLD_ON, _SLOW_T)",
+    "turns": "6",
+    "result": "partial success but collisions persisted due to core distance calculation flaw"
+   },
+   {
+    "family": "sensor fusion improvements (e.g., closing speed correction)",
+    "turns": "2",
+    "result": "failed when clr error dominated MTC accuracy"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Fix _rect_clear to compute correct Euclidean distance to body rectangle",
+    "new_family": true,
+    "for": "directly addresses clr overestimation causing delayed collision response",
+    "risk": "requires precise geometric calculation; may introduce edge-case errors"
+   },
+   {
+    "idea": "Replace _rect_clear with direct body bound checks using min/max",
+    "new_family": true,
+    "for": "simpler and more accurate distance calculation",
+    "risk": "may miss points near diagonal edges of body rectangle"
+   },
+   {
+    "idea": "Use 3D lidar points with height filtering for collision detection",
+    "new_family": true,
+    "for": "better obstacle height awareness",
+    "risk": "computationally heavier; 2D lidar already covers floor obstacles"
+   }
+  ],
+  "chosen": "Fix _rect_clear to correctly compute minimum distance to robot body rectangle",
+  "target": "_rect_clear",
+  "direction": "Rewrite _rect_clear to compute horizontal distance as max(0, rx - x_max, x_min - rx) and vertical as max(0, ry - y_max, y_min - ry), then clr = sqrt(ddx² + ddy²). This ensures accurate proximity detection to body edges.",
+  "confidence": "high",
+  "last_direction_ok": "no",
+  "base_turn": 8
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"collision at t=108.07s with mover_03 while robot speed increased from 0.2m/s to 1.37m/s\", \"clr calculation in _rect_clear overestimates distance (e.g., 1.08m instead of 0.06m for point (0.36,-0.55)), causing incorrect MTC\", \"robot failed to stop despite MTC < _HOLD_ON=1.0s due to clr error, as seen in collision run's last 5s data\"], \"assumptions\": [{\"assumption\": \"_rect_clear correctly computes distance to robot's body rectangle\", \"holds\": false, \"why\": \"_rect_clear uses max((x_max - rx), (rx - x_min)) which overestimates distance when point is outside rectangle (e.g., rx=0.36 > x_max=0.36 gives 0.0 but ry=-0.55 < y_min=-0.36 gives 0.19, yet reported distances are much larger)\"}, {\"assumption\": \"MTC calculation accurately reflects time to collision\", \"holds\": false, \"why\": \"Overestimated clr leads to inflated MTC (e.g., 0.2m distance reported as 1.4m), delaying stop commands and causing collisions or prolonged stalls\"}], \"approach_families\": [{\"family\": \"threshold tuning (e.g., _HOLD_ON, _SLOW_T)\", \"turns\": \"6\", \"result\": \"partial success but collisions persisted due to core distance calculation flaw\"}, {\"family\": \"sensor fusion improvements (e.g., closing speed correction)\", \"turns\": \"2\", \"result\": \"failed when clr error dominated MTC accuracy\"}], \"candidates\": [{\"idea\": \"Fix _rect_clear to compute correct Euclidean distance to body rectangle\", \"new_family\": true, \"for\": \"directly addresses clr overestimation causing delayed collision response\", \"risk\": \"requires precise geometric calculation; may introduce edge-case errors\"}, {\"idea\": \"Replace _rect_clear with direct body bound checks using min/max\", \"new_family\": true, \"for\": \"simpler and more accurate distance calculation\", \"risk\": \"may miss points near diagonal edges of body rectangle\"}, {\"idea\": \"Use 3D lidar points with height filtering for collision detection\", \"new_family\": true, \"for\": \"better obstacle height awareness\", \"risk\": \"computationally heavier; 2D lidar already covers floor obstacles\"}], \"chosen\": \"Fix _rect_clear to correctly compute minimum distance to robot body rectangle\", \"target\": \"_rect_clear\", \"direction\": \"Rewrite _rect_clear to compute horizontal distance as max(0, rx - x_max, x_min - rx) and vertical as max(0, ry - y_max, y_min - ry), then clr = sqrt(ddx² + ddy²). This ensures accurate proximity detection to body edges.\", \"confidence\": \"high\", \"last_direction_ok\": \"no\", \"base_turn\": 8}",
+ "table": [
+  {
+   "run": "c81t8_s1477994689",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 126.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 23,
+   "first_seen_within_2m_t": 120.02,
+   "goal_dist_m": 0.2027,
+   "time_to_goal_s": 122.05
+  },
+  {
+   "run": "c81t8_s1128393146",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 474.0,
+   "sim_time_s": 176.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 170.05,
+   "goal_dist_m": 0.2309,
+   "time_to_goal_s": 172.15
+  },
+  {
+   "run": "c81t8_s227276742",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 298.0,
+   "sim_time_s": 114.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 108.067,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.12m/s",
+   "partner_rel_xy": [
+    0.36,
+    -0.55
+   ],
+   "closing_m_s": 0.5,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 103.12,
+   "goal_dist_m": 4.6475,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t8_s1521470001",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 183.9,
+   "sim_time_s": 111.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 105.92,
+   "goal_dist_m": 0.2238,
+   "time_to_goal_s": 108.033
+  },
+  {
+   "run": "c81t8_s1344754593",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 72.0,
+   "sim_time_s": 73.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 67.05,
+   "goal_dist_m": 4.5212,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8. 이번 코드에서 이어 가려면 8 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

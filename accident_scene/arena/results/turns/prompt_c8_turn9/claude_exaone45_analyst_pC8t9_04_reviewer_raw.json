@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"1. _TTC_TRIG 를 1.0 s 로 설정\", \"implemented\": true, \"note\": \"_TTC_TRIG = 1.0 이고, 트리거 조건 ttc < _TTC_TRIG 는 그대로 씀\"},\n  {\"instruction\": \"2. _EVADE_HOLD 를 1.0 s 로 늘림\", \"implemented\": true, \"note\": \"_EVADE_HOLD = 1.0 이고, evade_until = t + _EVADE_HOLD 로 최소 유지 시간에 반영됨\"},\n  {\"instruction\": \"3. _ANCHOR_R 를 1.2 m 로 되돌림\", \"implemented\": true, \"note\": \"_ANCHOR_R = 1.2 이고, _choose 의 앵커 벌점에 쓰임\"},\n  {\"instruction\": \"4. _EVADE_MAX 를 8.0 s 로 조정\", \"implemented\": true, \"note\": \"_EVADE_MAX = 8.0 이고, long_ 판정에 쓰임\"},\n  {\"instruction\": \"5. 회피 중 _choose 에서 정적 장애물과 0.4 m 이상 떨어진 경로에 보너스\", \"implemented\": true, \"note\": \"evading=True 일 때 _ST_W*clip(stc,0,0.4)/0.4 를 더함. 0.4 m 미만에도 비례 보너스를 주는 연속형임. st_n<0 분기(회피 아님)에서도 True 로 부름. 가중치 1.0 은 다른 항(10*clr, 앵커 20배)보다 작음\"},\n  {\"instruction\": \"6. TTC ≥ 1.0 s, 정적 여유 ≥ 0.3 m 가 0.5 s 이어질 때만 회피 종료\", \"implemented\": true, \"note\": \"ok = ttc>=_TTC_TRIG and st_n>=0.3 and clr_all>=1.2*_CLR_GO 이고 safe_since 로 0.5 s 지속을 확인함. 단 8 s 상한 경로는 이 조건 없이 종료하는데, 지시 4 의 상한과 함께 읽으면 허용 범위임\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 1 은 1.0 s 로 내리면 '더 일찍' 트리거된다고 했으나, TTC 임계를 낮추면 회피는 더 늦게 시작됨. 방향이 거꾸로 설명됨\",\n  \"근거의 충돌 상대는 정적 상자 07 인데, 처방의 대부분은 움직이는 물체 회피 파라미터임\",\n  \"_EVADE_MAX 를 늘리고 0.5 s 지속 조건을 더하면 회피가 길어짐. 근거에 이미 시간 초과 실패가 있고 배치당 평균 60 s 예산과 충돌할 수 있음\",\n  \"명목 경로의 정적 여유가 구조상 0.3 m 에 못 미치는 구간이 있으면, 그곳에서는 회피가 8 s 상한까지 이어짐\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 44217,
+  "completion_tokens": 2726
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 25946,
+  "total_cost_usd": 0.408248,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2726,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 44215,
+    "webSearchRequests": 0,
+    "costUSD": 0.408248,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1597,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 44215,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "dd825a9c-f14b-4a2b-a65a-481b87f055b3"
+ }
+}

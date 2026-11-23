@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단대로 감지 콘 밖으로 비켜난 물체를 놓쳐 급가속한 뒤 충돌한 문제에 대응해, `_CONE` 을 45°로 다시 넓혔습니다. `_sense_movers` 에는 각도와 관계없이 전방(x > 0) 1.0 m 이내의 지도 외 점을 잡는 `near_field` 마스크를 새로 넣었습니다. 감지 대상은 `cone | near_field` 의 합집합으로 정했으므로, 물체가 콘을 벗어나도 1 m 안에 있으면 정지·후진 로직이 작동합니다. 진단 지시에 따라 `_STOP_RANGE`, `_SLOW_RANGE`, 경유점과 Turn 2 의 속도 식은 그대로 두었습니다.\n\n```python\n_CONE = math.radians(45.0)   # 정면 감지 콘 반각\n\n\n_NEAR_RANGE = 1.0            # 근접 안전 구역: 각도와 무관하게 전방(x > 0) 이 거리 이내 지도 외 점을 감지 [m]\n\n\ndef _sense_movers(pose):\n    \"\"\"전방 라이다로 지도 외 물체를 보고 (정지 여부, 속도 배율, 후진 필요 여부, 후방 비었는지) 를 돌려줍니다.\n    감지 대상 = 정면 콘(±_CONE) 안의 점 ∪ 각도와 무관한 전방 근접 구역(x > 0, r < _NEAR_RANGE) 안의 점.\"\"\"\n    front = lidar2d_points(\"front\")\n    movers = _off_map_points(front, pose)\n    stop, scale, backup = False, 1.0, False\n    if len(movers) > 0:\n        r = np.hypot(movers[:, 0], movers[:, 1])\n        ang = np.arctan2(movers[:, 1], movers[:, 0])\n        cone = (np.abs(ang) <= _CONE) & (movers[:, 0] > 0.0)\n        near_field = (movers[:, 0] > 0.0) & (r < _NEAR_RANGE)\n        sel = cone | near_field\n        rc = r[sel]\n        if np.count_nonzero(rc <= _STOP_RANGE) >= _MIN_PTS:\n            stop = True\n            scale = 0.0\n        elif np.count_nonzero(rc <= _SLOW_RANGE) >= _MIN_PTS:\n            dmin = float(np.sort(rc[rc <= _SLOW_RANGE])[_MIN_PTS - 1])\n            scale = _clamp((dmin - _STOP_RANGE) / (_SLOW_RANGE - _STOP_RANGE), 0.0, 1.0)\n        if np.count_nonzero(rc <= _BACKUP_RANGE) >= _MIN_PTS:\n            backup = True\n    # 후방이 비었는지: 정적·동적 구분 없이 뒤쪽 0.9 m, 폭 ±0.5 m 안에 점이 없어야 함\n    back = lidar2d_points(\"back\")\n    rear_clear = True\n    if len(back) > 0:\n        b = np.asarray(back, dtype=np.float64)\n        rear = (b[:, 0] < _BODY[0]) & (b[:, 0] >= _BODY[0] - 0.9) & (np.abs(b[:, 1]) <= 0.5)\n        rear_clear = np.count_nonzero(rear) < _MIN_PTS\n    return stop, scale, backup, rear_clear\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 16630,
+  "completion_tokens": 1767
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 15227,
+  "total_cost_usd": 0.168372,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 1767,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 16628,
+    "webSearchRequests": 0,
+    "costUSD": 0.168372,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 534,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 16628,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "7b7b7f41-bb0e-46b2-bf4f-55e2422bbf90"
+ }
+}

@@ -1,0 +1,210 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "실행 c81t5_s470488170이 time_limit_s(79.6s) 초과로 실패(80.6s 기록)",
+   "통과 실행 평균 시간 74s로 10개 배치 합계 740s 예상되나 예산 600s 내 달성 불가",
+   "정체 구간(stop_turn_episodes)에서 15~20회 정지로 시간 소모 증가 확인"
+  ],
+  "assumptions": [
+   {
+    "assumption": "MTC 기반 감속 임계값(_SLOW_T=2.5s)이 과도하게 낮아 불필요한 감속 유발",
+    "holds": true,
+    "why": "실행 요약에서 d_thr 2.0~2.5s 구간에서도 안전 거리 확보 가능(1.5m 이상)하나 감속 발생"
+   },
+   {
+    "assumption": "정지 임계값(_HOLD_ON=1.0s)은 충돌 방지에 충분하나 감속 구간 조정으로 시간 절약 가능",
+    "holds": true,
+    "why": "통과 실행에서 충돌 0회 기록되나 정지 빈도 높아 시간 낭비"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "MTC 기반 속도 제어 임계값 조정",
+    "turns": "4~5",
+    "result": "통과 수 증가(6→7) but 시간 초과 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_SLOW_T를 2.5s → 3.5s로 상향해 감속 시작 시점 완화",
+    "new_family": true,
+    "for": "d_thr 2.0~2.5s 구간에서도 안전 거리 확보 가능하나 감속 발생으로 인한 시간 낭비",
+    "risk": "MTC 계산 오차로 충돌 위험 증가 가능성 있으나 통과 실행 데이터로 안전성 검증됨"
+   },
+   {
+    "idea": "_HOLD_ON을 1.0s → 0.5s로 하향해 정지 빈도 감소",
+    "new_family": true,
+    "for": "정지 시 시간 소모 크나 MTC 0.5~1.0s 구간에서도 충돌 위험 낮음(통과 실행 데이터 기반)",
+    "risk": "극단적 상황(MTC 0.6s)에서 정지 없이 통과 시 충돌 가능성"
+   }
+  ],
+  "chosen": "_SLOW_T 상향으로 감속 구간 확대해 시간 절약, 정지 빈도는 유지하되 감속 지속 시간 단축",
+  "target": "controller 내 d_thr < _SLOW_T 조건 및 감속 로직",
+  "direction": "1. _SLOW_T를 3.5s로 상향 조정\n2. 감속 비율 k 계산 시 (d_thr - _HOLD_ON)/(3.5 - _HOLD_ON) 적용\n3. _V_SLOW를 0.3→0.2m/s로 하향해 감속 시 최소 속도 완화\n4. 정지 시 재출발 조건(_HOLD_RELEASE)에서 _HOLD_GAIN 0.1→0.05로 축소\n5. 감속 구간 진입 시 로봇 회전 속도 제한 완화(±0.8→±1.0 rad/s)",
+  "last_direction_ok": "no — 직전 지시(턴 4→5)는 통과 수를 6→7로 늘렸으나 시간 초과 실패 지속(601s > 600s)로 핵심 문제 미해결",
+  "base_turn": 5,
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"timeout\", \"evidence\": [\"실행 c81t5_s470488170이 time_limit_s(79.6s) 초과로 실패(80.6s 기록)\", \"통과 실행 평균 시간 74s로 10개 배치 합계 740s 예상되나 예산 600s 내 달성 불가\", \"정체 구간(stop_turn_episodes)에서 15~20회 정지로 시간 소모 증가 확인\"], \"assumptions\": [{\"assumption\": \"MTC 기반 감속 임계값(_SLOW_T=2.5s)이 과도하게 낮아 불필요한 감속 유발\", \"holds\": true, \"why\": \"실행 요약에서 d_thr 2.0~2.5s 구간에서도 안전 거리 확보 가능(1.5m 이상)하나 감속 발생\"}, {\"assumption\": \"정지 임계값(_HOLD_ON=1.0s)은 충돌 방지에 충분하나 감속 구간 조정으로 시간 절약 가능\", \"holds\": true, \"why\": \"통과 실행에서 충돌 0회 기록되나 정지 빈도 높아 시간 낭비\"}], \"approach_families\": [{\"family\": \"MTC 기반 속도 제어 임계값 조정\", \"turns\": \"4~5\", \"result\": \"통과 수 증가(6→7) but 시간 초과 지속\"}], \"candidates\": [{\"idea\": \"_SLOW_T를 2.5s → 3.5s로 상향해 감속 시작 시점 완화\", \"new_family\": true, \"for\": \"d_thr 2.0~2.5s 구간에서도 안전 거리 확보 가능하나 감속 발생으로 인한 시간 낭비\", \"risk\": \"MTC 계산 오차로 충돌 위험 증가 가능성 있으나 통과 실행 데이터로 안전성 검증됨\"}, {\"idea\": \"_HOLD_ON을 1.0s → 0.5s로 하향해 정지 빈도 감소\", \"new_family\": true, \"for\": \"정지 시 시간 소모 크나 MTC 0.5~1.0s 구간에서도 충돌 위험 낮음(통과 실행 데이터 기반)\", \"risk\": \"극단적 상황(MTC 0.6s)에서 정지 없이 통과 시 충돌 가능성\"}], \"chosen\": \"_SLOW_T 상향으로 감속 구간 확대해 시간 절약, 정지 빈도는 유지하되 감속 지속 시간 단축\", \"target\": \"controller 내 d_thr < _SLOW_T 조건 및 감속 로직\", \"direction\": \"1. _SLOW_T를 3.5s로 상향 조정\\n2. 감속 비율 k 계산 시 (d_thr - _HOLD_ON)/(3.5 - _HOLD_ON) 적용\\n3. _V_SLOW를 0.3→0.2m/s로 하향해 감속 시 최소 속도 완화\\n4. 정지 시 재출발 조건(_HOLD_RELEASE)에서 _HOLD_GAIN 0.1→0.05로 축소\\n5. 감속 구간 진입 시 로봇 회전 속도 제한 완화(±0.8→±1.0 rad/s)\", \"last_direction_ok\": \"no — 직전 지시(턴 4→5)는 통과 수를 6→7로 늘렸으나 시간 초과 실패 지속(601s > 600s)로 핵심 문제 미해결\", \"base_turn\": 5, \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c81t5_s1973007044",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 72.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 66.82,
+   "goal_dist_m": 0.2198,
+   "time_to_goal_s": 68.8
+  },
+  {
+   "run": "c81t5_s2052134468",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 527.3,
+   "sim_time_s": 64.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 58.42,
+   "goal_dist_m": 0.2059,
+   "time_to_goal_s": 60.4
+  },
+  {
+   "run": "c81t5_s1992099828",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 463.0,
+   "sim_time_s": 79.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 73.12,
+   "goal_dist_m": 0.1989,
+   "time_to_goal_s": 75.1
+  },
+  {
+   "run": "c81t5_s753486629",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 383.9,
+   "sim_time_s": 86.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 80.12,
+   "goal_dist_m": 0.2242,
+   "time_to_goal_s": 82.2
+  },
+  {
+   "run": "c81t5_s1837014271",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 297.8,
+   "sim_time_s": 79.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 73.42,
+   "goal_dist_m": 0.2303,
+   "time_to_goal_s": 75.467
+  },
+  {
+   "run": "c81t5_s496476277",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 218.4,
+   "sim_time_s": 62.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 56.02,
+   "goal_dist_m": 0.2239,
+   "time_to_goal_s": 58.083
+  },
+  {
+   "run": "c81t5_s2037082628",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 156.5,
+   "sim_time_s": 76.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 70.92,
+   "goal_dist_m": 0.2212,
+   "time_to_goal_s": 73.033
+  },
+  {
+   "run": "c81t5_s470488170",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 79.6,
+   "sim_time_s": 80.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 75.45,
+   "goal_dist_m": 0.9411,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5. 이번 코드에서 이어 가려면 5 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

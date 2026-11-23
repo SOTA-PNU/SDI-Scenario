@@ -1,0 +1,237 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "collision occurred while robot was stopped (robot_at_collision: 정지) with partner closing speed 0.3-0.56 m/s",
+   "first seen within 2m at t=61-65s, collision at 66-69s",
+   "MTC-based stop triggered but object approached faster than stop time allowed"
+  ],
+  "assumptions": [
+   {
+    "assumption": "MTC < HOLD_ON is sufficient to prevent collision",
+    "holds": false,
+    "why": "collisions happen despite MTC-based stop as object closing speed exceeds stop time"
+   },
+   {
+    "assumption": "recede condition correctly identifies when objects are moving away",
+    "holds": true,
+    "why": "recede=False when closing > -ESC_CLOSE, triggering escape logic"
+   },
+   {
+    "assumption": "escape path planning prioritizes safe clearance over object proximity",
+    "holds": false,
+    "why": "collisions occur even when clr_min < ESC_CLR, indicating poor path selection"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "threshold adjustments",
+    "turns": 22,
+    "result": "5/8 passes"
+   },
+   {
+    "family": "escape path optimization",
+    "turns": 0,
+    "result": "new family, untested"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "velocity-based escape direction",
+    "new_family": true,
+    "for": "objects approaching from predictable directions can be avoided by moving opposite to velocity",
+    "risk": "velocity estimation errors could lead to worse path choices"
+   },
+   {
+    "idea": "reduce _ROLLOUT T in escape checks",
+    "new_family": true,
+    "for": "more conservative clearance assessment when close",
+    "risk": "may trigger escape too early, causing unnecessary stops"
+   },
+   {
+    "idea": "increase _ESC_NEAR_W to prioritize immediate threats",
+    "new_family": true,
+    "for": "better focus on objects within 0.3m range",
+    "risk": "overlooking distant but fast-approaching objects"
+   }
+  ],
+  "chosen": "정지 빈도를 줄여 실행 시간을 단축하기 위해 정지 임계 MTC를 높이고 재출발 조건을 완화한다.",
+  "target": "_HOLD_ON, _RESUME_GO, _HOLD_GAIN",
+  "direction": "1. _HOLD_ON을 0.8에서 1.0으로 상향 조정하여 정지 시작 MTC를 높인다. 2. _RESUME_GO를 0.5에서 0.3으로 낮춰 recede 상태 지속 시간을 단축한다. 3. _HOLD_GAIN을 0.1에서 0.05로 완화하여 재출발 MTC 증가량을 줄인다. 4. 정지 최소 시간 _HOLD_MIN은 1.0으로 유지한다. 5. 정지 해제 조건에서 recede 상태 지속 시간 확인 시 _RESUME_GO를 적용한다. 6. 이러한 변경으로 정지 횟수와 정지 후 대기 시간을 줄여 실행 시간을 단축한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 21,
+  "stage1": {
+   "chosen": "velocity-based escape direction because it directly addresses the cause of collisions when objects approach from predictable directions, unlike threshold tweaks that only delay failure",
+   "target": "_plan_escape",
+   "direction": "Calculate escape direction as opposite to the object's velocity vector; prioritize moving perpendicular if direct retreat is blocked by static obstacles; reduce _ROLLOUT T to 1.0s in escape checks for conservative clearance; increase _ESC_NEAR_W to 0.9 to focus on immediate threats; set ESC_CLR to 0.3m to trigger escape earlier; ensure escape is triggered immediately when clr_min < ESC_CLR without delay."
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"collision occurred while robot was stopped (robot_at_collision: 정지) with partner closing speed 0.3-0.56 m/s\", \"first seen within 2m at t=61-65s, collision at 66-69s\", \"MTC-based stop triggered but object approached faster than stop time allowed\"], \"assumptions\": [{\"assumption\": \"MTC < HOLD_ON is sufficient to prevent collision\", \"holds\": false, \"why\": \"collisions happen despite MTC-based stop as object closing speed exceeds stop time\"}, {\"assumption\": \"recede condition correctly identifies when objects are moving away\", \"holds\": true, \"why\": \"recede=False when closing > -ESC_CLOSE, triggering escape logic\"}, {\"assumption\": \"escape path planning prioritizes safe clearance over object proximity\", \"holds\": false, \"why\": \"collisions occur even when clr_min < ESC_CLR, indicating poor path selection\"}], \"approach_families\": [{\"family\": \"threshold adjustments\", \"turns\": 22, \"result\": \"5/8 passes\"}, {\"family\": \"escape path optimization\", \"turns\": 0, \"result\": \"new family, untested\"}], \"candidates\": [{\"idea\": \"velocity-based escape direction\", \"new_family\": true, \"for\": \"objects approaching from predictable directions can be avoided by moving opposite to velocity\", \"risk\": \"velocity estimation errors could lead to worse path choices\"}, {\"idea\": \"reduce _ROLLOUT T in escape checks\", \"new_family\": true, \"for\": \"more conservative clearance assessment when close\", \"risk\": \"may trigger escape too early, causing unnecessary stops\"}, {\"idea\": \"increase _ESC_NEAR_W to prioritize immediate threats\", \"new_family\": true, \"for\": \"better focus on objects within 0.3m range\", \"risk\": \"overlooking distant but fast-approaching objects\"}], \"chosen\": \"velocity-based escape direction because it directly addresses the cause of collisions when objects approach from predictable directions, unlike threshold tweaks that only delay failure\", \"target\": \"_plan_escape\", \"direction\": \"Calculate escape direction as opposite to the object's velocity vector; prioritize moving perpendicular if direct retreat is blocked by static obstacles; reduce _ROLLOUT T to 1.0s in escape checks for conservative clearance; increase _ESC_NEAR_W to 0.9 to focus on immediate threats; set ESC_CLR to 0.3m to trigger escape earlier; ensure escape is triggered immediately when clr_min < ESC_CLR without delay.\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 21}",
+ "table": [
+  {
+   "run": "c81t22_s61512808",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 75.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 69.783,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    -0.9,
+    -0.45
+   ],
+   "closing_m_s": 0.3,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 64.82,
+   "goal_dist_m": 3.0069,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t22_s827161103",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 524.2,
+   "sim_time_s": 62.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 56.72,
+   "goal_dist_m": 0.2225,
+   "time_to_goal_s": 58.767
+  },
+  {
+   "run": "c81t22_s1980814329",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 461.5,
+   "sim_time_s": 86.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 80.73,
+   "goal_dist_m": 0.2265,
+   "time_to_goal_s": 82.733
+  },
+  {
+   "run": "c81t22_s1877344436",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 374.9,
+   "sim_time_s": 80.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 74.03,
+   "goal_dist_m": 0.2272,
+   "time_to_goal_s": 76.117
+  },
+  {
+   "run": "c81t22_s2083051951",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 294.8,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 66.75,
+   "partner": "mover_03",
+   "robot_at_collision": "정지",
+   "partner_rel_xy": [
+    0.09,
+    -0.55
+   ],
+   "closing_m_s": 0.56,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 61.75,
+   "goal_dist_m": 6.2465,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t22_s31408079",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 222.1,
+   "sim_time_s": 80.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 74.62,
+   "goal_dist_m": 0.2243,
+   "time_to_goal_s": 76.65
+  },
+  {
+   "run": "c81t22_s45089408",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 141.5,
+   "sim_time_s": 84.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 78.72,
+   "goal_dist_m": 0.2244,
+   "time_to_goal_s": 80.767
+  },
+  {
+   "run": "c81t22_s463496434",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 56.8,
+   "sim_time_s": 57.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 54.05,
+   "goal_dist_m": 5.747,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22. 이번 코드에서 이어 가려면 22 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

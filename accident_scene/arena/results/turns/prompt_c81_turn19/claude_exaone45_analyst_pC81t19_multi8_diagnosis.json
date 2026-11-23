@@ -1,0 +1,228 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "실행 c81t19_s1496084142에서 충돌 시 32.9s 기준 nearest object 거리 0.36m (bearing 9도), clr_min=0.36 < 0.45이지만 v=0.52m/s로 전진",
+   "2D 라이다 기록에서 32.9s~33.4s 구간 물체 거리가 0.36m → 0.25m로 감소하며 로봇 속도 유지 중 충돌",
+   "clr_min < 0.45 조건에서 w=0만 강제하고 v 제어 미비로 직진 충돌 발생"
+  ],
+  "assumptions": [
+   {
+    "assumption": "clr_min < 0.45 시 회전 속도 w만 0으로 설정하면 충돌 회피 가능하다고 가정",
+    "holds": false,
+    "why": "로봇이 직진 중일 경우 v 제어 없이 w=0만으로는 물체 접근 시 충돌 발생 (실행 c81t19_s1496084142 증거)"
+   },
+   {
+    "assumption": "MTC 기반 정지 로직이 충분한 충돌 회피를 보장한다고 가정",
+    "holds": false,
+    "why": "MTC 계산 전 clr_min 임계치 미달 시 즉시 정지하지 않아 근접 물체와 충돌"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지/재출발 시간 조정 계열",
+    "turns": "1,5,16,19,17,18",
+    "result": "통과 6~7/8, 실패 유형 혼합 (collision, time_limit)"
+   },
+   {
+    "family": "MTC 민감도 조정 계열",
+    "turns": "3,4,6,7,11,12,14,17",
+    "result": "통과 5~7/8, time_limit/collision 병발"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "clr_min < 0.3m 시 v=0, w=0 강제 정지 (회전 및 전진 동시 정지)",
+    "new_family": true,
+    "for": "근접 물체 감지 시 즉시 정지로 충돌 방지 (실행 c81t19_s1496084142에서 0.36m 거리 시 v 제어 누락 해결)",
+    "risk": "과도한 정지로 인한 time_limit 실패 가능성 (현재 평균 실행 시간 80초 초과)"
+   },
+   {
+    "idea": "rollout 예측 거리 < 0.5m 시 즉시 정지 (MTC 계산 전 조기 대응)",
+    "new_family": true,
+    "for": "충돌 0.3초 전 조기 감지 (현재 _rollout < 0.3m 조건 강화)",
+    "risk": "오탐으로 인한 빈번한 정지로 시간 초과 유발"
+   },
+   {
+    "idea": "물체 접근 속도 closing > 0.1m/s 시 MTC 기준 강화 (0.5s → 0.3s)",
+    "new_family": true,
+    "for": "고속 접근 물체에 대한 민감도 향상 (실행 c81t19_s1496084142 closing_m_s=0.54 기반)",
+    "risk": "정적 장애물 오진 가능성 증가"
+   }
+  ],
+  "chosen": "clr_min < 0.3m 시 v와 w를 동시에 0으로 설정해 근접 물체에 대한 즉시 정지 구현 (w=0만 강제하는 기존 로직의 한계 보완)",
+  "target": "controller 함수의 'if clr_min < 0.45: w = 0.0' 조건 블록",
+  "direction": "1. clr_min < 0.3m 시 v=0, w=0 강제 (전진 및 회전 동시 정지). 2. 0.3m ≤ clr_min < 0.45m 시 기존 w=0 유지. 3. 이 조건을 _rollout < 0.3m 검사 이전에 적용해 조기 대응 보장. 4. _CLOSE_MIN을 0.15m/s로 완화해 저속 접근 물체 감지. 5. 정지 후 재출발 시 clr_min > 0.5m 필수 조건으로 추가. 6. 회전 금지 조건(clr_min < 0.45)을 0.5m로 완화해 정적 장애물 간섭 감소",
+  "confidence": "high",
+  "last_direction_ok": "no",
+  "base_turn": 16,
+  "stage1": {
+   "chosen": "clr_min < 0.3m 시 v와 w를 동시에 0으로 설정하여 근접 물체 감지 시 즉시 정지하도록 수정 (현재 w=0만 강제하는 한계 보완)",
+   "target": "controller 함수의 clr_min < 0.45 조건 블록",
+   "direction": "1. clr_min < 0.3m 시 v=0, w=0 강제 (현재 0.45m 기준에서 0.3m로 강화). 2. 정지 후 재출발 조건에서 물체 거리 > 0.5m 필수 확인 추가. 3. _ESC_CLOSE 임계치를 0.05→0.1m/s로 완화해 오탐 방지. 4. 회전 금지 조건(clr_min < 0.45)을 0.5m로 완화하여 정적 장애물과의 간섭 감소. 5. _CLOSE_MIN을 0.2→0.15m로 조정해 조기 경고 민감도 향상. 6. 재출발 시 _rollout 예측 시간 T=2.0s로 단축해 보수적 판단 적용"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"실행 c81t19_s1496084142에서 충돌 시 32.9s 기준 nearest object 거리 0.36m (bearing 9도), clr_min=0.36 < 0.45이지만 v=0.52m/s로 전진\", \"2D 라이다 기록에서 32.9s~33.4s 구간 물체 거리가 0.36m → 0.25m로 감소하며 로봇 속도 유지 중 충돌\", \"clr_min < 0.45 조건에서 w=0만 강제하고 v 제어 미비로 직진 충돌 발생\"], \"assumptions\": [{\"assumption\": \"clr_min < 0.45 시 회전 속도 w만 0으로 설정하면 충돌 회피 가능하다고 가정\", \"holds\": false, \"why\": \"로봇이 직진 중일 경우 v 제어 없이 w=0만으로는 물체 접근 시 충돌 발생 (실행 c81t19_s1496084142 증거)\"}, {\"assumption\": \"MTC 기반 정지 로직이 충분한 충돌 회피를 보장한다고 가정\", \"holds\": false, \"why\": \"MTC 계산 전 clr_min 임계치 미달 시 즉시 정지하지 않아 근접 물체와 충돌\"}], \"approach_families\": [{\"family\": \"정지/재출발 시간 조정 계열\", \"turns\": \"1,5,16,19,17,18\", \"result\": \"통과 6~7/8, 실패 유형 혼합 (collision, time_limit)\"}, {\"family\": \"MTC 민감도 조정 계열\", \"turns\": \"3,4,6,7,11,12,14,17\", \"result\": \"통과 5~7/8, time_limit/collision 병발\"}], \"candidates\": [{\"idea\": \"clr_min < 0.3m 시 v=0, w=0 강제 정지 (회전 및 전진 동시 정지)\", \"new_family\": true, \"for\": \"근접 물체 감지 시 즉시 정지로 충돌 방지 (실행 c81t19_s1496084142에서 0.36m 거리 시 v 제어 누락 해결)\", \"risk\": \"과도한 정지로 인한 time_limit 실패 가능성 (현재 평균 실행 시간 80초 초과)\"}, {\"idea\": \"rollout 예측 거리 < 0.5m 시 즉시 정지 (MTC 계산 전 조기 대응)\", \"new_family\": true, \"for\": \"충돌 0.3초 전 조기 감지 (현재 _rollout < 0.3m 조건 강화)\", \"risk\": \"오탐으로 인한 빈번한 정지로 시간 초과 유발\"}, {\"idea\": \"물체 접근 속도 closing > 0.1m/s 시 MTC 기준 강화 (0.5s → 0.3s)\", \"new_family\": true, \"for\": \"고속 접근 물체에 대한 민감도 향상 (실행 c81t19_s1496084142 closing_m_s=0.54 기반)\", \"risk\": \"정적 장애물 오진 가능성 증가\"}], \"chosen\": \"clr_min < 0.3m 시 v와 w를 동시에 0으로 설정하여 근접 물체 감지 시 즉시 정지하도록 수정 (현재 w=0만 강제하는 한계 보완)\", \"target\": \"controller 함수의 clr_min < 0.45 조건 블록\", \"direction\": \"1. clr_min < 0.3m 시 v=0, w=0 강제 (현재 0.45m 기준에서 0.3m로 강화). 2. 정지 후 재출발 조건에서 물체 거리 > 0.5m 필수 확인 추가. 3. _ESC_CLOSE 임계치를 0.05→0.1m/s로 완화해 오탐 방지. 4. 회전 금지 조건(clr_min < 0.45)을 0.5m로 완화하여 정적 장애물과의 간섭 감소. 5. _CLOSE_MIN을 0.2→0.15m로 조정해 조기 경고 민감도 향상. 6. 재출발 시 _rollout 예측 시간 T=2.0s로 단축해 보수적 판단 적용\", \"confidence\": \"high\", \"last_direction_ok\": \"no\", \"base_turn\": 16}",
+ "table": [
+  {
+   "run": "c81t19_s1739992349",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 89.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 83.12,
+   "goal_dist_m": 0.1954,
+   "time_to_goal_s": 85.183
+  },
+  {
+   "run": "c81t19_s633004649",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 510.9,
+   "sim_time_s": 80.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 74.25,
+   "goal_dist_m": 0.2053,
+   "time_to_goal_s": 76.267
+  },
+  {
+   "run": "c81t19_s1411228519",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 430.7,
+   "sim_time_s": 91.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 85.25,
+   "goal_dist_m": 0.2049,
+   "time_to_goal_s": 87.3
+  },
+  {
+   "run": "c81t19_s1496084142",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 339.5,
+   "sim_time_s": 39.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 33.367,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.25m/s",
+   "partner_rel_xy": [
+    0.46,
+    -0.05
+   ],
+   "closing_m_s": -0.05,
+   "stop_turns": 10,
+   "first_seen_within_2m_t": 30.18,
+   "goal_dist_m": 22.6708,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c81t19_s1475746462",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 300.1,
+   "sim_time_s": 74.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 68.55,
+   "goal_dist_m": 0.2005,
+   "time_to_goal_s": 70.533
+  },
+  {
+   "run": "c81t19_s104805650",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 225.7,
+   "sim_time_s": 83.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 77.62,
+   "goal_dist_m": 0.2042,
+   "time_to_goal_s": 79.667
+  },
+  {
+   "run": "c81t19_s1007853190",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 142.1,
+   "sim_time_s": 86.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 80.35,
+   "goal_dist_m": 0.2274,
+   "time_to_goal_s": 82.467
+  },
+  {
+   "run": "c81t19_s500189877",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 55.7,
+   "sim_time_s": 56.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 14.2459,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "답이 올바른 JSON 이 아니어서 읽지 못했습니다(Extra data: line 1 column 1898 (char 1897)). 오류 근처: …경고 민감도 향상. 6. 재출발 시 _rollout 예측 시간 T=2.0s로 단축해 보수적 판단 적용\", \"confidence\": \"high\"},\"last_direction_ok\": \"no\",\"base_turn\": … 괄호와 쉼표를 확인해, 같은 내용을 올바른 JSON 객체 하나로 다시 내십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

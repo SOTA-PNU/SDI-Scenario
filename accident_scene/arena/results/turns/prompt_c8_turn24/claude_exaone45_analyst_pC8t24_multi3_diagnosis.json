@@ -1,0 +1,122 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 1: 최종 목표 거리 10.87m, 정지-회전 에피소드 42회, 첫 비정적 물체 감지 시점 182.25초(3.12m), 이후 거리 증가에도 진행 중단",
+   "실행 2: 최종 목표 거리 12.94m, 정지-회전 에피소드 34회, 첫 비정적 물체 감지 156.75초(3.28m), 1m 이내 접근 후 거리 감소",
+   "실행 3: 최종 목표 거리 31.86m, 정지-회전 에피소드 16회, 첫 비정적 물체 감지 90.92초(2.12m), 2m 이내 접근 후 정지",
+   "모든 실행에서 progress_abort로 종료, 목표 거리 허용 오차(0.75m) 훨씬 초과",
+   "로봇이 물체 감지 후 제자리 회전을 반복하며 거리 증가 또는 정지 물체 인식이 회피 종료 조건을 충족시키지 못함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 종료 조건이 거리 증가(rising) 또는 물체 후퇴(away) 또는 정지 물체 인식(still)에 의존하지만, 정지 물체에서 거리 변화가 거의 없어 종료되지 않음",
+    "holds": false,
+    "why": "실행 요약에서 정지 물체 감지 후에도 거리 변화 없이 회피 지속, 진행 중단"
+   },
+   {
+    "assumption": "현재 회피 중 후보 선택(_choose)이 정지 물체에 대해 측면 이동보다 전방 진행을 우선하지 않음",
+    "holds": false,
+    "why": "로봇이 제자리 회전을 반복하며 전진하지 않음, 정지 물체 앞에서의 진행 기회 상실"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "TTC 및 거리 기반 회피 트리거 (시도 5~23)",
+    "turns": "19",
+    "result": "트리거 민감도 조정으로 회피 빈도 변화했으나, 회피 종료 메커니즘 결함으로 진행 중단 지속"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "정지 물체(속도 크기 < _STILL_V) 식별 후, 거리 증가 없이도 전방 여유(_EV_END_ST 이상) 확보 시 회피 종료 허용",
+    "new_family": true,
+    "for": "실행 1,2,3에서 정지 물체 접근 후 거리 변화 없이 회피 지속됨. 정지 물체는 위협이 아니므로 진행 허용 필요"
+   },
+   {
+    "idea": "회피 중 정지 물체 감지 시 _choose에서 전방 이동 후보에 progress 보너스 부여 (lateral 대신)",
+    "new_family": true,
+    "for": "로봇이 정지 물체 앞에서 제자리 회전만 반복하는 패턴. 전방 진행 유도 필요"
+   },
+   {
+    "idea": "회피 종료 조건에 정지 물체 인식 + 전방 여유 충족 추가 (거리 증가 불필요)",
+    "new_family": false,
+    "for": "기존 종료 조건(rising/still/away)은 정지 물체에 취약. _movers_now 속도 정보로 정지 물체 식별 가능"
+   }
+  ],
+  "chosen": "정지 물체 식별 시 거리 증가 없이도 전방 여유 확보 시 회피 종료 허용하고, 회피 중 정지 물체에 대해 전방 이동 후보 우선 선택",
+  "target": "controller 내 evasion 종료 로직 및 _choose 함수",
+  "direction": "1. _movers_now에서 속도 크기 계산, _STILL_V 미만이면 정지 물체로 식별\n2. evasion 종료 조건에 정지 물체 + 전방 여유 ≥ _EV_END_ST 추가\n3. _choose에서 정지 물체 감지 시 progress 점수에 _EV_ST_SAFE 배 보너스 부여\n4. 정지 물체 식별 시 lateral 후보 대신 forward 후보 선택 우선\n5. _EV_END_ST_HOLD 시간을 0.5s에서 1.0s로 완화해 정지 물체 확인 시간 확보\n6. 회피 종료 후 nominal command 재개 시 정지 물체 방향 회피 패널티 완화",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 1: 최종 목표 거리 10.87m, 정지-회전 에피소드 42회, 첫 비정적 물체 감지 시점 182.25초(3.12m), 이후 거리 증가에도 진행 중단\", \"실행 2: 최종 목표 거리 12.94m, 정지-회전 에피소드 34회, 첫 비정적 물체 감지 156.75초(3.28m), 1m 이내 접근 후 거리 감소\", \"실행 3: 최종 목표 거리 31.86m, 정지-회전 에피소드 16회, 첫 비정적 물체 감지 90.92초(2.12m), 2m 이내 접근 후 정지\", \"모든 실행에서 progress_abort로 종료, 목표 거리 허용 오차(0.75m) 훨씬 초과\", \"로봇이 물체 감지 후 제자리 회전을 반복하며 거리 증가 또는 정지 물체 인식이 회피 종료 조건을 충족시키지 못함\"], \"assumptions\": [{\"assumption\": \"회피 종료 조건이 거리 증가(rising) 또는 물체 후퇴(away) 또는 정지 물체 인식(still)에 의존하지만, 정지 물체에서 거리 변화가 거의 없어 종료되지 않음\", \"holds\": false, \"why\": \"실행 요약에서 정지 물체 감지 후에도 거리 변화 없이 회피 지속, 진행 중단\"}, {\"assumption\": \"현재 회피 중 후보 선택(_choose)이 정지 물체에 대해 측면 이동보다 전방 진행을 우선하지 않음\", \"holds\": false, \"why\": \"로봇이 제자리 회전을 반복하며 전진하지 않음, 정지 물체 앞에서의 진행 기회 상실\"}], \"approach_families\": [{\"family\": \"TTC 및 거리 기반 회피 트리거 (시도 5~23)\", \"turns\": \"19\", \"result\": \"트리거 민감도 조정으로 회피 빈도 변화했으나, 회피 종료 메커니즘 결함으로 진행 중단 지속\"}], \"candidates\": [{\"idea\": \"정지 물체(속도 크기 < _STILL_V) 식별 후, 거리 증가 없이도 전방 여유(_EV_END_ST 이상) 확보 시 회피 종료 허용\", \"new_family\": true, \"for\": \"실행 1,2,3에서 정지 물체 접근 후 거리 변화 없이 회피 지속됨. 정지 물체는 위협이 아니므로 진행 허용 필요\"}, {\"idea\": \"회피 중 정지 물체 감지 시 _choose에서 전방 이동 후보에 progress 보너스 부여 (lateral 대신)\", \"new_family\": true, \"for\": \"로봇이 정지 물체 앞에서 제자리 회전만 반복하는 패턴. 전방 진행 유도 필요\"}, {\"idea\": \"회피 종료 조건에 정지 물체 인식 + 전방 여유 충족 추가 (거리 증가 불필요)\", \"new_family\": false, \"for\": \"기존 종료 조건(rising/still/away)은 정지 물체에 취약. _movers_now 속도 정보로 정지 물체 식별 가능\"}], \"chosen\": \"정지 물체 식별 시 거리 증가 없이도 전방 여유 확보 시 회피 종료 허용하고, 회피 중 정지 물체에 대해 전방 이동 후보 우선 선택\", \"target\": \"controller 내 evasion 종료 로직 및 _choose 함수\", \"direction\": \"1. _movers_now에서 속도 크기 계산, _STILL_V 미만이면 정지 물체로 식별\\n2. evasion 종료 조건에 정지 물체 + 전방 여유 ≥ _EV_END_ST 추가\\n3. _choose에서 정지 물체 감지 시 progress 점수에 _EV_ST_SAFE 배 보너스 부여\\n4. 정지 물체 식별 시 lateral 후보 대신 forward 후보 선택 우선\\n5. _EV_END_ST_HOLD 시간을 0.5s에서 1.0s로 완화해 정지 물체 확인 시간 확보\\n6. 회피 종료 후 nominal command 재개 시 정지 물체 방향 회피 패널티 완화\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t24_s1896860853",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 600.0,
+   "sim_time_s": 188.2,
+   "stall_abort_t": null,
+   "progress_abort_t": 187.15,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 42,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 10.8744,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t24_s427781447",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 411.8,
+   "sim_time_s": 162.7,
+   "stall_abort_t": null,
+   "progress_abort_t": 161.65,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 34,
+   "first_seen_within_2m_t": 159.75,
+   "goal_dist_m": 12.9363,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t24_s761276415",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 249.2,
+   "sim_time_s": 96.8,
+   "stall_abort_t": null,
+   "progress_abort_t": 95.8,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 94.73,
+   "goal_dist_m": 31.8615,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "진단 JSON 이나 evidence 목록이 없습니다."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

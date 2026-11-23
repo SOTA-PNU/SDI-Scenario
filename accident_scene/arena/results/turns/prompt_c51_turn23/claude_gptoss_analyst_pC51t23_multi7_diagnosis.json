@@ -1,0 +1,242 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "c51t23_s1367057639: 충돌 시점 d_min≈0.6 m (<_STOP_D)였으며, _evade가 안전 검증 없이 선택돼 회전 중 오른쪽 물체와 충돌",
+   "c51t23_s1107057700: side mover가 0.7 m 거리에서 접근했으나 _evade 로 전진해 충돌, stop→resume 조건에 side 거리 고려 없음",
+   "두 실패 모두 stop 상태 후 gap≥_GO_D가 만족돼 즉시 go 로 전환했지만 d_min이 여전히 작아 안전하지 않은 상태에서 전진함"
+  ],
+  "assumptions": [
+   {
+    "assumption": "라이다 2D가 0.1 s마다 정확히 움직이는 물체를 감지한다",
+    "holds": true,
+    "why": "first_not_on_map 기록이 74 s 등에서 물체를 탐지한 점에서 확인"
+   },
+   {
+    "assumption": "d_min(로봇 중심‑물체 중심 거리)만으로 충돌 위험을 판단할 수 있다",
+    "holds": false,
+    "why": "d_min이 0.6 m 이하일 때도 로봇이 정지하지 않아 충돌 발생"
+   },
+   {
+    "assumption": "속도 스케일 f가 충분히 작아지면 충돌을 방지한다",
+    "holds": false,
+    "why": "충돌 직전 로봇 속도가 1 m/s 이상으로 유지됨"
+   },
+   {
+    "assumption": "resume 조건에 front gap만 고려하면 안전하다",
+    "holds": false,
+    "why": "gap≥_GO_D이지만 side mover가 여전히 가까워 바로 전진해 충돌"
+   },
+   {
+    "assumption": "_evade 명령은 _is_safe 검사 후에만 사용하면 안전하다",
+    "holds": false,
+    "why": "fallback에서 _evade 를 직접 호출해 _is_safe 를 우회했음"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "front‑gap stop",
+    "turns": "1",
+    "result": "9/10 passes"
+   },
+   {
+    "family": "candidate rollout planning",
+    "turns": "2",
+    "result": "0/3 passes (stall)"
+   },
+   {
+    "family": "danger zone speed scaling",
+    "turns": "4",
+    "result": "6/8 passes"
+   },
+   {
+    "family": "larger stop distance",
+    "turns": "8",
+    "result": "9/9 passes (no collisions)"
+   },
+   {
+    "family": "side distance scaling + stop",
+    "turns": "15,23",
+    "result": "8/10 passes (15), 5/7 passes (23)"
+   },
+   {
+    "family": "reverse state",
+    "turns": "19",
+    "result": "7/8 passes"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "예측 궤적에서 mover와의 최소 여유 거리 mc가 _EVASION_CLEAR(0.5 m) 이상일 때만 _evade 결과를 사용하고, 미달이면 정지 유지",
+    "new_family": true,
+    "for": "충돌 전 fallback _evade 가 안전 검증 없이 선택돼 발생한 문제",
+    "risk": "과도한 정지로 평균 실행 시간이 목표 60 s를 초과할 수 있음"
+   },
+   {
+    "idea": "resume 조건에 side 거리 요구를 추가해 gap≥_GO_D와 동시에 d_min > _PROX_STOP 이어야 go 로 전환",
+    "new_family": false,
+    "for": "stop→go 전환 시 side mover가 아직 가까워 충돌하는 상황",
+    "risk": "정지 대기 시간이 길어 전체 시뮬 시간 증가"
+   },
+   {
+    "idea": "가장 가까운 mover에 대한 반발 벡터를 계산해 회전 명령으로 회피하고, 필요 시 일시 정지를 적용하는 반응형 스티어링 도입",
+    "new_family": true,
+    "for": "측면 물체가 접근할 때 회전 회피로 충돌을 방지",
+    "risk": "구현 복잡도 상승 및 로봇이 과도하게 진동할 가능성"
+   }
+  ],
+  "chosen": "측면 물체가 남아 있는 동안 재출발을 방지하도록 resume 조건에 side 거리(d_min) 검사를 추가한다.",
+  "target": "controller 함수 내부의 resume 변수 정의",
+  "direction": "1. 기존 `resume = gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)` 줄을 찾는다.\n2. 같은 위치에서 이미 계산된 `d_min = _min_mover_dist(pose, movers)` 변수를 재사용한다.\n3. 줄을 `resume = gap >= _GO_D and d_min >= _STOP_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)` 로 바꾼다.\n4. 필요 시 `_STOP_D` 대신 `_PROX_STOP`을 사용해도 되지만 현재 코드에서는 `_STOP_D`가 side 거리 기준과 동일하므로 그대로 사용한다.\n5. 이 수정으로 로봇은 앞쪽 gap이 충분히 열려 있어도 측면 물체가 _STOP_D 이내에 있으면 바로 go 상태로 전환되지 않는다.\n6. 나머지 로직은 기존대로 유지하여 정지 후 _STOP_WAIT 초가 지나면 detour 로 전환하도록 한다.",
+  "confidence": "medium",
+  "last_direction_ok": "no (side‑distance 스케일링을 추가했지만 충돌이 여전히 발생했고, 이전 turn 15 대비 통과 비율이 낮아 효과가 확인되지 않음)",
+  "base_turn": 8,
+  "stage1": {
+   "chosen": "첫 번째 후보를 선택한다. mover와의 예측 여유가 충분히 확보된 경우에만 evasion을 허용해 안전성을 보장한다.",
+   "target": "controller (fallback evasion 로직) 및 새로운 안전 체크 함수",
+   "direction": "① _EVASION_CLEAR = 0.5 를 상수로 정의한다. ② _evade_safe(pose, movers, target, allow_stop) 를 구현해 _evade 로부터 (v,w)를 얻은 뒤 _rollout 로 해당 명령의 mc 값을 구한다. ③ mc ≥ _EVASION_CLEAR 이면 (v,w)를 반환하고, 그렇지 않으면 (0.0,0.0) 로 정지한다. ④ controller 내부 모든 _evade 호출을 _evade_safe 로 교체한다. ⑤ resume 조건을 gap ≥ _GO_D 그리고 d_min ≥ _PROX_STOP 로 수정한다. ⑥ 기존 상태 머신은 그대로 유지한다."
+  }
+ },
+ "raw": "{\n  \"failure_mode\": \"collision\",\n  \"evidence\": [\n    \"c51t23_s1367057639: 충돌 시점 d_min≈0.6 m (<_STOP_D)였으며, _evade가 안전 검증 없이 선택돼 회전 중 오른쪽 물체와 충돌\",\n    \"c51t23_s1107057700: side mover가 0.7 m 거리에서 접근했으나 _evade 로 전진해 충돌, stop→resume 조건에 side 거리 고려 없음\",\n    \"두 실패 모두 stop 상태 후 gap≥_GO_D가 만족돼 즉시 go 로 전환했지만 d_min이 여전히 작아 안전하지 않은 상태에서 전진함\"\n  ],\n  \"assumptions\": [\n    {\n      \"assumption\": \"라이다 2D가 0.1 s마다 정확히 움직이는 물체를 감지한다\",\n      \"holds\": true,\n      \"why\": \"first_not_on_map 기록이 74 s 등에서 물체를 탐지한 점에서 확인\"\n    },\n    {\n      \"assumption\": \"d_min(로봇 중심‑물체 중심 거리)만으로 충돌 위험을 판단할 수 있다\",\n      \"holds\": false,\n      \"why\": \"d_min이 0.6 m 이하일 때도 로봇이 정지하지 않아 충돌 발생\"\n    },\n    {\n      \"assumption\": \"속도 스케일 f가 충분히 작아지면 충돌을 방지한다\",\n      \"holds\": false,\n      \"why\": \"충돌 직전 로봇 속도가 1 m/s 이상으로 유지됨\"\n    },\n    {\n      \"assumption\": \"resume 조건에 front gap만 고려하면 안전하다\",\n      \"holds\": false,\n      \"why\": \"gap≥_GO_D이지만 side mover가 여전히 가까워 바로 전진해 충돌\"\n    },\n    {\n      \"assumption\": \"_evade 명령은 _is_safe 검사 후에만 사용하면 안전하다\",\n      \"holds\": false,\n      \"why\": \"fallback에서 _evade 를 직접 호출해 _is_safe 를 우회했음\"\n    }\n  ],\n  \"approach_families\": [\n    {\n      \"family\": \"front‑gap stop\",\n      \"turns\": \"1\",\n      \"result\": \"9/10 passes\"\n    },\n    {\n      \"family\": \"candidate rollout planning\",\n      \"turns\": \"2\",\n      \"result\": \"0/3 passes (stall)\"\n    },\n    {\n      \"family\": \"danger zone speed scaling\",\n      \"turns\": \"4\",\n      \"result\": \"6/8 passes\"\n    },\n    {\n      \"family\": \"larger stop distance\",\n      \"turns\": \"8\",\n      \"result\": \"9/9 passes (no collisions)\"\n    },\n    {\n      \"family\": \"side distance scaling + stop\",\n      \"turns\": \"15,23\",\n      \"result\": \"8/10 passes (15), 5/7 passes (23)\"\n    },\n    {\n      \"family\": \"reverse state\",\n      \"turns\": \"19\",\n      \"result\": \"7/8 passes\"\n    }\n  ],\n  \"candidates\": [\n    {\n      \"idea\": \"예측 궤적에서 mover와의 최소 여유 거리 mc가 _EVASION_CLEAR(0.5 m) 이상일 때만 _evade 결과를 사용하고, 미달이면 정지 유지\",\n      \"new_family\": true,\n      \"for\": \"충돌 전 fallback _evade 가 안전 검증 없이 선택돼 발생한 문제\",\n      \"risk\": \"과도한 정지로 평균 실행 시간이 목표 60 s를 초과할 수 있음\"\n    },\n    {\n      \"idea\": \"resume 조건에 side 거리 요구를 추가해 gap≥_GO_D와 동시에 d_min > _PROX_STOP 이어야 go 로 전환\",\n      \"new_family\": false,\n      \"for\": \"stop→go 전환 시 side mover가 아직 가까워 충돌하는 상황\",\n      \"risk\": \"정지 대기 시간이 길어 전체 시뮬 시간 증가\"\n    },\n    {\n      \"idea\": \"가장 가까운 mover에 대한 반발 벡터를 계산해 회전 명령으로 회피하고, 필요 시 일시 정지를 적용하는 반응형 스티어링 도입\",\n      \"new_family\": true,\n      \"for\": \"측면 물체가 접근할 때 회전 회피로 충돌을 방지\",\n      \"risk\": \"구현 복잡도 상승 및 로봇이 과도하게 진동할 가능성\"\n    }\n  ],\n  \"chosen\": \"첫 번째 후보를 선택한다. mover와의 예측 여유가 충분히 확보된 경우에만 evasion을 허용해 안전성을 보장한다.\",\n  \"target\": \"controller (fallback evasion 로직) 및 새로운 안전 체크 함수\",\n  \"direction\": \"① _EVASION_CLEAR = 0.5 를 상수로 정의한다. ② _evade_safe(pose, movers, target, allow_stop) 를 구현해 _evade 로부터 (v,w)를 얻은 뒤 _rollout 로 해당 명령의 mc 값을 구한다. ③ mc ≥ _EVASION_CLEAR 이면 (v,w)를 반환하고, 그렇지 않으면 (0.0,0.0) 로 정지한다. ④ controller 내부 모든 _evade 호출을 _evade_safe 로 교체한다. ⑤ resume 조건을 gap ≥ _GO_D 그리고 d_min ≥ _PROX_STOP 로 수정한다. ⑥ 기존 상태 머신은 그대로 유지한다.\",\n  \"confidence\": \"medium\",\n  \"last_direction_ok\": \"no (side‑distance 스케일링을 추가했지만 충돌이 여전히 발생했고, 이전 turn 15 대비 통과 비율이 낮아 효과가 확인되지 않음)\",\n  \"base_turn\": 8\n}",
+ "table": [
+  {
+   "run": "c51t23_s1367057639",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 85.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 79.267,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 1.01m/s 회전 +0.7",
+   "partner_rel_xy": [
+    0.11,
+    -0.57
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 74.32,
+   "goal_dist_m": 0.1932,
+   "time_to_goal_s": 83.867
+  },
+  {
+   "run": "c51t23_s1460503949",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 514.7,
+   "sim_time_s": 83.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 77.92,
+   "goal_dist_m": 0.2277,
+   "time_to_goal_s": 79.883
+  },
+  {
+   "run": "c51t23_s1107057700",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 430.9,
+   "sim_time_s": 81.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 75.467,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.93m/s",
+   "partner_rel_xy": [
+    -0.11,
+    -0.55
+   ],
+   "closing_m_s": 0.66,
+   "stop_turns": 20,
+   "first_seen_within_2m_t": 70.57,
+   "goal_dist_m": 1.6809,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c51t23_s1624711214",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 349.4,
+   "sim_time_s": 89.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 12,
+   "first_seen_within_2m_t": 83.77,
+   "goal_dist_m": 0.2019,
+   "time_to_goal_s": 86.567
+  },
+  {
+   "run": "c51t23_s834700618",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 259.7,
+   "sim_time_s": 90.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 84.35,
+   "goal_dist_m": 0.2256,
+   "time_to_goal_s": 85.517
+  },
+  {
+   "run": "c51t23_s1740116069",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 169.4,
+   "sim_time_s": 82.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 76.95,
+   "goal_dist_m": 0.1958,
+   "time_to_goal_s": 78.833
+  },
+  {
+   "run": "c51t23_s727673232",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 86.5,
+   "sim_time_s": 78.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 72.95,
+   "goal_dist_m": 0.2293,
+   "time_to_goal_s": 74.933
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

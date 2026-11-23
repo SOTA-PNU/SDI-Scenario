@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 지시 1에 따라 `_STOP_WAIT` 를 2.0에서 0.5로 줄였습니다. 지시 2~4에 따라 `go` 상태에서 `gap < _STOP_D` 이면 `stop` 으로 가지 않고 바로 `detour` 로 전환합니다(`detour_t`, `detour_w = _detour_side(pose)` 설정). 이때 제자리 회전 `(0.0, detour_w)` 이 `_is_safe` 와 `_static_ok` 를 모두 통과하면 그 명령을 즉시 반환해 정지·대기 시간을 없앴습니다. 회전이 안전하지 않으면 지시 5·6에 따라 기존 resume·detour 진행·`_evade` 로직으로 넘어가며, `stop` 블록은 그대로 두었습니다(이제는 `_DETOUR_T` 초과 시에만 들어가고 0.5 s 뒤 다시 우회합니다).\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 우회(go / detour, 우회 시간 초과 시에만 stop) + 다가오는 물체 회피.\n    go 상태에서 전방 gap < _STOP_D 이면 정지 대신 바로 detour 로 전환해 제자리 회전(안전할 때)을 시작한다.\n    go 상태에서 안전한 감속 명령이 없으면 정지 대신 _evade 로 회피 이동한다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n\n    # 경유점 추종은 go 일 때만(물체 예측으로 감속)\n    if c.state == \"go\":\n        if gap < _STOP_D:\n            # 진단 지시 2: 정지 상태 대신 바로 우회 상태로 전환\n            # 진단 지시 4: 기존 c.state = \"stop\" 전환은 삭제\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n            # 진단 지시 3: 바로 제자리 회전, 안전 검사 통과 시 반환\n            cmd = (0.0, c.detour_w)\n            if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n                return cmd[0], cmd[1], False\n            # 회전이 안전하지 않으면 아래 detour 진행 로직(resume / _evade)으로 넘어간다 - 진단 지시 6\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (v_nom * f * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            # 안전한 스케일 명령이 하나도 없을 때만 회피 이동\n            v, w = _evade(pose, movers, target, False)\n            return v, w, False\n\n    resume = gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)\n\n    # 진단 지시 5: stop 블록은 그대로 둔다(go 에서는 더 이상 들어오지 않고, detour 시간 초과 때만 들어온다)\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * f, w_nom, False\n        if t - c.stop_t >= _STOP_WAIT:               # 줄어든 대기(0.5 s) 뒤 우회\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            v, w = _evade(pose, movers, target, True)    # 멈춰 있어도 물체가 다가오면 비켜선다\n            return v, w, False\n\n    # detour (진단 지시 6: 기존 진행 로직 유지)\n    if resume:\n        c.state = \"go\"\n        return v_nom * f, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _evade(pose, movers, target, False)\n    return v, w, False\n\n\n_STOP_WAIT = 0.5       # 정지가 이 시간 이상이면 우회 [s] - 진단 지시 1 (2.0 -> 0.5)\n```\n\n검토 시 확인해 주실 점: `_GO_D`(1.2)가 `_STOP_D`(1.5)보다 작습니다. 그래서 gap이 1.2~1.5 m이고 resume 조건이 맞으면, 한 스텝은 `detour` 회전을 하고 다음 스텝은 `go` 로 복귀해 `v_nom*f` 로 전진할 수 있습니다. 즉 회전과 전진이 번갈아 나올 수 있습니다. 진단 지시 6(\"resume 조건 그대로 유지\")에 따라 이 부분은 바꾸지 않았습니다."
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 28247,
+  "completion_tokens": 3736
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 30186,
+  "total_cost_usd": 0.300688,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 3736,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 28245,
+    "webSearchRequests": 0,
+    "costUSD": 0.300688,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1289,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 28245,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "18e71d4f-e574-42e7-b046-f3638137973b"
+ }
+}

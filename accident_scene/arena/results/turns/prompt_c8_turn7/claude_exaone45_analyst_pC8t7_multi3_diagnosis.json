@@ -1,0 +1,136 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "3 runs all collided while moving (not during stop) with closing speeds 0.23-0.7 m/s",
+   "First mover within 2m detected 4-15s before collision, but TTC > 2.0s threshold delayed evasion",
+   "Evasion triggered (evading flag active) yet collisions still occurred due to insufficient maneuver effectiveness"
+  ],
+  "assumptions": [
+   {
+    "assumption": "Current TTC threshold (2.0s) is too high for dynamic scenarios, causing evasion to trigger too late",
+    "holds": false,
+    "why": "Collisions occurred with closing speeds >0.23 m/s and distances <2m for >4s, indicating TTC likely dropped below 2.0s before collision"
+   },
+   {
+    "assumption": "Fixed evasion duration (0.5s) is inadequate when collision risk persists beyond initial TTC trigger",
+    "holds": false,
+    "why": "Multiple stop episodes logged but collisions still happened, suggesting evasion didn't fully mitigate risk"
+   },
+   {
+    "assumption": "Anchor-based evasion path selection fails when mover velocity vectors aren't fully integrated into trajectory prediction",
+    "holds": true,
+    "why": "Mover positions/velocities change dynamically; static anchor penalty (1.2m) may not account for mover motion during evasion"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "Threshold adjustment (TTC, CLOSE_V, CLR_STOP)",
+    "turns": "5",
+    "result": "mixed: reduced collisions but increased timeouts or new collisions"
+   },
+   {
+    "family": "Evasion duration and trigger logic",
+    "turns": "3",
+    "result": "collisions persisted despite parameter tweaks"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "Dynamic evasion duration based on real-time TTC instead of fixed _EVADE_HOLD",
+    "new_family": true,
+    "for": "Ensures evasion continues while collision risk remains, addressing delayed reaction from fixed 0.5s hold",
+    "risk": "May cause prolonged stops if TTC fluctuates near threshold"
+   },
+   {
+    "idea": "Integrate mover velocity vectors into candidate scoring using relative motion prediction",
+    "new_family": true,
+    "for": "Improves evasion path selection by anticipating mover movement beyond static anchor penalty",
+    "risk": "Increased computational load; requires accurate velocity estimation"
+   },
+   {
+    "idea": "Immediate speed reduction when movers within 3m regardless of TTC, with hysteresis for resumption",
+    "new_family": false,
+    "for": "Provides earlier reaction than TTC alone, leveraging proximity detection",
+    "risk": "Over-sensitivity may cause unnecessary slowdowns in static environments"
+   }
+  ],
+  "chosen": "Implement dynamic evasion duration tied to TTC > 2.0s condition instead of fixed 0.5s hold, as collisions occurred despite active evasion due to premature resumption",
+  "target": "controller function's evade_until logic and _choose integration",
+  "direction": "When TTC triggers evasion, set evade_until to t + _EVADE_HOLD but also extend it if TTC remains < 2.0s; recalculate TTC every frame during evasion; prioritize lateral evasion candidates with larger angular deviation from mover bearing; incorporate mover velocity vectors into _choose scoring via relative motion prediction; reduce _ANCHOR_R to 0.8m for tighter evasion around closest mover; validate evasion effectiveness via lidar clearance metrics before resuming motion",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"3 runs all collided while moving (not during stop) with closing speeds 0.23-0.7 m/s\", \"First mover within 2m detected 4-15s before collision, but TTC > 2.0s threshold delayed evasion\", \"Evasion triggered (evading flag active) yet collisions still occurred due to insufficient maneuver effectiveness\"], \"assumptions\": [{\"assumption\": \"Current TTC threshold (2.0s) is too high for dynamic scenarios, causing evasion to trigger too late\", \"holds\": false, \"why\": \"Collisions occurred with closing speeds >0.23 m/s and distances <2m for >4s, indicating TTC likely dropped below 2.0s before collision\"}, {\"assumption\": \"Fixed evasion duration (0.5s) is inadequate when collision risk persists beyond initial TTC trigger\", \"holds\": false, \"why\": \"Multiple stop episodes logged but collisions still happened, suggesting evasion didn't fully mitigate risk\"}, {\"assumption\": \"Anchor-based evasion path selection fails when mover velocity vectors aren't fully integrated into trajectory prediction\", \"holds\": true, \"why\": \"Mover positions/velocities change dynamically; static anchor penalty (1.2m) may not account for mover motion during evasion\"}], \"approach_families\": [{\"family\": \"Threshold adjustment (TTC, CLOSE_V, CLR_STOP)\", \"turns\": \"5\", \"result\": \"mixed: reduced collisions but increased timeouts or new collisions\"}, {\"family\": \"Evasion duration and trigger logic\", \"turns\": \"3\", \"result\": \"collisions persisted despite parameter tweaks\"}], \"candidates\": [{\"idea\": \"Dynamic evasion duration based on real-time TTC instead of fixed _EVADE_HOLD\", \"new_family\": true, \"for\": \"Ensures evasion continues while collision risk remains, addressing delayed reaction from fixed 0.5s hold\", \"risk\": \"May cause prolonged stops if TTC fluctuates near threshold\"}, {\"idea\": \"Integrate mover velocity vectors into candidate scoring using relative motion prediction\", \"new_family\": true, \"for\": \"Improves evasion path selection by anticipating mover movement beyond static anchor penalty\", \"risk\": \"Increased computational load; requires accurate velocity estimation\"}, {\"idea\": \"Immediate speed reduction when movers within 3m regardless of TTC, with hysteresis for resumption\", \"new_family\": false, \"for\": \"Provides earlier reaction than TTC alone, leveraging proximity detection\", \"risk\": \"Over-sensitivity may cause unnecessary slowdowns in static environments\"}], \"chosen\": \"Implement dynamic evasion duration tied to TTC > 2.0s condition instead of fixed 0.5s hold, as collisions occurred despite active evasion due to premature resumption\", \"target\": \"controller function's evade_until logic and _choose integration\", \"direction\": \"When TTC triggers evasion, set evade_until to t + _EVADE_HOLD but also extend it if TTC remains < 2.0s; recalculate TTC every frame during evasion; prioritize lateral evasion candidates with larger angular deviation from mover bearing; incorporate mover velocity vectors into _choose scoring via relative motion prediction; reduce _ANCHOR_R to 0.8m for tighter evasion around closest mover; validate evasion effectiveness via lidar clearance metrics before resuming motion\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t7_s1269609970",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 600.0,
+   "sim_time_s": 33.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 27.683,
+   "partner": "mover_01",
+   "robot_at_collision": "주행 0.81m/s 회전 -0.5",
+   "partner_rel_xy": [
+    0.29,
+    -0.5
+   ],
+   "closing_m_s": 0.7,
+   "stop_turns": 8,
+   "first_seen_within_2m_t": 23.02,
+   "goal_dist_m": 20.5664,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t7_s882861024",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 566.3,
+   "sim_time_s": 105.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 99.383,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.21m/s 회전 +1.0",
+   "partner_rel_xy": [
+    -0.51,
+    -0.48
+   ],
+   "closing_m_s": 0.23,
+   "stop_turns": 21,
+   "first_seen_within_2m_t": 94.47,
+   "goal_dist_m": 0.9397,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t7_s1973219913",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 460.9,
+   "sim_time_s": 109.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 103.383,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.81m/s 회전 +1.2",
+   "partner_rel_xy": [
+    0.43,
+    -0.49
+   ],
+   "closing_m_s": 0.63,
+   "stop_turns": 30,
+   "first_seen_within_2m_t": 98.45,
+   "goal_dist_m": 5.8305,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

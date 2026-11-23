@@ -1,0 +1,145 @@
+{
+ "diagnosis": {
+  "failure_mode": "stall",
+  "evidence": [
+   "실행 c8t13_s520097987에서 progress_abort로 실패, 로봇이 제자리 회전(stop_turns: 40) 중 목표까지 4.76m 거리 유지",
+   "last_5s 기록에서 '제자리 회전' 지속 및 nearest_not_on_map 거리 0.76m 이하로 접근 시 속도 급감",
+   "3개 통과 실행도 stop_turns 평균 25~35회로 회전 행동 빈번, 목표 도달 시간 지연(평균 121초)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 중 정적 장애물 안전(st_n) 조건이 동적 회피를 방해해 제자리 회전 및 정체 발생",
+    "holds": false,
+    "why": "실행 c8t13_s520097987에서 st_n >= 0.2m 조건 충족 불가로 회피 종료 지연, 로봇이 정지/회전만 반복"
+   },
+   {
+    "assumption": "TTC 기반 조기 회피 트리거가 동적 장애물 회피에 효과적",
+    "holds": true,
+    "why": "통과 실행 2개에서 TTC < 1.0s 시 회피 시작으로 충돌 회피 성공"
+   },
+   {
+    "assumption": "slow_mode 진입 조건이 동적 장애물 근접 시 과도한 감속 유발",
+    "holds": true,
+    "why": "실행 요약에서 clr_all < _CLR_GO 시 slow_mode 활성화로 전진 속도 급감, 정체 구간 증가"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": 13,
+    "result": "통과 11/12, 실패 1/12 (주로 static 충돌 또는 시간 초과)"
+   },
+   {
+    "family": "필터 순서 변경 계열",
+    "turns": 6,
+    "result": "통과 5/11, 실패 6/11 (회피 종료 조건 미충족으로 정체 지속)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 중 정적 안전(st_n) 조건 완화 및 회피 종료 조건 단순화",
+    "new_family": true,
+    "for": "정적 충돌은 모델 오차로 발생 가능하므로 동적 장애물 회피 시 st_n 요구 조건 완화, 회피 종료 시 TTC와 clr_all만으로 판단",
+    "risk": "정적 장애물 근접 시 추가 충돌 가능성 있으나, lidar 2D/3D로 실시간 감지 가능"
+   },
+   {
+    "idea": "회전 행동 제한 및 전진 유지 로직 추가",
+    "new_family": true,
+    "for": "제자리 회전(stop_turns) 누적 시 전진 속도 유지하며 회피 경로 탐색, 목표 방향 유지",
+    "risk": "회전 제한이 장애물 회피 효율 저하 가능성 있으나, 센서 기반 경로 재계산으로 보완"
+   },
+   {
+    "idea": "TTC 재계산 주기 단축 및 회피 지속 시간 동적 조정",
+    "new_family": false,
+    "for": "TTC < _TTC_TRIG 지속 시 회피 종료 조건 완화, _EVADE_HOLD를 TTC 개선 속도에 비례해 조정",
+    "risk": "TTC 측정 오차로 조기 종료 가능성 있으나, lidar 데이터 직접 활용으로 신뢰도 향상"
+   }
+  ],
+  "chosen": "후보 1(회피 중 정적 안전 조건 완화)을 선택. 정적 충돌은 예측 오차로 발생하므로 동적 회피 시 st_n >= 0.2m 조건을 st_n >= 0.0m(접촉 없음)으로 완화하고, 회피 종료 시 clr_all >= _CLR_GO * 1.2 + st_n >= 0.0 조건으로 단순화",
+  "target": "_choose 함수 내 evading=True 분기의 필터 조건 및 회피 종료 로직",
+  "direction": "1. evading=True 시 stc >= 0.2m 강제 조건 제거, stc >= 0.0만 허용. 2. 회피 종료 조건으로 (ttc >= _TTC_TRIG and clr_all >= _CLR_GO * _RESUME_CLR_F)만 요구. 3. 회피 중 st_n < 0.15m인 구역 진입 시 _choose 재호출 대신 속도 유지하며 lateral 이동 유도. 4. slow_mode 진입 시 _CLR_STOP 기준을 0.35로 상향해 과도한 감속 방지. 5. 제자리 회전 시 w=0.05 rad/s 미만이면 전진 속도 0.5m/s 유지하도록 _choose 수정. 6. 회피 종료 후 0.2s 이내 재진입 방지 위해 _cool_until을 0.2s로 단축",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"stall\", \"evidence\": [\"실행 c8t13_s520097987에서 progress_abort로 실패, 로봇이 제자리 회전(stop_turns: 40) 중 목표까지 4.76m 거리 유지\", \"last_5s 기록에서 '제자리 회전' 지속 및 nearest_not_on_map 거리 0.76m 이하로 접근 시 속도 급감\", \"3개 통과 실행도 stop_turns 평균 25~35회로 회전 행동 빈번, 목표 도달 시간 지연(평균 121초)\"], \"assumptions\": [{\"assumption\": \"회피 중 정적 장애물 안전(st_n) 조건이 동적 회피를 방해해 제자리 회전 및 정체 발생\", \"holds\": false, \"why\": \"실행 c8t13_s520097987에서 st_n >= 0.2m 조건 충족 불가로 회피 종료 지연, 로봇이 정지/회전만 반복\"}, {\"assumption\": \"TTC 기반 조기 회피 트리거가 동적 장애물 회피에 효과적\", \"holds\": true, \"why\": \"통과 실행 2개에서 TTC < 1.0s 시 회피 시작으로 충돌 회피 성공\"}, {\"assumption\": \"slow_mode 진입 조건이 동적 장애물 근접 시 과도한 감속 유발\", \"holds\": true, \"why\": \"실행 요약에서 clr_all < _CLR_GO 시 slow_mode 활성화로 전진 속도 급감, 정체 구간 증가\"}], \"approach_families\": [{\"family\": \"임계값 조정 계열\", \"turns\": 13, \"result\": \"통과 11/12, 실패 1/12 (주로 static 충돌 또는 시간 초과)\"}, {\"family\": \"필터 순서 변경 계열\", \"turns\": 6, \"result\": \"통과 5/11, 실패 6/11 (회피 종료 조건 미충족으로 정체 지속)\"}], \"candidates\": [{\"idea\": \"회피 중 정적 안전(st_n) 조건 완화 및 회피 종료 조건 단순화\", \"new_family\": true, \"for\": \"정적 충돌은 모델 오차로 발생 가능하므로 동적 장애물 회피 시 st_n 요구 조건 완화, 회피 종료 시 TTC와 clr_all만으로 판단\", \"risk\": \"정적 장애물 근접 시 추가 충돌 가능성 있으나, lidar 2D/3D로 실시간 감지 가능\"}, {\"idea\": \"회전 행동 제한 및 전진 유지 로직 추가\", \"new_family\": true, \"for\": \"제자리 회전(stop_turns) 누적 시 전진 속도 유지하며 회피 경로 탐색, 목표 방향 유지\", \"risk\": \"회전 제한이 장애물 회피 효율 저하 가능성 있으나, 센서 기반 경로 재계산으로 보완\"}, {\"idea\": \"TTC 재계산 주기 단축 및 회피 지속 시간 동적 조정\", \"new_family\": false, \"for\": \"TTC < _TTC_TRIG 지속 시 회피 종료 조건 완화, _EVADE_HOLD를 TTC 개선 속도에 비례해 조정\", \"risk\": \"TTC 측정 오차로 조기 종료 가능성 있으나, lidar 데이터 직접 활용으로 신뢰도 향상\"}], \"chosen\": \"후보 1(회피 중 정적 안전 조건 완화)을 선택. 정적 충돌은 예측 오차로 발생하므로 동적 회피 시 st_n >= 0.2m 조건을 st_n >= 0.0m(접촉 없음)으로 완화하고, 회피 종료 시 clr_all >= _CLR_GO * 1.2 + st_n >= 0.0 조건으로 단순화\", \"target\": \"_choose 함수 내 evading=True 분기의 필터 조건 및 회피 종료 로직\", \"direction\": \"1. evading=True 시 stc >= 0.2m 강제 조건 제거, stc >= 0.0만 허용. 2. 회피 종료 조건으로 (ttc >= _TTC_TRIG and clr_all >= _CLR_GO * _RESUME_CLR_F)만 요구. 3. 회피 중 st_n < 0.15m인 구역 진입 시 _choose 재호출 대신 속도 유지하며 lateral 이동 유도. 4. slow_mode 진입 시 _CLR_STOP 기준을 0.35로 상향해 과도한 감속 방지. 5. 제자리 회전 시 w=0.05 rad/s 미만이면 전진 속도 0.5m/s 유지하도록 _choose 수정. 6. 회피 종료 후 0.2s 이내 재진입 방지 위해 _cool_until을 0.2s로 단축\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t13_s35378399",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 76.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 70.82,
+   "goal_dist_m": 0.2019,
+   "time_to_goal_s": 72.833
+  },
+  {
+   "run": "c8t13_s1878494848",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 523.2,
+   "sim_time_s": 120.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 35,
+   "first_seen_within_2m_t": 114.35,
+   "goal_dist_m": 0.2267,
+   "time_to_goal_s": 116.433
+  },
+  {
+   "run": "c8t13_s520097987",
+   "verdict": "fail",
+   "ended_by": "progress_abort",
+   "time_limit_s": 402.9,
+   "sim_time_s": 207.0,
+   "stall_abort_t": null,
+   "progress_abort_t": 206.0,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 40,
+   "first_seen_within_2m_t": 201.03,
+   "goal_dist_m": 4.7599,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t13_s1020397561",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 195.9,
+   "sim_time_s": 165.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 31,
+   "first_seen_within_2m_t": 159.95,
+   "goal_dist_m": 0.1977,
+   "time_to_goal_s": 161.117
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

@@ -1,0 +1,143 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "여러 실행에서 mover_03 및 정적 장애물(box_07, box_10)과의 충돌 발생",
+   "충돌 시 clr_all이 _CLR_STOP(0.25m) 미만이었음에도 정지/회피 조치 미흡",
+   "정적 충돌 시 _static_clearance 계산에서 허용된 후보 경로가 실제 장애물과 충돌 (stc < 0 가능)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "회피 모드 시 정적 장애물 안전 거리(stc) 보장이 충분하다는 가정",
+    "holds": false,
+    "why": "정적 충돌 증거(stc < 0 경로 선택)로 인해 모순됨"
+   },
+   {
+    "assumption": "TTC 기반 회피 트리거만으로 동적/정적 장애물 회피 가능하다는 가정",
+    "holds": false,
+    "why": "TTC < 1.0s 트리거 후에도 충돌 발생 (mover_03 사례)"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "회피 파라미터 미세 조정 (TTC_TRIG, EVADE_HOLD 등)",
+    "turns": "12",
+    "result": "1/4 통과 (실패 유형: 충돌)"
+   },
+   {
+    "family": "정적/동적 안전 거리 기준 강화",
+    "turns": "0",
+    "result": "미시도 (이전 시도에서 정적 충돌 지속)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "회피 모드 시 정적 안전 거리(stc) 기준을 0.2m 이상으로 강화",
+    "new_family": true,
+    "for": "정적 충돌 방지 (box_07, box_10 사례)",
+    "risk": "지나친 정지로 시간 초과 가능성"
+   },
+   {
+    "idea": "회피 후보 필터링 시 mover_Clearance(clr) 기준을 0.9*_CLR_GO로 상향",
+    "new_family": true,
+    "for": "mover_03 근접 충돌 완화",
+    "risk": "유효한 회피 경로 부족 시 정지 증가"
+   },
+   {
+    "idea": "회피 종료 조건을 clr_all >= 1.2*_CLR_GO + stc >= 0.2m로 복합화",
+    "new_family": true,
+    "for": "회피 조기 종료 방지",
+    "risk": "과도한 회피 지속으로 시간 소모"
+   }
+  ],
+  "chosen": "정적 충돌 방지를 위해 회피 모드 시 stc >= 0.2m를 필수 조건으로 추가, clr 필터를 0.9*_CLR_GO로 강화하여 mover_03 근접 충돌 완화",
+  "target": "_choose 함수의 evading=True 분기",
+  "direction": "1. 회피 후보 필터링에서 stc >= 0.2m를 강제 조건 추가 (기존 stc >= 0.0 대체)\n2. mover_clearance(clr) 필터를 _CLR_GO * 0.9로 상향 조정\n3. 회피 종료 조건으로 clr_all >= _CLR_GO * 1.2 AND stc >= 0.2m 유지 0.5s 요구\n4. 정적 충돌 위험 시 즉시 정지(v=0, w=0) 대신 _choose 재호출로 측면 이동 유도\n5. _EV_NOIMP_S(2.0s) 개선 조건에 stc 개선 포함\n6. _LAT_PRIO_W 보너스를 정적 안전 거리와 연동해 측면 이동 유도",
+  "confidence": "medium"
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"여러 실행에서 mover_03 및 정적 장애물(box_07, box_10)과의 충돌 발생\", \"충돌 시 clr_all이 _CLR_STOP(0.25m) 미만이었음에도 정지/회피 조치 미흡\", \"정적 충돌 시 _static_clearance 계산에서 허용된 후보 경로가 실제 장애물과 충돌 (stc < 0 가능)\"], \"assumptions\": [{\"assumption\": \"회피 모드 시 정적 장애물 안전 거리(stc) 보장이 충분하다는 가정\", \"holds\": false, \"why\": \"정적 충돌 증거(stc < 0 경로 선택)로 인해 모순됨\"}, {\"assumption\": \"TTC 기반 회피 트리거만으로 동적/정적 장애물 회피 가능하다는 가정\", \"holds\": false, \"why\": \"TTC < 1.0s 트리거 후에도 충돌 발생 (mover_03 사례)\"}], \"approach_families\": [{\"family\": \"회피 파라미터 미세 조정 (TTC_TRIG, EVADE_HOLD 등)\", \"turns\": \"12\", \"result\": \"1/4 통과 (실패 유형: 충돌)\"}, {\"family\": \"정적/동적 안전 거리 기준 강화\", \"turns\": \"0\", \"result\": \"미시도 (이전 시도에서 정적 충돌 지속)\"}], \"candidates\": [{\"idea\": \"회피 모드 시 정적 안전 거리(stc) 기준을 0.2m 이상으로 강화\", \"new_family\": true, \"for\": \"정적 충돌 방지 (box_07, box_10 사례)\", \"risk\": \"지나친 정지로 시간 초과 가능성\"}, {\"idea\": \"회피 후보 필터링 시 mover_Clearance(clr) 기준을 0.9*_CLR_GO로 상향\", \"new_family\": true, \"for\": \"mover_03 근접 충돌 완화\", \"risk\": \"유효한 회피 경로 부족 시 정지 증가\"}, {\"idea\": \"회피 종료 조건을 clr_all >= 1.2*_CLR_GO + stc >= 0.2m로 복합화\", \"new_family\": true, \"for\": \"회피 조기 종료 방지\", \"risk\": \"과도한 회피 지속으로 시간 소모\"}], \"chosen\": \"정적 충돌 방지를 위해 회피 모드 시 stc >= 0.2m를 필수 조건으로 추가, clr 필터를 0.9*_CLR_GO로 강화하여 mover_03 근접 충돌 완화\", \"target\": \"_choose 함수의 evading=True 분기\", \"direction\": \"1. 회피 후보 필터링에서 stc >= 0.2m를 강제 조건 추가 (기존 stc >= 0.0 대체)\\n2. mover_clearance(clr) 필터를 _CLR_GO * 0.9로 상향 조정\\n3. 회피 종료 조건으로 clr_all >= _CLR_GO * 1.2 AND stc >= 0.2m 유지 0.5s 요구\\n4. 정적 충돌 위험 시 즉시 정지(v=0, w=0) 대신 _choose 재호출로 측면 이동 유도\\n5. _EV_NOIMP_S(2.0s) 개선 조건에 stc 개선 포함\\n6. _LAT_PRIO_W 보너스를 정적 안전 거리와 연동해 측면 이동 유도\", \"confidence\": \"medium\"}",
+ "table": [
+  {
+   "run": "c8t12_s1239636382",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 124.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 32,
+   "first_seen_within_2m_t": 118.75,
+   "goal_dist_m": 0.2291,
+   "time_to_goal_s": 120.817
+  },
+  {
+   "run": "c8t12_s2008298659",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 475.3,
+   "sim_time_s": 195.7,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 189.65,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.60m/s",
+   "partner_rel_xy": [
+    0.4,
+    0.4
+   ],
+   "closing_m_s": 0.65,
+   "stop_turns": 43,
+   "first_seen_within_2m_t": 187.5,
+   "goal_dist_m": 5.8071,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t12_s280429403",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 279.6,
+   "sim_time_s": 75.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 69.517,
+   "partner": "static:arena_box_07",
+   "robot_at_collision": "주행 0.75m/s 회전 -0.6",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": null,
+   "goal_dist_m": 8.7241,
+   "time_to_goal_s": null
+  },
+  {
+   "run": "c8t12_s1853468874",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 204.1,
+   "sim_time_s": 121.6,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 115.583,
+   "partner": "static:arena_box_10",
+   "robot_at_collision": "주행 0.81m/s",
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 110.65,
+   "goal_dist_m": 8.326,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

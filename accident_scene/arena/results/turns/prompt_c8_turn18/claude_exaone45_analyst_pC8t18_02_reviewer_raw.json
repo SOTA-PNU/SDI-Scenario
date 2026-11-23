@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"회피 트리거에서 st_n >= _EV_TRIG_ST 조건 제거\", \"implemented\": true, \"note\": \"트리거가 if ttc < _TTC_TRIG and (t >= cool_until or clr_all < _CLR_GO) 로 바뀌어 st_n 검사가 없음\"},\n  {\"instruction\": \"TTC < 1.0 s 만으로 회피 활성화\", \"implemented\": true, \"note\": \"_TTC_TRIG = 1.0 유지. 기존 쿨다운 조건은 그대로 남김(지시와 충돌하지 않음)\"},\n  {\"instruction\": \"st_n 이 낮을 때 종료 조건에서 거리 증가를 정적 여유보다 우선\", \"implemented\": true, \"note\": \"narrow(st_n < 0.1)이면 end_still·end_away 를 끄고 end_rise 와 end_force 만 남김. 기존 종료 조건에는 정적 여유 항목이 원래 없었음\"},\n  {\"instruction\": \"물체 감지 반경 3.0 m 로 확대\", \"implemented\": true, \"note\": \"_EARLY_R 이 이미 3.0 이고 _ttc 반경으로 쓰여 변경 없음. 라이다 사용 범위 _SENSE_R 는 6.0\"},\n  {\"instruction\": \"st_n < 0.1 m 일 때 회피 시간 상한을 _EVADE_MAX 대신 t + 1.0 s 로\", \"implemented\": true, \"note\": \"narrow 상태에서 트리거되면 narrow_end = t + _EV_NARROW_CAP(1.0) 을 두고 end_force 로 강제 종료. 넓은 곳에서 시작한 회피는 좁은 곳에서 재트리거될 때만 상한이 걸림\"},\n  {\"instruction\": \"회피 중 물체가 1.0–2.0 m 에 있으면 측면 이동 우선\", \"implemented\": true, \"note\": \"early and (wide or st_n < _NARROW_ST) 분기에서 _narrow_lateral(넓은 yaw rate) 을 먼저 시도하고, 허용 후보가 없을 때만 _choose 로 넘어감\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"_choose 가 stc>=0 으로 정적 안전을 보장한다는 전제는 완전하지 않음: 회피 중 허용 후보가 없으면 stc<0 후보도 고름\",\n  \"감지 반경 3.0 m 는 이미 적용된 값이라 이 지시로는 바뀌는 것이 없음\",\n  \"좁은 구역의 1.0 s 강제 종료 뒤 쿨다운이 1.0 s 라 그동안 회피가 꺼질 수 있음(clr_all < _CLR_GO 이면 재트리거 허용)\",\n  \"기존 종료 조건에는 정적 여유 항목이 없어 '거리 증가를 정적 여유보다 우선' 지시의 뜻이 모호함\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 60424,
+  "completion_tokens": 2765
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 25756,
+  "total_cost_usd": 0.5386839999999999,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2765,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 60422,
+    "webSearchRequests": 0,
+    "costUSD": 0.5386839999999999,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1664,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 60422,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "b5184de9-c4e6-4b75-a547-0aed9b69a591"
+ }
+}

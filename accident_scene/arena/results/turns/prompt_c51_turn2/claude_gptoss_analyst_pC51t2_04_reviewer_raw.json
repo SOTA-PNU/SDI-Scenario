@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "{\"verdict\": \"pass\",\n \"follows_diagnosis\": [\n  {\"instruction\": \"state, stop_t, detour_t 변수를 삭제한다\", \"implemented\": true, \"note\": \"초기화 블록에 idx, prev, vm, wm 만 남았고 go/stop/detour 분기도 모두 사라짐\"},\n  {\"instruction\": \"매 호출마다 현재 목표 waypoint 를 구한다\", \"implemented\": true, \"note\": \"controller 가 매 호출 _nominal(pose) 를 불러 idx 를 갱신하고 target 을 얻음\"},\n  {\"instruction\": \"_CANDS 후보 집합을 _rollout 으로 시뮬레이션한다\", \"implemented\": true, \"note\": \"_plan 에서 _rollout(pose, _CANDS, c.vm, c.wm) 를 부름. 기준 명령 4개는 _nom_rollout 으로 따로 굴려 합침\"},\n  {\"instruction\": \"_mover_clear 와 _static_clear 로 후보별 최소 여유 거리를 계산한다\", \"implemented\": true, \"note\": \"합친 궤적 ro 에 _mover_clear 와 _static_clear 를 적용해 (C,) 여유를 얻음\"},\n  {\"instruction\": \"목표 진행도와 여유 거리(≤1 m)로 점수를 매긴다\", \"implemented\": true, \"note\": \"score = prog + _W_CLEAR*min(mc,1) + 기준 가산점 - 후진·회전 벌점. prog 는 _cost_to_go 차이로 계산\"},\n  {\"instruction\": \"안전 기준을 만족하는 후보가 없으면 0 m/s 로 정지한다\", \"implemented\": true, \"note\": \"ok.any() 가 거짓이면 (0.0, 0.0) 을 반환함\"},\n  {\"instruction\": \"점수가 가장 높은 후보의 (v,w) 를 반환한다\", \"implemented\": true, \"note\": \"np.argmax(np.where(ok, score, -1e9)) 로 고른 cmds[i] 를 반환함\"},\n  {\"instruction\": \"_nominal 은 목표만 제공하고 속도 명령은 로컬 플래너가 결정한다\", \"implemented\": true, \"note\": \"_nominal 의 v_nom, w_nom 은 후보(배율 4개)로만 쓰이고 최종 명령은 _plan 이 고름. 기준 후보에 가산점 1.0 이 있으나 지시 위반은 아님\"}\n ],\n \"violations\": [],\n \"runtime_errors\": [],\n \"diagnosis_concerns\": [\n  \"지시 4 의 '안전 후보 없으면 정지' 는 정지 후보 (0,0) 도 안전 판정에서 떨어진 경우, 곧 물체가 다가오는 경우에만 실행됨. 이때 정지하면 접촉할 수 있어 여유가 가장 큰 후보를 고르는 편이 물리적으로 더 안전해 보임\",\n  \"evidence 첫 항목에 time_limit 35.8 s 와 sim_time 36.8 s 가 같이 있어, 실패 원인이 남은 예산 부족인지 주행 지연인지 구분되지 않음\"\n ],\n \"feedback\": \"\"}"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 38109,
+  "completion_tokens": 2834
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 27730,
+  "total_cost_usd": 0.36154400000000003,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 2834,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 38107,
+    "webSearchRequests": 0,
+    "costUSD": 0.36154400000000003,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 1710,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 38107,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "1b85d3b9-e4f6-4e25-a7fc-d1585cf91ec2"
+ }
+}

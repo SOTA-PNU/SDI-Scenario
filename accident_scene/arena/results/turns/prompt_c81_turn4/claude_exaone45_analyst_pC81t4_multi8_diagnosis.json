@@ -1,0 +1,229 @@
+{
+ "diagnosis": {
+  "failure_mode": "collision",
+  "evidence": [
+   "충돌 실행(c81t4_s419606816)에서 로봇이 물체 partner_rel_xy [-0.53, -0.47] (rx=-0.53) 위치의 물체와 충돌; 현재 코드는 이 물체를 'coming' 조건에서 rx > -0.3 기준으로 무시해 감속 유발 안 함",
+   "여러 실행에서 충돌 전 2m 이내 물체 감지되었으나 예측 여유(d_eff) 계산이 물체 속도 벡터 방향과 무관해 위험 조기 감지 실패",
+   "시간 한도 실패 실행(c81t4_s653025432)에서 불필요한 정지 반복으로 평균 속도 저하 (0.14m/s 이하)"
+  ],
+  "assumptions": [
+   {
+    "assumption": "물체가 로봇 뒤(rx <= -0.3)에서도 로봇 경로에 접근할 경우 충돌 위험 있음",
+    "holds": false,
+    "why": "충돌 증거에서 rx=-0.53인 물체가 로봇 진행 방향으로 접근했으나 코드에서 무시됨"
+   },
+   {
+    "assumption": "고정된 거리 임계값(_HOLD_ON=3.5m)만으로 감속/정지 판단 가능",
+    "holds": false,
+    "why": "물체 속도 변화에 따라 위험 거리 동적 변화 필요하나 상수 임계값 사용으로 오탐 및 미탐 발생"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "임계값 조정 계열",
+    "turns": "4",
+    "result": "통과 6/8, 실패 2개 (충돌 1, 시간한도 1)"
+   },
+   {
+    "family": "속도 기반 위험 평가 계열",
+    "turns": "0",
+    "result": "통과 1/4, 실패 3개 (전부 충돌)"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "MTC(Time To Collision) 기반 동적 d_thr 계산: closing_speed > 0.15인 모든 물체에 대해 거리/closing_speed로 위험 거리 재정의",
+    "new_family": true,
+    "for": "rx 방향과 무관하게 closing_speed > 0.15인 모든 물체 위험 평가 가능",
+    "risk": "노이즈로 인한 closing_speed 오측정 시 불필요한 감속 유발 가능"
+   },
+   {
+    "idea": "3D 라이다 높이 정보 활용해 정적 장애물 오분류 방지",
+    "new_family": true,
+    "for": "2D 라이다의 높이 제한(0.42m)으로 인한 물체 감지 누락 보완",
+    "risk": "3D 라이다 포인트 처리 복잡성 증가 및 계산 지연"
+   },
+   {
+    "idea": "물체 궤적 예측을 위한 칼만 필터 도입",
+    "new_family": true,
+    "for": "다중 스캔 데이터로 속도/위치 정확도 향상",
+    "risk": "실시간 처리 부담 및 노이즈에 민감"
+   }
+  ],
+  "chosen": "이 코드에 무엇을 할지와 이유 한 문장",
+  "target": "controller 내 closing 속도 계산 및 d_thr 결정 로직",
+  "direction": "1. 로봇 속도 벡터 v_robot_vec = (v_nom*cos(yaw), v_nom*sin(yaw)) 계산\n2. closing = -((U - v_robot_vec)·r)/|r|로 수정 (기존 U만 고려했던 오류 수정)\n3. closing > 0.15인 객체에 대해 MTC = |r|/closing 계산 후 d_thr = min(MTC)\n4. rx 방향 제한 조건 제거로 모든 접근 물체 감지\n5. _HOLD_MIN을 1.0에서 0.5로 줄여 정지 시간 단축\n6. MTC 기반 정지/회피로 충돌 감소와 평균 실행 시간 60초 이내 달성",
+  "confidence": "medium",
+  "last_direction_ok": "no",
+  "base_turn": 3,
+  "stage1": {
+   "chosen": "MTC 기반 d_thr 재정의 후보 선택: 물체 속도 벡터 방향과 무관하게 closing_speed > 0.15인 모든 점을 고려해 동적 위험 평가 가능",
+   "target": "controller 내 d_thr 계산 로직 및 _perceive의 closing_speed 활용",
+   "direction": "1. closing_speed = -(U·dx + U·dy)/rng 계산 시 rx 방향 제한 제거\n2. closing_speed > 0.15인 점에 대해 MTC = 거리 / closing_speed 계산\n3. d_thr = min(MTC)로 설정 (없으면 99)\n4. 감속 조건: d_thr < 3.5s 시 _V_FLOOR=0.2m/s 유지\n5. 정지 조건: d_thr < 0.5s 이면서 _rollout 예측 여유 < 0.5m\n6. _CLOSE_W 변수 제거 및 MTC 계산 시 closing_speed 직접 사용"
+  }
+ },
+ "raw": "\n\n{\"failure_mode\": \"collision\", \"evidence\": [\"충돌 실행(c81t4_s419606816)에서 로봇이 물체 partner_rel_xy [-0.53, -0.47] (rx=-0.53) 위치의 물체와 충돌; 현재 코드는 이 물체를 'coming' 조건에서 rx > -0.3 기준으로 무시해 감속 유발 안 함\", \"여러 실행에서 충돌 전 2m 이내 물체 감지되었으나 예측 여유(d_eff) 계산이 물체 속도 벡터 방향과 무관해 위험 조기 감지 실패\", \"시간 한도 실패 실행(c81t4_s653025432)에서 불필요한 정지 반복으로 평균 속도 저하 (0.14m/s 이하)\"], \"assumptions\": [{\"assumption\": \"물체가 로봇 뒤(rx <= -0.3)에서도 로봇 경로에 접근할 경우 충돌 위험 있음\", \"holds\": false, \"why\": \"충돌 증거에서 rx=-0.53인 물체가 로봇 진행 방향으로 접근했으나 코드에서 무시됨\"}, {\"assumption\": \"고정된 거리 임계값(_HOLD_ON=3.5m)만으로 감속/정지 판단 가능\", \"holds\": false, \"why\": \"물체 속도 변화에 따라 위험 거리 동적 변화 필요하나 상수 임계값 사용으로 오탐 및 미탐 발생\"}], \"approach_families\": [{\"family\": \"임계값 조정 계열\", \"turns\": \"4\", \"result\": \"통과 6/8, 실패 2개 (충돌 1, 시간한도 1)\"}, {\"family\": \"속도 기반 위험 평가 계열\", \"turns\": \"0\", \"result\": \"통과 1/4, 실패 3개 (전부 충돌)\"}], \"candidates\": [{\"idea\": \"MTC(Time To Collision) 기반 동적 d_thr 계산: closing_speed > 0.15인 모든 물체에 대해 거리/closing_speed로 위험 거리 재정의\", \"new_family\": true, \"for\": \"rx 방향과 무관하게 closing_speed > 0.15인 모든 물체 위험 평가 가능\", \"risk\": \"노이즈로 인한 closing_speed 오측정 시 불필요한 감속 유발 가능\"}, {\"idea\": \"3D 라이다 높이 정보 활용해 정적 장애물 오분류 방지\", \"new_family\": true, \"for\": \"2D 라이다의 높이 제한(0.42m)으로 인한 물체 감지 누락 보완\", \"risk\": \"3D 라이다 포인트 처리 복잡성 증가 및 계산 지연\"}, {\"idea\": \"물체 궤적 예측을 위한 칼만 필터 도입\", \"new_family\": true, \"for\": \"다중 스캔 데이터로 속도/위치 정확도 향상\", \"risk\": \"실시간 처리 부담 및 노이즈에 민감\"}], \"chosen\": \"MTC 기반 d_thr 재정의 후보 선택: 물체 속도 벡터 방향과 무관하게 closing_speed > 0.15인 모든 점을 고려해 동적 위험 평가 가능\", \"target\": \"controller 내 d_thr 계산 로직 및 _perceive의 closing_speed 활용\", \"direction\": \"1. closing_speed = -(U·dx + U·dy)/rng 계산 시 rx 방향 제한 제거\\n2. closing_speed > 0.15인 점에 대해 MTC = 거리 / closing_speed 계산\\n3. d_thr = min(MTC)로 설정 (없으면 99)\\n4. 감속 조건: d_thr < 3.5s 시 _V_FLOOR=0.2m/s 유지\\n5. 정지 조건: d_thr < 0.5s 이면서 _rollout 예측 여유 < 0.5m\\n6. _CLOSE_W 변수 제거 및 MTC 계산 시 closing_speed 직접 사용\", \"confidence\": \"medium\", \"last_direction_ok\": \"no\", \"base_turn\": 3}",
+ "table": [
+  {
+   "run": "c81t4_s1024705908",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 61.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 55.42,
+   "goal_dist_m": 0.2008,
+   "time_to_goal_s": 57.467
+  },
+  {
+   "run": "c81t4_s591849128",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 538.6,
+   "sim_time_s": 78.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 16,
+   "first_seen_within_2m_t": 72.05,
+   "goal_dist_m": 0.2052,
+   "time_to_goal_s": 74.067
+  },
+  {
+   "run": "c81t4_s157690882",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 460.6,
+   "sim_time_s": 75.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 69.92,
+   "goal_dist_m": 0.2002,
+   "time_to_goal_s": 71.933
+  },
+  {
+   "run": "c81t4_s419606816",
+   "verdict": "fail",
+   "ended_by": "collision",
+   "time_limit_s": 384.8,
+   "sim_time_s": 78.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": 72.85,
+   "partner": "mover_03",
+   "robot_at_collision": "주행 0.98m/s",
+   "partner_rel_xy": [
+    -0.53,
+    -0.47
+   ],
+   "closing_m_s": 0.6,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 70.82,
+   "goal_dist_m": 0.2039,
+   "time_to_goal_s": 77.0
+  },
+  {
+   "run": "c81t4_s178506947",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 305.9,
+   "sim_time_s": 84.1,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 78.12,
+   "goal_dist_m": 0.2046,
+   "time_to_goal_s": 80.183
+  },
+  {
+   "run": "c81t4_s1581630953",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 221.9,
+   "sim_time_s": 74.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 14,
+   "first_seen_within_2m_t": 68.22,
+   "goal_dist_m": 0.2259,
+   "time_to_goal_s": 70.217
+  },
+  {
+   "run": "c81t4_s263736498",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 147.7,
+   "sim_time_s": 81.4,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 22,
+   "first_seen_within_2m_t": 75.42,
+   "goal_dist_m": 0.1969,
+   "time_to_goal_s": 77.483
+  },
+  {
+   "run": "c81t4_s653025432",
+   "verdict": "fail",
+   "ended_by": "time_limit",
+   "time_limit_s": 66.3,
+   "sim_time_s": 67.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 11,
+   "first_seen_within_2m_t": 61.32,
+   "goal_dist_m": 5.8214,
+   "time_to_goal_s": null
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4. 이번 코드에서 이어 가려면 4 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

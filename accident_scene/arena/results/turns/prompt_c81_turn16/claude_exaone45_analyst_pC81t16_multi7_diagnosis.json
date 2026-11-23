@@ -1,0 +1,198 @@
+{
+ "diagnosis": {
+  "failure_mode": "timeout",
+  "evidence": [
+   "평균 시뮬레이션 시간 83초로 10개 배치 완료에 필요한 60초 이하 기준 초과",
+   "7개 실행 합계 578초로 남은 예산 22초로는 8번째 실행 시작 불가",
+   "stop_turn_episodes 평균 16회로 정지/회전 시간 과다 소요"
+  ],
+  "assumptions": [
+   {
+    "assumption": "정지 빈도가 높은 것이 전체 시간 증가의 주원인",
+    "holds": true,
+    "why": "stop_turn_episodes 수치와 평균 실행 시간 상관관계 확인"
+   },
+   {
+    "assumption": "recede 조건(_ESC_CLOSE, _RESUME_GO)이 정지 해제를 지연시켜 시간 낭비 유발",
+    "holds": false,
+    "why": "recede 조건은 정지 해제 속도를 높이지만 정지 빈도 감소 없이는 효과 제한적"
+   }
+  ],
+  "approach_families": [
+   {
+    "family": "정지 조건 조정 (HOLD_ON, _SLOW_T)",
+    "turns": "0~16",
+    "result": "통과 수 증가 시 평균 시간 74~86초 유지, timeout 빈번"
+   }
+  ],
+  "candidates": [
+   {
+    "idea": "_HOLD_ON을 1.5s로 상향해 정지 빈도 감소",
+    "new_family": true,
+    "for": "현재 1.0s 기준에서 정지 횟수 20% 감소 예상",
+    "risk": "정지 임계값 상승으로 충돌 위험 증가 가능, recede 조건으로 보완 필요"
+   },
+   {
+    "idea": "경유점 경로 단순화로 회전 횟수 감소",
+    "new_family": true,
+    "for": "stop_turn_episodes 수 직접 감소로 시간 절약 가능",
+    "risk": "정적 장애물 회피 실패 가능성, 경로 변경 시 환경 의존성 우려"
+   },
+   {
+    "idea": "_SLOW_T 하향 및 감속 구간 속도 하한 상향",
+    "new_family": false,
+    "for": "turn 5에서 _SLOW_T=2.5s로 시간 단축 사례 있으나 충돌 위험 존재",
+    "risk": "과도한 감속으로 속도 저하 및 정지 빈도 오히려 증가 가능"
+   }
+  ],
+  "chosen": "후보 1 선택: _HOLD_ON 상향으로 정지 빈도 감소, recede 조건 유지로 안전성 보장",
+  "target": "controller 내 정지 조건 및 _HOLD_ON 상수 수정",
+  "direction": "1. _HOLD_ON을 1.0s에서 1.5s로 상향 조정\n2. 정지 해제 조건에서 d_now >= _HOLD_ON 기준 강화\n3. recede 상태 지속 시간(_RESUME_GO)을 0.5s로 유지하며 MTC 조건 무시\n4. 정지 중 재출발 시 path_free 확인 생략 조건 유지\n5. _CLOSE_MIN을 0.25m로 완화해 조기 경고 감지\n6. 감속 구간 속도 하한(_V_SLOW)을 0.25m/s로 상향해 시간 절약",
+  "confidence": "medium",
+  "last_direction_ok": "yes",
+  "base_turn": 16
+ },
+ "raw": "\n\n{\"failure_mode\": \"timeout\", \"evidence\": [\"평균 시뮬레이션 시간 83초로 10개 배치 완료에 필요한 60초 이하 기준 초과\", \"7개 실행 합계 578초로 남은 예산 22초로는 8번째 실행 시작 불가\", \"stop_turn_episodes 평균 16회로 정지/회전 시간 과다 소요\"], \"assumptions\": [{\"assumption\": \"정지 빈도가 높은 것이 전체 시간 증가의 주원인\", \"holds\": true, \"why\": \"stop_turn_episodes 수치와 평균 실행 시간 상관관계 확인\"}, {\"assumption\": \"recede 조건(_ESC_CLOSE, _RESUME_GO)이 정지 해제를 지연시켜 시간 낭비 유발\", \"holds\": false, \"why\": \"recede 조건은 정지 해제 속도를 높이지만 정지 빈도 감소 없이는 효과 제한적\"}], \"approach_families\": [{\"family\": \"정지 조건 조정 (HOLD_ON, _SLOW_T)\", \"turns\": \"0~16\", \"result\": \"통과 수 증가 시 평균 시간 74~86초 유지, timeout 빈번\"}], \"candidates\": [{\"idea\": \"_HOLD_ON을 1.5s로 상향해 정지 빈도 감소\", \"new_family\": true, \"for\": \"현재 1.0s 기준에서 정지 횟수 20% 감소 예상\", \"risk\": \"정지 임계값 상승으로 충돌 위험 증가 가능, recede 조건으로 보완 필요\"}, {\"idea\": \"경유점 경로 단순화로 회전 횟수 감소\", \"new_family\": true, \"for\": \"stop_turn_episodes 수 직접 감소로 시간 절약 가능\", \"risk\": \"정적 장애물 회피 실패 가능성, 경로 변경 시 환경 의존성 우려\"}, {\"idea\": \"_SLOW_T 하향 및 감속 구간 속도 하한 상향\", \"new_family\": false, \"for\": \"turn 5에서 _SLOW_T=2.5s로 시간 단축 사례 있으나 충돌 위험 존재\", \"risk\": \"과도한 감속으로 속도 저하 및 정지 빈도 오히려 증가 가능\"}], \"chosen\": \"후보 1 선택: _HOLD_ON 상향으로 정지 빈도 감소, recede 조건 유지로 안전성 보장\", \"target\": \"controller 내 정지 조건 및 _HOLD_ON 상수 수정\", \"direction\": \"1. _HOLD_ON을 1.0s에서 1.5s로 상향 조정\\n2. 정지 해제 조건에서 d_now >= _HOLD_ON 기준 강화\\n3. recede 상태 지속 시간(_RESUME_GO)을 0.5s로 유지하며 MTC 조건 무시\\n4. 정지 중 재출발 시 path_free 확인 생략 조건 유지\\n5. _CLOSE_MIN을 0.25m로 완화해 조기 경고 감지\\n6. 감속 구간 속도 하한(_V_SLOW)을 0.25m/s로 상향해 시간 절약\", \"confidence\": \"medium\", \"last_direction_ok\": \"yes\", \"base_turn\": 16}",
+ "table": [
+  {
+   "run": "c81t16_s1440804875",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 600.0,
+   "sim_time_s": 84.3,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 78.35,
+   "goal_dist_m": 0.2208,
+   "time_to_goal_s": 80.45
+  },
+  {
+   "run": "c81t16_s893484266",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 515.7,
+   "sim_time_s": 72.8,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 66.85,
+   "goal_dist_m": 0.2296,
+   "time_to_goal_s": 68.9
+  },
+  {
+   "run": "c81t16_s1459278741",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 442.9,
+   "sim_time_s": 83.9,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 17,
+   "first_seen_within_2m_t": 77.92,
+   "goal_dist_m": 0.2232,
+   "time_to_goal_s": 80.0
+  },
+  {
+   "run": "c81t16_s400316459",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 359.0,
+   "sim_time_s": 87.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 15,
+   "first_seen_within_2m_t": 81.25,
+   "goal_dist_m": 0.2252,
+   "time_to_goal_s": 83.35
+  },
+  {
+   "run": "c81t16_s1863063845",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 271.7,
+   "sim_time_s": 85.2,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 18,
+   "first_seen_within_2m_t": 79.22,
+   "goal_dist_m": 0.202,
+   "time_to_goal_s": 81.25
+  },
+  {
+   "run": "c81t16_s913062395",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 186.5,
+   "sim_time_s": 94.5,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 19,
+   "first_seen_within_2m_t": 88.52,
+   "goal_dist_m": 0.2298,
+   "time_to_goal_s": 90.517
+  },
+  {
+   "run": "c81t16_s364631647",
+   "verdict": "pass",
+   "ended_by": "pass",
+   "time_limit_s": 92.1,
+   "sim_time_s": 70.0,
+   "stall_abort_t": null,
+   "progress_abort_t": null,
+   "collision_t": null,
+   "partner": null,
+   "robot_at_collision": null,
+   "partner_rel_xy": null,
+   "closing_m_s": null,
+   "stop_turns": 13,
+   "first_seen_within_2m_t": 64.02,
+   "goal_dist_m": 0.1972,
+   "time_to_goal_s": 66.067
+  }
+ ],
+ "evidence_checks": [
+  {
+   "attempt": 0,
+   "errors": [
+    "`base_turn` 이 없거나 고를 수 없는 값입니다(None). 고를 수 있는 턴: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16. 이번 코드에서 이어 가려면 16 을 적습니다.",
+    "`last_direction_ok` 가 없습니다. 직전 지시가 결과를 좋게 했는지(yes|no|unclear)와 근거 한 문장을 적으십시오."
+   ]
+  },
+  {
+   "attempt": 1,
+   "errors": []
+  }
+ ],
+ "evidence_failed": false
+}

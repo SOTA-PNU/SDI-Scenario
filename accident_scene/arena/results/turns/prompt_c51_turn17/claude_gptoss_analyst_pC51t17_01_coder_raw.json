@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단 direction 1)·5)에 따라 `_safe_evade` 를 `_evade` 바로 다음에 새로 정의했습니다. 이 함수는 `_evade` 가 고른 명령이 `_is_safe(…, _SAFE)` 와 `_static_ok` 를 모두 통과할 때만 그 명령을 돌려주고, 아니면 (0, 0) 을 돌려줍니다. direction 2)·3)에 따라 controller 의 go, stop, detour 상태에 있던 `_evade` 호출 네 곳을 모두 `_safe_evade` 로 바꿨고, go/stop/detour 상태 머신과 다른 상수·함수는 그대로 두었습니다(direction 4). go 상태에서 `_safe_evade` 가 (0, 0) 을 돌려주면 stop 으로 넘어가게 했습니다. 그러면 `_STOP_WAIT` 가 지난 뒤 기존 detour 로 이어지므로, go 상태에 머문 채 계속 서 있는 stall 이 생기지 않습니다(direction 3의 \"필요 시 기존 detour 로 전환\").\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다 기반 정지·대기·우회(go / stop / detour) + 다가오는 물체 회피.\n    모든 회피 명령은 _safe_evade 로 안전 검증 후 사용하고, 안전하지 않으면 (0, 0).\n    go 상태에서 안전한 명령이 하나도 없으면 stop 으로 넘어가 기존 stop -> detour 흐름을 탄다.\"\"\"\n    c = controller\n    if not hasattr(c, \"idx\"):\n        c.idx = 0\n        c.state = \"go\"\n        c.stop_t = 0.0\n        c.detour_t = 0.0\n        c.detour_w = 0.5\n        c.prev = None\n        c.vm = 0.0\n        c.wm = 0.0\n\n    # 실제 속도 추정(예측 굴림의 초기값)\n    if c.prev is not None:\n        pt, px, py, pyaw = c.prev\n        dt = t - pt\n        if dt > 1e-4:\n            vm = ((pose[0] - px) * math.cos(pose[2]) + (pose[1] - py) * math.sin(pose[2])) / dt\n            wm = _wrap_angle(pose[2] - pyaw) / dt\n            c.vm = 0.7 * c.vm + 0.3 * vm\n            c.wm = 0.7 * c.wm + 0.3 * wm\n    c.prev = (t, pose[0], pose[1], pose[2])\n\n    _perceive(t, pose)\n    if not _P[\"got\"] and t < 2.0:                    # 첫 스캔 전에는 움직이지 않는다\n        return 0.0, 0.0, False\n\n    movers = _movers(t, pose)\n    v_nom, w_nom, done, target = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n\n    gap = _front_gap(pose)\n    f = 1.0 if gap >= 2.5 else _clamp((gap - _STOP_D) / 1.5, 0.15, 1.0)\n\n    # 경유점 추종은 go 일 때만(물체 예측으로 감속)\n    if c.state == \"go\":\n        if gap < _STOP_D:\n            c.state, c.stop_t = \"stop\", t\n        else:\n            for k in (1.0, 0.7, 0.45, 0.25, 0.1):\n                cmd = (v_nom * f * k, w_nom)\n                if _is_safe(pose, cmd, movers, _SAFE):\n                    return cmd[0], cmd[1], False\n            # 진단 지시 2: 안전한 스케일 명령이 없을 때 회피도 안전 검증 후 사용\n            v, w = _safe_evade(pose, movers, target, False)\n            if v == 0.0 and w == 0.0:\n                c.state, c.stop_t = \"stop\", t       # 진단 지시 3: 정지 -> 기존 detour 흐름으로\n            return v, w, False\n\n    resume = gap >= _GO_D and _is_safe(pose, (v_nom * f, w_nom), movers, _SAFE_GO)\n\n    if c.state == \"stop\":\n        if resume:\n            c.state = \"go\"\n            return v_nom * f, w_nom, False\n        if t - c.stop_t >= _STOP_WAIT:               # 대기 뒤 우회\n            c.state, c.detour_t = \"detour\", t\n            c.detour_w = _detour_side(pose)\n        else:\n            if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n                return 0.0, 0.0, False\n            # 진단 지시 3: 정지 중 회피도 검증, 안전하지 않으면 (0, 0) 유지(시간이 지나면 detour)\n            v, w = _safe_evade(pose, movers, target, True)\n            return v, w, False\n\n    # detour\n    if resume:\n        c.state = \"go\"\n        return v_nom * f, w_nom, False\n    el = t - c.detour_t\n    if el > _DETOUR_T:\n        c.state, c.stop_t = \"stop\", t\n        if _is_safe(pose, (0.0, 0.0), movers, _SAFE):\n            return 0.0, 0.0, False\n        v, w = _safe_evade(pose, movers, target, True)\n        return v, w, False\n    if el < _DETOUR_ROT:\n        cmd = (0.0, c.detour_w)\n        if _is_safe(pose, cmd, movers, _SAFE) and _static_ok(pose, cmd):\n            return cmd[0], cmd[1], False\n    v, w = _safe_evade(pose, movers, target, False)\n    return v, w, False\n\n\ndef _safe_evade(pose, movers, target, allow_stop):\n    \"\"\"진단 지시 1: _evade 로 고른 명령을 물체 TTC 검사(_is_safe, 여유 _SAFE)와 정적 지도 검사(_static_ok)로\n    검증한다. 둘 다 통과하면 그 명령을, 아니면 (0.0, 0.0) 을 돌려준다.\"\"\"\n    v, w = _evade(pose, movers, target, allow_stop)\n    if _is_safe(pose, (v, w), movers, _SAFE) and _static_ok(pose, (v, w)):\n        return v, w\n    return 0.0, 0.0\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 30717,
+  "completion_tokens": 4250
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 36690,
+  "total_cost_usd": 0.330728,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 4250,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 30715,
+    "webSearchRequests": 0,
+    "costUSD": 0.330728,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 2032,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 30715,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "a8b498e7-6124-44e1-82d8-754701211894"
+ }
+}

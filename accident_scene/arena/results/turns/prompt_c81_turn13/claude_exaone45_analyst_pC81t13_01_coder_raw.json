@@ -1,0 +1,38 @@
+{
+ "choices": [
+  {
+   "message": {
+    "role": "assistant",
+    "content": "변경 이유: 진단의 \"정지 해제 조건\" 지시에 따라, 정지 해제는 이제 _HOLD_MIN 경과와 함께 3 m 안의 물체가 1.5 s 동안 접근하지 않았을 때만 허용합니다. 접근의 기준은 closing > 0.05 m/s이고, 3 m 안에 새 물체가 처음 잡혀도 타이머(`clear_t0`)를 다시 시작합니다. d_thr 의 3 m 범위 제한은 접근 부호와 관계없이 모든 물체에 적용하고, 그 안에서 MTC 는 정의상 접근 중인 물체로만 계산합니다. 또 진단대로 정지 중 회피 판단(approach)은 closing0 대신 로봇 주행 속도를 포함한 closing 을 쓰고, _HOLD_ON=2.0 s, _ESC_CLOSE=0.25 m/s 로 바꿨습니다.\n\n```python\ndef controller(t, pose, env):\n    \"\"\"경유점 추종 + 2D 라이다로 지도에 없는 물체를 감지하고, MTC(충돌까지 남은 시간)로 정지/회피합니다.\n    정지 시작: 3 m 안 물체의 최소 MTC 가 _HOLD_ON(2.0 s) 미만.\n    정지 해제: _HOLD_MIN 경과 + 3 m 안에 closing > _CLEAR_CLOSE 인 물체(또는 새로 감지된 물체)가 _CLEAR_T(1.5 s) 동안 없음.\n    정지 중 물체가 다가오면(closing > _ESC_CLOSE) 즉시 회피.\"\"\"\n    S = _ST\n    x, y, yaw = pose\n    if not S:\n        S.update(idx=0, prev_wp=(START[0], START[1]), rejoin=None, esc=None, esc_start=None,\n                 scan_obj={}, dyn={}, tracks=[], track_t=-1.0,\n                 P=np.zeros((0, 2)), U=np.zeros((0, 2)), seen=False,\n                 last=(t, x, y, yaw), speed=0.0, yawrate=0.0,\n                 hold=None, armed=True, rel_d=99.0, clear_t0=None)\n    t0, x0, y0, yaw0 = S[\"last\"]\n    dt = t - t0\n    if dt > 1e-4:                                       # 자기 이동 속도 (스캔 지연 여유 계산용)\n        S[\"speed\"] = 0.7 * S[\"speed\"] + 0.3 * math.hypot(x - x0, y - y0) / dt\n        S[\"yawrate\"] = 0.7 * S[\"yawrate\"] + 0.3 * abs(_wrap_angle(yaw - yaw0)) / dt\n    S[\"last\"] = (t, x, y, yaw)\n\n    _perceive(t, pose)\n    if not S[\"seen\"] and t < 2.0:                       # 첫 스캔이 들어올 때까지 출발하지 않음\n        return 0.0, 0.0, False\n    if S[\"esc\"] is not None:\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, True, 0.0\n        return _escape_step(t, pose)\n\n    v_nom, w_nom, done = _nominal(pose)\n    if done:\n        return 0.0, 0.0, True\n    P, U = S[\"P\"], S[\"U\"]\n    c, s = math.cos(yaw), math.sin(yaw)\n\n    d_thr, clr_min = 99.0, 99.0                         # d_thr: 3 m 안 물체의 최소 MTC [s]\n    approach = 0.0                                      # 정지 중 근접 물체의 최대 접근 속도 (closing 기준) [m/s]\n    threat = False                                      # 3 m 안에 접근 중인 물체가 있음 (해제 타이머 리셋)\n    if len(P):\n        dx, dy = P[:, 0] - x, P[:, 1] - y\n        rx, ry = c * dx + s * dy, -s * dx + c * dy\n        clr = _rect_clear(rx, ry)                       # 몸체 가장자리까지 거리\n        rng = np.maximum(np.hypot(dx, dy), 1e-6)\n        vrx, vry = v_nom * c, v_nom * s                 # 로봇 속도 벡터\n        closing = -((U[:, 0] - vrx) * dx + (U[:, 1] - vry) * dy) / rng   # 상대 접근 속도\n        within = clr < _NEAR_RANGE                      # 3 m 범위 제한: 접근 부호와 무관하게 모든 물체에 적용\n        rel = within & (closing > _CLOSE_MIN)\n        if rel.any():\n            d_thr = float((clr[rel] / closing[rel]).min())   # MTC = 거리 / 접근 속도\n        clr_min = float(clr.min())\n        threat = bool((within & (closing > _CLEAR_CLOSE)).any())\n        near = clr < _ESC_NEAR\n        if near.any():\n            approach = float(closing[near].max())       # 정지 중에도 closing (closing0 아님)\n\n    # 새로 감지된 물체(age == 1)가 3 m 안에 있으면 해제 타이머 리셋\n    if not threat:\n        for tr in S[\"tracks\"]:\n            if tr[\"age\"] == 1 and abs(tr[\"t\"] - S[\"track_t\"]) < 1e-9:\n                ddx, ddy = tr[\"c\"][0] - x, tr[\"c\"][1] - y\n                cl = float(_rect_clear(np.array([c * ddx + s * ddy]), np.array([-s * ddx + c * ddy]))[0])\n                if cl < _NEAR_RANGE:\n                    threat = True\n                    break\n    if threat:\n        S[\"clear_t0\"] = None\n    elif S[\"clear_t0\"] is None:\n        S[\"clear_t0\"] = t\n    clear_dur = 0.0 if S[\"clear_t0\"] is None else t - S[\"clear_t0\"]\n\n    # 정지 상태(H) 관리: 시작 _HOLD_ON, 재출발 직후에는 _HOLD_REARM 이하이고 더 줄어들 때만 다시 정지\n    H = S[\"hold\"]\n    if H is None:\n        S[\"rel_d\"] = max(S[\"rel_d\"], d_thr)\n        if d_thr >= _HOLD_ON:\n            S[\"armed\"] = True\n        thr = _HOLD_ON if S[\"armed\"] else min(_HOLD_REARM, S[\"rel_d\"] - _HOLD_GAIN)\n        if d_thr < thr:\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr}\n    else:\n        if d_thr < min(_HOLD_REARM, H[\"d\"] - _HOLD_GAIN):\n            S[\"hold\"] = {\"t0\": t, \"d\": d_thr}           # MTC 가 더 줄어듦: 기준 재설정\n        elif _hold_release(H, clear_dur, t):            # _HOLD_MIN + 접근 없음 _CLEAR_T 지속\n            S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, False, d_thr\n\n    # 정지 중 물체가 다가오면 정지 대신 즉시 회피\n    if S[\"hold\"] is not None and approach > _ESC_CLOSE:\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, True, 0.0\n        return _escape_step(t, pose)\n\n    if S[\"hold\"] is not None:\n        v, w = 0.0, 0.0                                 # 정지 중에는 항상 정지 (재출발은 _hold_release 로만)\n    else:\n        v, w = v_nom, w_nom\n    if clr_min < 0.45:\n        w = 0.0                                         # 바로 옆 물체가 있으면 회전 금지\n\n    if _rollout(P, U, x, y, yaw, yaw, v, 0.0) < 0.3:\n        if v > 0.0 and _rollout(P, U, x, y, yaw, yaw, 0.0, 0.0) >= 0.3:\n            return 0.0, 0.0, False\n        S[\"hold\"], S[\"armed\"], S[\"rel_d\"] = None, True, 0.0\n        return _escape_step(t, pose)                    # 멈춰도 부딪힘: 비켜섬\n    return v, w, False\n\n\ndef _hold_release(H, clear_dur, t):\n    \"\"\"정지 상태 H 를 풀어도 되면 True: 최소 정지 시간(_HOLD_MIN)이 지났고,\n    3 m 안에 closing > _CLEAR_CLOSE 인 물체(또는 새로 감지된 물체)가 없는 상태가 _CLEAR_T 이상 지속됐을 때만.\"\"\"\n    if t - H[\"t0\"] < _HOLD_MIN:\n        return False\n    return clear_dur >= _CLEAR_T\n\n\n_HOLD_ON = 2.0       # 정지 시작/재무장 기준 MTC [s] (진단: 1.5 -> 2.0)\n\n\n_ESC_CLOSE = 0.25    # 정지 중 회피로 전환하는 물체 접근 속도 [m/s] (진단: 0.1 -> 0.25)\n\n\n_CLEAR_T = 1.5       # 정지 해제에 필요한 '접근 물체 없음' 지속 시간 [s]\n\n\n_CLEAR_CLOSE = 0.05  # 해제 타이머를 리셋하는 접근 속도 [m/s]\n\n\n_NEAR_RANGE = 3.0    # d_thr·해제 타이머가 보는 물체의 몸체까지 거리 범위 [m]\n```"
+   }
+  }
+ ],
+ "usage": {
+  "prompt_tokens": 26082,
+  "completion_tokens": 11025
+ },
+ "claude": {
+  "num_turns": 1,
+  "duration_ms": 101212,
+  "total_cost_usd": 0.429148,
+  "modelUsage": {
+   "claude-opus-5-5": {
+    "inputTokens": 2,
+    "outputTokens": 11025,
+    "cacheReadInputTokens": 0,
+    "cacheCreationInputTokens": 26080,
+    "webSearchRequests": 0,
+    "costUSD": 0.429148,
+    "contextWindow": 1000000,
+    "maxOutputTokens": 128000,
+    "thinkingTokens": 7700,
+    "cacheCreationEphemeral5mInputTokens": 0,
+    "cacheCreationEphemeral1hInputTokens": 26080,
+    "canonicalModel": "claude-opus-5-5",
+    "provider": "firstParty",
+    "costBasis": "list"
+   }
+  },
+  "session_id": "3c46fa61-40e2-40b2-bb44-911ede357ffa"
+ }
+}
